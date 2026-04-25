@@ -36,7 +36,7 @@ for i in range(2,12,3):
 :::tip Exercise
 
 - Create a program that prints the following using for loops:
-- The program prints Hello {n} and the iteration number in {n}
+- The program prints Hello \{n\} and the iteration number in \{n\}
 - It itarates 5 times
 - Note how it starts from 1 instead of `0`
 

@@ -75,7 +75,7 @@ The 6 comparison operators are:
 
 >= (greater than or equal to; example: x >= y) 
 
-<= (less than or equal to; example: x <= y)
+&lt;= (less than or equal to; example: x &lt;= y)
 
 Logical operator: Logical operators allow two or more expressions to be combined and evaluated to a single boolean value. There are three logical operators - and, or, not.
 and operator returns True only if all the individual expressions combined by and are true. Ex: (5 > 3) and (5 > 4)
