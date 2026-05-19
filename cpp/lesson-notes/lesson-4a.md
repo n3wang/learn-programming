@@ -1,0 +1,419 @@
+---
+sidebar_position: 5
+title: Chapter 4a - Classes & Objects
+---
+
+## What Is Object-Oriented Programming?
+
+OOP organizes code around **objects** — bundles of related data (attributes) and behavior (methods). A **class** is the blueprint; an **object** is an instance of that blueprint.
+
+```
+Class: Dog          Object: myDog
+─────────────       ──────────────────
+Attributes:         name  = "Rex"
+  name              breed = "Labrador"
+  breed             age   = 3
+  age
+Methods:            myDog.bark()  → "Woof!"
+  bark()            myDog.sit()   → "Rex sits."
+  sit()
+```
+
+<!-- IMAGE PLACEHOLDER: Side-by-side of a "Dog" class blueprint on the left and two Dog object instances (Rex and Buddy) on the right, showing that one class can produce many objects with different attribute values -->
+
+---
+
+## Defining a Class
+
+```cpp
+class Dog {
+public:
+    string name;
+    string breed;
+    int age;
+
+    void bark() {
+        cout << name << " says: Woof!" << endl;
+    }
+
+    void describe() {
+        cout << name << " is a " << age << "-year-old " << breed << "." << endl;
+    }
+};
+```
+
+- `class` keyword begins the definition.
+- `public:` means the members below are accessible from outside the class.
+- The definition ends with a **semicolon** after the closing brace — a common mistake to forget.
+
+### Creating Objects
+
+```cpp
+int main() {
+    Dog rex;          // create an object
+    rex.name  = "Rex";
+    rex.breed = "Labrador";
+    rex.age   = 3;
+
+    rex.bark();       // Rex says: Woof!
+    rex.describe();   // Rex is a 3-year-old Labrador.
+
+    Dog buddy;
+    buddy.name  = "Buddy";
+    buddy.breed = "Poodle";
+    buddy.age   = 5;
+    buddy.describe();
+}
+```
+
+<details>
+<summary>🧪 Try it</summary>
+
+```cpp
+#include <iostream>
+#include <string>
+using namespace std;
+
+class Car {
+public:
+    string make;
+    string model;
+    int year;
+    double speed;
+
+    void accelerate(double amount) {
+        speed += amount;
+        cout << model << " accelerates to " << speed << " mph." << endl;
+    }
+
+    void brake(double amount) {
+        speed -= amount;
+        if (speed < 0) speed = 0;
+        cout << model << " slows to " << speed << " mph." << endl;
+    }
+};
+
+int main() {
+    Car myCar;
+    myCar.make  = "Toyota";
+    myCar.model = "Supra";
+    myCar.year  = 2024;
+    myCar.speed = 0;
+
+    myCar.accelerate(30);
+    myCar.accelerate(20);
+    myCar.brake(15);
+    return 0;
+}
+```
+
+</details>
+
+---
+
+## Access Modifiers
+
+| Modifier | Accessible from |
+|---|---|
+| `public` | Anywhere |
+| `private` | Only inside the class |
+| `protected` | Inside the class and subclasses (covered in Ch.4b) |
+
+**Encapsulation** — hiding internal data with `private` and exposing only what's needed through `public` methods — is one of OOP's core principles.
+
+```cpp
+class BankAccount {
+private:
+    double balance;   // cannot be accessed directly from outside
+
+public:
+    // Getter — read-only access
+    double getBalance() {
+        return balance;
+    }
+
+    // Setter — controlled write access
+    void deposit(double amount) {
+        if (amount > 0) {
+            balance += amount;
+        }
+    }
+
+    void withdraw(double amount) {
+        if (amount > 0 && amount <= balance) {
+            balance -= amount;
+        } else {
+            cout << "Invalid withdrawal." << endl;
+        }
+    }
+};
+```
+
+:::note Why Private?
+If `balance` were public, any code could write `account.balance = -9999`. Making it private forces all changes through `deposit` and `withdraw`, where we can enforce rules.
+:::
+
+<!-- IMAGE PLACEHOLDER: A class box split into two sections: private (locked padlock icon, showing balance) and public (open icon, showing deposit/withdraw/getBalance methods) -->
+
+---
+
+## Constructors
+
+A **constructor** is a special method that runs automatically when an object is created. It has the same name as the class and no return type.
+
+```cpp
+class Dog {
+public:
+    string name;
+    string breed;
+    int age;
+
+    // Constructor
+    Dog(string n, string b, int a) {
+        name  = n;
+        breed = b;
+        age   = a;
+    }
+
+    void describe() {
+        cout << name << " is a " << age << "-year-old " << breed << "." << endl;
+    }
+};
+
+int main() {
+    Dog rex("Rex", "Labrador", 3);   // constructor called here
+    Dog buddy("Buddy", "Poodle", 5);
+
+    rex.describe();
+    buddy.describe();
+}
+```
+
+### Initializer List Syntax (Preferred)
+
+```cpp
+Dog(string n, string b, int a) : name(n), breed(b), age(a) {}
+```
+
+This initializes members directly instead of assigning inside the body — more efficient for complex types.
+
+### Default Constructor
+
+A constructor with no parameters (or all defaults):
+
+```cpp
+Dog() : name("Unknown"), breed("Mixed"), age(0) {}
+```
+
+You can have multiple constructors (overloading):
+
+```cpp
+Dog(string n) : name(n), breed("Unknown"), age(0) {}
+Dog(string n, string b, int a) : name(n), breed(b), age(a) {}
+```
+
+<details>
+<summary>🧪 Full class with constructor</summary>
+
+```cpp
+#include <iostream>
+#include <string>
+using namespace std;
+
+class Rectangle {
+private:
+    double width;
+    double height;
+
+public:
+    Rectangle(double w, double h) : width(w), height(h) {}
+
+    double area() {
+        return width * height;
+    }
+
+    double perimeter() {
+        return 2 * (width + height);
+    }
+
+    void describe() {
+        cout << "Rectangle " << width << "x" << height
+             << " | Area: " << area()
+             << " | Perimeter: " << perimeter() << endl;
+    }
+};
+
+int main() {
+    Rectangle r1(5.0, 3.0);
+    Rectangle r2(10.0, 2.5);
+
+    r1.describe();
+    r2.describe();
+    return 0;
+}
+```
+
+</details>
+
+---
+
+## Destructors
+
+A **destructor** runs automatically when an object goes out of scope or is deleted. It cleans up resources.
+
+```cpp
+class MyClass {
+public:
+    MyClass()  { cout << "Object created."  << endl; }
+    ~MyClass() { cout << "Object destroyed." << endl; }
+};
+
+int main() {
+    MyClass obj;   // "Object created."
+}                  // "Object destroyed." — automatic when main() ends
+```
+
+Destructors matter most when the class owns heap memory (covered in Ch.5a).
+
+---
+
+## The `this` Pointer
+
+Inside any member function, `this` is a pointer to the current object. It's useful when a parameter has the same name as a member.
+
+```cpp
+class Point {
+public:
+    double x, y;
+
+    Point(double x, double y) {
+        this->x = x;   // this->x is the member; x alone is the parameter
+        this->y = y;
+    }
+};
+```
+
+---
+
+## Static Members
+
+A `static` member belongs to the **class**, not to any individual object. All instances share the same static variable.
+
+```cpp
+class Counter {
+public:
+    static int count;   // declaration
+
+    Counter() { count++; }
+    ~Counter() { count--; }
+
+    static int getCount() { return count; }
+};
+
+int Counter::count = 0;   // definition (required outside the class)
+
+int main() {
+    Counter a, b, c;
+    cout << Counter::getCount() << endl;  // 3
+}
+```
+
+<!-- IMAGE PLACEHOLDER: Three Counter objects each with their own memory, but all pointing to a single shared "count" box labeled static -->
+
+---
+
+## Exercises
+
+:::tip Activity: Student Class
+Design a `Student` class with private fields `name`, `grade` (0-100), and `id`. Add:
+- A constructor that sets all three fields.
+- A method `letterGrade()` that returns `"A"`, `"B"`, `"C"`, `"D"`, or `"F"`.
+- A method `describe()` that prints all info.
+
+<details>
+<summary>📒 Solution</summary>
+
+```cpp
+#include <iostream>
+#include <string>
+using namespace std;
+
+class Student {
+private:
+    string name;
+    int grade;
+    int id;
+
+public:
+    Student(string n, int g, int i) : name(n), grade(g), id(i) {}
+
+    string letterGrade() {
+        if (grade >= 90) return "A";
+        if (grade >= 80) return "B";
+        if (grade >= 70) return "C";
+        if (grade >= 60) return "D";
+        return "F";
+    }
+
+    void describe() {
+        cout << "[ID " << id << "] " << name
+             << " — " << grade << "/100 (" << letterGrade() << ")" << endl;
+    }
+};
+
+int main() {
+    Student s1("Alice", 93, 1001);
+    Student s2("Bob",   74, 1002);
+    Student s3("Carol", 58, 1003);
+
+    s1.describe();
+    s2.describe();
+    s3.describe();
+    return 0;
+}
+```
+
+</details>
+:::
+
+:::tip Activity: Stack Counter
+Use the `static` member technique to write a class `ObjectTracker` that prints how many live instances exist at any point.
+
+<details>
+<summary>📒 Solution</summary>
+
+```cpp
+#include <iostream>
+#include <string>
+using namespace std;
+
+class ObjectTracker {
+    static int count;
+    string label;
+public:
+    ObjectTracker(string l) : label(l) {
+        count++;
+        cout << label << " created. Total: " << count << endl;
+    }
+    ~ObjectTracker() {
+        count--;
+        cout << label << " destroyed. Total: " << count << endl;
+    }
+    static int getCount() { return count; }
+};
+
+int ObjectTracker::count = 0;
+
+int main() {
+    ObjectTracker a("A");
+    {
+        ObjectTracker b("B");
+        ObjectTracker c("C");
+        cout << "Inside block: " << ObjectTracker::getCount() << endl;
+    }
+    cout << "After block: " << ObjectTracker::getCount() << endl;
+}
+```
+
+</details>
+:::

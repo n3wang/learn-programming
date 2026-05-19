@@ -1,0 +1,90 @@
+---
+sidebar_position: 1
+title: CPU Pipeline Stages
+---
+
+import CpuPipelineSimulator from "@site/src/components/CpuPipelineSimulator.js";
+
+# CPU Pipeline Stages
+
+Modern CPUs don't execute one instruction completely before starting the next. Instead, they overlap execution using a **pipeline** — the same way an assembly line lets a car factory build multiple cars simultaneously, each at a different station.
+
+## The Classic 5-Stage RISC Pipeline
+
+Most computer architecture courses teach the five-stage pipeline popularized by MIPS and DLX:
+
+| Stage | Abbreviation | What Happens |
+|-------|-------------|--------------|
+| Instruction Fetch | IF | Read the next instruction from memory using the Program Counter (PC) |
+| Instruction Decode | ID | Decode the opcode; read source register values |
+| Execute | EX | ALU performs the operation or calculates a memory address |
+| Memory Access | MEM | Reads (load) or writes (store) data memory |
+| Write Back | WB | Writes the result back to the destination register |
+
+## Interactive Simulator
+
+Step through clock cycles to watch five instructions flow through all five stages simultaneously. Hover over any colored cell for a description of what's happening in that stage.
+
+<CpuPipelineSimulator />
+
+## Why Pipeline?
+
+Without pipelining, each instruction takes 5 cycles. With a full pipeline, one instruction **completes every cycle** once the pipeline is filled:
+
+```
+No pipeline:   I1: 5 cycles, I2 starts at cycle 6, I3 at cycle 11 ...
+With pipeline: I1 completes at cycle 5, I2 at cycle 6, I3 at cycle 7 ...
+```
+
+**Throughput** approaches 1 instruction/cycle (IPC = 1). Real out-of-order processors exceed this with superscalar execution (multiple pipelines).
+
+## Pipeline Hazards
+
+Pipelining introduces **hazards** — situations where the next instruction can't start in the immediately following cycle.
+
+### Structural Hazard
+
+Two instructions need the **same hardware resource** at the same time.
+
+**Example:** A CPU with a single memory port can't fetch a new instruction (IF stage) while another instruction is reading from memory (MEM stage) in the same cycle.
+
+**Fix:** Separate instruction memory (I-cache) from data memory (D-cache). Stall one instruction.
+
+---
+
+### Data Hazard (RAW — Read After Write)
+
+An instruction reads a register that a previous instruction hasn't written yet.
+
+```asm
+ADD R1, R2, R3    # writes R1 (available after WB at cycle 5)
+SUB R4, R1, R5   # reads R1 (needs it in ID at cycle 3) ← RAW hazard!
+```
+
+**Fix 1 — Stalling:** Insert NOP bubbles until the value is ready. Wastes cycles.
+
+**Fix 2 — Forwarding/Bypassing:** Route the EX output directly back to the EX input of the next instruction — no stall needed for most cases.
+
+---
+
+### Control Hazard (Branch Hazard)
+
+A branch instruction changes the PC, but the pipeline has already fetched the next 1–4 instructions from the wrong path.
+
+```asm
+BEQ R1, R0, target    # branch result known at end of EX
+<fetched speculatively — may need to flush>
+```
+
+**Fix:** Branch prediction (see the [Branch Prediction](./branch-prediction) page).
+
+---
+
+:::note Key Insight
+The pipeline is a throughput optimization, not a latency one. Each instruction still takes 5 cycles; you just get *one completing per cycle* at steady state. Hazards break this ideal and are the reason CPU microarchitecture is complex.
+:::
+
+## Further Reading
+
+- Patterson & Hennessy — *Computer Organization and Design* (the classic textbook)
+- [MIPS Pipeline — Wikipedia](https://en.wikipedia.org/wiki/Classic_RISC_pipeline)

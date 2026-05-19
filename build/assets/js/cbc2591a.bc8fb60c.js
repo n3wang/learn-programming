@@ -1,0 +1,1 @@
+"use strict";(self.webpackChunklearn_programming=self.webpackChunklearn_programming||[]).push([[6518],{58210:r=>{r.exports=JSON.parse('{"name":"docusaurus-plugin-content-docs","id":"scratch-jr"}')}}]);

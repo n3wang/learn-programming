@@ -1,0 +1,99 @@
+import CacheHierarchyVisualizer from "@site/src/components/CacheHierarchyVisualizer.js";
+
+# Cache Hierarchy
+
+CPUs can execute instructions billions of times per second. Main memory (DRAM) takes about 200 CPU cycles to respond to a request. Without caches, your CPU would sit idle most of the time, waiting for data.
+
+The solution is a **memory hierarchy**: a series of progressively larger, slower, and cheaper storage levels, with the fastest layers sitting closest to the CPU.
+
+## Interactive Visualizer
+
+Click any tier to see its specs. Enter any address and press **Access Memory** to simulate which cache level serves the request.
+
+<CacheHierarchyVisualizer />
+
+## Why Multiple Cache Levels?
+
+There is a hard physical tradeoff:
+
+- **Faster** memory -> smaller capacity, higher cost, more power
+- **Larger** capacity -> slower access time, cheaper per bit
+
+| Level | Typical Size | Latency | Notes |
+|-------|-------------|---------|-------|
+| Registers | about 1 KB | < 1 ns | Named; not addressable |
+| L1 Cache | 32-64 KB | 1-4 cycles | Split I/D; per-core |
+| L2 Cache | 256 KB - 1 MB | 10-15 cycles | Unified; per-core |
+| L3 Cache | 4-32 MB | 30-50 cycles | Shared across all cores |
+| DRAM | 8-64 GB | 200+ cycles | Off-chip |
+| NVMe SSD | 256 GB - 4 TB | about 100,000 cycles | Persistent |
+
+## Core Concepts
+
+### Cache Hit vs. Miss
+
+- **Cache hit**: the requested data is found in the cache -> served at cache speed
+- **Cache miss**: data not found -> fetch from the next level down (fill the cache line, then retry)
+
+### Average Memory Access Time (AMAT)
+
+$$AMAT = HitTime + MissRate \times MissPenalty$$
+
+With L1 hit time = 4 cycles, miss rate = 5%, and L2 access time = 12 cycles:
+
+```txt
+AMAT = 4 + 0.05 x 12 = 4.6 cycles
+```
+
+Miss the L2 and go to DRAM (200 cycles) and the penalty jumps dramatically.
+
+### Cache Lines
+
+Caches do not store individual bytes. They store **cache lines** (typically 64 bytes). When a miss occurs, the entire 64-byte block is fetched and placed into the cache. This exploits **spatial locality**.
+
+### Locality
+
+Caches work because programs exhibit **locality**:
+
+| Type | Definition | Example |
+|------|-----------|---------|
+| **Temporal locality** | Recently accessed data will likely be accessed again soon | A loop counter accessed every iteration |
+| **Spatial locality** | Data near a recently accessed address will likely be needed soon | Iterating through an array |
+
+### Cache Organization
+
+A cache is divided into **sets**. Each set holds **N ways** (slots):
+
+- **Direct-mapped** (1-way): each address maps to exactly one cache slot. Fast to look up, but suffers *conflict misses*.
+- **N-way set-associative**: each address can go into any of N slots in its set. Better hit rate at the cost of more comparison hardware.
+- **Fully associative**: any block can go anywhere. Used in TLBs; impractical for large caches.
+
+### Replacement Policies
+
+When a cache set is full and a new block must be loaded:
+- **LRU** (Least Recently Used) - evict the block accessed least recently. Best approximation to optimal.
+- **FIFO** - evict the oldest block. Simpler.
+- **Random** - surprisingly competitive with LRU and very cheap to implement. Used in some ARM designs.
+
+## Performance Impact
+
+:::tip Writing Cache-Friendly Code
+```c
+// BAD: column-major traversal -> 1 cache miss per access
+for (int j = 0; j < N; j++)
+    for (int i = 0; i < N; i++)
+        sum += A[i][j];
+
+// GOOD: row-major traversal -> 1 cache miss per 8 accesses (64B line / 8B double)
+for (int i = 0; i < N; i++)
+    for (int j = 0; j < N; j++)
+        sum += A[i][j];
+```
+
+For a 1024x1024 double matrix, the row-major loop runs around **5x faster** on a modern CPU due to L1 hit rate alone.
+:::
+
+## Further Reading
+
+- Ulrich Drepper - *What Every Programmer Should Know About Memory* (free PDF)
+- Patterson and Hennessy - *Computer Organization and Design*, Ch. 5

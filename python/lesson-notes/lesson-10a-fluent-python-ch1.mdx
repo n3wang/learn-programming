@@ -1,0 +1,452 @@
+---
+sidebar_position: 50
+title: "Chapter 10a - The Python Data Model"
+---
+
+import IconAdmonition from "@site/src/components/IconAdmonition.js";
+
+> **Source:** Fluent Python, 2nd Edition — Chapter 1 by Luciano Ramalho
+
+## What Is the Python Data Model?
+
+The Python Data Model is the API that makes your objects work seamlessly with Python's built-in features — things like `len()`, `for` loops, `in` operator, and arithmetic operators.
+
+The key idea: you implement **special methods** (also called *dunder methods*, short for "double underscore") on your own classes, and Python calls them automatically when you use built-in syntax.
+
+:::note
+Special methods look like `__len__` or `__getitem__` — two underscores on each side. Python calls these behind the scenes; **you almost never call them directly**.
+:::
+
+<!-- IMAGE PLACEHOLDER: Diagram showing how built-in operations (len(), for loop, + operator) map to dunder methods (__len__, __iter__, __add__) underneath -->
+
+---
+
+## A Pythonic Card Deck
+
+The chapter opens with a `FrenchDeck` class that shows the power of implementing just two dunder methods: `__len__` and `__getitem__`.
+
+### The `Card` Named Tuple
+
+```python
+import collections
+
+Card = collections.namedtuple('Card', ['rank', 'suit'])
+```
+
+`namedtuple` creates a simple class whose instances are immutable. A card can be made like this:
+
+```python
+beer_card = Card('7', 'diamonds')
+print(beer_card)  # Card(rank='7', suit='diamonds')
+```
+
+<!-- IMAGE PLACEHOLDER: Illustration of a playing card labeled with rank='7' and suit='diamonds' to visualize the namedtuple fields -->
+
+### The `FrenchDeck` Class
+
+```python
+class FrenchDeck:
+    ranks = [str(n) for n in range(2, 11)] + list('JQKA')
+    suits = 'spades diamonds clubs hearts'.split()
+
+    def __init__(self):
+        self._cards = [Card(rank, suit) for suit in self.suits
+                                        for rank in self.ranks]
+
+    def __len__(self):
+        return len(self._cards)
+
+    def __getitem__(self, position):
+        return self._cards[position]
+```
+
+<details>
+<summary>🧪 Try the code out!</summary>
+
+```python
+import collections
+
+Card = collections.namedtuple('Card', ['rank', 'suit'])
+
+class FrenchDeck:
+    ranks = [str(n) for n in range(2, 11)] + list('JQKA')
+    suits = 'spades diamonds clubs hearts'.split()
+
+    def __init__(self):
+        self._cards = [Card(rank, suit) for suit in self.suits
+                                        for rank in self.ranks]
+
+    def __len__(self):
+        return len(self._cards)
+
+    def __getitem__(self, position):
+        return self._cards[position]
+
+deck = FrenchDeck()
+print(len(deck))         # 52
+print(deck[0])           # Card(rank='2', suit='spades')
+print(deck[-1])          # Card(rank='A', suit='hearts')
+```
+
+</details>
+
+### What You Get for Free
+
+By implementing `__len__` and `__getitem__`, the deck automatically supports:
+
+| Feature | How it works |
+|---|---|
+| `len(deck)` | Calls `deck.__len__()` |
+| `deck[0]`, `deck[-1]` | Calls `deck.__getitem__(0)` |
+| `deck[12::13]` | Slicing — Python passes a `slice` object to `__getitem__` |
+| `for card in deck` | Iteration via `__getitem__` |
+| `Card('Q', 'hearts') in deck` | `in` operator (uses iteration) |
+| `random.choice(deck)` | Works because it just calls `deck[random_index]` |
+
+<details>
+<summary>🧪 Iteration and slicing examples</summary>
+
+```python
+from random import choice
+
+deck = FrenchDeck()
+
+# Picking a random card
+print(choice(deck))
+
+# Slicing: get all aces (every 13th card starting from index 12)
+print(deck[12::13])
+
+# Iterating in reverse (requires __getitem__ only, no __reversed__ needed)
+for card in reversed(deck):
+    print(card)
+    break  # just show the first one
+```
+
+</details>
+
+### Sorting the Deck
+
+```python
+suit_values = dict(spades=3, hearts=2, diamonds=1, clubs=0)
+
+def spades_high(card):
+    rank_value = FrenchDeck.ranks.index(card.rank)
+    return rank_value * len(suit_values) + suit_values[card.suit]
+
+for card in sorted(deck, key=spades_high):
+    print(card)
+```
+
+<!-- IMAGE PLACEHOLDER: A ranked ordering of playing cards from lowest (2 of clubs) to highest (Ace of spades), showing how the sort key maps rank and suit to a numeric score -->
+
+:::tip Key Insight
+We never subclassed any "deck" class from a standard library. By implementing the data model protocol (`__len__` + `__getitem__`), our `FrenchDeck` behaves like a proper Python sequence and gets iteration, slicing, `random.choice`, and `sorted` for free.
+:::
+
+---
+
+## How Special Methods Are Used
+
+Python calls dunder methods for you — your code (and users of your library) should call the built-in functions, not the dunder methods directly.
+
+```python
+# Do this:
+my_len = len(deck)
+
+# Not this (though it works):
+my_len = deck.__len__()
+```
+
+The only common exception is `__init__` — you call `super().__init__()` in subclasses.
+
+<!-- IMAGE PLACEHOLDER: Diagram showing the flow: user calls len(obj) → Python interpreter → obj.__len__() → returns integer -->
+
+---
+
+## Emulating Numeric Types — The `Vector` Class
+
+The second example creates a 2D `Vector` class to demonstrate several dunder methods at once.
+
+### Full Implementation
+
+```python
+import math
+
+class Vector:
+    def __init__(self, x=0, y=0):
+        self.x = x
+        self.y = y
+
+    def __repr__(self):
+        return f'Vector({self.x!r}, {self.y!r})'
+
+    def __abs__(self):
+        return math.hypot(self.x, self.y)
+
+    def __bool__(self):
+        return bool(abs(self))
+
+    def __add__(self, other):
+        x = self.x + other.x
+        y = self.y + other.y
+        return Vector(x, y)
+
+    def __mul__(self, scalar):
+        return Vector(self.x * scalar, self.y * scalar)
+```
+
+<details>
+<summary>🧪 Try the Vector class</summary>
+
+```python
+import math
+
+class Vector:
+    def __init__(self, x=0, y=0):
+        self.x = x
+        self.y = y
+
+    def __repr__(self):
+        return f'Vector({self.x!r}, {self.y!r})'
+
+    def __abs__(self):
+        return math.hypot(self.x, self.y)
+
+    def __bool__(self):
+        return bool(abs(self))
+
+    def __add__(self, other):
+        x = self.x + other.x
+        y = self.y + other.y
+        return Vector(x, y)
+
+    def __mul__(self, scalar):
+        return Vector(self.x * scalar, self.y * scalar)
+
+v1 = Vector(2, 4)
+v2 = Vector(2, 1)
+
+print(v1 + v2)       # Vector(4, 5)
+print(abs(v1))        # 4.47...
+print(v1 * 3)         # Vector(6, 12)
+print(bool(Vector(0, 0)))  # False
+print(bool(v1))       # True
+```
+
+</details>
+
+<!-- IMAGE PLACEHOLDER: Coordinate plane showing two vectors v1=(2,4) and v2=(2,1), their sum v1+v2=(4,5), and the magnitude (abs) of v1 as the diagonal line from origin to (2,4) -->
+
+---
+
+## String Representation — `__repr__` vs `__str__`
+
+| Method | Called by | When used |
+|---|---|---|
+| `__repr__` | `repr()`, interactive shell, `{obj!r}` in f-strings | Developer-facing; should be unambiguous |
+| `__str__` | `str()`, `print()`, `{obj}` in f-strings | User-facing; can be readable/informal |
+
+```python
+class Vector:
+    def __repr__(self):
+        return f'Vector({self.x!r}, {self.y!r})'
+    # If __str__ is not defined, Python falls back to __repr__
+```
+
+:::note
+If you implement only one, implement `__repr__`. Python will use it as a fallback for `__str__` too.
+:::
+
+---
+
+## Arithmetic Operators
+
+`__add__` and `__mul__` let your objects respond to `+` and `*`:
+
+```python
+def __add__(self, other):
+    return Vector(self.x + other.x, self.y + other.y)
+
+def __mul__(self, scalar):
+    return Vector(self.x * scalar, self.y * scalar)
+```
+
+```python
+v = Vector(3, 4)
+print(v + Vector(1, 0))   # Vector(4, 4)
+print(v * 2)               # Vector(6, 8)
+```
+
+:::note
+Note that `v * 2` works (Vector × scalar), but `2 * v` would not without implementing `__rmul__`. Ramalho covers this in later chapters.
+:::
+
+<!-- IMAGE PLACEHOLDER: Side-by-side showing v * 2 = Vector(6, 8) as a longer arrow on a coordinate plane versus the original Vector(3, 4) -->
+
+---
+
+## Boolean Value — `__bool__`
+
+Python calls `__bool__` when an object is used in a boolean context (`if obj:`, `while obj:`, `bool(obj)`).
+
+```python
+def __bool__(self):
+    return bool(abs(self))  # zero vector is falsy, any other is truthy
+```
+
+```python
+print(bool(Vector(0, 0)))   # False  — zero vector
+print(bool(Vector(1, 0)))   # True   — non-zero vector
+```
+
+If `__bool__` is not defined, Python calls `__len__` instead. If that's also absent, the object is always truthy.
+
+<!-- IMAGE PLACEHOLDER: Flowchart: bool(obj) → does obj have __bool__? → yes: call it → no: does it have __len__? → yes: len==0 is False else True → no: always True -->
+
+---
+
+## Overview of Special Methods
+
+The book includes two tables listing all standard dunder methods. Here are the most important ones by category:
+
+### String/Bytes Representation
+| Method | Purpose |
+|---|---|
+| `__repr__` | Developer string (used by `repr()`) |
+| `__str__` | User string (used by `str()`, `print()`) |
+| `__format__` | Used by `format()` and f-strings |
+| `__bytes__` | Used by `bytes()` |
+
+### Collection-like Behavior
+| Method | Purpose |
+|---|---|
+| `__len__` | `len(obj)` |
+| `__getitem__` | `obj[key]`, slicing, iteration |
+| `__setitem__` | `obj[key] = val` |
+| `__delitem__` | `del obj[key]` |
+| `__contains__` | `item in obj` |
+| `__iter__` | `for item in obj` |
+| `__reversed__` | `reversed(obj)` |
+
+### Numeric Types
+| Method | Purpose |
+|---|---|
+| `__add__` | `obj + other` |
+| `__sub__` | `obj - other` |
+| `__mul__` | `obj * other` |
+| `__truediv__` | `obj / other` |
+| `__floordiv__` | `obj // other` |
+| `__mod__` | `obj % other` |
+| `__abs__` | `abs(obj)` |
+| `__bool__` | `bool(obj)` |
+| `__neg__` | `-obj` |
+
+### Comparison
+| Method | Purpose |
+|---|---|
+| `__eq__` | `obj == other` |
+| `__ne__` | `obj != other` |
+| `__lt__` | `obj < other` |
+| `__le__` | `obj <= other` |
+| `__gt__` | `obj > other` |
+| `__ge__` | `obj >= other` |
+
+<!-- IMAGE PLACEHOLDER: Mind map or grouped visual of all special method categories: String/Bytes, Attribute Access, Comparison, Numeric, Collection, Context Managers, etc. -->
+
+---
+
+## Chapter 1 Summary
+
+:::important Key Takeaways
+
+1. **The Python Data Model** defines the interfaces for objects to work with Python's built-in syntax and functions.
+2. **Dunder methods** (`__len__`, `__getitem__`, `__add__`, etc.) are called by Python automatically — use them to make your objects feel native.
+3. **Implement `__repr__`** at minimum for any custom class; `__str__` is optional and falls back to `__repr__`.
+4. **You get a lot for free**: implementing `__len__` + `__getitem__` gives your class iteration, slicing, `in`, `reversed()`, `sorted()`, and `random.choice()` without extra work.
+5. **Prefer built-ins**: call `len(x)` not `x.__len__()`. The interpreter often takes a faster path through built-ins.
+
+:::
+
+<IconAdmonition icon="🔨" title="Exercise: Extend the Vector class">
+
+- [ ] Add `__sub__` so `v1 - v2` works.
+- [ ] Add `__eq__` so two vectors with the same coordinates are equal.
+- [ ] Add `__rmul__` so `3 * v` also works (not just `v * 3`).
+- [ ] Add `__neg__` so `-v` returns a vector pointing the opposite direction.
+
+```python
+# Starter code
+import math
+
+class Vector:
+    def __init__(self, x=0, y=0):
+        self.x = x
+        self.y = y
+
+    def __repr__(self):
+        return f'Vector({self.x!r}, {self.y!r})'
+
+    def __abs__(self):
+        return math.hypot(self.x, self.y)
+
+    def __bool__(self):
+        return bool(abs(self))
+
+    def __add__(self, other):
+        return Vector(self.x + other.x, self.y + other.y)
+
+    def __mul__(self, scalar):
+        return Vector(self.x * scalar, self.y * scalar)
+
+    # TODO: implement __sub__, __eq__, __rmul__, __neg__
+```
+
+</IconAdmonition>
+
+<details>
+<summary>📒 Solution</summary>
+
+```python
+import math
+
+class Vector:
+    def __init__(self, x=0, y=0):
+        self.x = x
+        self.y = y
+
+    def __repr__(self):
+        return f'Vector({self.x!r}, {self.y!r})'
+
+    def __abs__(self):
+        return math.hypot(self.x, self.y)
+
+    def __bool__(self):
+        return bool(abs(self))
+
+    def __add__(self, other):
+        return Vector(self.x + other.x, self.y + other.y)
+
+    def __sub__(self, other):
+        return Vector(self.x - other.x, self.y - other.y)
+
+    def __mul__(self, scalar):
+        return Vector(self.x * scalar, self.y * scalar)
+
+    def __rmul__(self, scalar):
+        return Vector(self.x * scalar, self.y * scalar)
+
+    def __neg__(self):
+        return Vector(-self.x, -self.y)
+
+    def __eq__(self, other):
+        return self.x == other.x and self.y == other.y
+
+v = Vector(3, 4)
+print(v - Vector(1, 1))   # Vector(2, 3)
+print(v == Vector(3, 4))  # True
+print(3 * v)               # Vector(9, 12)
+print(-v)                  # Vector(-3, -4)
+```
+
+</details>

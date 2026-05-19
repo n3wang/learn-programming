@@ -1,0 +1,126 @@
+---
+sidebar_position: 3
+title: Branch Prediction
+---
+
+import BranchPredictorSimulator from "@site/src/components/BranchPredictorSimulator.js";
+
+# Branch Prediction
+
+When a CPU encounters a **branch** instruction (`if`, loop condition, function call), it doesn't yet know which path to follow — the branch condition is computed several pipeline stages later. But the CPU can't pause: a stalled pipeline wastes cycles.
+
+**Branch prediction** is the hardware's educated guess about which path to take *before* the branch is resolved, so the pipeline can keep fetching and executing instructions speculatively.
+
+## The Cost of Getting It Wrong
+
+On a 15-stage pipeline at 3 GHz:
+- **Correct prediction** → 0 wasted cycles
+- **Misprediction** → 15 cycles flushed (wrong instructions discarded, pipeline refilled)
+
+Rough math for a typical workload:
+```
+3 GHz × 30% branch frequency × 5% miss rate × 15 cycle penalty
+= 675 million wasted cycles per second
+```
+
+A 1% improvement in branch predictor accuracy meaningfully changes application performance.
+
+## Interactive Predictor Simulator
+
+Step through branch outcomes one at a time, or load a preset sequence. Observe how the predictor state evolves and where mispredictions occur.
+
+<BranchPredictorSimulator />
+
+**Try these experiments:**
+- Load the **Loop (TTTTTN)** preset and compare 1-bit vs 2-bit accuracy
+- Load **Alternating (TNTN)** to see worst-case behavior for both predictors
+- Type your own sequence like `TTTNT` and observe the state machine
+
+## Predictor Types
+
+### 1-Bit Predictor
+
+Stores 1 bit per branch: the last observed outcome.
+
+- **Predicts:** "will go the same way as last time"
+- **Problem:** for a loop that iterates N times, mispredicts on *both* the first iteration (when the branch "unexpectedly" goes back) and the last (when it unexpectedly exits)
+- **Misprediction rate:** 2/N
+
+```
+Loop runs 6 times: T T T T T N
+1-bit (init T):    T T T T T T
+                   ✓ ✓ ✓ ✓ ✓ ✗ ← only exit mispredicts... unless init was N
+```
+
+### 2-Bit Saturating Counter
+
+Uses a 4-state finite state machine:
+
+```
+Strongly Not Taken ←→ Weakly Not Taken ←→ Weakly Taken ←→ Strongly Taken
+        ↑ N            N ↑   T ↑              N ↑   T ↑           ↑ T
+```
+
+- Needs **two consecutive wrong outcomes** to change its prediction
+- Tolerates single outliers (e.g., the one loop exit among many iterations)
+- **Misprediction rate for loops:** 1/N (only the final exit mispredicts)
+- Used in early MIPS R10000 and still the building block of all modern predictors
+
+### Correlating (Global History) Predictor
+
+Uses the outcome history of **recent branches** to predict the current one. Useful when branches are correlated:
+
+```c
+if (x > 0) { ... }    // branch A
+if (y > 0) { ... }    // branch B — often correlates with A
+```
+
+A (2, 2) correlating predictor keeps the last 2 branch outcomes in a shift register and uses them to index into a table of 2-bit counters.
+
+### Tournament Predictor
+
+Combines a **local predictor** (per-branch history table) and a **global predictor** (all-branch history), with a **selector** that tracks which one performs better for each branch:
+
+```
+Branch PC → select: [local counter] or [global counter]?
+```
+
+Used in the Alpha 21264 (1998), which achieved ~97% accuracy — a milestone for the field.
+
+### TAGE Predictor (State of the Art)
+
+**Tagged Geometric** history length predictor. Uses multiple tables indexed by branch PC XOR'd with history of geometrically increasing lengths (e.g., 5, 10, 20, 40, 80 branches of history). The longest matching history wins.
+
+- Intel Core (Haswell+), AMD Zen 3+ all use TAGE-based designs
+- Achieves **>99% accuracy** on most benchmarks
+
+## The Branch Target Buffer (BTB)
+
+Even with a perfect direction predictor, you still need to know the **target address** of a taken branch *before* you compute it.
+
+The **BTB** is a small cache of `(branch PC → predicted target address)` pairs. On a predicted-taken branch, the CPU immediately redirects instruction fetch to the cached target.
+
+Without a BTB, every indirect branch (function calls via pointer, virtual dispatch) causes a pipeline bubble.
+
+## Security: Spectre (2018)
+
+:::caution Real-World Impact
+Spectre exploited the fact that **speculatively executed** instructions (triggered by a misprediction) can still affect the CPU's cache state — even after being rolled back. An attacker can use a timing side channel to read the cache state and infer secret data that was touched during speculative execution.
+
+This proved that branch predictor state is observable from userspace. Modern CPUs add indirect branch isolation (IBRS, Retpoline, eIBRS) that partially sacrifices prediction performance for security.
+:::
+
+## Summary
+
+| Predictor | History Used | Typical Accuracy | Era |
+|-----------|-------------|-----------------|-----|
+| Static (always taken) | None | ~65% | 1985 |
+| 1-bit | Last outcome | ~85% | 1990 |
+| 2-bit saturating counter | 1 branch | ~90% | 1993 |
+| Tournament (local + global) | Multiple | ~97% | 1998 |
+| TAGE | Geometric lengths | >99% | 2006+ |
+
+## Further Reading
+
+- Daniel Jiménez & Calvin Lin — *Dynamic Branch Prediction with Perceptrons* (2001)
+- Onur Mutlu — [CMU 18-740 Computer Architecture lectures](https://www.youtube.com/c/OnurMutluLectures) (free on YouTube)

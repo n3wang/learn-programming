@@ -18,14 +18,16 @@ const config = {
   projectName: 'Learn-programming',
   i18n: {
     defaultLocale: 'en',
-    locales: ['en', 'es'],
+    locales: ['en', 'zh-Hans'],
     localeConfigs: {
       en: {
+        label: 'English',
         htmlLang: 'en-GB',
       },
-      // You can omit a locale (e.g. fr) if you don't need to override the defaults
-      fa: {
-        direction: 'rtl',
+      'zh-Hans': {
+        label: '中文',
+        htmlLang: 'zh-Hans',
+        direction: 'ltr',
       },
     },
   },
@@ -68,6 +70,15 @@ const config = {
         id: 'java',
         path: 'java',
         routeBasePath: 'java',
+        sidebarPath: require.resolve('./sidebars.js'),
+      },
+    ],
+    [
+      '@docusaurus/plugin-content-docs',
+      {
+        id: 'cpp',
+        path: 'cpp',
+        routeBasePath: 'cpp',
         sidebarPath: require.resolve('./sidebars.js'),
       },
     ],
@@ -191,27 +202,18 @@ const config = {
     [
       '@docusaurus/plugin-content-docs',
       {
-        id: 'algorithms',
-        path: 'algorithms',
-        routeBasePath: 'algorithms',
-        sidebarPath: require.resolve('./sidebars.js'),
-      },
-    ],
-    [
-      '@docusaurus/plugin-content-docs',
-      {
-        id: 'artificial-intelligence',
-        path: 'artificial-intelligence',
-        routeBasePath: 'artificial-intelligence',
-        sidebarPath: require.resolve('./sidebars.js'),
-      },
-    ],
-    [
-      '@docusaurus/plugin-content-docs',
-      {
         id: 'math',
         path: 'math',
         routeBasePath: 'math',
+        sidebarPath: require.resolve('./sidebars.js'),
+      },
+    ],
+    [
+      '@docusaurus/plugin-content-docs',
+      {
+        id: 'fundamentals',
+        path: 'fundamentals',
+        routeBasePath: 'fundamentals',
         sidebarPath: require.resolve('./sidebars.js'),
       },
     ],
@@ -266,7 +268,11 @@ const config = {
               {
                 to: '/java/lesson-notes',
                 label: 'Java',
-              }
+              },
+              {
+                to: '/cpp/lesson-notes',
+                label: 'C++',
+              },
             ]
           },
           {
@@ -274,12 +280,16 @@ const config = {
             label: 'Advanced',
             position: 'left',
             items: [
-
               {
                 to: '/react-native/lesson-notes',
                 label: 'React Native',
               },
             ]
+          },
+          {
+            to: '/fundamentals/intro',
+            label: 'Fundamentals',
+            position: 'left',
           },
           {
             type: 'dropdown',
@@ -306,14 +316,13 @@ const config = {
             position: 'right',
           },
           {
-            href: 'https://classroom.google.com/c/NTE0NDI2MDM3OTM0?cjc=esrupso',
-            label: 'Google Class',
+            type: 'custom-siteLanguage',
             position: 'right'
           },
-          // {
-          //   type: 'localeDropdown',
-          //   position: 'right',
-          // },
+          {
+            type: 'localeDropdown',
+            position: 'right',
+          },
         ],
       },
       footer: {
@@ -327,6 +336,10 @@ const config = {
           {
             label: 'Java',
             to: '/java/lesson-notes',
+          },
+          {
+            label: 'C++',
+            to: '/cpp/lesson-notes',
           },
           ],
         }, {
@@ -359,7 +372,7 @@ const config = {
       prism: {
         theme: lightCodeTheme,
         darkTheme: darkCodeTheme,
-        additionalLanguages: ['java'],
+        additionalLanguages: ['java', 'cpp'],
       },
     }),
 };
