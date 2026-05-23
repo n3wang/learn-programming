@@ -2,6 +2,15 @@ import React from 'react';
 import useDocusaurusContext from '@docusaurus/useDocusaurusContext';
 import { useLocation } from '@docusaurus/router';
 
+function getCanonicalPath(pathname) {
+  return pathname.startsWith('/zh-Hans') ? pathname.slice('/zh-Hans'.length) || '/' : pathname;
+}
+
+function getGoogleTranslateUrl(targetUrl) {
+  const encodedUrl = encodeURIComponent(targetUrl);
+  return `https://translate.google.com/translate?sl=auto&tl=zh-CN&u=${encodedUrl}`;
+}
+
 function toggleButtonStyle(active) {
   return {
     border: '1px solid var(--ifm-color-emphasis-300)',
@@ -21,16 +30,17 @@ export default function SiteLanguageToggle({ compact = false }) {
   const location = useLocation();
 
   const switchLocale = (targetLocale) => {
-    const path = location.pathname;
-    let newPath;
+    const canonicalPath = getCanonicalPath(location.pathname);
+
     if (targetLocale === 'zh-Hans') {
-      // en → zh-Hans: prepend /zh-Hans unless already there
-      newPath = path.startsWith('/zh-Hans') ? path : `/zh-Hans${path}`;
-    } else {
-      // zh-Hans → en: strip the /zh-Hans prefix
-      newPath = path.startsWith('/zh-Hans') ? path.slice('/zh-Hans'.length) || '/' : path;
+      // Use browser translation on the current canonical URL instead of i18n routes.
+      const currentUrl = `${window.location.origin}${canonicalPath}${location.search}${location.hash}`;
+      window.location.href = getGoogleTranslateUrl(currentUrl);
+      return;
     }
-    window.location.href = newPath;
+
+    // EN should always go to the canonical non-localized route.
+    window.location.href = `${canonicalPath}${location.search}${location.hash}`;
   };
 
   return (

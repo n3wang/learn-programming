@@ -1,0 +1,1 @@
+"use strict";(self.webpackChunklearn_programming=self.webpackChunklearn_programming||[]).push([[8961],{94006:a=>{a.exports=JSON.parse('{"label":"information","permalink":"/zh-Hans/blog/tags/information","allTagsPath":"/zh-Hans/blog/tags","count":2,"unlisted":false}')}}]);

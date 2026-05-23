@@ -319,10 +319,6 @@ const config = {
             type: 'custom-siteLanguage',
             position: 'right'
           },
-          {
-            type: 'localeDropdown',
-            position: 'right',
-          },
         ],
       },
       footer: {
