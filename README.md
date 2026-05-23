@@ -39,3 +39,34 @@ $ GIT_USER=<Your GitHub username> yarn deploy
 ```
 
 If you are using GitHub pages for hosting, this command is a convenient way to build the website and push to the `gh-pages` branch.
+
+## Docker Publish (learn subdomain)
+
+This project can be published with Docker behind Caddy on:
+
+https://learn.l.l0l.in
+
+### Build and publish from infra folder
+
+From `/root/docker`:
+
+```bash
+make learn-publish
+```
+
+Useful targets:
+
+```bash
+make learn-build
+make learn-up
+make learn-logs
+make caddy-reload
+```
+
+### Build and publish from app folder
+
+From `/root/code/learn-programming`:
+
+```bash
+make -f Makefile.docker docker-publish
+```
