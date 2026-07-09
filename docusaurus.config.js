@@ -14,7 +14,7 @@ const config = {
   onBrokenLinks: 'throw',
   onBrokenMarkdownLinks: 'warn',
   favicon: 'img/favicon.ico',
-  organizationName: 'NeneWang',
+  organizationName: 'n3wang',
   projectName: 'Learn-programming',
   i18n: {
     defaultLocale: 'en',
@@ -225,7 +225,7 @@ const config = {
     /** @type {import('@docusaurus/preset-classic').ThemeConfig} */
     ({
       navbar: {
-        title: 'learn.wangnelson.xyz',
+        title: 'learn.l0l.in',
         logo: {
           alt: 'Learn Programming',
           src: 'img/logo.svg',
@@ -253,6 +253,10 @@ const config = {
                 to: '/lego/intro',
                 label: 'Lego Mindstorm',
               },
+              {
+                to: '/react-native/lesson-notes',
+                label: 'React Native',
+              },
             ]
           },
           {
@@ -272,17 +276,6 @@ const config = {
               {
                 to: '/cpp/lesson-notes',
                 label: 'C++',
-              },
-            ]
-          },
-          {
-            type: 'dropdown',
-            label: 'Advanced',
-            position: 'left',
-            items: [
-              {
-                to: '/react-native/lesson-notes',
-                label: 'React Native',
               },
             ]
           },
@@ -310,11 +303,11 @@ const config = {
               },
             ]
           },
-          {
+          ...(false ? [{
             href: 'https://docs.google.com/forms/d/e/1FAIpQLSclM-biiVICBNWiJFPpZC0vTmzIanA3GUtglgMRc9R2ZZwqwQ/viewform?usp=sf_link',
             label: 'Submit HW',
             position: 'right',
-          },
+          }] : []),
           {
             type: 'custom-siteLanguage',
             position: 'right'

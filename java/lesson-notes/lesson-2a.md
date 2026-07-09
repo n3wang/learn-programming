@@ -253,7 +253,7 @@ public class Main {
 <summary>
 ✍ Solve the problem using Replit
 </summary>
-<a href="https://replit.com/@NeneWang/EmptyJavaCanvas#Main.java" >Feel free to use Repl, you can fork from this empty canvas in Repl.it</a>
+<a href="https://replit.com/@n3wang/EmptyJavaCanvas#Main.java" >Feel free to use Repl, you can fork from this empty canvas in Repl.it</a>
 
 </details>
 
@@ -280,7 +280,7 @@ Rene has $29.80 in her piggy bank. Rene’s dad has promised to give her $2.50 i
 <summary>
 ✍ Solve the problem using Replit
 </summary>
-<a href="https://replit.com/@NeneWang/EmptyJavaCanvas#Main.java" >Feel free to use Repl, you can fork from this empty canvas in Repl.it</a>
+<a href="https://replit.com/@n3wang/EmptyJavaCanvas#Main.java" >Feel free to use Repl, you can fork from this empty canvas in Repl.it</a>
 
 </details>
 

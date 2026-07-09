@@ -139,7 +139,7 @@ System.out.println(sc.nextLine());
 <summary>
 ✍ Solve the problem using Replit
 </summary>
-<a href="https://replit.com/@NeneWang/EmptyJavaCanvas#Main.java" >Feel free to use Repl, you can fork from this empty canvas in Repl.it</a>
+<a href="https://replit.com/@n3wang/EmptyJavaCanvas#Main.java" >Feel free to use Repl, you can fork from this empty canvas in Repl.it</a>
 
 </details>
 

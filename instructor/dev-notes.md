@@ -11,7 +11,7 @@ Hint
 </summary>
 
 This program does X
-<iframe frameborder="0" width="100%" height="500px" src="https://replit.com/@NeneWang/selectionSort-exercise?embed=true"></iframe>
+<iframe frameborder="0" width="100%" height="500px" src="https://replit.com/@n3wang/selectionSort-exercise?embed=true"></iframe>
 
 </details>
 ```
@@ -32,7 +32,7 @@ Embedding [Replit](https://replit.com/~)
 <summary>
 🧪 Try the code out~!
 </summary>
-<iframe frameborder="0" width="100%" height="500px" src="https://replit.com/@NeneWang/selectionSort-exercise?embed=true"></iframe>
+<iframe frameborder="0" width="100%" height="500px" src="https://replit.com/@n3wang/selectionSort-exercise?embed=true"></iframe>
 
 </details>
 ```
@@ -46,7 +46,7 @@ Embedding [Replit](https://replit.com/~)
 <summary>
 🧪 Try the code out! 
 </summary>
-<iframe frameborder="0" width="100%" height="500px" src="https://replit.com/@NeneWang/selectionSort-exercise?embed=true"></iframe>
+<iframe frameborder="0" width="100%" height="500px" src="https://replit.com/@n3wang/selectionSort-exercise?embed=true"></iframe>
 
 </details>
 ```
@@ -137,7 +137,7 @@ Feel free to use Repl, you can fork from this empty canvas in Repl.it
 <summary>
 ✍ Solve the problem using Replit
 </summary>
-<a href="https://replit.com/@NeneWang/EmptyJavaCanvas#Main.java" >Feel free to use Repl, you can fork from this empty canvas in Repl.it</a>
+<a href="https://replit.com/@n3wang/EmptyJavaCanvas#Main.java" >Feel free to use Repl, you can fork from this empty canvas in Repl.it</a>
 
 </details>
 

@@ -141,7 +141,7 @@ Age : 15
 <summary>
 ✍ Solve the problem using Replit
 </summary>
-<a href="https://replit.com/@NeneWang/EmptyJavaCanvas#Main.java" >Feel free to use Repl, you can fork from this empty canvas in Repl.it</a>
+<a href="https://replit.com/@n3wang/EmptyJavaCanvas#Main.java" >Feel free to use Repl, you can fork from this empty canvas in Repl.it</a>
 
 </details>
 
@@ -180,7 +180,7 @@ If Shannon covers twice as much distance as Pete, distance travelled by Shannon 
 <summary>
 ✍ Solve the problem using Replit
 </summary>
-<a href="https://replit.com/@NeneWang/EmptyJavaCanvas#Main.java" >Feel free to use Repl, you can fork from this empty canvas in Repl.it</a>
+<a href="https://replit.com/@n3wang/EmptyJavaCanvas#Main.java" >Feel free to use Repl, you can fork from this empty canvas in Repl.it</a>
 
 </details>
 
