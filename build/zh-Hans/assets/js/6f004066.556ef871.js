@@ -1,1 +1,0 @@
-"use strict";(self.webpackChunklearn_programming=self.webpackChunklearn_programming||[]).push([[3570],{30842:a=>{a.exports=JSON.parse('{"permalink":"/zh-Hans/blog/tags/information","page":1,"postsPerPage":10,"totalPages":1,"totalCount":2,"blogDescription":"Blog","blogTitle":"Blog"}')}}]);
