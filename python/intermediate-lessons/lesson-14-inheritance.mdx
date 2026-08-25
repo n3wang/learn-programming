@@ -1,0 +1,296 @@
+---
+sidebar_position: 15
+title: "Inheritance: For Good or For Worse"
+---
+
+> **Source:** Fluent Python, 2nd Edition — Chapter 14 by Luciano Ramalho
+
+Python-specific traps: **subclassing built-ins** (their C methods skip your overrides) and **multiple inheritance** (who wins when two parents define `pong`?). Java skipped MI and still won; many Python users never saw it until Tkinter or Django. Frameworks still force hierarchies. A growing camp — Go, composition-first talks — says **avoid inheritance** when you can. This chapter is how it works when you cannot.
+
+## Subclassing built-ins is tricky
+
+Since 2.2 you can subclass `list` / `dict` / `str`. CPython has no clean rule for when an override runs. Approximation: **other built-in methods of the same object do not call your override**. `dict.get` will not use your `__getitem__`. `__init__` and `update` will not use your `__setitem__`. That breaks “always start lookup from the instance’s class.” `__missing__` is a documented special case, not a general promise.
+
+```python
+class DoppelDict(dict):
+    def __setitem__(self, key, value):
+        super().__setitem__(key, [value] * 2)
+
+DoppelDict(one=1)          # {'one': 1}   — __init__ ignored you
+d = DoppelDict(); d['two'] = 2   # [2, 2] — [] uses __setitem__
+d.update(three=3)          # 3, not [3, 3]
+```
+
+`AnswerDict.__getitem__` always returns `42`, but `plain.update(answer_dict)` copies the **stored** `'foo'`, not `42`.
+
+**Fix:** subclass `collections.UserDict`, `UserList`, or `UserString` (Python wrappers that delegate). Or implement a `collections.abc` mapping/sequence yourself. A `UserDict` `StrKeyDict` stayed ~16 lines; the same tests against raw `dict` needed `__init__`, `get`, and `update` as well (~37 lines).
+
+This pitfall is C built-ins calling each other. Python-coded bases (`UserDict`, `MutableMapping`) cooperate.
+
+<PistonRunner
+  lang="python"
+  interactive={false}
+  height="280px"
+  code={`class DoppelDict(dict):
+    def __setitem__(self, key, value):
+        super().__setitem__(key, [value] * 2)
+
+dd = DoppelDict(one=1)
+dd['two'] = 2
+dd.update(three=3)
+print('dict subclass', dict(dd))
+
+import collections
+
+class DoppelDict2(collections.UserDict):
+    def __setitem__(self, key, value):
+        super().__setitem__(key, [value] * 2)
+
+dd2 = DoppelDict2(one=1)
+dd2.update(three=3)
+print('UserDict', dict(dd2))
+`}
+/>
+
+<CodingExam
+  title="UserDict honors setitem"
+  heading="Challenge: UserDict honors setitem"
+  lang="python"
+  filename="main.py"
+  prompt="Bag(UserDict): __setitem__ stores [value]*2 via super. wrap: tokens k v k v ... Build Bag from those pairs using the constructor (kwargs-style: Bag({k: int(v) for ...}) or successive assignment). Print the value for the first key after also calling .update with the last pair again. Show that constructor/update go through __setitem__ (lists, not bare ints)."
+  sampleLog={`(input) a 1 b 2
+[1, 1] [2, 2]`}
+  starter={`import collections
+
+class Bag(collections.UserDict):
+    pass
+
+def wrap(line: str) -> str:
+    p = line.split()
+    pairs = list(zip(p[0::2], map(int, p[1::2])))
+    b = Bag()
+    for k, v in pairs:
+        b[k] = v
+    last_k, last_v = pairs[-1]
+    b.update({last_k: last_v})
+    first_k = pairs[0][0]
+    return f'{b[first_k]} {b[last_k]}'
+`}
+  wrapSuffix={`
+print(wrap(input()))
+`}
+  sourceChecks={[
+    { name: 'UserDict', pattern: 'UserDict', must: true, hint: 'class Bag(collections.UserDict)' },
+    { name: 'Overrides setitem', pattern: 'def __setitem__', must: true, hint: 'def __setitem__(self, key, value)' },
+  ]}
+  tests={[
+    { name: 'two keys', stdin: 'a 1 b 2', equals: '[1, 1] [2, 2]' },
+    { name: 'update still doubles', stdin: 'x 9', equals: '[9, 9] [9, 9]' },
+  ]}
+/>
+
+If you inherit `dict` instead, `update` leaves a bare `2` / `9` and the tests fail.
+
+<MultipleChoice
+  id="py-int-ch14-builtin"
+  title="Built-in subclasses"
+  questions={[
+    {
+      prompt: 'd.update(ad) when ad is a dict subclass with __getitem__ always 42',
+      choices: [
+        'always stores 42, even for dict subclasses',
+        'often stores the real value; UserDict makes update see 42',
+        'raises TypeError',
+        'calls __missing__',
+      ],
+      answer: 1,
+      why: 'C dict.update does not use your __getitem__. UserDict does.',
+    },
+  ]}
+/>
+
+## Multiple inheritance and MRO
+
+Two unrelated bases with the same method: the **diamond** (both inherit `A`, `D(B, C)`). C++ makes you qualify. Python uses **C3** MRO, stored as `Cls.__mro__`. `class D(B, C)` searches `D, B, C, A, object`. Swap to `D(C, B)` and `C` wins over `B`.
+
+`d.pong()` follows MRO. `C.pong(d)` skips MRO (unbound method; pass `self` yourself). Prefer `super()` on code you do not own — it walks **this instance’s** MRO, not “my literal parent.”
+
+```text
+d.pingpong()
+  self.ping()     → D.ping → super().ping() → A.ping, then post-ping
+  super().ping()  → A.ping (skips D)
+  self.pong()     → B.pong
+  super().pong()  → B.pong again
+  C.pong(self)    → C.pong  (uppercase), ignores MRO
+```
+
+`bool.__mro__` is `bool, int, object`. `FrenchDeck2` walks MutableSequence → Sequence → Sized → Iterable → Container. `io.TextIOWrapper` walks text/IO ABCs. You do not need to memorize C3 unless the graph is messy; Simionato’s paper is there if it is.
+
+Tkinter `Text.__mro__` is a long chain: Widget, geometry mixins `Pack`/`Place`/`Grid`, `XView`/`YView`. Adapter in GoF uses MI; the other 22 patterns do not. `collections.abc` is the uncontroversial case (Java-like interfaces plus mixin methods).
+
+<CodingExam
+  title="Diamond pong"
+  heading="Challenge: diamond pong"
+  lang="python"
+  filename="main.py"
+  prompt="A.ping prints ping. B(A).pong prints pong. C(A).pong prints PONG. D subclasses B and C in an order you choose so D.__mro__ lists B before C. D.pingpong calls self.pong() then C.pong(self). wrap: print the two words from pingpong (pong then PONG) and the MRO names joined by commas (class names only, no object)."
+  sampleLog={`(input) go
+pong PONG D, B, C, A`}
+  starter={`class A:
+    def ping(self):
+        return 'ping'
+
+class B(A):
+    def pong(self):
+        return 'pong'
+
+class C(A):
+    def pong(self):
+        return 'PONG'
+
+class D:
+    def pingpong(self):
+        return self.pong(), C.pong(self)
+
+def wrap(line: str) -> str:
+    d = D()
+    a, b = d.pingpong()
+    names = ', '.join(c.__name__ for c in D.__mro__ if c is not object)
+    return f'{a} {b} {names}'
+`}
+  wrapSuffix={`
+print(wrap(input()))
+`}
+  sourceChecks={[
+    { name: 'D inherits B and C', pattern: 'class D\\s*\\(\\s*B\\s*,\\s*C', must: true, hint: 'class D(B, C)' },
+  ]}
+  tests={[
+    { name: 'MRO B then C', stdin: 'go', equals: 'pong PONG D, B, C, A' },
+  ]}
+/>
+
+`self.pong()` must be `pong` (B). The explicit `C.pong(self)` must still be `PONG`.
+
+## Coping with multiple inheritance
+
+Kay: inheritance mixes reuse, specialization, and too many other jobs. Tips:
+
+1. **Interface** (“is-a”) vs **implementation** (reuse). Reuse is often better as composition.
+2. Interfaces → explicit **ABCs**.
+3. Reuse without a type → **mixin**: not instantiated alone; not the only base of a concrete class; few related methods.
+4. Name mixins `FooMixin`. Tkinter’s `Pack` / `XView` do not.
+5. An ABC may mixin concrete helpers; a mixin is not an ABC (no subtype, not a sole base). ABC helpers may only use the ABC’s own interface.
+6. **At most one concrete superclass.** The rest ABCs or mixins.
+7. **Aggregate** classes: empty body that stacks a useful combo (`tkinter.Widget`; Django `ListView`).
+8. **Favor composition.** A widget is not a geometry manager; it could *hold* one. New managers would not fight MRO. Composition cannot replace interface inheritance for a type lattice.
+
+### Tkinter: cautionary
+
+1994 wrapper around non-OO Tcl/Tk. `Misc` has 100+ methods on **every** widget (clipboard on a scrollbar). `Widget` is an aggregate of `BaseWidget` + three geometry classes — useful (#7), but composition would be cleaner. `dir(Button)` is 200+ names. Users can still ship real UIs (`ttk`, `Canvas`, `Text`). You inherit the mess anyway.
+
+### Django class-based views: clearer mixins
+
+A view: request in, response out. Old generic views were functions (not extensible). 1.3 added classes. `View` dispatches HTTP verbs; missing `post` → 405. `TemplateResponseMixin` only for template views — `RedirectView` skips it. `ListView` is an empty aggregate: `View` + `MultipleObjectMixin` (query + pagination) + template mixin. `BaseListView` is the JSON-shaped hole: list data, no template. Mixins are named `*Mixin` and have a job. Some teams still write one giant function; learning the CBV “rails” cuts boilerplate.
+
+[Classy Class-Based Views](https://ccbv.co.uk/) is the map.
+
+`super()` is not the villain; MI is complicated. Hettinger vs Knight. Traits (Simionato) constrain mixins. Regebro: MI’s dangers are overblown in practice. Rhodes: composition over inheritance. Fackler/Manista: interfaces + functions. Go: no class inheritance at all.
+
+When the framework is a tree, you still need MRO and mixins. When you own the design, start with composition.
+
+<MultipleChoice
+  id="py-int-ch14-mixin"
+  title="Mixins and aggregates"
+  questions={[
+    {
+      prompt: 'A concrete class should inherit from',
+      choices: [
+        'as many concrete classes as you like',
+        'at most one concrete class; other bases ABCs or mixins',
+        'only mixins',
+        'dict, always',
+      ],
+      answer: 1,
+      why: 'Keeps “what it is” vs “what it borrows” readable.',
+    },
+    {
+      prompt: 'Django ListView with an empty body is',
+      choices: [
+        'a mistake',
+        'an aggregate: stacks mixins users would otherwise order by hand',
+        'the same as Misc',
+        'forbidden in Python',
+      ],
+      answer: 1,
+      why: 'Booch’s aggregate class. Widget does the same for geometry mixins.',
+    },
+  ]}
+/>
+
+<ExerciseSet
+  title="Exercises"
+  description="super vs explicit class, and UserDict getitem."
+>
+  <CodingExam
+    title="super ping"
+    heading="Exercise: super ping"
+    lang="python"
+    filename="main.py"
+    prompt="D(B, C) as in the diamond exam. D.ping must call super().ping() then return post. wrap prints D().ping() as ping-post (A.ping returns ping)."
+    starter={`class A:
+    def ping(self):
+        return 'ping'
+
+class B(A):
+    pass
+
+class C(A):
+    pass
+
+class D(B, C):
+    def ping(self):
+        return 'post'
+
+def wrap(line: str) -> str:
+    return D().ping()
+`}
+    wrapSuffix={`
+print(wrap(input()))
+`}
+    sourceChecks={[
+      { name: 'Uses super', pattern: 'super\\s*\\(', must: true, hint: 'super().ping()' },
+    ]}
+    tests={[
+      { name: 'cooperative', stdin: 'x', equals: 'ping-post' },
+    ]}
+  />
+  <CodingExam
+    title="Answer mapping"
+    heading="Exercise: Answer mapping"
+    lang="python"
+    filename="main.py"
+    prompt="Ans(UserDict).__getitem__ returns 42 for any key. wrap: one key. Build Ans({key: 0}), copy into a plain dict via update, print ans[key] and copied[key] (both 42)."
+    starter={`import collections
+
+class Ans(collections.UserDict):
+    pass
+
+def wrap(line: str) -> str:
+    k = line.strip()
+    a = Ans({k: 0})
+    copied = {}
+    copied.update(a)
+    return f'{a[k]} {copied[k]}'
+`}
+    wrapSuffix={`
+print(wrap(input()))
+`}
+    sourceChecks={[
+      { name: 'UserDict', pattern: 'UserDict', must: true, hint: 'class Ans(collections.UserDict)' },
+      { name: 'getitem', pattern: 'def __getitem__', must: true, hint: 'def __getitem__(self, key)' },
+    ]}
+    tests={[
+      { name: 'always 42', stdin: 'a', equals: '42 42' },
+    ]}
+  />
+</ExerciseSet>

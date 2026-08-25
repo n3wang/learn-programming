@@ -1,0 +1,328 @@
+---
+sidebar_position: 11
+title: "Streams"
+---
+
+> **Source:** Effective Java, 3rd Edition — Chapter 7 by Joshua Bloch (Items 45–48)
+
+The **streams API** (Java 8) models sequences and **pipelines**: source → intermediate ops → **terminal** op. Evaluation is **lazy** until a terminal runs; a pipeline without one is a silent no-op. This lesson: use streams judiciously, stay side-effect-free, return collections when appropriate, and parallelize with care.
+
+## Item 45: Use streams judiciously
+
+A pipeline transforms data stage by stage. Streams excel at **map**, **filter**, **reduce**, **collect**, and **search** — especially over collections. They fit poorly when you need to **mutate locals**, **break/continue/return** from enclosing code, or **throw checked exceptions** from lambdas.
+
+**Don’t over-stream:** the anagram example becomes unreadable when alphabetizing inline in `groupingBy`. Prefer a named helper (`alphabetize`) and a clear pipeline:
+
+```java
+words.collect(groupingBy(Main::alphabetize))
+    .values().stream()
+    .filter(group -> group.size() >= minGroupSize)
+    .forEach(g -> System.out.println(g.size() + ": " + g));
+```
+
+Avoid `String.chars()` for char processing — elements are **int**, not char. Combine streams and loops where each shines. Name stream sources as plural nouns (`primes()`). When an earlier value is lost after `map`, **invert** the mapping later (Mersenne exponents via `bitLength()`).
+
+<MultipleChoice
+  id="java-int-ch7-streams-use"
+  title="Using streams judiciously"
+  questions={[
+    {
+      prompt: 'Stream pipeline with no terminal operation',
+      choices: [
+        'runs eagerly on construction',
+        'silent no-op until a terminal op is invoked',
+        'throws IllegalStateException immediately',
+        'same as parallel()',
+      ],
+      answer: 1,
+      why: 'Streams are lazy. Without terminal, nothing runs.',
+    },
+    {
+      prompt: '"Hello".chars().forEach(System.out::print) prints ints not letters because',
+      choices: [
+        'chars() returns Stream<char>',
+        'chars() returns IntStream — elements are int code units',
+        'forEach only works on objects',
+        'println is wrong',
+      ],
+      answer: 1,
+      why: 'No char stream in Java. chars() widens to int — surprising output.',
+    },
+  ]}
+/>
+
+<CodingExam
+  title="alphabetize helper"
+  heading="Challenge: alphabetize for grouping"
+  lang="java"
+  filename="Main.java"
+  prompt="alphabetize(s) returns s with letters sorted (anagram key). Use char[], Arrays.sort, new String — not a char stream. wrap: alphabetize staple; print result."
+  sampleLog={`aelpst`}
+  starter={`import java.util.Arrays;
+
+public class Main {
+    public static String alphabetize(String s) {
+        return null; // TODO sort letters of s
+    }
+}
+`}
+  wrapSuffix={`
+class Runner {
+    public static void main(String[] args) {
+        System.out.println(Main.alphabetize("staple"));
+    }
+}
+`}
+  sourceChecks={[
+    { name: 'char array sort', pattern: 'toCharArray|char\\s*\\[\\]', must: true, hint: 'char[] a = s.toCharArray(); Arrays.sort(a);' },
+    { name: 'Arrays.sort', pattern: 'Arrays\\.sort', must: true, hint: 'sort the char array before new String(a)' },
+    { name: 'no char stream', pattern: '\\.chars\\s*\\(\\s*\\)', must: false, hint: 'avoid String.chars() for alphabetize' },
+  ]}
+  tests={[
+    { name: 'staple', stdin: '', equals: 'aelpst' },
+    { name: 'tea', stdin: '', equals: 'aet' },
+  ]}
+/>
+
+## Item 46: Prefer side-effect-free functions in streams
+
+Stream code should use **pure** stages — results depend only on input, no mutating external state. This is wrong:
+
+```java
+Map<String, Long> freq = new HashMap<>();
+words.forEach(word -> freq.merge(word.toLowerCase(), 1L, Long::sum)); // smell
+```
+
+Prefer **collectors**:
+
+```java
+freq = words.collect(groupingBy(String::toLowerCase, counting()));
+```
+
+Use **`forEach`** only to **display** results, not to perform the computation. Key collectors: `toList`, `toSet`, `toMap`, `groupingBy`, `joining`. Static-import `Collectors.*` for readability.
+
+<CodingExam
+  title="frequency table collect"
+  heading="Challenge: groupingBy counting"
+  lang="java"
+  filename="Main.java"
+  prompt="freq(words) returns lowercase word counts using a stream collect — groupingBy(String::toLowerCase, counting()). Do not mutate an external HashMap in forEach. wrap: [Aa, bb, AA]; print count of aa."
+  sampleLog={`3`}
+  starter={`import java.util.Arrays;
+import java.util.List;
+import java.util.Map;
+
+public class Main {
+    public static Map<String, Long> freq(List<String> words) {
+        Map<String, Long> map = new java.util.HashMap<>();
+        words.forEach(w -> {
+            // TODO replace with stream().collect(groupingBy(..., counting()))
+        });
+        return map;
+    }
+}
+`}
+  wrapSuffix={`
+class Runner {
+    public static void main(String[] args) {
+        java.util.List<String> words = java.util.Arrays.asList("Aa", "bb", "AA");
+        System.out.println(Main.freq(words).get("aa"));
+    }
+}
+`}
+  sourceChecks={[
+    { name: 'groupingBy', pattern: 'groupingBy', must: true, hint: 'collect(groupingBy(String::toLowerCase, counting()))' },
+    { name: 'counting', pattern: 'counting\\s*\\(\\s*\\)', must: true, hint: 'use Collectors.counting() as downstream collector' },
+    { name: 'no forEach merge', pattern: 'forEach\\s*\\([^)]*merge', must: false, hint: 'do not build the map inside forEach' },
+  ]}
+  tests={[
+    { name: 'three aa', stdin: '', equals: '3' },
+  ]}
+/>
+
+## Item 47: Prefer Collection to Stream as a return type
+
+Public APIs that return sequences should support **both** iteration and stream pipelines when feasible. **`Collection`** (via `Iterable` + `stream()`) is usually the best return type for in-memory sequences. **`Stream`** alone frustrates for-each users (`Stream` does not extend `Iterable`). Adapters help:
+
+```java
+public static <E> Iterable<E> iterableOf(Stream<E> stream) { return stream::iterator; }
+public static <E> Stream<E> streamOf(Iterable<E> iterable) {
+    return StreamSupport.stream(iterable.spliterator(), false);
+}
+```
+
+Return **`Stream` or `Iterable`** when the sequence is large, lazy, or impractical to materialize (e.g. all sublists of a list — quadratic memory as `Collection`). Custom **`AbstractList`** / **`AbstractCollection`** can represent huge logical sequences (power set) compactly.
+
+<MultipleChoice
+  id="java-int-ch7-return-type"
+  title="Return types for sequences"
+  questions={[
+    {
+      prompt: 'Public API returning only Stream<E> for a finite in-memory list',
+      choices: [
+        'ideal — streams are always best',
+        'frustrates clients who want for-each without adapters',
+        'required by Item 45',
+        'same as Iterable',
+      ],
+      answer: 1,
+      why: 'Stream lacks Iterable. Collection supports both iteration and stream().',
+    },
+    {
+      prompt: 'Power set of a 20-element set as ArrayList',
+      choices: [
+        'fine — always materialize',
+        'exponential memory — prefer custom Collection or Stream',
+        'use parallel()',
+        'use ordinal indexing',
+      ],
+      answer: 1,
+      why: '2^n subsets — materializing can be infeasible. Lazy/custom structures help.',
+    },
+  ]}
+/>
+
+<CodingExam
+  title="return list not stream"
+  heading="Challenge: return List from filter"
+  lang="java"
+  filename="Main.java"
+  prompt="longerThan(words, n) returns a new List of strings with length > n (use stream filter + collect(toList())). Return List, not Stream. wrap: filter [a,bbb,cc] with n=1; print joined."
+  sampleLog={`bbb,cc`}
+  starter={`import java.util.List;
+
+public class Main {
+    public static List<String> longerThan(List<String> words, int n) {
+        return null; // TODO stream, filter, collect(toList())
+    }
+}
+`}
+  wrapSuffix={`
+class Runner {
+    public static void main(String[] args) {
+        java.util.List<String> words = java.util.Arrays.asList("a", "bbb", "cc");
+        java.util.List<String> out = Main.longerThan(words, 1);
+        System.out.println(String.join(",", out));
+    }
+}
+`}
+  sourceChecks={[
+    { name: 'returns List', pattern: 'List\\s*<\\s*String\\s*>', must: true, hint: 'method return type stays List<String>' },
+    { name: 'toList', pattern: 'toList\\s*\\(\\s*\\)', must: true, hint: '.collect(Collectors.toList())' },
+    { name: 'not Stream return', pattern: 'Stream\\s*<\\s*String\\s*>\\s+longerThan', must: false, hint: 'return a List, not Stream<String>' },
+  ]}
+  tests={[
+    { name: 'len gt 1', stdin: '', equals: 'bbb,cc' },
+  ]}
+/>
+
+## Item 48: Use caution when making streams parallel
+
+`parallel()` splits work across the common fork-join pool — **not** a free speedup. Disasters include **`Stream.iterate` + `limit`** pipelines (Mersenne primes hang with high CPU). Good splittable sources: **`ArrayList`**, **`HashMap`**, arrays, **`LongStream.range`**. **`collect`** (mutable reduction) parallelizes poorly.
+
+Parallelism requires **associative, non-interfering, stateless** lambdas — sequential bugs may become catastrophic under parallel. Use **`forEachOrdered`** to preserve encounter order. Parallelize only after **correctness tests** and **realistic benchmarks** (Item 67). **`SplittableRandom`** beats **`ThreadLocalRandom`** for parallel random streams.
+
+<MultipleChoice
+  id="java-int-ch7-parallel"
+  title="Parallel streams"
+  questions={[
+    {
+      prompt: 'primes().map(...).filter(...).limit(20).parallel() on Stream.iterate',
+      choices: [
+        'always faster',
+        'can livelock or run forever — iterate+limit parallelizes badly',
+        'required for BigInteger',
+        'fixes encounter order',
+      ],
+      answer: 1,
+      why: 'limit on parallel iterate may process unbounded extra elements — catastrophic cost.',
+    },
+    {
+      prompt: 'LongStream.rangeClosed(2, n).parallel().filter(isPrime).count() for pi(n)',
+      choices: [
+        'never helps',
+        'can speed up on splittable primitive ranges when work is enough',
+        'unsafe because count is sequential',
+        'requires synchronized Random',
+      ],
+      answer: 1,
+      why: 'Long ranges split cheaply — plausible parallel win for heavy per-element work.',
+    },
+  ]}
+/>
+
+## Items 45–48 map
+
+| Item | Move |
+|---|---|
+| 45 | Streams for map/filter/collect; helpers + mix with iteration |
+| 46 | Side-effect-free collect; forEach to print, not to compute |
+| 47 | Return Collection when feasible; Stream/Iterable when lazy/huge |
+| 48 | parallel() only with evidence; mind iterate, collect, state |
+
+Chapter 7 complete. Next: [Method Design](./lesson-8a-method-design) (Chapter 8, Items 49–52).
+
+<ExerciseSet
+  title="Exercises"
+  description="groupingBy and joining."
+>
+  <CodingExam
+    title="group by length"
+    heading="Exercise: groupingBy first letter"
+    lang="java"
+    filename="Main.java"
+    prompt="byFirstLetter(words) groups words by first char using stream collect(groupingBy(w -> w.charAt(0))). wrap: [ant, ape, bee]; print size of group 'a'."
+    starter={`import java.util.List;
+import java.util.Map;
+
+public class Main {
+    public static Map<Character, java.util.List<String>> byFirstLetter(List<String> words) {
+        return null; // TODO words.stream().collect(groupingBy(...))
+    }
+}
+`}
+    wrapSuffix={`
+class Runner {
+    public static void main(String[] args) {
+        java.util.List<String> words = java.util.Arrays.asList("ant", "ape", "bee");
+        System.out.println(Main.byFirstLetter(words).get('a').size());
+    }
+}
+`}
+    sourceChecks={[
+      { name: 'groupingBy', pattern: 'groupingBy', must: true, hint: 'groupingBy(w -> w.charAt(0))' },
+      { name: 'stream collect', pattern: 'stream\\s*\\(\\s*\\)\\.collect', must: true, hint: 'words.stream().collect(...)' },
+    ]}
+    tests={[
+      { name: 'two a', stdin: '', equals: '2' },
+    ]}
+  />
+  <CodingExam
+    title="join words"
+    heading="Exercise: Collectors.joining"
+    lang="java"
+    filename="Main.java"
+    prompt={`joinWords(words) returns words joined with commas via stream collect(joining(",")). wrap: [x,y,z]; print result.`}
+    starter={`import java.util.List;
+
+public class Main {
+    public static String joinWords(List<String> words) {
+        return null; // TODO collect(joining(","))
+    }
+}
+`}
+    wrapSuffix={`
+class Runner {
+    public static void main(String[] args) {
+        System.out.println(Main.joinWords(java.util.Arrays.asList("x", "y", "z")));
+    }
+}
+`}
+    sourceChecks={[
+      { name: 'joining', pattern: 'joining\\s*\\(\\s*","\\s*\\)|joining\\s*\\(\\s*"\\,"\\s*\\)', must: true, hint: 'Collectors.joining(",")' },
+    ]}
+    tests={[
+      { name: 'xyz', stdin: '', equals: 'x,y,z' },
+    ]}
+  />
+</ExerciseSet>

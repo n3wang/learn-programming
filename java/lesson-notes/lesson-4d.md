@@ -57,6 +57,84 @@ System.out.println(s1.compareTo(s4)); //-6 because "h" is 6 times lower than "n"
 
 
 
+### Try it: comparing strings
+
+<PistonRunner
+  lang="java"
+  interactive={false}
+  height="300px"
+  code={`public class Main {
+  public static void main(String[] args) {
+    String a = "banana";
+    String b = "apple";
+    System.out.println(a.equals(b));
+    System.out.println(a.equalsIgnoreCase("BANANA"));
+    System.out.println(a.compareTo(b) > 0);
+  }
+}
+`}
+/>
+
+<MultipleChoice
+  id="java-ch4d-stringcompare"
+  title="Comparing strings"
+  questions={[
+    {
+      prompt: 'String a = "cat"; String b = "cat"; a == b vs a.equals(b) —',
+      choices: [
+        'Both always give the same result',
+        '.equals() compares the actual characters; == may or may not, depending on how the Strings were created',
+        '== is the only correct way to compare Strings',
+        '.equals() only works on numbers',
+      ],
+      answer: 1,
+      why: 'Strings are objects. .equals() checks the characters themselves. == checks whether both variables point to the exact same object in memory — always prefer .equals() for text.',
+    },
+    {
+      prompt: '"apple".compareTo("banana") returns a value that is',
+      choices: ['Exactly 0', 'Positive', 'Negative', 'Always -1'],
+      answer: 2,
+      why: "'a' comes before 'b' alphabetically, so compareTo returns a negative number when the calling String is alphabetically earlier.",
+    },
+  ]}
+/>
+
+<CodingExam
+  title="same word, ignoring case"
+  heading="Try it: same word, ignoring case"
+  lang="java"
+  filename="Main.java"
+  prompt="Read two words. Print true if they are equal ignoring case, false otherwise."
+  sampleLog={`(input) Hello hello
+true`}
+  starter={`public class Main {
+    public static boolean sameIgnoreCase(String a, String b) {
+        // TODO: use equalsIgnoreCase
+        return false;
+    }
+}
+`}
+  wrapSuffix={`
+class Runner {
+    public static void main(String[] args) {
+        java.util.Scanner sc = new java.util.Scanner(System.in);
+        String a = sc.next();
+        String b = sc.next();
+        System.out.println(Main.sameIgnoreCase(a, b));
+    }
+}
+`}
+  sourceChecks={[
+    { name: 'Uses equalsIgnoreCase', pattern: 'equalsIgnoreCase', must: true, hint: 'a.equalsIgnoreCase(b)' },
+  ]}
+  tests={[
+    { name: 'match different case', stdin: 'Hello hello', equals: 'true' },
+    { name: 'different words', stdin: 'Hello World', equals: 'false' },
+  ]}
+/>
+
+---
+
 [👀 TODO: Trvia](https://learn2codelive.com/courses/107/pages/lesson-4-learning-activities-e2-assessment-quiz?module_item_id=9128)
 
 
@@ -97,4 +175,153 @@ public static void main (String args[]){
 <iframe src="https://trinket.io/embed/java/4faadfc62a?outputOnly=true" width="100%" height="300" frameborder="0" marginwidth="0" marginheight="0" allowfullscreen></iframe>
 
 :::
+
+---
+
+## Chapter summary
+
+:::important Key takeaways
+
+1. Use `.equals()` (or `.equalsIgnoreCase()`) to compare the **contents** of two `String`s — never `==`, which compares object identity.
+2. `.compareTo()` returns negative, zero, or positive to say whether the calling string sorts before, equal to, or after the argument alphabetically.
+3. `.equalsIgnoreCase()` treats `"Test"` and `"test"` as equal; `.equals()` treats them as different.
+4. String comparison, like number comparison, gives you a `boolean` you can feed straight into `if`.
+
+:::
+
+## Exercises
+
+<ExerciseSet>
+<Exercise title="Alphabetical order" anchor="exercise-alpha-order">
+
+:::tip Activity: Alphabetical order
+Read two words. Print them in alphabetical order, space-separated, using `.compareTo()`.
+
+<CodingExam
+  title="Alphabetical order"
+  heading="exercise-alpha-order"
+  lang="java"
+  filename="Main.java"
+  prompt="If a.compareTo(b) <= 0, print a then b; otherwise print b then a."
+  sampleLog={`(input) banana apple
+apple banana`}
+  starter={`public class Main {
+    public static String order(String a, String b) {
+        // TODO
+        return "";
+    }
+}
+`}
+  wrapSuffix={`
+class Runner {
+    public static void main(String[] args) {
+        java.util.Scanner sc = new java.util.Scanner(System.in);
+        String a = sc.next();
+        String b = sc.next();
+        System.out.println(Main.order(a, b));
+    }
+}
+`}
+  sourceChecks={[
+    { name: 'Uses compareTo', pattern: 'compareTo', must: true, hint: 'a.compareTo(b)' },
+  ]}
+  tests={[
+    { name: 'reversed input', stdin: 'banana apple', equals: 'apple banana' },
+    { name: 'already sorted', stdin: 'apple banana', equals: 'apple banana' },
+  ]}
+/>
+
+:::
+
+</Exercise>
+
+<Exercise title="Longest word" anchor="exercise-longest-word">
+
+:::tip Activity: Longest word
+Read two words. Print the longer one (use `.length()`). If they are the same length, print the first one.
+
+<CodingExam
+  title="Longest word"
+  heading="exercise-longest-word"
+  lang="java"
+  filename="Main.java"
+  prompt="Compare a.length() and b.length(), return the longer (or a if tied)."
+  sampleLog={`(input) cat elephant
+elephant`}
+  starter={`public class Main {
+    public static String longer(String a, String b) {
+        // TODO
+        return "";
+    }
+}
+`}
+  wrapSuffix={`
+class Runner {
+    public static void main(String[] args) {
+        java.util.Scanner sc = new java.util.Scanner(System.in);
+        String a = sc.next();
+        String b = sc.next();
+        System.out.println(Main.longer(a, b));
+    }
+}
+`}
+  sourceChecks={[
+    { name: 'Uses .length()', pattern: '\\.length\\(\\)', must: true, hint: 'a.length() vs b.length()' },
+  ]}
+  tests={[
+    { name: 'b longer', stdin: 'cat elephant', equals: 'elephant' },
+    { name: 'a longer', stdin: 'elephant cat', equals: 'elephant' },
+    { name: 'tied', stdin: 'cat dog', equals: 'cat' },
+  ]}
+/>
+
+:::
+
+</Exercise>
+
+<Exercise title="Same word regardless of case" anchor="exercise-same-word">
+
+:::tip Activity: Same word regardless of case
+Read three words. Print how many of the last two match the first one, ignoring case.
+
+<CodingExam
+  title="Same word regardless of case"
+  heading="exercise-same-word"
+  lang="java"
+  filename="Main.java"
+  prompt="Compare word2 and word3 against word1 using equalsIgnoreCase, count the matches."
+  sampleLog={`(input) Cat cat DOG
+1`}
+  starter={`public class Main {
+    public static int countMatches(String word1, String word2, String word3) {
+        // TODO
+        return 0;
+    }
+}
+`}
+  wrapSuffix={`
+class Runner {
+    public static void main(String[] args) {
+        java.util.Scanner sc = new java.util.Scanner(System.in);
+        String w1 = sc.next();
+        String w2 = sc.next();
+        String w3 = sc.next();
+        System.out.println(Main.countMatches(w1, w2, w3));
+    }
+}
+`}
+  sourceChecks={[
+    { name: 'Uses equalsIgnoreCase', pattern: 'equalsIgnoreCase', must: true, hint: 'word1.equalsIgnoreCase(word2)' },
+  ]}
+  tests={[
+    { name: 'one match', stdin: 'Cat cat DOG', equals: '1' },
+    { name: 'both match', stdin: 'Cat cat CAT', equals: '2' },
+    { name: 'no match', stdin: 'Cat dog fish', equals: '0' },
+  ]}
+/>
+
+:::
+
+</Exercise>
+</ExerciseSet>
 

@@ -1,0 +1,256 @@
+---
+sidebar_position: 10
+title: "Lambdas and Method References"
+---
+
+> **Source:** Effective Java, 3rd Edition — Chapter 7 by Joshua Bloch (Items 42–44)
+
+Java 8 added **functional interfaces**, **lambdas**, and **method references** for concise function objects, alongside the streams API. This lesson: lambdas over anonymous classes, method references over verbose lambdas, and standard types from `java.util.function`.
+
+## Item 42: Prefer lambdas to anonymous classes
+
+A **functional interface** has one abstract method. **Lambdas** implement it more succinctly than anonymous classes:
+
+```java
+// Obsolete
+Collections.sort(words, new Comparator<String>() {
+    public int compare(String s1, String s2) {
+        return Integer.compare(s1.length(), s2.length());
+    }
+});
+
+// Prefer
+words.sort((s1, s2) -> Integer.compare(s1.length(), s2.length()));
+// or
+words.sort(comparingInt(String::length));
+```
+
+The compiler **infers** lambda parameter and return types from context — keep generics on collections (`List<String>`, not raw `List`) so inference works (Items 26, 29, 30).
+
+**Enum constant behavior:** pass a `DoubleBinaryOperator` lambda to each enum constructor instead of constant-specific class bodies when behavior is a short, self-explanatory line.
+
+**When not to use lambdas:** abstract classes, interfaces with multiple abstract methods, need `this` to refer to the function object itself, or serialization (use private static nested class, Item 24). Keep lambdas to ~1–3 lines; enum constructor lambdas run in a static context (no instance field access).
+
+<MultipleChoice
+  id="java-int-ch7-lambdas"
+  title="Lambdas vs anonymous classes"
+  questions={[
+    {
+      prompt: 'List words declared as raw List (not List<String>) with a sorting lambda',
+      choices: [
+        'always compiles — inference needs no generics',
+        'may fail type inference — generics supply context for lambdas',
+        'only fails with method references',
+        'fixed by adding @Override',
+      ],
+      answer: 1,
+      why: 'Lambdas rely on generic context. Raw types strip the information the compiler needs.',
+    },
+    {
+      prompt: 'Need a function object that refers to itself inside its body',
+      choices: [
+        'lambda — this refers to the lambda',
+        'anonymous class — this refers to the anonymous instance',
+        'either works the same',
+        'use raw Comparator',
+      ],
+      answer: 1,
+      why: 'In a lambda, this is the enclosing class. In an anonymous class, this is the function object.',
+    },
+  ]}
+/>
+
+<CodingExam
+  title="sort by length lambda"
+  heading="Challenge: sort with lambda"
+  lang="java"
+  filename="Main.java"
+  prompt="sortByLength sorts the given list of strings by length ascending using List.sort and a lambda (not an anonymous Comparator class). wrap: sort ccc,a,bb; print comma-joined."
+  sampleLog={`a,bb,ccc`}
+  starter={`import java.util.List;
+
+public class Main {
+    public static void sortByLength(List<String> words) {
+        // TODO words.sort((s1, s2) -> ...)
+    }
+}
+`}
+  wrapSuffix={`
+class Runner {
+    public static void main(String[] args) {
+        java.util.List<String> words = new java.util.ArrayList<>(java.util.Arrays.asList("ccc", "a", "bb"));
+        Main.sortByLength(words);
+        System.out.println(String.join(",", words));
+    }
+}
+`}
+  sourceChecks={[
+    { name: 'sort call', pattern: 'words\\.sort\\s*\\(', must: true, hint: 'words.sort(...)' },
+    { name: 'length compare', pattern: 'length\\s*\\(\\s*\\)', must: true, hint: 'compare s1.length() and s2.length()' },
+    { name: 'no anonymous Comparator', pattern: 'new\\s+Comparator', must: false, hint: 'use a lambda, not new Comparator<>() { ... }' },
+  ]}
+  tests={[
+    { name: 'abc lengths', stdin: '', equals: 'a,bb,ccc' },
+  ]}
+/>
+
+## Item 43: Prefer method references to lambdas
+
+When a lambda only forwards to an existing method, a **method reference** is often clearer:
+
+```java
+map.merge(key, 1, (count, incr) -> count + incr); // verbose
+map.merge(key, 1, Integer::sum);                 // better
+```
+
+| Kind | Example | Lambda equivalent |
+|---|---|---|
+| Static | `Integer::parseInt` | `str -> Integer.parseInt(str)` |
+| Bound instance | `Instant.now()::isAfter` | `t -> then.isAfter(t)` |
+| Unbound instance | `String::toLowerCase` | `str -> str.toLowerCase()` |
+| Constructor | `TreeMap::new` | `() -> new TreeMap<>()` |
+| Array constructor | `int[]::new` | `len -> new int[len]` |
+
+Prefer method references when shorter and clearer; keep lambdas when parameter names document intent, or when the method is in the same class (`() -> action()` vs `Humongous::action`). `x -> x` is often cleaner than `Function.identity()`.
+
+<CodingExam
+  title="merge integer sum"
+  heading="Challenge: Integer::sum merge"
+  lang="java"
+  filename="Main.java"
+  prompt="bumpCount uses map.merge(key, 1, merger) to count occurrences. Replace the lambda merger with the method reference Integer::sum. wrap: bump a twice; print count."
+  sampleLog={`2`}
+  starter={`import java.util.HashMap;
+import java.util.Map;
+
+public class Main {
+    public static int bumpCount(Map<String, Integer> map, String key) {
+        map.merge(key, 1, (count, incr) -> count + incr);
+        return map.get(key);
+    }
+}
+`}
+  wrapSuffix={`
+class Runner {
+    public static void main(String[] args) {
+        java.util.Map<String, Integer> map = new java.util.HashMap<>();
+        Main.bumpCount(map, "a");
+        System.out.println(Main.bumpCount(map, "a"));
+    }
+}
+`}
+  sourceChecks={[
+    { name: 'Integer sum ref', pattern: 'Integer::sum', must: true, hint: 'map.merge(key, 1, Integer::sum)' },
+    { name: 'no merge lambda', pattern: 'merge\\s*\\([^)]+\\(\\s*\\w+\\s*,\\s*\\w+\\s*\\)\\s*->', must: false, hint: 'replace (count, incr) -> count + incr with Integer::sum' },
+  ]}
+  tests={[
+    { name: 'twice', stdin: '', equals: '2' },
+  ]}
+/>
+
+## Item 44: Favor the use of standard functional interfaces
+
+`java.util.function` supplies **43** standard interfaces — prefer them over one-off functional interfaces when they fit. Six core object-reference types:
+
+| Interface | Signature | Example |
+|---|---|---|
+| `UnaryOperator<T>` | `T apply(T)` | `String::toLowerCase` |
+| `BinaryOperator<T>` | `T apply(T,T)` | `BigInteger::add` |
+| `Predicate<T>` | `boolean test(T)` | `Collection::isEmpty` |
+| `Function<T,R>` | `R apply(T)` | `Arrays::asList` |
+| `Supplier<T>` | `T get()` | `Instant::now` |
+| `Consumer<T>` | `void accept(T)` | `System.out::println` |
+
+Plus primitive variants (`IntPredicate`, `LongBinaryOperator`, …). Use **primitive** functional interfaces for bulk numeric work — not boxed types (Item 61).
+
+Write your own `@FunctionalInterface` when the type has a **descriptive name**, **strong contract**, or **useful defaults** — like `Comparator`, not `ToIntBiFunction`. Avoid overloadings that differ only by functional interface type in the same argument position (ExecutorService `Callable` vs `Runnable` ambiguity, Item 52).
+
+<CodingExam
+  title="predicate filter"
+  heading="Challenge: Predicate filter"
+  lang="java"
+  filename="Main.java"
+  prompt="filter(words, p) returns a new list of strings where p.test(s) is true. longerThan(n) returns a Predicate<String> that tests length > n. wrap: filter [a,bbb,cc] with longerThan(1); print joined."
+  sampleLog={`bbb,cc`}
+  starter={`import java.util.ArrayList;
+import java.util.List;
+import java.util.function.Predicate;
+
+public class Main {
+    public static List<String> filter(List<String> words, Predicate<String> p) {
+        List<String> out = new ArrayList<>();
+        // TODO add words where p.test(s)
+        return out;
+    }
+
+    public static Predicate<String> longerThan(int n) {
+        return null; // TODO return s -> s.length() > n
+    }
+}
+`}
+  wrapSuffix={`
+class Runner {
+    public static void main(String[] args) {
+        java.util.List<String> words = java.util.Arrays.asList("a", "bbb", "cc");
+        java.util.List<String> out = Main.filter(words, Main.longerThan(1));
+        System.out.println(String.join(",", out));
+    }
+}
+`}
+  sourceChecks={[
+    { name: 'Predicate param', pattern: 'Predicate\\s*<\\s*String\\s*>', must: true, hint: 'use java.util.function.Predicate<String>' },
+    { name: 'test call', pattern: 'p\\.test\\s*\\(', must: true, hint: 'if (p.test(s)) out.add(s)' },
+    { name: 'lambda or predicate', pattern: '->|Predicate', must: true, hint: 'longerThan returns s -> s.length() > n' },
+  ]}
+  tests={[
+    { name: 'len gt 1', stdin: '', equals: 'bbb,cc' },
+  ]}
+/>
+
+## Items 42–44 map
+
+| Item | Move |
+|---|---|
+| 42 | Lambdas for function objects; keep generic context for inference |
+| 43 | Method references when they shorten forwarding lambdas |
+| 44 | Standard `java.util.function` types; custom only when warranted |
+
+Next: [Streams](./lesson-7b-streams) (Items 45–48).
+
+<ExerciseSet
+  title="Exercises"
+  description="Method reference and comparingInt."
+>
+  <CodingExam
+    title="comparing int length"
+    heading="Exercise: comparingInt method reference"
+    lang="java"
+    filename="Main.java"
+    prompt="sortByLength uses words.sort with Comparator.comparingInt and a method reference to String::length. wrap: sort at,bee,mouse; print first word."
+    starter={`import java.util.Comparator;
+import java.util.List;
+
+public class Main {
+    public static void sortByLength(List<String> words) {
+        // TODO words.sort(Comparator.comparingInt(String::length))
+    }
+}
+`}
+    wrapSuffix={`
+class Runner {
+    public static void main(String[] args) {
+        java.util.List<String> words = new java.util.ArrayList<>(java.util.Arrays.asList("at", "bee", "mouse"));
+        Main.sortByLength(words);
+        System.out.println(words.get(0));
+    }
+}
+`}
+    sourceChecks={[
+      { name: 'comparingInt', pattern: 'comparingInt', must: true, hint: 'Comparator.comparingInt(...)' },
+      { name: 'String length ref', pattern: 'String::length', must: true, hint: 'Comparator.comparingInt(String::length)' },
+    ]}
+    tests={[
+      { name: 'shortest first', stdin: '', equals: 'at' },
+    ]}
+  />
+</ExerciseSet>

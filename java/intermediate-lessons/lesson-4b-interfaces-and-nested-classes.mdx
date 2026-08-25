@@ -1,0 +1,394 @@
+---
+sidebar_position: 5
+title: "Interfaces and Nested Classes"
+---
+
+> **Source:** Effective Java, 3rd Edition — Chapter 4 by Joshua Bloch (Items 21–25)
+
+This lesson finishes Chapter 4: designing interfaces for the long term, using interfaces only as types, replacing tagged classes with hierarchies, choosing the right nested class, and keeping one top-level class per source file.
+
+## Item 21: Design interfaces for posterity
+
+Before Java 8, adding a method to an interface **broke every existing implementation** at compile time. **Default methods** (Java 8) inject a shared implementation into classes that do not override the new method — but there is no guarantee that default works for every preexisting type.
+
+Example: `Collection.removeIf` (Java 8) walks with an iterator and calls `it.remove()`. A solid general-purpose default — yet **`SynchronizedCollection`** wrappers that synchronize every call but **do not override** `removeIf` inherit unsynchronized traversal. Concurrent mutation can yield `ConcurrentModificationException` or worse. JDK maintainers overrode defaults in platform synchronized wrappers; third-party wrappers may still be broken.
+
+**Lessons:**
+
+- Avoid adding default methods to **released** interfaces unless critical; think hard about wrapper / invariant breakage.
+- Default methods **are** great on **new** interfaces to ease implementation (Item 20).
+- Default methods do **not** let you remove or change existing method signatures safely.
+- **Design interfaces carefully up front** — flaws irritate users forever. Test with **≥3 diverse implementations** and multiple client programs before release.
+
+<MultipleChoice
+  id="java-int-ch4-default-methods"
+  title="Default methods and posterity"
+  questions={[
+    {
+      prompt: 'SynchronizedCollection does not override removeIf (Java 8+)',
+      choices: [
+        'inherits a synchronized default — safe',
+        'inherits an unsynchronized default — can break the wrapper promise',
+        'compile error until override',
+        'only affects ArrayList',
+      ],
+      answer: 1,
+      why: 'The default uses iterator().remove() with no lock. Wrappers must override or inherit broken behavior.',
+    },
+    {
+      prompt: 'Best time to use default methods on an interface',
+      choices: [
+        'retrofit many methods into a widely implemented released interface',
+        'provide standard helpers when the interface is first created',
+        'replace equals/hashCode defaults',
+        'export constants without a class',
+      ],
+      answer: 1,
+      why: 'Defaults ease new interfaces. Retrofitting released APIs risks silent runtime breakage.',
+    },
+  ]}
+/>
+
+## Item 22: Use interfaces only to define types
+
+When a class `implements` an interface, that interface is a **type** describing what clients can do with instances. Do not use interfaces for other purposes.
+
+**Constant interface antipattern:** an interface with only `static final` fields, implemented so callers need not qualify names:
+
+```java
+// Do not do this
+public interface PhysicalConstants {
+    static final double AVOGADROS_NUMBER = 6.022_140_857e23;
+}
+```
+
+Problems: constants leak into the class’s exported API as `implements`; binary compatibility traps you; subclasses inherit constant namespace pollution. Platform examples (`ObjectStreamConstants`) are anomalies.
+
+**Better exports:**
+
+- Constants tied to a class → add to that class (`Integer.MAX_VALUE`).
+- Constants as a set → **enum** (Item 34).
+- Otherwise → **noninstantiable utility class** (Item 4) + optional `static import`.
+
+Underscores in numeric literals (Java 7+): no value change; use for readability (groups of three in base 10 when ≥5 digits).
+
+<CodingExam
+  title="constant utility class"
+  heading="Challenge: constant utility class"
+  lang="java"
+  filename="Main.java"
+  prompt="PhysicalConstants is a noninstantiable utility class (Item 4). Export AVOGADROS_NUMBER = 6.022e23. atoms(mols) returns atoms count. Do not implement an interface just to import constants."
+  sampleLog={`(input) 2
+1.2044E24`}
+  starter={`public class Main {
+    public static final class PhysicalConstants {
+        public static final double AVOGADROS_NUMBER = 6.022e23;
+
+        public static double atoms(double mols) {
+            return 0; // TODO
+        }
+    }
+}
+`}
+  wrapSuffix={`
+class Runner {
+    public static void main(String[] args) {
+        java.util.Scanner sc = new java.util.Scanner(System.in);
+        double mols = sc.nextDouble();
+        System.out.println(Main.PhysicalConstants.atoms(mols));
+    }
+}
+`}
+  sourceChecks={[
+    { name: 'private ctor', pattern: 'private\\s+PhysicalConstants\\s*\\(', must: true, hint: 'private PhysicalConstants() { } blocks instantiation' },
+    { name: 'multiply', pattern: 'AVOGADROS_NUMBER\\s*\\*\\s*mols|mols\\s*\\*\\s*AVOGADROS_NUMBER', must: true, hint: 'return AVOGADROS_NUMBER * mols' },
+    { name: 'no implements', pattern: 'implements\\s+', must: false, hint: 'export constants from a class, not a constant interface' },
+  ]}
+  tests={[
+    { name: 'two mols', stdin: '2', equals: '1.2044E24' },
+    { name: 'one mol', stdin: '1', equals: '6.022E23' },
+  ]}
+/>
+
+## Item 23: Prefer class hierarchies to tagged classes
+
+A **tagged class** carries a tag field (`enum Shape`) and switches on it — circle vs rectangle in one class:
+
+```java
+// Inferior — tag + switch + irrelevant fields
+class Figure {
+    enum Shape { RECTANGLE, CIRCLE }
+    final Shape shape;
+    double length, width; // rectangle only
+    double radius;          // circle only
+    double area() { switch (shape) { ... } }
+}
+```
+
+Shortcomings: boilerplate, jumbled logic, wasted fields, non-final irrelevant fields, runtime switch misses, closed to extension without editing the switch, type gives no flavor hint.
+
+**Fix:** subtyping — abstract root with abstract flavor-dependent methods; concrete subclass per flavor:
+
+```java
+abstract class Figure { abstract double area(); }
+class Circle extends Figure { ... }
+class Rectangle extends Figure { ... }
+```
+
+Each flavor gets its own type, final fields, compile-time enforcement, independent extension. Hierarchies can model natural relationships (`Square extends Rectangle`).
+
+<CodingExam
+  title="figure hierarchy area"
+  heading="Challenge: figure hierarchy area"
+  lang="java"
+  filename="Main.java"
+  prompt="Circle and Rectangle extend abstract Figure. Each stores its dimensions in final fields (constructor provided). Override area(): circle πr², rectangle length×width. wrap: shape token then dimensions; print area rounded to two decimals."
+  sampleLog={`(input) circle 3
+28.27`}
+  starter={`public class Main {
+    public static abstract class Figure {
+        abstract double area();
+    }
+
+    public static final class Circle extends Figure {
+        private final double radius;
+
+        public Circle(double radius) {
+            this.radius = radius;
+        }
+
+        @Override
+        double area() {
+            return 0; // TODO
+        }
+    }
+
+    public static final class Rectangle extends Figure {
+        private final double length;
+        private final double width;
+
+        public Rectangle(double length, double width) {
+            this.length = length;
+            this.width = width;
+        }
+
+        @Override
+        double area() {
+            return 0; // TODO
+        }
+    }
+}
+`}
+  wrapSuffix={`
+class Runner {
+    public static void main(String[] args) {
+        java.util.Scanner sc = new java.util.Scanner(System.in);
+        String kind = sc.next();
+        Main.Figure f;
+        if (kind.equals("circle")) {
+            f = new Main.Circle(sc.nextDouble());
+        } else {
+            f = new Main.Rectangle(sc.nextDouble(), sc.nextDouble());
+        }
+        System.out.printf("%.2f%n", f.area());
+    }
+}
+`}
+  sourceChecks={[
+    { name: 'circle formula', pattern: 'Math\\.PI|radius\\s*\\*\\s*radius', must: true, hint: 'Circle: Math.PI * radius * radius' },
+    { name: 'rectangle multiply', pattern: 'length\\s*\\*\\s*width|width\\s*\\*\\s*length', must: true, hint: 'Rectangle: length * width' },
+    { name: 'no shape tag', pattern: 'enum\\s+Shape|switch\\s*\\(\\s*shape', must: false, hint: 'use subclasses, not a tagged switch' },
+  ]}
+  tests={[
+    { name: 'circle', stdin: 'circle 3', equals: '28.27' },
+    { name: 'rectangle', stdin: 'rect 4 5', equals: '20.00' },
+  ]}
+/>
+
+## Item 24: Favor static member classes over nonstatic
+
+Four nested kinds: **static member**, **nonstatic member** (inner), **anonymous**, **local**. Only static member is not an “inner class.”
+
+- **Static member class:** like a normal class nested for packaging; no implicit outer `this`. Use when the nested type does not need an enclosing instance (`Map.Entry` should be static — otherwise each entry holds a wasteful back-reference and can leak the map).
+- **Nonstatic member class:** each instance tied to one outer instance (`Map` views, `Iterator` implementations). Created as `outer.new Inner()` or from outer instance methods.
+- **Anonymous / local:** short (≈10 lines); lambdas replaced most anonymous function objects (Item 42).
+
+If a member class does not need the outer instance → **`static`**. Omitting `static` adds hidden outer reference (space, construction cost, **GC leak** risk — Item 7).
+
+Public/protected nested classes in exported types: static vs nonstatic is a **binary compatibility** commitment.
+
+<MultipleChoice
+  id="java-int-ch4-nested"
+  title="Nested classes"
+  questions={[
+    {
+      prompt: 'Map.Entry implemented as a nonstatic member class (missing static)',
+      choices: [
+        'same behavior, smaller objects',
+        'each entry holds an extra reference to the map — waste and leak risk',
+        'required so getValue works',
+        'compile error',
+      ],
+      answer: 1,
+      why: 'Entry methods do not need the map instance. static avoids the hidden outer reference.',
+    },
+    {
+      prompt: 'MySet.iterator returns new MyIterator() where MyIterator is a private inner class',
+      choices: [
+        'wrong — iterators must be static',
+        'appropriate — iterator needs the outer set instance',
+        'must be anonymous',
+        'must be a top-level class',
+      ],
+      answer: 1,
+      why: 'Iterators typically traverse enclosing collection state — nonstatic member class fits.',
+    },
+  ]}
+/>
+
+<CodingExam
+  title="static nested pair"
+  heading="Challenge: static nested pair"
+  lang="java"
+  filename="Main.java"
+  prompt="Box holds a public static nested class Pair with final int a, b and sum(). Pair must be static — it does not need a Box instance. wrap: two ints; print Pair.sum()."
+  sampleLog={`(input) 3 5
+8`}
+  starter={`public class Main {
+    public static final class Box {
+        public static final class Pair {
+            public final int a;
+            public final int b;
+
+            public Pair(int a, int b) {
+                this.a = a;
+                this.b = b;
+            }
+
+            public int sum() {
+                return 0; // TODO
+            }
+        }
+    }
+}
+`}
+  wrapSuffix={`
+class Runner {
+    public static void main(String[] args) {
+        java.util.Scanner sc = new java.util.Scanner(System.in);
+        Main.Box.Pair p = new Main.Box.Pair(sc.nextInt(), sc.nextInt());
+        System.out.println(p.sum());
+    }
+}
+`}
+  sourceChecks={[
+    { name: 'static nested', pattern: 'static\\s+(final\\s+)?class\\s+Pair', must: true, hint: 'declare Pair as static — no outer Box needed' },
+    { name: 'add fields', pattern: 'a\\s*\\+\\s*b|b\\s*\\+\\s*a', must: true, hint: 'return a + b' },
+  ]}
+  tests={[
+    { name: 'sum', stdin: '3 5', equals: '8' },
+    { name: 'zeros', stdin: '0 0', equals: '0' },
+  ]}
+/>
+
+## Item 25: Limit source files to a single top-level class
+
+The compiler allows multiple top-level classes per `.java` file, but **never do it**. Two files defining the same package-private classes compile order-dependent behavior:
+
+- `Utensil.java` defines `Utensil` + `Dessert` → `Main` prints `pancake`.
+- Duplicate definitions in `Dessert.java` → multiply-defined error if both compiled, or **`potpie`** if `javac Dessert.java Main.java`.
+
+**Fix:** one public top-level class per file (name matches file). Related helpers → **private static member classes** (Item 24) instead of extra top-level types in one file.
+
+<MultipleChoice
+  id="java-int-ch4-one-class"
+  title="One class per file"
+  questions={[
+    {
+      prompt: 'Utensil.java and Dessert.java both define package-private Utensil and Dessert',
+      choices: [
+        'always a compile error',
+        'behavior can depend on javac file order — undefined potpie vs pancake',
+        'JVM picks the newer file',
+        'safe if classes are identical',
+      ],
+      answer: 1,
+      why: 'Duplicate top-level definitions + compile order = silent wrong program or hard error.',
+    },
+    {
+      prompt: 'Two small helper types used only by Test',
+      choices: [
+        'put both in Test.java as package-private top-level classes',
+        'private static member classes inside Test',
+        'constant interface both implement',
+        'anonymous classes only',
+      ],
+      answer: 1,
+      why: 'Static member classes keep one top-level type per file and hide helpers.',
+    },
+  ]}
+/>
+
+## Items 21–25 map
+
+| Item | Move |
+|---|---|
+| 21 | Design interfaces carefully; avoid risky default-method retrofits |
+| 22 | Interfaces define types — not constant buckets |
+| 23 | Hierarchy beats tagged class + switch |
+| 24 | `static` nested unless you need the outer instance |
+| 25 | One top-level class per source file |
+
+Next: [Generics](./lesson-5a-generics) (Chapter 5, Items 26–29).
+
+<ExerciseSet
+  title="Exercises"
+  description="Replace a tagged shape with a tiny hierarchy."
+>
+  <CodingExam
+    title="square is-a rectangle"
+    heading="Exercise: square is-a rectangle"
+    lang="java"
+    filename="Main.java"
+    prompt="Rectangle has final length, width and area() = length×width. Square extends Rectangle — one side in the constructor, pass side twice to super. wrap: side length; print area to two decimals."
+    starter={`public class Main {
+    public static class Rectangle {
+        private final double length;
+        private final double width;
+
+        public Rectangle(double length, double width) {
+            this.length = length;
+            this.width = width;
+        }
+
+        public double area() {
+            return 0; // TODO
+        }
+    }
+
+    public static final class Square extends Rectangle {
+        public Square(double side) {
+            super(0, 0); // TODO pass side to super correctly
+        }
+    }
+}
+`}
+    wrapSuffix={`
+class Runner {
+    public static void main(String[] args) {
+        java.util.Scanner sc = new java.util.Scanner(System.in);
+        Main.Square s = new Main.Square(sc.nextDouble());
+        System.out.printf("%.2f%n", s.area());
+    }
+}
+`}
+    sourceChecks={[
+      { name: 'rectangle area', pattern: 'length\\s*\\*\\s*width|width\\s*\\*\\s*length', must: true, hint: 'Rectangle.area: length * width' },
+      { name: 'square super', pattern: 'super\\s*\\(\\s*side\\s*,\\s*side\\s*\\)', must: true, hint: 'Square(side): super(side, side)' },
+    ]}
+    tests={[
+      { name: 'four', stdin: '4', equals: '16.00' },
+      { name: 'two', stdin: '2', equals: '4.00' },
+    ]}
+  />
+</ExerciseSet>

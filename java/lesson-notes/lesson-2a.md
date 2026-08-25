@@ -112,6 +112,86 @@ public class Main {
 
 </details>
 
+### Try it: arithmetic operators
+
+<PistonRunner
+  lang="java"
+  interactive={false}
+  height="360px"
+  code={`public class Main {
+  public static void main(String[] args) {
+    int a = 17;
+    int b = 5;
+    System.out.println(a + b);
+    System.out.println(a - b);
+    System.out.println(a * b);
+    System.out.println(a / b);
+    System.out.println(a % b);
+  }
+}
+`}
+/>
+
+<MultipleChoice
+  id="java-ch2a-arithmetic"
+  title="Arithmetic operators"
+  questions={[
+    {
+      prompt: 'int result = 17 / 5; What is result?',
+      code: 'int result = 17 / 5;',
+      codeLang: 'java',
+      choices: ['3.4', '3', '2', '0'],
+      answer: 1,
+      why: 'Dividing two ints in Java performs integer division: the decimal part is dropped, so 17 / 5 is 3.',
+    },
+    {
+      prompt: 'int result = 17 % 5; What is result?',
+      code: 'int result = 17 % 5;',
+      codeLang: 'java',
+      choices: ['3', '2', '3.4', '5'],
+      answer: 1,
+      why: '% gives the remainder after division: 17 = 5*3 + 2, so the remainder is 2.',
+    },
+  ]}
+/>
+
+<CodingExam
+  title="remainder check"
+  heading="Try it: remainder check"
+  lang="java"
+  filename="Main.java"
+  prompt="Read two integers a and b. Print a % b."
+  sampleLog={`(input) 17 5
+2`}
+  starter={`public class Main {
+    public static int remainder(int a, int b) {
+        // TODO: return a % b
+        return 0;
+    }
+}
+`}
+  wrapSuffix={`
+class Runner {
+    public static void main(String[] args) {
+        java.util.Scanner sc = new java.util.Scanner(System.in);
+        int a = sc.nextInt();
+        int b = sc.nextInt();
+        System.out.println(Main.remainder(a, b));
+    }
+}
+`}
+  sourceChecks={[
+    { name: 'Uses the modulus operator', pattern: '%', must: true, hint: 'a % b' },
+  ]}
+  tests={[
+    { name: '17 5', stdin: '17 5', equals: '2' },
+    { name: 'exact', stdin: '10 5', equals: '0' },
+    { name: 'a smaller than b', stdin: '3 7', equals: '3' },
+  ]}
+/>
+
+---
+
 ## Compound Assigment Operator
 
 | operator | Definition                    |
@@ -147,6 +227,82 @@ public class Main {
 <iframe src="https://trinket.io/embed/java/2bfb91b7e7" width="100%" height="1200" frameborder="0" marginwidth="0" marginheight="0" allowfullscreen></iframe>
 
 </details>
+
+### Try it: compound assignment
+
+<PistonRunner
+  lang="java"
+  interactive={false}
+  height="300px"
+  code={`public class Main {
+  public static void main(String[] args) {
+    int total = 10;
+    total += 5;
+    System.out.println(total);
+    total *= 2;
+    System.out.println(total);
+    total -= 3;
+    System.out.println(total);
+  }
+}
+`}
+/>
+
+<MultipleChoice
+  id="java-ch2a-compound"
+  title="Compound assignment"
+  questions={[
+    {
+      prompt: 'int x = 8; x /= 2; What is x now?',
+      code: 'int x = 8;\nx /= 2;',
+      codeLang: 'java',
+      choices: ['8', '4', '6', '16'],
+      answer: 1,
+      why: 'x /= 2; is short for x = x / 2;, so 8 / 2 gives 4.',
+    },
+    {
+      prompt: 'a += b; is shorthand for',
+      choices: ['a = b;', 'a = a + b;', 'b = a + b;', 'a = a + a;'],
+      answer: 1,
+      why: 'Every compound assignment operator expands to "variable = variable OP other;".',
+    },
+  ]}
+/>
+
+<CodingExam
+  title="apply a discount"
+  heading="Try it: apply a discount"
+  lang="java"
+  filename="Main.java"
+  prompt="Read a starting price (int). Subtract 10 using -=, then print the result."
+  sampleLog={`(input) 50
+40`}
+  starter={`public class Main {
+    public static int applyDiscount(int price) {
+        // TODO: subtract 10 using the -= operator, then return price
+        return price;
+    }
+}
+`}
+  wrapSuffix={`
+class Runner {
+    public static void main(String[] args) {
+        java.util.Scanner sc = new java.util.Scanner(System.in);
+        int price = sc.nextInt();
+        System.out.println(Main.applyDiscount(price));
+    }
+}
+`}
+  sourceChecks={[
+    { name: 'Uses -= compound assignment', pattern: '-=', must: true, hint: 'price -= 10;' },
+  ]}
+  tests={[
+    { name: '50', stdin: '50', equals: '40' },
+    { name: '10', stdin: '10', equals: '0' },
+  ]}
+/>
+
+---
 
 [👀 Practice Activity](https://learn2codelive.com/courses/107/pages/lesson-2-learning-activities-r-practice-activity-1-prediction-with-integer-data-type-and-math-operations?module_item_id=9048)
 
@@ -295,6 +451,186 @@ Rene has $29.80 in her piggy bank. Rene’s dad has promised to give her $2.50 i
 
 
  -->
+
+---
+
+## Chapter summary
+
+:::important Key takeaways
+
+1. Java's whole-number types (`byte`, `short`, `int`, `long`) and decimal types (`float`, `double`) trade off range and precision — `int` and `double` cover most everyday programs.
+2. `/` between two `int`s performs **integer division** and drops the decimal part; mix in a `double` if you need a fractional result.
+3. `%` returns the remainder of a division — useful for even/odd checks and wrap-around counting.
+4. Compound assignment (`+=`, `-=`, `*=`, `/=`, `%=`) is shorthand for "take the variable, apply the operator, store it back."
+
+:::
+
+## Exercises
+
+<ExerciseSet>
+<Exercise title="BMI inputs" anchor="exercise-bmi">
+
+:::tip Activity: BMI inputs
+Read a weight in kg and a height in meters (both `double`). Print the BMI using `weight / (height * height)`.
+
+<CodingExam
+  title="BMI inputs"
+  heading="exercise-bmi"
+  lang="java"
+  filename="Main.java"
+  prompt="Return weight / (height * height)."
+  sampleLog={`(input) 70 1.75
+22.857142857142858`}
+  starter={`public class Main {
+    public static double bmi(double weight, double height) {
+        // TODO
+        return 0.0;
+    }
+}
+`}
+  wrapSuffix={`
+class Runner {
+    public static void main(String[] args) {
+        java.util.Scanner sc = new java.util.Scanner(System.in);
+        double w = sc.nextDouble();
+        double h = sc.nextDouble();
+        System.out.println(Main.bmi(w, h));
+    }
+}
+`}
+  tests={[
+    { name: '70 1.75', stdin: '70 1.75', equals: '22.857142857142858' },
+    { name: '60 1.5', stdin: '60 1.5', equals: '26.666666666666668' },
+  ]}
+/>
+
+:::
+
+</Exercise>
+
+<Exercise title="Last two digits" anchor="exercise-last-two-digits">
+
+:::tip Activity: Last two digits
+Read a positive integer. Print its last two digits using `%`.
+
+<CodingExam
+  title="Last two digits"
+  heading="exercise-last-two-digits"
+  lang="java"
+  filename="Main.java"
+  prompt="Return n % 100."
+  sampleLog={`(input) 13579
+79`}
+  starter={`public class Main {
+    public static int lastTwo(int n) {
+        // TODO
+        return 0;
+    }
+}
+`}
+  wrapSuffix={`
+class Runner {
+    public static void main(String[] args) {
+        java.util.Scanner sc = new java.util.Scanner(System.in);
+        int n = sc.nextInt();
+        System.out.println(Main.lastTwo(n));
+    }
+}
+`}
+  sourceChecks={[
+    { name: 'Uses the modulus operator', pattern: '%', must: true, hint: 'n % 100' },
+  ]}
+  tests={[
+    { name: '13579', stdin: '13579', equals: '79' },
+    { name: 'single digit', stdin: '7', equals: '7' },
+  ]}
+/>
+
+:::
+
+</Exercise>
+
+<Exercise title="Running total" anchor="exercise-running-total">
+
+:::tip Activity: Running total
+Read a starting balance, then two more integers to add. Using `+=` twice, print the final balance.
+
+<CodingExam
+  title="Running total"
+  heading="exercise-running-total"
+  lang="java"
+  filename="Main.java"
+  prompt="Start with balance, then balance += a; balance += b; return balance."
+  sampleLog={`(input) 100 20 5
+125`}
+  starter={`public class Main {
+    public static int total(int balance, int a, int b) {
+        // TODO: use += twice
+        return balance;
+    }
+}
+`}
+  wrapSuffix={`
+class Runner {
+    public static void main(String[] args) {
+        java.util.Scanner sc = new java.util.Scanner(System.in);
+        int balance = sc.nextInt();
+        int a = sc.nextInt();
+        int b = sc.nextInt();
+        System.out.println(Main.total(balance, a, b));
+    }
+}
+`}
+  sourceChecks={[
+    { name: 'Uses += compound assignment', pattern: '\\+=', must: true, hint: 'balance += a;' },
+  ]}
+  tests={[
+    { name: '100 20 5', stdin: '100 20 5', equals: '125' },
+    { name: '0 1 1', stdin: '0 1 1', equals: '2' },
+  ]}
+/>
+
+:::
+
+</Exercise>
+
+<Exercise title="Size in bytes" anchor="exercise-size-bytes">
+
+:::tip Activity: Size in bytes
+Print how many bytes an `int` and a `long` each use, one per line, using `Integer.SIZE` and `Long.SIZE` (both in bits — divide by 8).
+
+<CodingExam
+  title="Size in bytes"
+  heading="exercise-size-bytes"
+  lang="java"
+  filename="Main.java"
+  prompt="Print Integer.SIZE / 8, then Long.SIZE / 8, one per line."
+  sampleLog={`(no input)
+4
+8`}
+  starter={`public class Main {
+    public static void printSizes() {
+        // TODO: print Integer.SIZE / 8 then Long.SIZE / 8, each on its own line
+    }
+}
+`}
+  wrapSuffix={`
+class Runner {
+    public static void main(String[] args) {
+        Main.printSizes();
+    }
+}
+`}
+  tests={[
+    { name: 'sizes', stdin: '', equals: '4\n8' },
+  ]}
+/>
+
+:::
+
+</Exercise>
+</ExerciseSet>
+
 
 
 

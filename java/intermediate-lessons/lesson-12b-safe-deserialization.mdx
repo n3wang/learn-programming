@@ -1,0 +1,374 @@
+---
+sidebar_position: 21
+title: "Safe Deserialization"
+---
+
+> **Source:** Effective Java, 3rd Edition — Chapter 12 by Joshua Bloch (Items 88–90)
+
+This lesson closes Chapter 12 — and the Effective Java intermediate track: defensive **`readObject`**, **`enum`** singletons over **`readResolve`**, and the **serialization proxy** pattern.
+
+## Item 88: Write readObject methods defensively
+
+**`readObject` is a public constructor** that takes a byte stream. Attackers can craft streams that violate invariants or steal references to internal mutable state (the **`Period`/`Date`** attacks).
+
+Treat **`readObject` like a constructor** (Items 49–50):
+
+1. **Defensive-copy** mutable components (before validation)
+2. **Validate invariants** — throw **`InvalidObjectException`** on failure
+3. **Never call overridable methods** during deserialization
+
+Litmus test: would you add a public constructor that assigns every nontransient field with **no checks**? If not, fix **`readObject`** — or use a **serialization proxy** (Item 90).
+
+<CodingExam
+  title="readobject validates"
+  heading="Challenge: readObject invariant check"
+  lang="java"
+  filename="Main.java"
+  prompt="IntRange implements Serializable (non-final int start/end). Constructor rejects start > end. readObject: defaultReadObject then throw InvalidObjectException if start > end. serialVersionUID=1L. wrap: round-trip IntRange(2,5); print start."
+  sampleLog={`2`}
+  starter={`import java.io.IOException;
+import java.io.ObjectInputStream;
+import java.io.Serializable;
+
+public class Main {
+    public static class IntRange implements Serializable {
+        private static final long serialVersionUID = 1L;
+        private int start;
+        private int end;
+
+        public IntRange(int start, int end) {
+            if (start > end) {
+                throw new IllegalArgumentException("start after end");
+            }
+            this.start = start;
+            this.end = end;
+        }
+
+        public int start() {
+            return start;
+        }
+
+        private void readObject(ObjectInputStream in) throws IOException, ClassNotFoundException {
+            in.defaultReadObject();
+        }
+    }
+}
+`}
+  wrapSuffix={`
+class Runner {
+    public static void main(String[] args) throws Exception {
+        Main.IntRange range = new Main.IntRange(2, 5);
+        byte[] bytes;
+        try (java.io.ByteArrayOutputStream bos = new java.io.ByteArrayOutputStream();
+             java.io.ObjectOutputStream oos = new java.io.ObjectOutputStream(bos)) {
+            oos.writeObject(range);
+            bytes = bos.toByteArray();
+        }
+        try (java.io.ObjectInputStream ois = new java.io.ObjectInputStream(
+                new java.io.ByteArrayInputStream(bytes))) {
+            Main.IntRange restored = (Main.IntRange) ois.readObject();
+            System.out.println(restored.start());
+        }
+    }
+}
+`}
+  sourceChecks={[
+    { name: 'defaultReadObject', pattern: 'defaultReadObject\\s*\\(', must: true, hint: 'in.defaultReadObject(); first line in readObject' },
+    { name: 'InvalidObjectException', pattern: 'InvalidObjectException', must: true, hint: 'if (start > end) throw new InvalidObjectException(...)' },
+    { name: 'checks start end', pattern: 'start\\s*>\\s*end', must: true, hint: 'same invariant as constructor' },
+  ]}
+  tests={[
+    { name: 'start 2', stdin: '', equals: '2' },
+  ]}
+/>
+
+<MultipleChoice
+  id="java-int-ch12-readobject"
+  title="Defensive readObject"
+  questions={[
+    {
+      prompt: 'Immutable serializable class with private mutable Date fields',
+      choices: [
+        'defaultReadObject alone preserves immutability',
+        'defensive-copy Dates in readObject before validating invariants',
+        'Date.clone() in constructor is enough for deserialization',
+        'make Date fields public for transparency',
+      ],
+      answer: 1,
+      why: 'Attackers can steal references to deserialized mutable components unless you copy in readObject.',
+    },
+    {
+      prompt: 'readObject on extendable class calls overridable hook method',
+      choices: [
+        'safe — subclass state is ready',
+        'subclass override may run before subclass fields deserialize',
+        'required for readResolve',
+        'only unsafe with enums',
+      ],
+      answer: 1,
+      why: 'Like constructors, readObject must not invoke overridable methods (Item 19).',
+    },
+  ]}
+/>
+
+## Item 89: For instance control, prefer enum types to readResolve
+
+**`readResolve`** can swap the deserialized instance for a canonical one (e.g. singleton **`INSTANCE`**). It is **fragile**: nontransient reference fields can be “stolen” before **`readResolve`** runs (Elvis stealer attack).
+
+**Prefer a single-element `enum`** for singletons (Item 3) — serialization guarantees constant identity without **`readResolve`**.
+
+If instances aren’t known at compile time, **`readResolve`** may be necessary — make reference fields **`transient`** and use **`private`** on final classes.
+
+<CodingExam
+  title="enum singleton"
+  heading="Challenge: enum not readResolve"
+  lang="java"
+  filename="Main.java"
+  prompt="Replace the singleton class with an enum AppConfig { INSTANCE; ... } with mode() returning prod. Do not use a static INSTANCE field on a class. wrap: AppConfig.INSTANCE.mode()."
+  sampleLog={`prod`}
+  starter={`public class Main {
+    public static class AppConfig {
+        public static final AppConfig INSTANCE = new AppConfig();
+
+        private AppConfig() {
+        }
+
+        public String mode() {
+            return "prod";
+        }
+    }
+}
+`}
+  wrapSuffix={`
+class Runner {
+    public static void main(String[] args) {
+        System.out.println(Main.AppConfig.INSTANCE.mode());
+    }
+}
+`}
+  sourceChecks={[
+    { name: 'enum type', pattern: 'enum\\s+AppConfig', must: true, hint: 'public enum AppConfig { INSTANCE; ... }' },
+    { name: 'no class singleton', pattern: 'class\\s+AppConfig|new\\s+AppConfig\\s*\\(', must: false, hint: 'use enum singleton, not static final INSTANCE on a class' },
+  ]}
+  tests={[
+    { name: 'prod', stdin: '', equals: 'prod' },
+  ]}
+/>
+
+<MultipleChoice
+  id="java-int-ch12-readresolve"
+  title="Instance control"
+  questions={[
+    {
+      prompt: 'Serializable singleton with readResolve and nontransient String[] field',
+      choices: [
+        'always safe — readResolve runs first',
+        'attacker may capture pre-resolve instance via nested deserialization',
+        'fixed by making class final only',
+        'requires writeObject only',
+      ],
+      answer: 1,
+      why: 'Reference fields deserialize before readResolve. Prefer enum or transient fields.',
+    },
+    {
+      prompt: 'Compile-time fixed set of instances (e.g. one database connection policy)',
+      choices: [
+        'readResolve on a Serializable class',
+        'single-element enum — preferred instance control',
+        'public clone()',
+        'cloneable singleton',
+      ],
+      answer: 1,
+      why: 'Enums enforce instance control without fragile readResolve (Item 3, 89).',
+    },
+  ]}
+/>
+
+## Item 90: Consider serialization proxies instead of serialized instances
+
+The **serialization proxy pattern**:
+
+1. **`private static`** nested **`SerializationProxy`** copies logical state
+2. **`writeReplace()`** on the enclosing class returns the proxy
+3. **`readObject`** on the enclosing class throws **`InvalidObjectException`** (blocks fake instances)
+4. **`readResolve()`** on the proxy rebuilds via **public API** (constructors/factories)
+
+Benefits: **final fields** stay final, invariants enforced by normal construction, attacks from Items 88–89 blocked. Cost: ~14% overhead vs defensive **`readObject`** in Bloch’s tests. Not for user-extendable classes or graphs with circularities during **`readResolve`**.
+
+<CodingExam
+  title="serialization proxy"
+  heading="Challenge: writeReplace + proxy"
+  lang="java"
+  filename="Main.java"
+  prompt="Span(start,end) is immutable with start<=end. Add serialization proxy: writeReplace returns new SerializationProxy(this); readObject throws InvalidObjectException; proxy readResolve returns new Span(start,end). serialVersionUID on both. wrap: round-trip Span(2,8); print start."
+  sampleLog={`2`}
+  starter={`import java.io.IOException;
+import java.io.ObjectInputStream;
+import java.io.Serializable;
+
+public class Main {
+    public static final class Span implements Serializable {
+        private static final long serialVersionUID = 1L;
+        private final int start;
+        private final int end;
+
+        public Span(int start, int end) {
+            if (start > end) {
+                throw new IllegalArgumentException("start after end");
+            }
+            this.start = start;
+            this.end = end;
+        }
+
+        public int start() {
+            return start;
+        }
+    }
+}
+`}
+  wrapSuffix={`
+class Runner {
+    public static void main(String[] args) throws Exception {
+        Main.Span span = new Main.Span(2, 8);
+        byte[] bytes;
+        try (java.io.ByteArrayOutputStream bos = new java.io.ByteArrayOutputStream();
+             java.io.ObjectOutputStream oos = new java.io.ObjectOutputStream(bos)) {
+            oos.writeObject(span);
+            bytes = bos.toByteArray();
+        }
+        try (java.io.ObjectInputStream ois = new java.io.ObjectInputStream(
+                new java.io.ByteArrayInputStream(bytes))) {
+            Main.Span restored = (Main.Span) ois.readObject();
+            System.out.println(restored.start());
+        }
+    }
+}
+`}
+  sourceChecks={[
+    { name: 'writeReplace', pattern: 'writeReplace\\s*\\(', must: true, hint: 'private Object writeReplace() { return new SerializationProxy(this); }' },
+    { name: 'readObject rejects', pattern: 'readObject\\s*\\([\\s\\S]*InvalidObjectException', must: true, hint: 'private void readObject(...) { throw new InvalidObjectException("Proxy required"); }' },
+    { name: 'SerializationProxy', pattern: 'class\\s+SerializationProxy', must: true, hint: 'private static class SerializationProxy implements Serializable' },
+    { name: 'proxy readResolve', pattern: 'readResolve\\s*\\([\\s\\S]*new\\s+Span', must: true, hint: 'return new Span(start, end); in proxy readResolve' },
+  ]}
+  tests={[
+    { name: 'start 2', stdin: '', equals: '2' },
+  ]}
+/>
+
+## Items 88–90 map
+
+| Item | Move |
+|---|---|
+| 88 | readObject = constructor: copy, validate, no overridables |
+| 89 | enum singleton beats readResolve |
+| 90 | Proxy: writeReplace, reject readObject, proxy readResolve |
+
+Chapter 12 complete. Effective Java intermediate track complete (Items 1–90).
+
+<ExerciseSet
+  title="Exercises"
+  description="Defensive array copy; readResolve with transient field."
+>
+  <CodingExam
+    title="readobject array copy"
+    heading="Exercise: defensive copy in readObject"
+    lang="java"
+    filename="Main.java"
+    prompt="IntBox wraps int[] data. Constructor clones array. readObject: defaultReadObject then data = data.clone(). serialVersionUID=1L. wrap: round-trip box [7,9]; print first element."
+    starter={`import java.io.IOException;
+import java.io.ObjectInputStream;
+import java.io.Serializable;
+
+public class Main {
+    public static class IntBox implements Serializable {
+        private static final long serialVersionUID = 1L;
+        private int[] data;
+
+        public IntBox(int[] data) {
+            this.data = data.clone();
+        }
+
+        public int first() {
+            return data[0];
+        }
+
+        private void readObject(ObjectInputStream in) throws IOException, ClassNotFoundException {
+            in.defaultReadObject();
+        }
+    }
+}
+`}
+    wrapSuffix={`
+class Runner {
+    public static void main(String[] args) throws Exception {
+        Main.IntBox box = new Main.IntBox(new int[] { 7, 9 });
+        byte[] bytes;
+        try (java.io.ByteArrayOutputStream bos = new java.io.ByteArrayOutputStream();
+             java.io.ObjectOutputStream oos = new java.io.ObjectOutputStream(bos)) {
+            oos.writeObject(box);
+            bytes = bos.toByteArray();
+        }
+        try (java.io.ObjectInputStream ois = new java.io.ObjectInputStream(
+                new java.io.ByteArrayInputStream(bytes))) {
+            Main.IntBox restored = (Main.IntBox) ois.readObject();
+            System.out.println(restored.first());
+        }
+    }
+}
+`}
+    sourceChecks={[
+      { name: 'clone in readObject', pattern: 'readObject[\\s\\S]*data\\s*=\\s*data\\.clone\\s*\\(', must: true, hint: 'after defaultReadObject: data = data.clone();' },
+    ]}
+    tests={[
+      { name: 'seven', stdin: '', equals: '7' },
+    ]}
+  />
+  <CodingExam
+    title="readresolve singleton"
+    heading="Exercise: readResolve when enum won't do"
+    lang="java"
+    filename="Main.java"
+    prompt="Legacy Serializable singleton Token with INSTANCE and transient id field (always 1). Add private readResolve() returning INSTANCE. wrap: deserialize round-trip; print (restored==INSTANCE)."
+    starter={`import java.io.Serializable;
+
+public class Main {
+    public static class Token implements Serializable {
+        private static final long serialVersionUID = 1L;
+        public static final Token INSTANCE = new Token();
+        private transient int id = 1;
+
+        private Token() {
+        }
+
+        public int id() {
+            return id;
+        }
+    }
+}
+`}
+    wrapSuffix={`
+class Runner {
+    public static void main(String[] args) throws Exception {
+        byte[] bytes;
+        try (java.io.ByteArrayOutputStream bos = new java.io.ByteArrayOutputStream();
+             java.io.ObjectOutputStream oos = new java.io.ObjectOutputStream(bos)) {
+            oos.writeObject(Main.Token.INSTANCE);
+            bytes = bos.toByteArray();
+        }
+        try (java.io.ObjectInputStream ois = new java.io.ObjectInputStream(
+                new java.io.ByteArrayInputStream(bytes))) {
+            Main.Token restored = (Main.Token) ois.readObject();
+            System.out.println(restored == Main.Token.INSTANCE);
+        }
+    }
+}
+`}
+    sourceChecks={[
+      { name: 'readResolve', pattern: 'readResolve\\s*\\(\\s*\\)', must: true, hint: 'private Object readResolve() { return INSTANCE; }' },
+      { name: 'transient id', pattern: 'transient\\s+int\\s+id', must: true, hint: 'keep id transient so streams cannot steal mutable state' },
+    ]}
+    tests={[
+      { name: 'same instance', stdin: '', equals: 'true' },
+    ]}
+  />
+</ExerciseSet>

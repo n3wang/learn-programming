@@ -1,0 +1,360 @@
+---
+sidebar_position: 9
+title: "Extensible Enums and Annotations"
+---
+
+> **Source:** Effective Java, 3rd Edition — Chapter 6 by Joshua Bloch (Items 38–41)
+
+This lesson closes Chapter 6: emulate extensible enums with interfaces, prefer annotations over naming patterns, use `@Override`, and choose marker interfaces vs marker annotations.
+
+## Item 38: Emulate extensible enums with interfaces
+
+Language enums **cannot be extended** — by design (confusing subtyping, no way to iterate base + extensions). For **opcodes** where clients add operations, use an **interface** + a **standard enum** that implements it:
+
+```java
+public interface Operation { double apply(double x, double y); }
+public enum BasicOperation implements Operation { PLUS(...), ... }
+public enum ExtendedOperation implements Operation { EXP(...), REMAINDER(...); }
+```
+
+APIs take **`Operation`**, not `BasicOperation`. Clients pass `ExtendedOperation` instances or iterate via:
+
+```java
+<T extends Enum<T> & Operation> void test(Class<T> opEnumType, ...)
+// or
+void test(Collection<? extends Operation> opSet, ...)
+```
+
+The `Class<T>` form enables `EnumSet` / `EnumMap`; the collection form is simpler and can mix implementation types. Shared logic can live in the interface as **default methods** (Item 20). Used in `LinkOption implements CopyOption, OpenOption`.
+
+<CodingExam
+  title="extended operation"
+  heading="Challenge: enum implements Operation"
+  lang="java"
+  filename="Main.java"
+    prompt={`Op interface declares apply(x,y). Mod enum implements Op with MOD that returns x % y. wrap: two doubles; print Mod.apply result.`}
+  sampleLog={`(input) 10 3
+1`}
+  starter={`public class Main {
+    public interface Op {
+        double apply(double x, double y);
+    }
+
+    public enum Mod implements Op {
+        MOD {
+            @Override
+            public double apply(double x, double y) {
+                return 0; // TODO remainder
+            }
+        };
+    }
+}
+`}
+  wrapSuffix={`
+class Runner {
+    public static void main(String[] args) {
+        java.util.Scanner sc = new java.util.Scanner(System.in);
+        double x = sc.nextDouble();
+        double y = sc.nextDouble();
+        Main.Op op = Main.Mod.MOD;
+        System.out.println((int) op.apply(x, y));
+    }
+}
+`}
+  sourceChecks={[
+    { name: 'implements Op', pattern: 'enum\\s+Mod\\s+implements\\s+Op', must: true, hint: 'Mod implements Op' },
+    { name: 'modulo', pattern: '%', must: true, hint: 'return x % y' },
+  ]}
+  tests={[
+    { name: 'ten three', stdin: '10 3', equals: '1' },
+    { name: 'seven four', stdin: '7 4', equals: '3' },
+  ]}
+/>
+
+## Item 39: Prefer annotations to naming patterns
+
+Naming patterns (`testSafetyOverride`, encoding exception types in method names) fail silently on typos, attach to wrong elements, and cannot carry structured parameters.
+
+**Annotations** attach metadata read by tools/frameworks. Example marker annotation:
+
+```java
+@Retention(RetentionPolicy.RUNTIME)
+@Target(ElementType.METHOD)
+public @interface Test { }
+```
+
+**Meta-annotations:** `@Retention`, `@Target`. Marker annotations have no elements; **single-member** annotations use `value()` (e.g. `Class<? extends Throwable> value()` for expected exceptions). Array parameters accept `{ A.class, B.class }`; Java 8 **`@Repeatable`** wraps repeated annotations in a container type.
+
+A toy runner uses reflection: `Method.isAnnotationPresent(Test.class)`, `invoke(null)` for static tests. **`InvocationTargetException.getCause()`** holds the test failure. Annotations do not change semantics — they enable tools.
+
+<CodingExam
+  title="count test annotations"
+  heading="Challenge: count @Test methods"
+  lang="java"
+  filename="Main.java"
+  prompt="@Test marks static test methods (defined in Main). countTests(Class) uses reflection: count declared methods where isAnnotationPresent(Test.class). wrap: Sample inner harness class; print count."
+  sampleLog={`3`}
+  starter={`import java.lang.annotation.ElementType;
+import java.lang.annotation.Retention;
+import java.lang.annotation.RetentionPolicy;
+import java.lang.annotation.Target;
+
+public class Main {
+    @Retention(RetentionPolicy.RUNTIME)
+    @Target(ElementType.METHOD)
+    public @interface Test {
+    }
+
+    public static int countTests(Class<?> clazz) {
+        return 0; // TODO reflect getDeclaredMethods, isAnnotationPresent
+    }
+}
+`}
+  wrapSuffix={`
+class Sample {
+    @Main.Test public static void a() { }
+    @Main.Test public static void b() { }
+    public static void c() { }
+    @Main.Test public static void d() { }
+}
+
+class Runner {
+    public static void main(String[] args) {
+        System.out.println(Main.countTests(Sample.class));
+    }
+}
+`}
+  sourceChecks={[
+    { name: 'getDeclaredMethods', pattern: 'getDeclaredMethods', must: true, hint: 'for (Method m : clazz.getDeclaredMethods())' },
+    { name: 'isAnnotationPresent', pattern: 'isAnnotationPresent\\s*\\(\\s*Test\\.class\\s*\\)', must: true, hint: 'm.isAnnotationPresent(Test.class)' },
+  ]}
+  tests={[
+    { name: 'three', stdin: '', equals: '3' },
+  ]}
+/>
+
+<MultipleChoice
+  id="java-int-ch6-annotations"
+  title="Annotations vs naming"
+  questions={[
+    {
+      prompt: 'JUnit 3 testTsetFoo typo in method name',
+      choices: [
+        'compile error',
+        'silent skip — test never runs',
+        'runtime annotation error',
+        'fixed by @Override',
+      ],
+      answer: 1,
+      why: 'Naming patterns have no compile-time enforcement. Annotations catch misuse at compile time.',
+    },
+    {
+      prompt: '@Retention(RetentionPolicy.RUNTIME) on @Test',
+      choices: [
+        'annotation visible to reflection at runtime',
+        'stored only in source files',
+        'required for @Override',
+        'limits Test to fields only',
+      ],
+      answer: 0,
+      why: 'RUNTIME retention lets test runners inspect annotations via reflection.',
+    },
+  ]}
+/>
+
+## Item 40: Consistently use the Override annotation
+
+`Bigram` with `equals(Bigram b)` **overloads** instead of overriding `Object.equals(Object)` — `Set` keeps 260 duplicates instead of 26. **`@Override`** on the broken signature makes the compiler error: *method does not override*.
+
+Fix: `@Override public boolean equals(Object o)` with `instanceof` + cast (Item 10). Use `@Override` on every method you intend to override (including interface defaults you implement). Minor exception: concrete classes need not annotate overrides of abstract methods (compiler enforces anyway) — annotating anyway is fine.
+
+<CodingExam
+  title="override equals"
+  heading="Challenge: @Override equals(Object)"
+  lang="java"
+  filename="Main.java"
+  prompt="Bigram has final char first, second and correct hashCode. equals currently overloads equals(Bigram) — replace with @Override equals(Object): == , instanceof Bigram, compare fields. wrap: add two equal Bigrams to HashSet; print size (expect 1)."
+  sampleLog={`1`}
+  starter={`import java.util.HashSet;
+import java.util.Set;
+
+public class Main {
+    public static final class Bigram {
+        private final char first;
+        private final char second;
+
+        public Bigram(char first, char second) {
+            this.first = first;
+            this.second = second;
+        }
+
+        public boolean equals(Bigram b) {
+            return b.first == first && b.second == second;
+        }
+
+        @Override
+        public int hashCode() {
+            return 31 * first + second;
+        }
+    }
+}
+`}
+  wrapSuffix={`
+class Runner {
+    public static void main(String[] args) {
+        java.util.Set<Main.Bigram> s = new java.util.HashSet<>();
+        s.add(new Main.Bigram('a', 'a'));
+        s.add(new Main.Bigram('a', 'a'));
+        System.out.println(s.size());
+    }
+}
+`}
+  sourceChecks={[
+    { name: 'Override annotation', pattern: '@Override', must: true, hint: '@Override on equals' },
+    { name: 'Object param', pattern: 'equals\\s*\\(\\s*Object', must: true, hint: 'public boolean equals(Object o)' },
+    { name: 'instanceof', pattern: 'instanceof\\s+Bigram', must: true, hint: 'if (!(o instanceof Bigram)) return false;' },
+    { name: 'no Bigram param equals', pattern: 'equals\\s*\\(\\s*Bigram', must: false, hint: 'do not overload equals(Bigram)' },
+  ]}
+  tests={[
+    { name: 'dedup', stdin: '', equals: '1' },
+  ]}
+/>
+
+## Item 41: Use marker interfaces to define types
+
+A **marker interface** has no methods — it marks a type (`Serializable`). **Marker annotations** (`@Marker`) are more flexible for frameworks but **do not define a type** — no compile-time parameter checking.
+
+| | Marker interface | Marker annotation |
+|---|---|---|
+| Defines a type | yes | no |
+| Compile-time parameter checks | yes | no |
+| Applies to non-types | no | yes (methods, fields, …) |
+| Fits annotation-heavy frameworks | awkward | natural |
+
+If you might write `void process(Serializable x)`, use a **marker interface**. If marking is only for tooling and never a parameter type, prefer an annotation. If `@Target(TYPE)` but you need a type, reconsider a marker interface (inverse of Item 22).
+
+<MultipleChoice
+  id="java-int-ch6-marker"
+  title="Marker interfaces"
+  questions={[
+    {
+      prompt: 'void serialize(Serializable s) vs annotate with @Serializable',
+      choices: [
+        'annotation gives compile-time type checking on arguments',
+        'marker interface lets serialize reject non-Serializable at compile time',
+        'they are equivalent',
+        'only annotations work with ObjectOutputStream',
+      ],
+      answer: 1,
+      why: 'Marker interfaces define a type for APIs. Annotations are invisible to ordinary type checking.',
+    },
+    {
+      prompt: 'Marker applies to methods and fields in a framework',
+      choices: [
+        'marker interface required',
+        'marker annotation — interfaces cannot mark methods',
+        'use int constants',
+        'use public static final boolean',
+      ],
+      answer: 1,
+      why: 'Interfaces apply only to types. Annotations can target METHOD, FIELD, etc.',
+    },
+  ]}
+/>
+
+<CodingExam
+  title="marker parameter"
+  heading="Challenge: marker interface parameter"
+  lang="java"
+  filename="Main.java"
+  prompt="Trusted is a marker interface (no methods). acceptTrusted(Trusted t) returns the string ok. wrap: pass a small class implementing Trusted; print acceptTrusted result."
+  sampleLog={`ok`}
+  starter={`public class Main {
+    public interface Trusted {
+    }
+
+    public static String acceptTrusted(Trusted t) {
+        return null; // TODO return "ok" when t is non-null
+    }
+}
+`}
+  wrapSuffix={`
+class Runner {
+    static final class Client implements Main.Trusted { }
+
+    public static void main(String[] args) {
+        System.out.println(Main.acceptTrusted(new Client()));
+    }
+}
+`}
+  sourceChecks={[
+    { name: 'Trusted param', pattern: 'acceptTrusted\\s*\\(\\s*Trusted', must: true, hint: 'parameter type must stay Trusted (marker interface)' },
+    { name: 'returns ok', pattern: 'return\\s+"ok"', must: true, hint: 'return "ok";' },
+  ]}
+  tests={[
+    { name: 'ok', stdin: '', equals: 'ok' },
+  ]}
+/>
+
+## Items 38–41 map
+
+| Item | Move |
+|---|---|
+| 38 | Interface + enum for extensible opcodes; APIs use the interface |
+| 39 | Annotations over naming patterns; retention, target, reflection |
+| 40 | `@Override` on every intended override — catches overload mistakes |
+| 41 | Marker interface when you need a type; annotation for non-type marks |
+
+Chapter 6 complete. Next: [Lambdas and Method References](./lesson-7a-lambdas) (Chapter 7, Items 42–44).
+
+<ExerciseSet
+  title="Exercises"
+  description="Run operations and invoke a marked test."
+>
+  <CodingExam
+    title="run all operations"
+    heading="Exercise: Collection of Operation"
+    lang="java"
+    filename="Main.java"
+    prompt="Op.apply(x,y). runAll(Collection<? extends Op> ops, x, y) applies each op with the same x,y and returns the sum of results. wrap: MOD then PLUS on (10,3); print sum as int."
+    starter={`import java.util.Collection;
+
+public class Main {
+    public interface Op {
+        double apply(double x, double y);
+    }
+
+    public enum Plus implements Op {
+        PLUS {
+            public double apply(double x, double y) { return x + y; }
+        }
+    }
+
+    public enum Mod implements Op {
+        MOD {
+            public double apply(double x, double y) { return x % y; }
+        }
+    }
+
+    public static double runAll(Collection<? extends Op> ops, double x, double y) {
+        return 0; // TODO sum op.apply(x,y) for each op
+    }
+}
+`}
+    wrapSuffix={`
+class Runner {
+    public static void main(String[] args) {
+        java.util.List<Main.Op> ops = java.util.Arrays.asList(Main.Mod.MOD, Main.Plus.PLUS);
+        System.out.println((int) Main.runAll(ops, 10, 3));
+    }
+}
+`}
+    sourceChecks={[
+      { name: 'wildcard extends', pattern: 'Collection\\s*<\\s*\\?\\s+extends\\s+Op\\s*>', must: true, hint: 'Collection<? extends Op> ops' },
+      { name: 'loop apply', pattern: 'apply\\s*\\(\\s*x\\s*,\\s*y\\s*\\)', must: true, hint: 'sum += op.apply(x, y)' },
+    ]}
+    tests={[
+      { name: 'mod plus', stdin: '', equals: '14' },
+    ]}
+  />
+</ExerciseSet>

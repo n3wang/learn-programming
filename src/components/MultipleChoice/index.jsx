@@ -1,5 +1,6 @@
 import React, {useEffect, useState} from 'react';
-import CodeBlock from '@theme/CodeBlock';
+import {Highlight, themes} from 'prism-react-renderer';
+import useHtmlColorMode from '@site/src/components/codeWorkspace/useHtmlColorMode';
 import styles from './styles.module.css';
 
 function storageKey(id) {
@@ -71,12 +72,30 @@ function parsePrompt(q) {
 
 function Prompt({q}) {
   const {lead, code, lang} = parsePrompt(q);
+  const colorMode = useHtmlColorMode();
+  const prismLang = lang === 'c++' || lang === 'cpp' ? 'cpp' : lang || 'text';
   return (
     <div className={styles.promptBlock}>
       {lead ? <p className={styles.prompt}>{lead}</p> : null}
       {code ? (
         <div className={styles.snippet}>
-          <CodeBlock language={lang}>{code}</CodeBlock>
+          <Highlight
+            theme={colorMode === 'dark' ? themes.vsDark : themes.github}
+            code={code}
+            language={prismLang}
+          >
+            {({className, style, tokens, getLineProps, getTokenProps}) => (
+              <pre className={[className, styles.code].filter(Boolean).join(' ')} style={style}>
+                {tokens.map((line, i) => (
+                  <div key={i} {...getLineProps({line})}>
+                    {line.map((token, key) => (
+                      <span key={key} {...getTokenProps({token})} />
+                    ))}
+                  </div>
+                ))}
+              </pre>
+            )}
+          </Highlight>
         </div>
       ) : null}
     </div>

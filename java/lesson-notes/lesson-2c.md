@@ -58,6 +58,83 @@ public static void main(String[] args)
 
 </details>
 
+### Try it: Math methods
+
+<PistonRunner
+  lang="java"
+  interactive={false}
+  height="280px"
+  code={`public class Main {
+  public static void main(String[] args) {
+    System.out.println(Math.max(4, 9));
+    System.out.println(Math.min(4, 9));
+    System.out.println(Math.pow(2, 5));
+    System.out.println(Math.sqrt(81));
+    System.out.println(Math.abs(-12));
+  }
+}
+`}
+/>
+
+<MultipleChoice
+  id="java-ch2c-mathmethods"
+  title="Math methods"
+  questions={[
+    {
+      prompt: 'What does Math.pow(2, 5) return?',
+      code: 'Math.pow(2, 5)',
+      codeLang: 'java',
+      choices: ['10', '32', '25', '7'],
+      answer: 1,
+      why: 'Math.pow(x, y) raises x to the power y: 2^5 = 32.',
+    },
+    {
+      prompt: 'Math.ceil(4.1) and Math.floor(4.9) return respectively',
+      choices: ['4.0 and 5.0', '5.0 and 4.0', '4 and 5', '5 and 4'],
+      answer: 1,
+      why: 'ceil rounds up to 5.0, floor rounds down to 4.0. Both return a double.',
+    },
+  ]}
+/>
+
+<CodingExam
+  title="distance between two points"
+  heading="Try it: distance between two points"
+  lang="java"
+  filename="Main.java"
+  prompt="Read x1 y1 x2 y2 (doubles). Print the distance using Math.sqrt and Math.pow: sqrt((x2-x1)^2 + (y2-y1)^2)."
+  sampleLog={`(input) 0 0 3 4
+5.0`}
+  starter={`public class Main {
+    public static double distance(double x1, double y1, double x2, double y2) {
+        // TODO: use Math.sqrt and Math.pow
+        return 0.0;
+    }
+}
+`}
+  wrapSuffix={`
+class Runner {
+    public static void main(String[] args) {
+        java.util.Scanner sc = new java.util.Scanner(System.in);
+        double x1 = sc.nextDouble();
+        double y1 = sc.nextDouble();
+        double x2 = sc.nextDouble();
+        double y2 = sc.nextDouble();
+        System.out.println(Main.distance(x1, y1, x2, y2));
+    }
+}
+`}
+  sourceChecks={[
+    { name: 'Uses Math.sqrt', pattern: 'Math\\.sqrt', must: true, hint: 'Math.sqrt(...)' },
+  ]}
+  tests={[
+    { name: '3-4-5 triangle', stdin: '0 0 3 4', equals: '5.0' },
+    { name: 'same point', stdin: '1 1 1 1', equals: '0.0' },
+  ]}
+/>
+
+---
+
 [👀](https://learn2codelive.com/courses/107/pages/lesson-2-learning-activities-r-practice-activity-5-movies?module_item_id=9057)
 
 ### Practice Activity 
@@ -91,6 +168,147 @@ I am left with $7.5
 </details>
 
 :::
+
+---
+
+## Chapter summary
+
+:::important Key takeaways
+
+1. `Math` methods are called with `Math.methodName(...)` — no import needed, `Math` is always available.
+2. `Math.max`/`Math.min` compare two values; `Math.pow`/`Math.sqrt` handle exponents and roots; `Math.abs` strips a sign.
+3. `Math.round` rounds to the nearest whole number; `Math.ceil` always rounds up, `Math.floor` always rounds down — both return a `double`.
+4. Combine `Math` methods to build formulas (like distance) instead of writing the math by hand with loops.
+
+:::
+
+## Exercises
+
+<ExerciseSet>
+<Exercise title="Clamp a value" anchor="exercise-clamp">
+
+:::tip Activity: Clamp a value
+Read a value, a minimum, and a maximum. Print the value clamped into that range, using `Math.max` and `Math.min` together.
+
+<CodingExam
+  title="Clamp a value"
+  heading="exercise-clamp"
+  lang="java"
+  filename="Main.java"
+  prompt="Return Math.max(min, Math.min(value, max))."
+  sampleLog={`(input) 15 0 10
+10`}
+  starter={`public class Main {
+    public static int clamp(int value, int min, int max) {
+        // TODO
+        return value;
+    }
+}
+`}
+  wrapSuffix={`
+class Runner {
+    public static void main(String[] args) {
+        java.util.Scanner sc = new java.util.Scanner(System.in);
+        int value = sc.nextInt();
+        int min = sc.nextInt();
+        int max = sc.nextInt();
+        System.out.println(Main.clamp(value, min, max));
+    }
+}
+`}
+  tests={[
+    { name: 'above max', stdin: '15 0 10', equals: '10' },
+    { name: 'below min', stdin: '-5 0 10', equals: '0' },
+    { name: 'in range', stdin: '4 0 10', equals: '4' },
+  ]}
+/>
+
+:::
+
+</Exercise>
+
+<Exercise title="Round money" anchor="exercise-round-money">
+
+:::tip Activity: Round money
+Read a price as a double. Print it rounded to the nearest whole number using `Math.round` (which returns a `long`).
+
+<CodingExam
+  title="Round money"
+  heading="exercise-round-money"
+  lang="java"
+  filename="Main.java"
+  prompt="Return Math.round(price)."
+  sampleLog={`(input) 19.6
+20`}
+  starter={`public class Main {
+    public static long roundPrice(double price) {
+        // TODO
+        return 0;
+    }
+}
+`}
+  wrapSuffix={`
+class Runner {
+    public static void main(String[] args) {
+        java.util.Scanner sc = new java.util.Scanner(System.in);
+        double p = sc.nextDouble();
+        System.out.println(Main.roundPrice(p));
+    }
+}
+`}
+  tests={[
+    { name: '19.6', stdin: '19.6', equals: '20' },
+    { name: '19.4', stdin: '19.4', equals: '19' },
+  ]}
+/>
+
+:::
+
+</Exercise>
+
+<Exercise title="Absolute difference" anchor="exercise-abs-diff">
+
+:::tip Activity: Absolute difference
+Read two integers. Print the absolute value of their difference using `Math.abs`.
+
+<CodingExam
+  title="Absolute difference"
+  heading="exercise-abs-diff"
+  lang="java"
+  filename="Main.java"
+  prompt="Return Math.abs(a - b)."
+  sampleLog={`(input) 3 9
+6`}
+  starter={`public class Main {
+    public static int absDiff(int a, int b) {
+        // TODO
+        return 0;
+    }
+}
+`}
+  wrapSuffix={`
+class Runner {
+    public static void main(String[] args) {
+        java.util.Scanner sc = new java.util.Scanner(System.in);
+        int a = sc.nextInt();
+        int b = sc.nextInt();
+        System.out.println(Main.absDiff(a, b));
+    }
+}
+`}
+  sourceChecks={[
+    { name: 'Uses Math.abs', pattern: 'Math\\.abs', must: true, hint: 'Math.abs(a - b)' },
+  ]}
+  tests={[
+    { name: '3 9', stdin: '3 9', equals: '6' },
+    { name: '9 3', stdin: '9 3', equals: '6' },
+  ]}
+/>
+
+:::
+
+</Exercise>
+</ExerciseSet>
 
 
 

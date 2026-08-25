@@ -431,6 +431,137 @@ print(label(City(cont, name)))
 
 ---
 
+## Instance fields vs class attributes
+
+`@dataclass` needs a **type hint** on every instance field. That sits oddly next to PEP 484’s “hints are optional.” If you want records without annotations, look at **attrs** (or a plain `namedtuple`).
+
+The class body also **flips** an old Python rule. Without a decorator, a name bound at class level is a **class** attribute. With `@dataclass`:
+
+| You write | It becomes |
+|---|---|
+| `n: int` | instance field (required in `__init__`) |
+| `n: int = 99` | instance field (optional, default 99) |
+| `n = 99` | **class** attribute (not a field, no `__init__` arg) |
+| `n: ClassVar[int] = 99` | **class** attribute **with** a type (the escape hatch) |
+
+`ClassVar` is the exception to the exception: “annotated means instance” unless the type is this marker. That is easy to get wrong. Read the constructor signature (`Help` / `__doc__`) when you are unsure.
+
+<details>
+<summary>🧪 Same name, three spellings</summary>
+
+<PistonRunner
+  lang="python"
+  interactive={false}
+  height="340px"
+  code={`from dataclasses import dataclass, fields
+from typing import ClassVar
+
+@dataclass
+class Spam:
+    n: int
+    label = "plain"  # class attribute (no hint)
+    kind: ClassVar[str] = "can"  # class attribute (hinted)
+
+s = Spam(1)
+print(s.n, s.label, s.kind)
+print("fields:", [f.name for f in fields(Spam)])
+print(Spam.__doc__)
+`}
+/>
+
+</details>
+
+---
+
+## Mini quiz — the annotation trap
+
+<MultipleChoice
+  id="py-int-ch5-classvar"
+  title="Instance vs class on a dataclass"
+  questions={[
+    {
+      prompt: 'On @dataclass class Spam, which of these are class attributes (not fields)?',
+      code: `repeat: int
+repeat: int = 99
+repeat = 99
+repeat: ClassVar[int] = 99`,
+      codeLang: 'python',
+      choices: [
+        'only the first',
+        'the last two (no hint, or ClassVar)',
+        'all four',
+        'none; dataclass has no class attributes',
+      ],
+      answer: 1,
+      why: 'A bare assignment stays on the class. ClassVar is how you keep a hint without making a field. The first two are instance fields.',
+    },
+    {
+      prompt: 'Why does @dataclass annoy people who skip type hints?',
+      choices: [
+        'it forbids methods',
+        'instance fields are declared with annotations, so hints are no longer optional for this feature',
+        'it only runs on Python 2',
+        'it deletes __init__',
+      ],
+      answer: 1,
+      why: 'The decorator finds fields by reading annotations. No annotation, no field.',
+    },
+    {
+      prompt: 'repeat: int = 99 on a dataclass is',
+      choices: [
+        'only a class attribute, never copied to instances',
+        'an instance field whose default is 99',
+        'syntax error',
+        'the same as ClassVar',
+      ],
+      answer: 1,
+      why: 'The hint makes it a field; the = is the constructor default.',
+    },
+  ]}
+/>
+
+---
+
+## Challenge: factory counter
+
+Read integers. Build one dataclass instance **per number**. The count of instances must live on the **class** (so `Box(n)` still takes only `n`). Print the last `n` and how many boxes exist.
+
+<CodingExam
+  title="factory counter"
+  heading="Challenge: factory counter"
+  lang="python"
+  filename="main.py"
+  prompt="Dataclass with an instance n and a class-level tally. Construct one object per input int."
+  sampleLog={`(input) 1 2 8
+8 3`}
+  starter={`from dataclasses import dataclass
+from typing import ClassVar
+
+# Write Box here. Hint: if "made" is a normal annotated field,
+# Box(3) will not match the tests.
+
+def run(nums):
+    last = None
+    for n in nums:
+        last = None  # TODO: construct a Box
+    return last, 0
+`}
+  wrapSuffix={`
+nums = [int(x) for x in input().split()]
+last, total = run(nums)
+print(last.n, total)
+`}
+  sourceChecks={[
+    { name: 'Uses ClassVar', pattern: 'ClassVar', must: true, hint: 'a ClassVar on the class, not an instance field' },
+  ]}
+  tests={[
+    { name: 'three boxes', stdin: '1 2 8', equals: '8 3' },
+    { name: 'one box', stdin: '4', equals: '4 1' },
+  ]}
+/>
+
+---
+
 ## Chapter summary
 
 :::important Key takeaways
@@ -441,6 +572,7 @@ print(label(City(cont, name)))
 4. Mutable field defaults need `field(default_factory=...)`.
 5. `_asdict` / `asdict` and `_replace` / `replace` clone with edits.
 6. Data-only types can be a design smell; class patterns use `__match_args__` or keywords.
+7. On a dataclass, a type hint makes an **instance** field; a bare assignment (or `ClassVar`) stays on the **class**.
 
 :::
 
@@ -597,6 +729,44 @@ print(add(Pair(x, y)))
   tests={[
     { name: '2 5', stdin: '2 5', equals: '7' },
     { name: '0 0', stdin: '0 0', equals: '0' },
+  ]}
+/>
+
+:::
+
+</Exercise>
+
+<Exercise title="Typed class attribute" anchor="exercise-classvar">
+
+:::tip Activity: Typed class attribute
+`Team` has `name: str` and a class-level `sport: ClassVar[str] = "chess"`. Read a team name. Print `name sport` (the sport must come from the class, not an `__init__` argument).
+
+<CodingExam
+  title="Typed class attribute"
+  heading="exercise-classvar"
+  lang="python"
+  filename="main.py"
+  prompt="ClassVar sport; instance name only"
+  sampleLog={`(input) Rookies
+Rookies chess`}
+  starter={`from dataclasses import dataclass
+from typing import ClassVar
+
+@dataclass
+class Team:
+    name: str
+    # TODO: sport: ClassVar[str] = "chess"
+`}
+  wrapSuffix={`
+t = Team(input().strip())
+print(t.name, t.sport)
+`}
+  sourceChecks={[
+    { name: 'Uses ClassVar', pattern: 'ClassVar', must: true, hint: 'sport: ClassVar[str] = "chess"' },
+  ]}
+  tests={[
+    { name: 'Rookies', stdin: 'Rookies', equals: 'Rookies chess' },
+    { name: 'A', stdin: 'A', equals: 'A chess' },
   ]}
 />
 

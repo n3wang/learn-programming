@@ -1,0 +1,311 @@
+---
+sidebar_position: 17
+title: "Operator Overloading"
+---
+
+> **Source:** Fluent Python, 2nd Edition — Chapter 16 by Luciano Ramalho
+
+Gosling left overloading out of Java after watching C++ abuse it. Python keeps it, with fences: you cannot change `int + int`, cannot invent `***`, cannot overload `is` / `and` / `or` / `not` (bitwise `& | ~` are fine). Used well, `pathlib` and Scapy read like English.
+
+Chapter 1’s toy `__add__` / `__mul__` and Chapter 11’s `Vector2d == [3, 4]` were too loose. This chapter is how to **refuse** an operand (`NotImplemented`, not `TypeError`), mixed types, rich comparisons, and `+=`.
+
+## Unary operators
+
+`__neg__`, `__pos__`, `__invert__`, and `abs` (`__abs__`). One argument: `self`. **Always return a new object.** `-v` is a new vector of negated components; `+v` is usually a copy. `abs` is a scalar. Skip `~` unless bits or an ORM `WHERE` clause.
+
+Almost always `x == +x`. Exceptions: `decimal.Decimal` after context precision drops (`+x` rebuilds with the new precision); `+Counter` drops non-positive counts.
+
+<PistonRunner
+  lang="python"
+  interactive={false}
+  height="200px"
+  code={`from collections import Counter
+ct = Counter('ab')
+ct['a'] = 0
+ct['b'] = -1
+print(+ct)
+`}
+/>
+
+<CodingExam
+  title="Unary minus"
+  heading="Challenge: unary minus"
+  lang="python"
+  filename="main.py"
+  prompt="Vec holds ints. __neg__ returns a new Vec with each component negated. wrap: ints; print list(-v) and whether -v is v (yes/no)."
+  sampleLog={`(input) 1 -2
+[-1, 2] no`}
+  starter={`class Vec:
+    def __init__(self, xs):
+        self._xs = list(xs)
+
+    def __iter__(self):
+        return iter(self._xs)
+
+def wrap(line: str) -> str:
+    v = Vec(map(int, line.split()))
+    n = -v
+    same = 'yes' if n is v else 'no'
+    return f'{list(n)} {same}'
+`}
+  wrapSuffix={`
+print(wrap(input()))
+`}
+  sourceChecks={[
+    { name: 'neg', pattern: 'def __neg__', must: true, hint: 'def __neg__(self)' },
+  ]}
+  tests={[
+    { name: 'flip', stdin: '1 -2', equals: '[-1, 2] no' },
+    { name: 'zeros', stdin: '0', equals: '[0] no' },
+  ]}
+/>
+
+## Infix `+`: pad, reverse, `NotImplemented`
+
+Vector addition is pairwise; unequal length pads with `0` via `itertools.zip_longest`. Return a **new** vector. Sequences in the data model use `+` for concat; here `+` is math on purpose.
+
+`a + b`: try `a.__add__(b)`; if missing or **`NotImplemented`**, try `b.__radd__(a)`; else `TypeError`. The `r` is reversed/right. Commutative `+` can delegate `__radd__` to `self + other`. Concatenation is not commutative.
+
+Catch `TypeError` from `zip_longest` or `float + str` and return `NotImplemented` so the other type gets a turn. Raising `TypeError` **aborts** dispatch. `NotImplemented` is a sentinel; `NotImplementedError` is an exception for ABC stubs.
+
+<CodingExam
+  title="Add and radd"
+  heading="Challenge: add and radd"
+  lang="python"
+  filename="main.py"
+  prompt="Vec of floats. __add__: zip_longest fill 0, new Vec of sums; on TypeError return NotImplemented. __radd__ delegates to self+other. wrap: left ints | right ints. Print list(Vec+Vec) and list(tuple(left)+Vec(right))."
+  sampleLog={`(input) 3 4 5 | 1 2
+[4.0, 6.0, 5.0] [4.0, 6.0, 5.0]`}
+  starter={`import itertools
+
+class Vec:
+    def __init__(self, xs):
+        self._xs = [float(x) for x in xs]
+
+    def __iter__(self):
+        return iter(self._xs)
+
+    def __add__(self, other):
+        return NotImplemented
+
+    def __radd__(self, other):
+        return NotImplemented
+
+def wrap(line: str) -> str:
+    a, b = line.split('|')
+    left = list(map(int, a.split()))
+    right = list(map(int, b.split()))
+    s = Vec(left) + Vec(right)
+    t = tuple(left) + Vec(right)
+    return f'{list(s)} {list(t)}'
+`}
+  wrapSuffix={`
+print(wrap(input()))
+`}
+  sourceChecks={[
+    { name: 'zip_longest', pattern: 'zip_longest', must: true, hint: 'itertools.zip_longest(..., fillvalue=0)' },
+    { name: 'radd', pattern: 'def __radd__', must: true, hint: 'def __radd__(self, other)' },
+  ]}
+  tests={[
+    { name: 'pad short', stdin: '3 4 5 | 1 2', equals: '[4.0, 6.0, 5.0] [4.0, 6.0, 5.0]' },
+    { name: 'same length', stdin: '1 1 | 2 2', equals: '[3.0, 3.0] [3.0, 3.0]' },
+  ]}
+/>
+
+## Scalar `*` and `@`
+
+`v * 10` is elementwise. `float(scalar)` accepts `int`, `bool`, `Fraction`; `complex` fails → `NotImplemented`. Avoid `numbers.Real` if you also want static checkers.
+
+`@` is the dot/matrix operator (PEP 465): `__matmul__`. If both operands are `abc.Sized` and `abc.Iterable` and **equal length**, `sum(a * b for a, b in zip(...))`. Else `ValueError` or `NotImplemented`. Goose typing: a `list` works; you need not subclass those ABCs. `__rmatmul__` can be `self @ other`.
+
+Infix names follow the same pattern: `__sub__` / `__rsub__` / `__isub__`, `/`, `//`, `%`, `**`, `&`, `|`, `^`, shifts.
+
+<CodingExam
+  title="Scalar and dot"
+  heading="Challenge: scalar and dot"
+  lang="python"
+  filename="main.py"
+  prompt="__mul__: float(scalar) or NotImplemented; __rmul__: self*scalar. __matmul__: same length iterable, sum of products, else NotImplemented. wrap first word mul | rmul | dot. mul: nums then * n. rmul: n then nums. dot: nums @ nums."
+  sampleLog={`(input) mul 1 2 3 * 10
+[10.0, 20.0, 30.0]`}
+  starter={`class Vec:
+    def __init__(self, xs):
+        self._xs = [float(x) for x in xs]
+
+    def __iter__(self):
+        return iter(self._xs)
+
+    def __len__(self):
+        return len(self._xs)
+
+    def __mul__(self, scalar):
+        return NotImplemented
+
+    def __rmul__(self, scalar):
+        return NotImplemented
+
+    def __matmul__(self, other):
+        return NotImplemented
+
+def wrap(line: str) -> str:
+    kind, rest = line.split(None, 1)
+    if kind == 'mul':
+        body, n = rest.split('*')
+        return str(list(Vec(map(float, body.split())) * int(n)))
+    if kind == 'rmul':
+        n, *xs = rest.split()
+        return str(list(int(n) * Vec(map(float, xs))))
+    left, right = rest.split('@')
+    return str(Vec(map(float, left.split())) @ list(map(float, right.split())))
+`}
+  wrapSuffix={`
+print(wrap(input()))
+`}
+  sourceChecks={[
+    { name: 'float scalar', pattern: 'float\\s*\\(', must: true, hint: 'factor = float(scalar)' },
+    { name: 'matmul', pattern: 'def __matmul__', must: true, hint: 'def __matmul__(self, other)' },
+  ]}
+  tests={[
+    { name: 'times ten', stdin: 'mul 1 2 3 * 10', equals: '[10.0, 20.0, 30.0]' },
+    { name: 'left scalar', stdin: 'rmul 11 1 2 3', equals: '[11.0, 22.0, 33.0]' },
+    { name: 'dot', stdin: 'dot 1 2 3 @ 5 6 7', equals: '38.0' },
+  ]}
+/>
+
+## Rich comparisons
+
+Same methods run forward and reverse, **arguments swapped**: `a > b` tries `a.__gt__(b)` then `b.__lt__(a)`. `==` / `!=` never raise: last resort is `id`. Python 3 `!=` is `not (a == b)` unless `__eq__` returned `NotImplemented`. Ordering of mixed nonsense types raises `TypeError` (Python 2 invented garbage).
+
+`[1, 2] == (1, 2)` is `False`. A `Vector` that equals any numeric iterable is too cute. If `other` is a `Vector` (or subclass), compare lengths and `zip`; else `NotImplemented` so `Vector2d.__eq__` (tuple both sides) can still say `True`, while `tuple.__eq__` falls through to identity vs a Vector.
+
+You often omit `__ne__`.
+
+<CodingExam
+  title="Conservative eq"
+  heading="Challenge: conservative eq"
+  lang="python"
+  filename="main.py"
+  prompt="Vec.__eq__: if isinstance(other, Vec), length and zip equality; else NotImplemented. wrap: two groups |. Print Vec==Vec and Vec==tuple(right) as True/False True/False."
+  sampleLog={`(input) 1 2 3 | 1 2 3
+True False`}
+  starter={`class Vec:
+    def __init__(self, xs):
+        self._xs = [float(x) for x in xs]
+
+    def __iter__(self):
+        return iter(self._xs)
+
+    def __len__(self):
+        return len(self._xs)
+
+    def __eq__(self, other):
+        return False
+
+def wrap(line: str) -> str:
+    a, b = line.split('|')
+    left = list(map(int, a.split()))
+    right = list(map(int, b.split()))
+    return f'{Vec(left) == Vec(right)} {Vec(left) == tuple(right)}'
+`}
+  wrapSuffix={`
+print(wrap(input()))
+`}
+  sourceChecks={[
+    { name: 'isinstance Vec', pattern: 'isinstance', must: true, hint: 'isinstance(other, Vec)' },
+    { name: 'NotImplemented', pattern: 'NotImplemented', must: true, hint: 'return NotImplemented' },
+  ]}
+  tests={[
+    { name: 'same numbers', stdin: '1 2 3 | 1 2 3', equals: 'True False' },
+    { name: 'different', stdin: '1 2 | 1 9', equals: 'False False' },
+  ]}
+/>
+
+## Augmented assignment
+
+Without `__iadd__`, `a += b` is `a = a + b`: new object, fine for immutables. **Never** implement in-place methods on an immutable `Vector`.
+
+On a mutable cage, `__add__` builds a **new** cage from two Tombola-like pools (strict: same type). `__iadd__` **loads** `self` from another cage **or any iterable** (like `list += x` vs `list + x`), then **`return self`**. No `__radd__` if forward `+` only accepts the same type.
+
+<CodingExam
+  title="In-place extend"
+  heading="Challenge: in-place extend"
+  lang="python"
+  filename="main.py"
+  prompt="Cage has a list _xs. __add__: if isinstance(other, Cage), return a new Cage with concatenated items; else NotImplemented. __iadd__: extend from Cage.inspect-like list or from iter(other); return self. wrap: letters, then + word or += word. + prints new list and whether result is original (yes/no). += prints list and identity yes/no."
+  sampleLog={`(input) A E + XYZ
+['A', 'E', 'X', 'Y', 'Z'] no`}
+  starter={`class Cage:
+    def __init__(self, xs):
+        self._xs = list(xs)
+
+    def __add__(self, other):
+        return NotImplemented
+
+    def __iadd__(self, other):
+        return NotImplemented
+
+def wrap(line: str) -> str:
+    if '+=' in line:
+        left, right = line.split('+=')
+        c = Cage(left.split())
+        orig = c
+        c += right.split()
+        same = 'yes' if c is orig else 'no'
+        return f'{c._xs} {same}'
+    left, right = line.split('+')
+    c = Cage(left.split())
+    orig = c
+    n = c + Cage(list(right.strip()))
+    same = 'yes' if n is orig else 'no'
+    return f'{n._xs} {same}'
+`}
+  wrapSuffix={`
+print(wrap(input()))
+`}
+  sourceChecks={[
+    { name: 'iadd', pattern: 'def __iadd__', must: true, hint: 'def __iadd__(self, other)' },
+  ]}
+  tests={[
+    { name: 'plus new', stdin: 'A E + XYZ', equals: "['A', 'E', 'X', 'Y', 'Z'] no" },
+    { name: 'plus-equal same object', stdin: 'A E += M N', equals: "['A', 'E', 'M', 'N'] yes" },
+  ]}
+/>
+
+`+ XYZ` treats `XYZ` as three characters via `list(right.strip())`. `+= M N` splits on spaces.
+
+Duck typing is flexible; goose typing (`isinstance` vs ABCs) keeps operator errors from turning into nonsense. `pathlib` uses `/` for paths; that is the good kind of overload.
+
+<ExerciseSet
+  title="Exercises"
+  description="Positive unary and a tiny rmul."
+>
+  <CodingExam
+    title="Unary plus copy"
+    heading="Exercise: unary plus copy"
+    lang="python"
+    filename="main.py"
+    prompt="__pos__ returns a new Vec with the same ints. wrap: print list(+v) and whether +v is v (no)."
+    starter={`class Vec:
+    def __init__(self, xs):
+        self._xs = list(xs)
+
+    def __iter__(self):
+        return iter(self._xs)
+
+def wrap(line: str) -> str:
+    v = Vec(map(int, line.split()))
+    p = +v
+    same = 'yes' if p is v else 'no'
+    return f'{list(p)} {same}'
+`}
+    wrapSuffix={`
+print(wrap(input()))
+`}
+    sourceChecks={[
+      { name: 'pos', pattern: 'def __pos__', must: true, hint: 'def __pos__(self)' },
+    ]}
+    tests={[
+      { name: 'copy', stdin: '3 4', equals: '[3, 4] no' },
+    ]}
+  />
+</ExerciseSet>

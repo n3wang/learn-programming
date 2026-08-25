@@ -1,0 +1,532 @@
+---
+sidebar_position: 11
+title: "A Pythonic Object"
+---
+
+> **Source:** Fluent Python, 2nd Edition — Chapter 11 by Luciano Ramalho
+
+A type feels **Pythonic** when it plays with the language the way `list` and `float` do: `repr`, unpacking, `abs`, `format`, hashing — without forcing users through a private API. You get that from the **data model**, not from inheriting a magic base class. Implement the dunders you need; skip the rest on ordinary app classes. Libraries get held to a higher bar.
+
+Chapter 1 used a vector as a teaser. Here we grow a 2-D vector into something you could publish: constructors, displays, read-only components, hashability, and a note on `__slots__` and “private” names.
+
+---
+
+## Two string faces (and friends)
+
+| Call | Dunder | Audience |
+|---|---|---|
+| `repr(obj)` | `__repr__` | You, in a debugger. Ideally `eval`-able. |
+| `str(obj)` / `print` | `__str__` | Humans. Falls back to `__repr__` if missing. |
+| `bytes(obj)` | `__bytes__` | Binary dump. |
+| `format(obj, spec)` / f-strings | `__format__` | Mini-language (`:.2f`, custom codes). |
+
+In Python 3, `__repr__`, `__str__`, and `__format__` return **str**. Only `__bytes__` returns **bytes**.
+
+A small vector usually also wants `__iter__` (so `x, y = v`), `__eq__`, `__abs__` (magnitude), `__bool__` (false when length is 0).
+
+```python
+def __repr__(self):
+    cls = type(self).__name__
+    return f"{cls}({self.x!r}, {self.y!r})"
+
+def __iter__(self):
+    yield self.x
+    yield self.y
+```
+
+`*self` in `format` works once the instance is iterable. `__eq__` via `tuple(self) == tuple(other)` is handy for tests and also true for `[3, 4]` — a feature or a trap; operator chapter later.
+
+Convert `x` and `y` to `float` in `__init__` so bad inputs fail immediately.
+
+<details>
+<summary>🧪 repr, str, unpack, abs</summary>
+
+<PistonRunner
+  lang="python"
+  interactive={false}
+  height="340px"
+  code={`import math
+
+class Vec:
+    def __init__(self, x, y):
+        self.x = float(x)
+        self.y = float(y)
+
+    def __iter__(self):
+        yield self.x
+        yield self.y
+
+    def __repr__(self):
+        return f"{type(self).__name__}({self.x!r}, {self.y!r})"
+
+    def __str__(self):
+        return str(tuple(self))
+
+    def __abs__(self):
+        return math.hypot(self.x, self.y)
+
+    def __bool__(self):
+        return bool(abs(self))
+
+v = Vec(3, 4)
+print(repr(v))
+print(v)
+a, b = v
+print(a, b, abs(v), bool(v), bool(Vec(0, 0)))
+`}
+/>
+
+</details>
+
+---
+
+## Mini quiz — representations
+
+<MultipleChoice
+  id="py-int-ch11-repr"
+  title="Object representations"
+  questions={[
+    {
+      prompt: 'print(v) uses',
+      choices: ['__repr__ only', '__str__ (then __repr__ if missing)', '__bytes__', '__format__ with no spec'],
+      answer: 1,
+      why: 'print calls str().',
+    },
+    {
+      prompt: 'A good __repr__ for a constructor-like type',
+      choices: [
+        'returns bytes',
+        'looks like a call that could rebuild the object',
+        'must be empty',
+        'is forbidden on vectors',
+      ],
+      answer: 1,
+      why: 'Debuggers and eval(repr(v)) tests rely on that.',
+    },
+  ]}
+/>
+
+---
+
+## Challenge: iterable point
+
+`Pt` stores two ints `x` and `y`. Implement `__iter__` so `a, b = Pt(...)` works, and `__repr__` so it prints exactly `Pt(X, Y)` with the numbers.
+
+<CodingExam
+  title="iterable point"
+  heading="Challenge: iterable point"
+  lang="python"
+  filename="main.py"
+  prompt="__iter__ yields x then y. __repr__ is Pt(x, y)."
+  sampleLog={`(input) 3 4
+3 4
+Pt(3, 4)`}
+  starter={`class Pt:
+    def __init__(self, x, y):
+        self.x = x
+        self.y = y
+`}
+  wrapSuffix={`
+x, y = [int(n) for n in input().split()]
+p = Pt(x, y)
+a, b = p
+print(a, b)
+print(repr(p))
+`}
+  sourceChecks={[
+    { name: 'Defines __iter__', pattern: 'def __iter__', must: true, hint: 'def __iter__(self):' },
+    { name: 'Defines __repr__', pattern: 'def __repr__', must: true, hint: 'def __repr__(self):' },
+  ]}
+  tests={[
+    { name: '3 4', stdin: '3 4', equals: '3 4 pt(3, 4)' },
+    { name: '0 1', stdin: '0 1', equals: '0 1 pt(0, 1)' },
+  ]}
+/>
+
+---
+
+## classmethod vs staticmethod
+
+`@classmethod` methods receive the **class** (`cls`) as the first argument. Use them for **alternate constructors** so subclasses get the right type:
+
+```python
+@classmethod
+def from_pair(cls, pair):
+    x, y = pair
+    return cls(x, y)
+```
+
+`@staticmethod` receives **no** automatic first argument. It is a function parked in the class body. If it never touches the class, a module-level function is usually clearer.
+
+<details>
+<summary>🧪 cls vs no special arg</summary>
+
+<PistonRunner
+  lang="python"
+  interactive={false}
+  height="280px"
+  code={`class Demo:
+    @classmethod
+    def klassmeth(*args):
+        return args[0].__name__, len(args)
+
+    @staticmethod
+    def statmeth(*args):
+        return args
+
+print(Demo.klassmeth())
+print(Demo.statmeth("x"))
+print(Demo.klassmeth(1))
+`}
+/>
+
+</details>
+
+---
+
+## Mini quiz — classmethod
+
+<MultipleChoice
+  id="py-int-ch11-classmethod"
+  title="classmethod"
+  questions={[
+    {
+      prompt: 'The first argument to a classmethod is conventionally',
+      choices: ['self', 'cls (the class)', 'mcs only', 'None'],
+      answer: 1,
+      why: 'Call cls(...) so a subclass constructor is used.',
+    },
+    {
+      prompt: 'staticmethod is',
+      choices: [
+        'required for every helper',
+        'a function in the class that does not get self or cls',
+        'the same as classmethod',
+        'how __repr__ works',
+      ],
+      answer: 1,
+      why: 'Often you can just define a module function instead.',
+    },
+  ]}
+/>
+
+---
+
+## Challenge: alternate constructor
+
+`Pt.from_csv(line)` is a **classmethod**. The line is `x,y` (two ints). It must return a `Pt`. `Pt(1, 2)` still works.
+
+<CodingExam
+  title="alternate constructor"
+  heading="Challenge: alternate constructor"
+  lang="python"
+  filename="main.py"
+  prompt="classmethod from_csv; return cls(x, y)."
+  sampleLog={`(input) 3,4
+3 4`}
+  starter={`class Pt:
+    def __init__(self, x, y):
+        self.x = x
+        self.y = y
+`}
+  wrapSuffix={`
+p = Pt.from_csv(input().strip())
+print(p.x, p.y)
+`}
+  sourceChecks={[
+    { name: 'Uses classmethod', pattern: '@classmethod', must: true, hint: '@classmethod on from_csv' },
+    { name: 'Defines from_csv', pattern: 'def from_csv', must: true, hint: 'def from_csv(cls, line):' },
+  ]}
+  tests={[
+    { name: '3,4', stdin: '3,4', equals: '3 4' },
+    { name: '0,9', stdin: '0,9', equals: '0 9' },
+  ]}
+/>
+
+---
+
+## `__format__` and f-strings
+
+`f"{v:.2f}"` and `format(v, ".2f")` call `v.__format__(".2f")`. If you ignore unknown specs, delegate to `format(float, spec)`. Custom codes (for example polar vs cartesian) are allowed if you document them. f-strings did not change the mini-language; an old `__format__` still works.
+
+---
+
+## Read-only fields, hash, slots, “private”
+
+To put a vector in a `set` or use it as a dict key it must be **hashable**: `__hash__` returns an int that never changes for that value, and `__eq__` agrees. That means **mutating `x` after insert is cheating**. The usual pattern: store `_x`, expose `x` as a `@property` with no setter.
+
+```python
+def __hash__(self):
+    return hash((self.x, self.y))
+```
+
+`__slots__ = ("_x", "_y")` skips per-instance `__dict__` (saves memory, forbids surprise attributes). Do not add `__dict__` unless you need it. Subclassing slotted classes has extra rules — use slots when you really have many instances.
+
+Python has no true private fields. `_x` is a **convention** (internal). `__x` inside class `Vec` is **name-mangled** to `_Vec__x`, which only slows accidental access, not determined users.
+
+<details>
+<summary>🧪 property and hash</summary>
+
+<PistonRunner
+  lang="python"
+  interactive={false}
+  height="320px"
+  code={`class Pt:
+    def __init__(self, x, y):
+        self._x = x
+        self._y = y
+
+    @property
+    def x(self):
+        return self._x
+
+    @property
+    def y(self):
+        return self._y
+
+    def __eq__(self, other):
+        return (self.x, self.y) == (other.x, other.y)
+
+    def __hash__(self):
+        return hash((self.x, self.y))
+
+s = {Pt(1, 2), Pt(1, 2)}
+print(len(s), Pt(1, 2).x)
+try:
+    Pt(1, 2).x = 9
+except AttributeError:
+    print("read-only")
+`}
+/>
+
+</details>
+
+---
+
+## Mini quiz — hash and privacy
+
+<MultipleChoice
+  id="py-int-ch11-hash"
+  title="Hash and privacy"
+  questions={[
+    {
+      prompt: 'A hashable instance should not',
+      choices: [
+        'implement __eq__',
+        'change the fields that __hash__ uses after it is in a set',
+        'be used as a dict key',
+        'use a property',
+      ],
+      answer: 1,
+      why: 'The set would lose the object in the wrong bucket.',
+    },
+    {
+      prompt: 'self.__n on class Box is stored as',
+      choices: ['__n always', '_Box__n (mangling)', 'only in slots', 'a ClassVar'],
+      answer: 1,
+      why: 'It is a convention plus mangling, not security.',
+    },
+  ]}
+/>
+
+---
+
+## Challenge: hashable pair
+
+`Pair` has read-only `a` and `b` (ints). Implement `__eq__` and `__hash__` so a set of two equal pairs has length 1. Do not allow `p.a = ...`.
+
+<CodingExam
+  title="hashable pair"
+  heading="Challenge: hashable pair"
+  lang="python"
+  filename="main.py"
+  prompt="properties a,b; __eq__ and __hash__ from (a, b)."
+  sampleLog={`(input) 1 2 1 2
+1`}
+  starter={`class Pair:
+    def __init__(self, a, b):
+        self._a = a
+        self._b = b
+`}
+  wrapSuffix={`
+w = [int(x) for x in input().split()]
+s = {Pair(w[0], w[1]), Pair(w[2], w[3])}
+print(len(s))
+`}
+  sourceChecks={[
+    { name: 'Defines __hash__', pattern: 'def __hash__', must: true, hint: 'def __hash__(self):' },
+    { name: 'Defines __eq__', pattern: 'def __eq__', must: true, hint: 'def __eq__(self, other):' },
+  ]}
+  tests={[
+    { name: 'same pair', stdin: '1 2 1 2', equals: '1' },
+    { name: 'different', stdin: '1 2 3 4', equals: '2' },
+  ]}
+/>
+
+---
+
+## Chapter summary
+
+:::important Key takeaways
+
+1. `__repr__` is for developers, `__str__` for users, `__format__` for specs, `__bytes__` for binary.
+2. `__iter__` unlocks unpacking and `tuple(v)`.
+3. `@classmethod` is the usual alternate constructor; `staticmethod` is rarely better than a module function.
+4. Hashable objects need stable `__hash__`/`__eq__` and typically read-only data.
+5. `__slots__` trades flexibility for memory; `_name` / `__name` are conventions, not access control.
+
+:::
+
+## Exercises
+
+<ExerciseSet>
+<Exercise title="Magnitude" anchor="exercise-abs">
+
+:::tip Activity: Magnitude
+`Vec` with ints `x, y`. `__abs__` returns integer `round(hypot)` — for `(3,4)` that is `5`. Print `abs(v)`.
+
+<CodingExam
+  title="Magnitude"
+  heading="exercise-abs"
+  lang="python"
+  filename="main.py"
+  prompt="__abs__ using math.hypot, then round to int."
+  sampleLog={`(input) 3 4
+5`}
+  starter={`import math
+
+class Vec:
+    def __init__(self, x, y):
+        self.x = x
+        self.y = y
+`}
+  wrapSuffix={`
+x, y = [int(n) for n in input().split()]
+print(round(abs(Vec(x, y))))
+`}
+  sourceChecks={[
+    { name: 'Defines __abs__', pattern: 'def __abs__', must: true, hint: 'def __abs__(self):' },
+  ]}
+  tests={[
+    { name: '3 4', stdin: '3 4', equals: '5' },
+    { name: '0 0', stdin: '0 0', equals: '0' },
+  ]}
+/>
+
+:::
+
+</Exercise>
+
+<Exercise title="Zero is false" anchor="exercise-bool">
+
+:::tip Activity: Zero is false
+Same `Vec`. `__bool__` is false only when both components are 0. Print `yes` or `no` from `bool(v)` (`yes` if true).
+
+<CodingExam
+  title="Zero is false"
+  heading="exercise-bool"
+  lang="python"
+  filename="main.py"
+  prompt="__bool__ false iff x==0 and y==0."
+  sampleLog={`(input) 0 0
+no`}
+  starter={`class Vec:
+    def __init__(self, x, y):
+        self.x = x
+        self.y = y
+`}
+  wrapSuffix={`
+x, y = [int(n) for n in input().split()]
+print("yes" if Vec(x, y) else "no")
+`}
+  sourceChecks={[
+    { name: 'Defines __bool__', pattern: 'def __bool__', must: true, hint: 'def __bool__(self):' },
+  ]}
+  tests={[
+    { name: 'origin', stdin: '0 0', equals: 'no' },
+    { name: 'axis', stdin: '0 1', equals: 'yes' },
+  ]}
+/>
+
+:::
+
+</Exercise>
+
+<Exercise title="Custom format code" anchor="exercise-format">
+
+:::tip Activity: Custom format code
+`Pt(x, y)`: `__format__` if spec is `p` print `x,y` (comma, no spaces); if spec is empty print `Pt x y`. Wrap will use `format(p, spec)` with spec from input.
+
+Input: `x y spec` where spec is `p` or `-` meaning empty.
+
+<CodingExam
+  title="Custom format code"
+  heading="exercise-format"
+  lang="python"
+  filename="main.py"
+  prompt="__format__: 'p' -> x,y ; else 'Pt x y'."
+  sampleLog={`(input) 3 4 p
+3,4`}
+  starter={`class Pt:
+    def __init__(self, x, y):
+        self.x = x
+        self.y = y
+`}
+  wrapSuffix={`
+x, y, spec = input().split()
+if spec == "-":
+    spec = ""
+print(format(Pt(int(x), int(y)), spec))
+`}
+  sourceChecks={[
+    { name: 'Defines __format__', pattern: 'def __format__', must: true, hint: 'def __format__(self, spec):' },
+  ]}
+  tests={[
+    { name: 'polar-like p', stdin: '3 4 p', equals: '3,4' },
+    { name: 'default', stdin: '3 4 -', equals: 'Pt 3 4' },
+  ]}
+/>
+
+:::
+
+</Exercise>
+
+<Exercise title="Slots reject extras" anchor="exercise-slots">
+
+:::tip Activity: Slots reject extras
+Class `Box` with `__slots__ = ("n",)` and `__init__` setting `n`. Wrap assigns `b.n` from input then tries `b.extra = 1`. Print `n` and `ok` if that assignment raised `AttributeError`, else `leak`.
+
+<CodingExam
+  title="Slots reject extras"
+  heading="exercise-slots"
+  lang="python"
+  filename="main.py"
+  prompt="__slots__ = ('n',) so extra attributes fail."
+  sampleLog={`(input) 8
+8 ok`}
+  starter={`class Box:
+    def __init__(self, n):
+        self.n = n
+`}
+  wrapSuffix={`
+b = Box(int(input()))
+try:
+    b.extra = 1
+    flag = "leak"
+except AttributeError:
+    flag = "ok"
+print(b.n, flag)
+`}
+  sourceChecks={[
+    { name: 'Defines __slots__', pattern: '__slots__', must: true, hint: "__slots__ = ('n',)" },
+  ]}
+  tests={[
+    { name: '8', stdin: '8', equals: '8 ok' },
+    { name: '0', stdin: '0', equals: '0 ok' },
+  ]}
+/>
+
+:::
+
+</Exercise>
+</ExerciseSet>

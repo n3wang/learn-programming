@@ -46,4 +46,4 @@ import ZeroOneBfsSimulator from "@site/src/components/interactive/ZeroOneBfsSimu
 | CPU pipeline | `/fundamentals/computer-engineering/lesson-notes/cpu-pipeline` |
 | Cache hierarchy | `/fundamentals/computer-engineering/lesson-notes/cache-hierarchy` |
 | Branch predictor | `/fundamentals/computer-engineering/lesson-notes/branch-prediction` |
-| 0-1 BFS | `/fundamentals/algorithms/01-bfs` |
+| 0-1 BFS | `/fundamentals/algorithms/bfs` |

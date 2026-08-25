@@ -1,6 +1,5 @@
 import React, {useMemo} from 'react';
 import BrowserOnly from '@docusaurus/BrowserOnly';
-import {useColorMode} from '@docusaurus/theme-common';
 import CodeMirror from '@uiw/react-codemirror';
 import {autocompletion} from '@codemirror/autocomplete';
 import {EditorView} from '@codemirror/view';
@@ -10,6 +9,7 @@ import {python} from '@codemirror/lang-python';
 import {javascript} from '@codemirror/lang-javascript';
 import {githubLight} from '@uiw/codemirror-theme-github';
 import {oneDark} from '@codemirror/theme-one-dark';
+import useHtmlColorMode from '@site/src/components/codeWorkspace/useHtmlColorMode';
 import styles from './styles.module.css';
 
 const KEYWORDS = {
@@ -107,7 +107,7 @@ function completionsFor(lang) {
 }
 
 function EditorInner({value, onChange, lang, readOnly}) {
-  const {colorMode} = useColorMode();
+  const colorMode = useHtmlColorMode();
   const extensions = useMemo(
     () => [
       languageExt(lang),

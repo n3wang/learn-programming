@@ -1,0 +1,381 @@
+---
+sidebar_position: 17
+title: "Exception Documentation and Handling"
+---
+
+> **Source:** Effective Java, 3rd Edition — Chapter 10 by Joshua Bloch (Items 74–77)
+
+This lesson closes Chapter 10: documenting thrown exceptions, rich detail messages, failure atomicity, and why empty catch blocks are dangerous.
+
+## Item 74: Document all exceptions thrown by each method
+
+Document **every** exception a method can throw — checked **and** unchecked — with **`@throws`** in Javadoc (Item 56). Unchecked exceptions describe **preconditions**; unchecked docs are especially important on **interfaces**.
+
+Rules:
+
+- Declare **each checked exception individually** in the method’s **`throws`** clause — never `throws Exception` or `throws Throwable` (except `main`).
+- Document unchecked exceptions with **`@throws` only** — do **not** list them in `throws` (that visual distinction matters).
+- Class-level docs can cover repeated cases (e.g. “all methods throw `NullPointerException` on null args”).
+
+<CodingExam
+  title="document throws tags"
+  heading="Challenge: @throws for unchecked"
+  lang="java"
+  filename="Main.java"
+  prompt="Add a Javadoc block above divide(a,b): @param both params, @return quotient, @throws IllegalArgumentException if b is zero. Do not add throws to the method signature — unchecked stays out of throws. wrap: 10/2; print 5."
+  sampleLog={`5`}
+  starter={`public class Main {
+    public static int divide(int a, int b) {
+        if (b == 0) {
+            throw new IllegalArgumentException("divisor is zero: " + b);
+        }
+        return a / b;
+    }
+}
+`}
+  wrapSuffix={`
+class Runner {
+    public static void main(String[] args) {
+        System.out.println(Main.divide(10, 2));
+    }
+}
+`}
+  sourceChecks={[
+    { name: 'param a', pattern: '@param\\s+a', must: true, hint: '@param a dividend' },
+    { name: 'param b', pattern: '@param\\s+b', must: true, hint: '@param b divisor' },
+    { name: 'return', pattern: '@return', must: true, hint: '@return the quotient' },
+    { name: 'throws IAE documented', pattern: '@throws\\s+IllegalArgumentException', must: true, hint: '@throws IllegalArgumentException if b is zero' },
+    { name: 'no throws clause', pattern: 'throws\\s+IllegalArgumentException|throws\\s+Exception', must: false, hint: 'document unchecked with @throws only — omit throws clause' },
+  ]}
+  tests={[
+    { name: 'ten over two', stdin: '', equals: '5' },
+  ]}
+/>
+
+<MultipleChoice
+  id="java-int-ch10-document"
+  title="Documenting exceptions"
+  questions={[
+    {
+      prompt: 'public void foo() throws Exception',
+      choices: [
+        'good — covers all failures',
+        'obscures which exceptions matter; declare each checked type',
+        'required for interfaces',
+        'only for unchecked exceptions',
+      ],
+      answer: 1,
+      why: 'Broad throws clauses hide useful information and can mask other exceptions in the same try block.',
+    },
+    {
+      prompt: 'Method throws IllegalArgumentException (unchecked)',
+      choices: [
+        'add throws IllegalArgumentException to signature and @throws',
+        '@throws in Javadoc only — no throws clause for unchecked',
+        'never document unchecked exceptions',
+        'wrap in checked Exception',
+      ],
+      answer: 1,
+      why: 'Document all exceptions; declare only checked ones in throws. @throws without throws signals unchecked.',
+    },
+  ]}
+/>
+
+## Item 75: Include failure-capture information in detail messages
+
+When something fails in production, the stack trace’s **detail message** may be the only clue. Include **parameter and field values** that contributed to the failure:
+
+```java
+throw new IndexOutOfBoundsException(
+    "Index: " + index + ", Size: " + size);
+```
+
+Prefer exception **constructors** that take structured data and build the message centrally — and expose **accessors** on checked exceptions for recovery logic. Don’t put secrets (passwords, keys) in messages.
+
+Detail messages are for **engineers**, not end-user UI copy.
+
+<CodingExam
+  title="bounds detail message"
+  heading="Challenge: capture index and size"
+  lang="java"
+  filename="Main.java"
+  prompt="requireIndex(size, index) throws IndexOutOfBoundsException when index is outside [0, size). Message must mention both size and index values (for debugging). wrap: size 2 index 9; catch and print message contains both numbers."
+  sampleLog={`has-both`}
+  starter={`public class Main {
+    public static void requireIndex(int size, int index) {
+        if (index < 0 || index >= size) {
+            throw new IndexOutOfBoundsException("bad index");
+        }
+    }
+}
+`}
+  wrapSuffix={`
+class Runner {
+    public static void main(String[] args) {
+        try {
+            Main.requireIndex(2, 9);
+            System.out.println("ok");
+        } catch (IndexOutOfBoundsException e) {
+            String msg = e.getMessage();
+            if (msg != null && msg.contains("2") && msg.contains("9")) {
+                System.out.println("has-both");
+            } else {
+                System.out.println("missing: " + msg);
+            }
+        }
+    }
+}
+`}
+  sourceChecks={[
+    { name: 'index in message', pattern: '\\+\\s*index|index\\s*\\+|String\\.valueOf\\(\\s*index\\)|\\(\\s*index\\s*\\)', must: true, hint: 'include index in the message, e.g. "index=" + index' },
+    { name: 'size in message', pattern: '\\+\\s*size|size\\s*\\+|String\\.valueOf\\(\\s*size\\)|\\(\\s*size\\s*\\)', must: true, hint: 'include size in the message, e.g. "size=" + size' },
+  ]}
+  tests={[
+    { name: 'captures values', stdin: '', equals: 'has-both' },
+  ]}
+/>
+
+## Item 76: Strive for failure atomicity
+
+After a method throws, the object should usually remain **usable** — in the same state as before the call (**failure-atomic**).
+
+Techniques:
+
+1. **Immutable objects** — failure atomicity is free.
+2. **Validate before mutate** — check preconditions first (`Stack.pop` checks `size == 0` before `--size`).
+3. **Compute-then-commit** — do risky work on a copy, swap in on success.
+4. **Recovery/rollback** — rare; mainly for durable structures.
+
+Document when atomicity **cannot** be guaranteed (e.g. after `ConcurrentModificationException`).
+
+<CodingExam
+  title="check before mutate"
+  heading="Challenge: failure atomicity"
+  lang="java"
+  filename="Main.java"
+  prompt="Counter starts at 0. decrement() throws IllegalStateException when count is already 0 — check BEFORE decrementing so count stays 0 on failure. wrap: decrement once on empty counter; print count after catch."
+  sampleLog={`0`}
+  starter={`public class Main {
+    public static class Counter {
+        private int count = 0;
+
+        public int getCount() {
+            return count;
+        }
+
+        public int decrement() {
+            count--;
+            if (count < 0) {
+                throw new IllegalStateException("below zero");
+            }
+            return count;
+        }
+    }
+}
+`}
+  wrapSuffix={`
+class Runner {
+    public static void main(String[] args) {
+        Main.Counter c = new Main.Counter();
+        try {
+            c.decrement();
+        } catch (IllegalStateException e) {
+            // expected on empty counter
+        }
+        System.out.println(c.getCount());
+    }
+}
+`}
+  sourceChecks={[
+    { name: 'check before decrement', pattern: 'if\\s*\\(\\s*count\\s*<=\\s*0|if\\s*\\(\\s*count\\s*==\\s*0|if\\s*\\(\\s*0\\s*>=\\s*count', must: true, hint: 'if (count <= 0) throw ... before count--' },
+    { name: 'decrement after check', pattern: 'count--', must: true, hint: 'decrement only after the guard passes' },
+  ]}
+  tests={[
+    { name: 'still zero', stdin: '', equals: '0' },
+  ]}
+/>
+
+<MultipleChoice
+  id="java-int-ch10-atomicity"
+  title="Failure atomicity"
+  questions={[
+    {
+      prompt: 'Stack.pop decrements size before checking empty',
+      choices: [
+        'failure-atomic — exception restores state',
+        'size can go negative — object left inconsistent',
+        'always fine for unchecked exceptions',
+        'required for immutables only',
+      ],
+      answer: 1,
+      why: 'Validate before modifying mutable state. Empty pop should not corrupt size.',
+    },
+    {
+      prompt: 'Immutable object method throws mid-computation',
+      choices: [
+        'existing instances may become inconsistent',
+        'failure atomicity is free — no partial mutation of existing objects',
+        'must use rollback code always',
+        'ConcurrentModificationException guarantees atomicity',
+      ],
+      answer: 1,
+      why: 'Immutable objects cannot be half-updated. Failed calls may skip creating a new instance.',
+    },
+  ]}
+/>
+
+## Item 77: Don’t ignore exceptions
+
+An **empty catch block** silences failures and makes debugging nightmares — the program may fail later, far from the root cause.
+
+```java
+// Don't
+try {
+    ...
+} catch (SomeException e) {
+}
+
+// Rare OK: comment why, name variable ignored
+} catch (IOException ignored) {
+    // already read everything needed; close failure is harmless
+}
+```
+
+Prefer **handling**, **propagating**, or **logging**. Applies to checked **and** unchecked exceptions.
+
+<CodingExam
+  title="do not swallow"
+  heading="Challenge: propagate, don't ignore"
+  lang="java"
+  filename="Main.java"
+  prompt="runChecked(action) invokes action.run(). If it throws RuntimeException, rethrow it — do not use an empty catch block. wrap: action throws IllegalArgumentException; catch outside and print propagated."
+  sampleLog={`propagated`}
+  starter={`public class Main {
+    public static void runChecked(Runnable action) {
+        try {
+            action.run();
+        } catch (RuntimeException e) {
+        }
+    }
+}
+`}
+  wrapSuffix={`
+class Runner {
+    public static void main(String[] args) {
+        try {
+            Main.runChecked(() -> {
+                throw new IllegalArgumentException("fail");
+            });
+            System.out.println("ok");
+        } catch (IllegalArgumentException e) {
+            System.out.println("propagated");
+        }
+    }
+}
+`}
+  sourceChecks={[
+    { name: 'rethrow', pattern: 'throw\\s+e\\s*;|throw\\s+new\\s+\\w+Exception\\s*\\(\\s*e\\s*\\)', must: true, hint: 'throw e; or wrap and rethrow' },
+    { name: 'no empty catch', pattern: 'catch\\s*\\(\\s*RuntimeException\\s+\\w+\\s*\\)\\s*\\{\\s*\\}', must: false, hint: 'empty catch ignores the failure' },
+  ]}
+  tests={[
+    { name: 'rethrows', stdin: '', equals: 'propagated' },
+  ]}
+/>
+
+## Items 74–77 map
+
+| Item | Move |
+|---|---|
+| 74 | `@throws` every exception; `throws` only checked |
+| 75 | Detail messages capture failing parameter values |
+| 76 | Validate before mutate; object usable after failure |
+| 77 | Never empty catch; propagate, handle, or log |
+
+Chapter 10 complete. Next: [Concurrency](./lesson-11a-concurrency) (Chapter 11, Items 78–81).
+
+<ExerciseSet
+  title="Exercises"
+  description="Checked throws clause; structured exception fields."
+>
+  <CodingExam
+    title="checked throws clause"
+    heading="Exercise: declare checked exception"
+    lang="java"
+    filename="Main.java"
+    prompt="readFirstLine(reader) reads one line and throws java.io.IOException when readLine returns null (EOF). Method already declares throws IOException — add Javadoc with @throws IOException describing EOF. wrap: empty reader; catch and print EOF."
+    starter={`import java.io.BufferedReader;
+import java.io.IOException;
+import java.io.StringReader;
+
+public class Main {
+    public static String readFirstLine(BufferedReader reader) throws IOException {
+        String line = reader.readLine();
+        if (line == null) {
+            throw new IOException("EOF");
+        }
+        return line;
+    }
+}
+`}
+    wrapSuffix={`
+class Runner {
+    public static void main(String[] args) {
+        try {
+            Main.readFirstLine(new BufferedReader(new StringReader("")));
+            System.out.println("ok");
+        } catch (IOException e) {
+            System.out.println("EOF");
+        }
+    }
+}
+`}
+    sourceChecks={[
+      { name: 'throws javadoc', pattern: '@throws\\s+IOException', must: true, hint: '@throws IOException if the stream is at EOF' },
+    ]}
+    tests={[
+      { name: 'empty stream', stdin: '', equals: 'EOF' },
+    ]}
+  />
+  <CodingExam
+    title="shortfall exception"
+    heading="Exercise: failure-capture fields"
+    lang="java"
+    filename="Main.java"
+    prompt="InsufficientFundsException stores requested and available cents. Constructor sets super message including both values. getShortfallCents() returns requested - available. wrap: throw with 500 requested, 300 available; print shortfall."
+    starter={`public class Main {
+    public static class InsufficientFundsException extends Exception {
+        private final int requestedCents;
+        private final int availableCents;
+
+        public InsufficientFundsException(int requestedCents, int availableCents) {
+            super("insufficient funds");
+            this.requestedCents = requestedCents;
+            this.availableCents = availableCents;
+        }
+
+        public int getShortfallCents() {
+            return 0; // TODO requested - available
+        }
+    }
+}
+`}
+    wrapSuffix={`
+class Runner {
+    public static void main(String[] args) {
+        try {
+            throw new Main.InsufficientFundsException(500, 300);
+        } catch (Main.InsufficientFundsException e) {
+            System.out.println(e.getShortfallCents());
+        }
+    }
+}
+`}
+    sourceChecks={[
+      { name: 'shortfall math', pattern: 'requestedCents\\s*-\\s*availableCents|availableCents\\s*-', must: true, hint: 'return requestedCents - availableCents' },
+      { name: 'message captures values', pattern: 'super\\([^)]*requested|super\\([^)]*available|String\\.format', must: true, hint: 'super message should include requested and available amounts' },
+    ]}
+    tests={[
+      { name: '200 short', stdin: '', equals: '200' },
+    ]}
+  />
+</ExerciseSet>

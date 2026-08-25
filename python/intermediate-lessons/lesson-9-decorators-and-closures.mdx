@@ -1,0 +1,649 @@
+---
+sidebar_position: 9
+title: "Decorators and Closures"
+---
+
+> **Source:** Fluent Python, 2nd Edition — Chapter 9 by Luciano Ramalho
+
+A **decorator** is a callable that takes a function and returns a function (often a **wrapper**). The `@` line is sugar:
+
+```python
+@deco
+def target():
+    ...
+# same as: target = deco(target)
+```
+
+Decorators run at **import time** — as soon as the `def` finishes — not when you later call the function. Closures (and `nonlocal`) are how wrappers remember the original function and extra state.
+
+This chapter covers:
+
+- What `@` really does, and registration vs wrapping
+- Local vs global names (`UnboundLocalError`)
+- Closures and free variables
+- `nonlocal` when you assign to a captured name
+- `functools.wraps`, `@cache` / `@lru_cache`, `@singledispatch`
+- Decorator **factories** (decorators that take arguments)
+
+---
+
+## Decorators 101
+
+The decorator may return the **same** function (registration) or a **new** inner function that calls the original.
+
+Three facts: a decorator is a callable; it may replace the decorated name; it runs when the module loads.
+
+<details>
+<summary>🧪 Replacement at decoration time</summary>
+
+<PistonRunner
+  lang="python"
+  interactive={false}
+  height="300px"
+  code={`def deco(func):
+    def inner():
+        print("running inner")
+    return inner
+
+@deco
+def target():
+    print("running target")
+
+target()
+print(target.__name__)
+`}
+/>
+
+</details>
+
+---
+
+## Mini quiz — sugar and import time
+
+<MultipleChoice
+  id="py-int-ch9-deco101"
+  title="Decorators 101"
+  questions={[
+    {
+      prompt: '@deco above def f(): is the same as',
+      choices: ['f = deco', 'f = deco(f)', 'deco = f', 'f() = deco'],
+      answer: 1,
+      why: 'Python passes the function object into deco and rebinds the name f to whatever deco returns.',
+    },
+    {
+      prompt: 'A registration decorator typically',
+      choices: [
+        'always sleeps for one second',
+        'stores the function (often returning it unchanged)',
+        'deletes the function',
+        'only works on methods',
+      ],
+      answer: 1,
+      why: 'Frameworks map URLs to views this way. Wrapping is the other common pattern.',
+    },
+  ]}
+/>
+
+---
+
+## Challenge: plugin registry
+
+Build a list `plugins` and a decorator `plugin` that **appends** the function and **returns it unchanged**. Calling the decorated function must still run the original body.
+
+<CodingExam
+  title="plugin registry"
+  heading="Challenge: plugin registry"
+  lang="python"
+  filename="main.py"
+  prompt="Decorator that records functions and returns the same function."
+  sampleLog={`(input) hi
+hi 1`}
+  starter={`plugins = []
+
+def plugin(func):
+    return func
+`}
+  wrapSuffix={`
+@plugin
+def echo(s):
+    return s
+
+print(echo(input().strip()), len(plugins))
+`}
+  sourceChecks={[
+    { name: 'Records the function', pattern: 'plugins\\.(append|extend)', must: true, hint: 'append the function to plugins' },
+  ]}
+  tests={[
+    { name: 'hi', stdin: 'hi', equals: 'hi 1' },
+    { name: 'ok', stdin: 'ok', equals: 'ok 1' },
+  ]}
+/>
+
+---
+
+## Variable scope
+
+Python decides **at compile time** whether a name in a function is local: if you **assign** to it anywhere in the body, it is local for the whole function. Reading it before that assignment raises `UnboundLocalError`, even if a global with the same name exists.
+
+`global x` means assign/read the module-level `x`. Nested functions that **assign** to a name from the enclosing function need `nonlocal x`.
+
+<details>
+<summary>🧪 Assignment makes it local</summary>
+
+<PistonRunner
+  lang="python"
+  interactive={false}
+  height="280px"
+  code={`b = 6
+
+def f2(a):
+    print(a)
+    try:
+        print(b)
+    except UnboundLocalError as e:
+        print(type(e).__name__)
+    b = 9
+
+f2(3)
+`}
+/>
+
+</details>
+
+---
+
+## Mini quiz — locals
+
+<MultipleChoice
+  id="py-int-ch9-scope"
+  title="Variable scope"
+  questions={[
+    {
+      prompt: 'A name assigned anywhere in a function is treated as',
+      choices: ['always global', 'local for the whole function', 'nonlocal automatically', 'a class attribute'],
+      answer: 1,
+      why: 'That is why print(b) can fail even when a global b exists.',
+    },
+    {
+      prompt: 'global b inside a function lets you',
+      choices: ['create a closure', 'assign to the module-level b', 'freeze b', 'skip import time'],
+      answer: 1,
+      why: 'Without global, assignment would make a new local b.',
+    },
+  ]}
+/>
+
+---
+
+## Closures
+
+A **closure** is a nested function that keeps **free variables** from the enclosing scope after that scope has returned. Mutating a list (`append`) does not rebind the name. Rebinding a number (`count += 1`) **does** assign, so you need `nonlocal count`.
+
+```python
+def make_averager():
+    series = []
+    def averager(new_value):
+        series.append(new_value)
+        return sum(series) / len(series)
+    return averager
+```
+
+<details>
+<summary>🧪 Running average via closure</summary>
+
+<PistonRunner
+  lang="python"
+  interactive={false}
+  height="280px"
+  code={`def make_averager():
+    series = []
+    def averager(new_value):
+        series.append(new_value)
+        return sum(series) / len(series)
+    return averager
+
+avg = make_averager()
+print(avg(10), avg(11), avg(12))
+print(avg.__code__.co_freevars)
+`}
+/>
+
+</details>
+
+---
+
+## Mini quiz — closures and nonlocal
+
+<MultipleChoice
+  id="py-int-ch9-closure"
+  title="Closures"
+  questions={[
+    {
+      prompt: 'A free variable is',
+      choices: [
+        'always a global',
+        'used in a nested function but bound in an enclosing function',
+        'deleted by del',
+        'only for classes',
+      ],
+      answer: 1,
+      why: 'The nested function closes over that binding.',
+    },
+    {
+      prompt: 'count += 1 in a nested function without nonlocal',
+      choices: [
+        'updates the outer count',
+        'makes count local and usually raises UnboundLocalError',
+        'is a syntax error in Python 3',
+        'interns the integer',
+      ],
+      answer: 1,
+      why: '+= on an int is assignment. Lists can be mutated without rebinding the name.',
+    },
+  ]}
+/>
+
+---
+
+## Challenge: running mean
+
+Return a function that, given a stream of numbers, returns the mean of **all values so far**.
+
+<CodingExam
+  title="running mean"
+  heading="Challenge: running mean"
+  lang="python"
+  filename="main.py"
+  prompt="Closure that updates each call (list or nonlocal total/count)."
+  sampleLog={`(input) 10 11 12
+10.0 10.5 11.0`}
+  starter={`def make_averager():
+    def averager(new_value):
+        return 0.0
+    return averager
+`}
+  wrapSuffix={`
+avg = make_averager()
+vals = [int(x) for x in input().split()]
+print(" ".join(str(avg(v)) for v in vals))
+`}
+  tests={[
+    { name: '10 11 12', stdin: '10 11 12', equals: '10.0 10.5 11.0' },
+    { name: 'single', stdin: '4', equals: '4.0' },
+  ]}
+/>
+
+---
+
+## A wrapping decorator
+
+Typical wrapper: accept `*args, **kwargs`, call the original, maybe log, return its result. Copy `__name__` / `__doc__` with `@functools.wraps(func)`.
+
+Stacked `@a` `@b` `def f` means `f = a(b(f))` — the **closest** decorator runs first.
+
+<details>
+<summary>🧪 wraps keeps the name</summary>
+
+<PistonRunner
+  lang="python"
+  interactive={false}
+  height="280px"
+  code={`import functools
+
+def twice(func):
+    @functools.wraps(func)
+    def wrapper(x):
+        return func(func(x))
+    return wrapper
+
+@twice
+def inc(n):
+    return n + 1
+
+print(inc(3), inc.__name__)
+`}
+/>
+
+</details>
+
+---
+
+## Challenge: shout wrapper
+
+Write `shout` so `@shout` makes the function’s **return value** uppercase. The original still receives the same argument.
+
+<CodingExam
+  title="shout wrapper"
+  heading="Challenge: shout wrapper"
+  lang="python"
+  filename="main.py"
+  prompt="Decorator that uppercases the string result."
+  sampleLog={`(input) hi
+HI`}
+  starter={`def shout(func):
+    def wrapper(text):
+        return func(text)
+    return wrapper
+`}
+  wrapSuffix={`
+@shout
+def ident(s):
+    return s
+
+print(ident(input().strip()))
+`}
+  sourceChecks={[
+    { name: 'Calls the original', pattern: 'func\\(', must: true, hint: 'call func, then transform the result' },
+    { name: 'Uses upper', pattern: '\\.upper\\(', must: true, hint: 'uppercase the return value' },
+  ]}
+  tests={[
+    { name: 'hi', stdin: 'hi', equals: 'HI' },
+    { name: 'Ok', stdin: 'Ok', equals: 'OK' },
+  ]}
+/>
+
+---
+
+## Library helpers
+
+| Tool | Role |
+|---|---|
+| `functools.cache` (3.9+) | Unbounded memoization. Arguments must be hashable. Fine for short scripts. |
+| `functools.lru_cache(maxsize=128)` | Same idea with a size cap. Prefer this in long-running services. |
+| `functools.singledispatch` | Pick an implementation from the **type of the first argument**. Register more types in other modules. Prefer ABCs over only `int`. |
+
+Naive recursive Fibonacci without a cache repeats work; `@cache` (or `@lru_cache`) keeps one result per `n`. `@cache` can grow without bound — use `lru_cache` when that matters.
+
+```python
+from functools import singledispatch
+
+@singledispatch
+def show(obj):
+    return repr(obj)
+
+@show.register
+def _(text: str):
+    return text.upper()
+```
+
+---
+
+## Mini quiz — stdlib
+
+<MultipleChoice
+  id="py-int-ch9-stdlib"
+  title="cache and singledispatch"
+  questions={[
+    {
+      prompt: '@alpha @beta def f means',
+      choices: ['f = beta(alpha(f))', 'f = alpha(beta(f))', 'both run at call time only', 'syntax error'],
+      answer: 1,
+      why: 'The lower decorator is applied first.',
+    },
+    {
+      prompt: 'singledispatch chooses an implementation using',
+      choices: ['the function name', 'the type of the first argument', 'random', 'only kwargs'],
+      answer: 1,
+      why: 'That is single dispatch. Extra types use @fn.register.',
+    },
+  ]}
+/>
+
+---
+
+## Parameterized decorators
+
+`@clock` receives the function. `@clock(fmt)` must be a **factory**: `clock(fmt)` returns the real decorator, which then receives the function.
+
+A class with `__init__(self, fmt)` and `__call__(self, func)` is the same idea and often easier to read for non-trivial wrappers.
+
+If the factory takes optional args, write `@register()` with parentheses when you want the default — otherwise Python would pass the function as that first parameter.
+
+---
+
+## Mini quiz — factories
+
+<MultipleChoice
+  id="py-int-ch9-param"
+  title="Parameterized decorators"
+  questions={[
+    {
+      prompt: '@repeat(3) def f needs repeat to',
+      choices: [
+        'be the wrapper itself',
+        'return a decorator that receives f',
+        'be a list',
+        'run on Python 2 only',
+      ],
+      answer: 1,
+      why: 'Python evaluates repeat(3) first, then applies that result to f.',
+    },
+    {
+      prompt: 'functools.wraps(func) on the inner wrapper',
+      choices: [
+        'makes the wrapper sleep',
+        'copies name/docs from func onto the wrapper',
+        'disables closures',
+        'is required by the grammar',
+      ],
+      answer: 1,
+      why: 'Without it, f.__name__ becomes wrapper.',
+    },
+  ]}
+/>
+
+---
+
+## Challenge: call n times
+
+`times(n)` is a decorator factory. The wrapped function should be called `n` times on the same int, and those return values **summed**.
+
+<CodingExam
+  title="call n times"
+  heading="Challenge: call n times"
+  lang="python"
+  filename="main.py"
+  prompt="times(n) returns a decorator. Sum n calls of func(x)."
+  sampleLog={`(input) 3 5
+15`}
+  starter={`def times(n):
+    def decorate(func):
+        def wrapper(x):
+            return func(x)
+        return wrapper
+    return decorate
+`}
+  wrapSuffix={`
+n, x = [int(v) for v in input().split()]
+
+def ident(v):
+    return v
+
+ident = times(n)(ident)
+print(ident(x))
+`}
+  tests={[
+    { name: '3 times 5', stdin: '3 5', equals: '15' },
+    { name: '1 times 9', stdin: '1 9', equals: '9' },
+    { name: '4 times 2', stdin: '4 2', equals: '8' },
+  ]}
+/>
+
+---
+
+## Chapter summary
+
+:::important Key takeaways
+
+1. `@deco` means `f = deco(f)` and runs at import time.
+2. Registration keeps the same function; most decorators return a wrapper.
+3. Assignment anywhere in a function makes that name local.
+4. Closures keep enclosing bindings; `nonlocal` is required to rebind them.
+5. Use `wraps`, `cache` / `lru_cache`, and `singledispatch` from `functools`.
+6. Parameterized `@deco(x)` is a factory that returns the real decorator.
+
+:::
+
+## Exercises
+
+<ExerciseSet>
+<Exercise title="Nonlocal counter" anchor="exercise-nonlocal">
+
+:::tip Activity: Nonlocal counter
+`make_counter()` returns a function. Each call with no arguments adds 1 to a hidden count and returns the new count. Two counters from two factory calls must not share state.
+
+<CodingExam
+  title="Nonlocal counter"
+  heading="exercise-nonlocal"
+  lang="python"
+  filename="main.py"
+  prompt="Nested function; rebind the captured count."
+  sampleLog={`(input) 3
+1 2 3`}
+  starter={`def make_counter():
+    def tick():
+        return 0
+    return tick
+`}
+  wrapSuffix={`
+n = int(input())
+c = make_counter()
+print(" ".join(str(c()) for _ in range(n)))
+`}
+  sourceChecks={[
+    { name: 'Uses nonlocal', pattern: 'nonlocal', must: true, hint: 'declare nonlocal so += updates the closure' },
+  ]}
+  tests={[
+    { name: 'three ticks', stdin: '3', equals: '1 2 3' },
+    { name: 'one tick', stdin: '1', equals: '1' },
+  ]}
+/>
+
+:::
+
+</Exercise>
+
+<Exercise title="Prefix factory" anchor="exercise-prefix">
+
+:::tip Activity: Prefix factory
+`prefix(tag)` returns a decorator. The wrapped function still takes one string; the result should be `tag + original_return`. Different tags must not leak into each other.
+
+<CodingExam
+  title="Prefix factory"
+  heading="exercise-prefix"
+  lang="python"
+  filename="main.py"
+  prompt="Decorator factory. Prepend tag to the function result."
+  sampleLog={`(input) hi
+[x]hi`}
+  starter={`def prefix(tag):
+    def decorate(func):
+        def wrapper(text):
+            return func(text)
+        return wrapper
+    return decorate
+`}
+  wrapSuffix={`
+word = input().strip()
+
+def ident(s):
+    return s
+
+ident = prefix("[x]")(ident)
+print(ident(word))
+`}
+  tests={[
+    { name: 'hi', stdin: 'hi', equals: '[x]hi' },
+    { name: 'z', stdin: 'z', equals: '[x]z' },
+  ]}
+/>
+
+:::
+
+</Exercise>
+
+<Exercise title="Dispatch on type" anchor="exercise-dispatch">
+
+:::tip Activity: Dispatch on type
+Use `singledispatch`. Base case: `show(obj)` returns `repr(obj)` (no extra quotes policy — use `repr`). Register `str` so `show(s)` returns `s` in uppercase. Register `int` so `show(n)` returns `n*2` as a string of digits.
+
+Input: `s hello` or `i 21` or `x 1,2`.
+
+<CodingExam
+  title="Dispatch on type"
+  heading="exercise-dispatch"
+  lang="python"
+  filename="main.py"
+  prompt="singledispatch show for str and int; default repr."
+  sampleLog={`(input) s hi
+HI`}
+  starter={`from functools import singledispatch
+
+@singledispatch
+def show(obj):
+    return repr(obj)
+`}
+  wrapSuffix={`
+kind, rest = input().split(None, 1)
+if kind == "s":
+    print(show(rest))
+elif kind == "i":
+    print(show(int(rest)))
+else:
+    print(show(rest.split(",")))
+`}
+  sourceChecks={[
+    { name: 'Registers implementations', pattern: 'show\\.register', must: true, hint: '@show.register on specialized functions' },
+  ]}
+  tests={[
+    { name: 'string', stdin: 's hi', equals: 'HI' },
+    { name: 'int', stdin: 'i 21', equals: '42' },
+    { name: 'list default', stdin: 'x a,b', equals: "['a', 'b']" },
+  ]}
+/>
+
+:::
+
+</Exercise>
+
+<Exercise title="Memoize calls" anchor="exercise-cache">
+
+:::tip Activity: Memoize calls
+Implement `memo(func)` yourself (a dict keyed by the single int argument). Count **original** `slow` body executions in a list `hits` that `slow` appends to. After `memo`, calling with the same `n` twice must increment `hits` only once.
+
+<CodingExam
+  title="Memoize calls"
+  heading="exercise-cache"
+  lang="python"
+  filename="main.py"
+  prompt="Wrapper dict cache; second call with same n must not run slow again."
+  sampleLog={`(input) 3
+3 1`}
+  starter={`def memo(func):
+    def wrapper(n):
+        return func(n)
+    return wrapper
+`}
+  wrapSuffix={`
+hits = []
+
+def slow(n):
+    hits.append(n)
+    return n
+
+slow = memo(slow)
+n = int(input())
+a = slow(n)
+b = slow(n)
+print(a, len(hits))
+`}
+  tests={[
+    { name: 'cached', stdin: '3', equals: '3 1' },
+    { name: 'other n', stdin: '0', equals: '0 1' },
+  ]}
+/>
+
+:::
+
+</Exercise>
+</ExerciseSet>

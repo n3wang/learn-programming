@@ -1,0 +1,318 @@
+---
+sidebar_position: 6
+title: "Generics"
+---
+
+> **Source:** Effective Java, 3rd Edition — Chapter 5 by Joshua Bloch (Items 26–29)
+
+Since Java 5, **generics** let the compiler track element types — safer and clearer than casting from raw collections. This lesson: avoid raw types, eliminate unchecked warnings, prefer lists over arrays in generic code, and parameterize your own types.
+
+## Item 26: Don't use raw types
+
+**Terms:**
+
+| Term | Example |
+|---|---|
+| Generic type | `List<E>` |
+| Formal type parameter | `E` |
+| Parameterized type | `List<String>` |
+| Actual type parameter | `String` |
+| Raw type | `List` (generics erased) |
+| Unbounded wildcard | `List<?>` |
+
+Raw `Collection stamps` compiles but loses safety — `stamps.add(new Coin())` may only fail at `(Stamp) i.next()`. Parameterized `Collection<Stamp>` catches the error at compile time.
+
+**Raw vs parameterized:**
+
+- `List` — opts out of generics; unsafe.
+- `List<Object>` — can hold any reference type; **not** a supertype of `List<String>` (generics are invariant).
+- `List<?>` — unknown element type; **cannot** add (except `null`); safe for read-only algorithms.
+
+For unknown element type, use **`Set<?>`**, not raw `Set`:
+
+```java
+static int numElementsInCommon(Set<?> s1, Set<?> s2) { ... }
+```
+
+**Legitimate raw-type uses:** `List.class` (class literals); `instanceof Set` then cast to `Set<?>` — not raw `Set`.
+
+<MultipleChoice
+  id="java-int-ch5-raw"
+  title="Raw types and wildcards"
+  questions={[
+    {
+      prompt: 'List<String> vs List<Object> for a parameter',
+      choices: [
+        'List<String> is a subtype of List<Object>',
+        'generics are invariant — List<String> is not a subtype of List<Object>',
+        'both accept any Object',
+        'only arrays differ',
+      ],
+      answer: 1,
+      why: 'Unlike arrays, List<Type1> and List<Type2> are unrelated unless Type1 equals Type2.',
+    },
+    {
+      prompt: 'Set<?> s vs raw Set s for numElementsInCommon',
+      choices: [
+        'equivalent at compile time',
+        'Set<?> prevents corrupting the set; raw Set allows unsafe adds',
+        'Set<?> allows adding any element',
+        'raw Set is preferred for performance',
+      ],
+      answer: 1,
+      why: 'Wildcards preserve type invariants. Raw types opt out entirely.',
+    },
+  ]}
+/>
+
+<CodingExam
+  title="wildcard intersection count"
+  heading="Challenge: wildcard intersection count"
+  lang="java"
+  filename="Main.java"
+  prompt="Implement numElementsInCommon(Set<?> s1, Set<?> s2): count elements in s1 that s2.contains. Use wildcard types — not raw Set. wrap: two fixed string sets {a,b,c} and {b,c,d}; print count."
+  sampleLog={`2`}
+  starter={`import java.util.Set;
+
+public class Main {
+    public static int numElementsInCommon(Set<?> s1, Set<?> s2) {
+        return 0; // TODO iterate s1, count s2.contains
+    }
+}
+`}
+  wrapSuffix={`
+class Runner {
+    public static void main(String[] args) {
+        java.util.Set<String> s1 = new java.util.HashSet<>(java.util.Arrays.asList("a", "b", "c"));
+        java.util.Set<String> s2 = new java.util.HashSet<>(java.util.Arrays.asList("b", "c", "d"));
+        System.out.println(Main.numElementsInCommon(s1, s2));
+    }
+}
+`}
+  sourceChecks={[
+    { name: 'wildcard params', pattern: 'Set\\s*<\\s*\\?\\s*>', must: true, hint: 'parameters must be Set<?>, not raw Set' },
+    { name: 'contains', pattern: 's2\\.contains', must: true, hint: 'if (s2.contains(o)) result++' },
+    { name: 'no raw Set', pattern: 'Set\\s+s[12]\\s*[,\\)]', must: false, hint: 'do not use raw Set in the signature' },
+  ]}
+  tests={[
+    { name: 'abc bcd', stdin: '', equals: '2' },
+  ]}
+/>
+
+## Item 27: Eliminate unchecked warnings
+
+Generics produce **unchecked** warnings: unchecked conversion, cast, method invocation, vararg. Fix them when you can — each warning is a potential runtime `ClassCastException`.
+
+Easy fix example:
+
+```java
+Set<Lark> exaltation = new HashSet<>(); // diamond, not raw HashSet
+```
+
+If you **cannot** eliminate a warning but can **prove** typesafety, suppress with `@SuppressWarnings("unchecked")` on the **smallest scope** (local variable, not whole class). Add a comment explaining why. Never suppress blindly — new real warnings get lost in the noise.
+
+## Item 28: Prefer lists to arrays
+
+| | Arrays | Generics |
+|---|---|---|
+| Subtyping | **Covariant** (`Long[]` is `Object[]`) | **Invariant** (`List<Long>` ≠ `List<Object>`) |
+| Runtime type | **Reified** — enforce element type | **Erased** — compile-time only |
+
+Covariance bite:
+
+```java
+Object[] a = new Long[1];
+a[0] = "x"; // ArrayStoreException at runtime
+```
+
+`List<Object> ol = new ArrayList<Long>()` — **won't compile** (good).
+
+**No generic array creation:** `new List<String>()` is illegal — would break type safety via erasure + covariance.
+
+When mixing arrays and generics causes errors/warnings, prefer **`List<E>`** over **`E[]`**. Example: list-based `Chooser<T>` instead of `(T[]) choices.toArray()`.
+
+<MultipleChoice
+  id="java-int-ch5-arrays"
+  title="Arrays vs generics"
+  questions={[
+    {
+      prompt: 'Object[] o = new Long[1]; o[0] = "hi"',
+      choices: [
+        'compile error',
+        'ArrayStoreException at runtime',
+        'ClassCastException on assignment',
+        'works fine',
+      ],
+      answer: 1,
+      why: 'Arrays are covariant and reified. Wrong element type fails at store time.',
+    },
+    {
+      prompt: 'Generic Chooser backed by T[] from choices.toArray()',
+      choices: [
+        'always typesafe without warnings',
+        'unchecked cast warning — List<T> backing is often cleaner',
+        'illegal in Java 17+',
+        'faster than lists so prefer arrays',
+      ],
+      answer: 1,
+      why: 'Non-reifiable T[] needs unchecked cast. List avoids the warning (Item 28).',
+    },
+  ]}
+/>
+
+<CodingExam
+  title="list-based chooser"
+  heading="Challenge: list-based chooser"
+  lang="java"
+  filename="Main.java"
+  prompt="Chooser<T> stores choices in a List<T> (Item 28). Constructor copies the collection into a new ArrayList. pick(index) returns choiceList.get(index). wrap: Chooser of x,y,z; print pick(1)."
+  sampleLog={`y`}
+  starter={`import java.util.Collection;
+import java.util.List;
+
+public class Main {
+    public static final class Chooser<T> {
+        private final List<T> choiceList;
+
+        public Chooser(Collection<T> choices) {
+            choiceList = null; // TODO new ArrayList<>(choices)
+        }
+
+        public T pick(int index) {
+            return null; // TODO
+        }
+    }
+}
+`}
+  wrapSuffix={`
+class Runner {
+    public static void main(String[] args) {
+        Main.Chooser<String> c = new Main.Chooser<>(java.util.Arrays.asList("x", "y", "z"));
+        System.out.println(c.pick(1));
+    }
+}
+`}
+  sourceChecks={[
+    { name: 'ArrayList copy', pattern: 'new\\s+ArrayList\\s*<\\s*>\\s*\\(\\s*choices\\s*\\)|new\\s+ArrayList\\s*\\(\\s*choices\\s*\\)', must: true, hint: 'choiceList = new ArrayList<>(choices)' },
+    { name: 'list get', pattern: 'choiceList\\.get', must: true, hint: 'return choiceList.get(index)' },
+    { name: 'no Object array', pattern: 'Object\\s*\\[\\]|toArray\\s*\\(', must: false, hint: 'use List<T>, not Object[] / toArray' },
+  ]}
+  tests={[
+    { name: 'middle', stdin: '', equals: 'y' },
+  ]}
+/>
+
+## Item 29: Favor generic types
+
+Parameterize declarations and write generic types when casts would otherwise burden clients. **Generify legacy types** without breaking callers (migration compatibility, Item 26).
+
+Generifying `Stack`: add `<E>`, replace `Object` with `E`. Backing array hits **generic array creation** — two fixes:
+
+1. `(E[]) new Object[n]` in constructor + narrow `@SuppressWarnings` + comment (common).
+2. `Object[]` storage + cast on `pop()` (cast at each read).
+
+Prefer (1) when the array is private and only receives `E` from `push`. Primitives need boxed types (`Stack<Integer>`, not `Stack<int>`).
+
+**Bounded type parameters:** `DelayQueue<E extends Delayed>` restricts `E` so clients need no casts.
+
+<CodingExam
+  title="generic mini stack"
+  heading="Challenge: generic mini stack"
+  lang="java"
+  filename="Main.java"
+  prompt="MiniStack<E> uses ArrayList<E> internally (no explicit casts for callers). push adds; pop removes and returns the last element (LIFO). wrap: push two words from stdin; pop both separated by space."
+  sampleLog={`(input) first second
+second first`}
+  starter={`import java.util.ArrayList;
+import java.util.List;
+
+public class Main {
+    public static final class MiniStack<E> {
+        private final List<E> items = new ArrayList<>();
+
+        public void push(E e) {
+            // TODO
+        }
+
+        public E pop() {
+            return null; // TODO remove last
+        }
+    }
+}
+`}
+  wrapSuffix={`
+class Runner {
+    public static void main(String[] args) {
+        java.util.Scanner sc = new java.util.Scanner(System.in);
+        Main.MiniStack<String> stack = new Main.MiniStack<>();
+        stack.push(sc.next());
+        stack.push(sc.next());
+        System.out.println(stack.pop() + " " + stack.pop());
+    }
+}
+`}
+  sourceChecks={[
+    { name: 'push add', pattern: 'items\\.add', must: true, hint: 'items.add(e)' },
+    { name: 'pop remove', pattern: 'items\\.remove|items\\.get\\([^)]+\\)\\s*;\\s*items\\.remove', must: true, hint: 'remove and return the last element' },
+    { name: 'generic class', pattern: 'class\\s+MiniStack\\s*<\\s*E\\s*>', must: true, hint: 'MiniStack must stay generic' },
+  ]}
+  tests={[
+    { name: 'lifo', stdin: 'first second', equals: 'second first' },
+    { name: 'ab', stdin: 'a b', equals: 'b a' },
+  ]}
+/>
+
+## Items 26–29 map
+
+| Item | Move |
+|---|---|
+| 26 | No raw types; `Set<?>` for unknown element types |
+| 27 | Fix unchecked warnings; suppress only with proof + narrow scope |
+| 28 | Lists over arrays in generic APIs; arrays covariant, generics invariant |
+| 29 | Parameterize types; generify legacy APIs; bounded params when needed |
+
+Next: [Wildcards and Type Tokens](./lesson-5b-generic-methods-wildcards) (Items 30–33).
+
+<ExerciseSet
+  title="Exercises"
+  description="Diamond operator and suppression scope."
+>
+  <CodingExam
+    title="diamond hash set"
+    heading="Exercise: diamond HashSet"
+    lang="java"
+    filename="Main.java"
+    prompt="newWordSet returns a new HashSet<String> using the diamond operator (Item 27): new HashSet<>(). addAll copies words from the varargs parameter. wrap: three words; print size then joined words sorted."
+    starter={`import java.util.HashSet;
+import java.util.Set;
+
+public class Main {
+    public static Set<String> newWordSet(String... words) {
+        Set<String> set = new HashSet(); // TODO use diamond: new HashSet<>()
+        for (String w : words) {
+            set.add(w);
+        }
+        return set;
+    }
+}
+`}
+    wrapSuffix={`
+class Runner {
+    public static void main(String[] args) {
+        java.util.Set<String> s = Main.newWordSet("c", "a", "b");
+        System.out.println(s.size());
+        java.util.List<String> sorted = new java.util.ArrayList<>(s);
+        java.util.Collections.sort(sorted);
+        System.out.println(String.join(",", sorted));
+    }
+}
+`}
+    sourceChecks={[
+      { name: 'diamond', pattern: 'new\\s+HashSet\\s*<>\\s*\\(', must: true, hint: 'Set<String> set = new HashSet<>();' },
+      { name: 'no raw HashSet', pattern: 'new\\s+HashSet\\s*\\(\\s*\\)', must: false, hint: 'raw new HashSet() triggers unchecked conversion warning' },
+    ]}
+    tests={[
+      { name: 'three', stdin: '', equals: '3\na,b,c' },
+    ]}
+  />
+</ExerciseSet>

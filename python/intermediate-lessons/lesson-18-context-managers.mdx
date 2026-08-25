@@ -1,0 +1,274 @@
+---
+sidebar_position: 20
+title: "Context Managers and else Blocks"
+---
+
+> **Source:** Fluent Python, 2nd Edition — Chapter 18 by Luciano Ramalho
+
+Hettinger: `with` is not the shallow `with` of BASIC. It is **setup and teardown**, as fundamental as a subroutine. This chapter also covers **`else` on `for` / `while` / `try`** (a then-clause wearing the wrong keyword) and a short note on **`match` OR-patterns**. A full Scheme interpreter is a book-length case study; we keep pattern matching to the `|` rule.
+
+## `else` beyond `if`
+
+Read it as **then**, not “otherwise”:
+
+- **`for`/`else`**: `else` runs if the loop **finished** (no `break`).
+- **`while`/`else`**: `else` runs if the condition went falsy (no `break`).
+- **`try`/`else`**: `else` runs if the `try` body raised **nothing**. Exceptions in `else` are **not** caught by the preceding `except`.
+
+`return` / `break` / `continue` / an exception skip `else`.
+
+Banana hunt without a flag:
+
+```python
+for item in my_list:
+    if item == 'banana':
+        break
+else:
+    raise ValueError('no banana')
+```
+
+Put only the risky call in `try`; put the “success path” in `else` so you are not accidentally catching errors from `after_call()`.
+
+**EAFP** (easier to ask forgiveness): try, then `except`. **LBYL** (look before you leap): many `if`s. LBYL races in threads (`if key in d: d[key]`). EAFP is why `try`/`else` matters.
+
+<CodingExam
+  title="for-else"
+  heading="Challenge: for-else"
+  lang="python"
+  filename="main.py"
+  prompt="wrap: words. Loop them; if banana appears print found and break. If the loop finishes without break, print missing. Use for/else — no flag variable."
+  sampleLog={`(input) apple banana
+found`}
+  starter={`def wrap(line: str) -> str:
+    words = line.split()
+    return ''
+`}
+  wrapSuffix={`
+print(wrap(input()))
+`}
+  sourceChecks={[
+    { name: 'for-else', pattern: '\\belse\\s*:', must: true, hint: 'else attached to for, not if' },
+    { name: 'for loop', pattern: '\\bfor\\b', must: true, hint: 'for word in words:' },
+    { name: 'break', pattern: '\\bbreak\\b', must: true, hint: 'break when you find banana' },
+  ]}
+  tests={[
+    { name: 'hit', stdin: 'apple banana', equals: 'found' },
+    { name: 'miss', stdin: 'apple pear', equals: 'missing' },
+  ]}
+/>
+
+<CodingExam
+  title="try-else"
+  heading="Challenge: try-else"
+  lang="python"
+  filename="main.py"
+  prompt="wrap: a word. int(word) in try; except ValueError print bad; else print twice the int. Do not put the doubling inside try."
+  sampleLog={`(input) 7
+14`}
+  starter={`def wrap(line: str) -> str:
+    return ''
+`}
+  wrapSuffix={`
+print(wrap(input()))
+`}
+  sourceChecks={[
+    { name: 'try-else', pattern: 'except[\\s\\S]+else\\s*:', must: true, hint: 'else after except' },
+  ]}
+  tests={[
+    { name: 'ok', stdin: '7', equals: '14' },
+    { name: 'not int', stdin: 'x', equals: 'bad' },
+  ]}
+/>
+
+## Context managers and `with`
+
+`with` is `try`/`finally` with an object in charge. **`__enter__`** at the start; **`__exit__`** at the end (exception, `return`, `sys.exit`, or a clean finish).
+
+The object after `with` is the **manager**. `as name` binds whatever **`__enter__` returns** — often `self` (`open`), sometimes another object, sometimes `None`. **`__exit__` always runs on the manager**, not on the `as` value.
+
+`__exit__(exc_type, exc_value, traceback)` gets three `None`s on success. Return **`True`** to swallow the exception; anything else (including implicit `None`) lets it propagate.
+
+Uses: files, sqlite transactions, `threading` locks, `decimal.localcontext`, `unittest.mock.patch`. `contextlib.redirect_stdout` / `redirect_stderr` swap streams for a block.
+
+You can call `__enter__` / `__exit__` by hand to see the protocol.
+
+<CodingExam
+  title="enter then exit"
+  heading="Challenge: enter then exit"
+  lang="python"
+  filename="main.py"
+  prompt="Box: __enter__ appends enter to self.log and returns self. __exit__ appends exit. wrap: with Box() as b: append body. Print log joined by commas. Must use with."
+  sampleLog={`(input) x
+enter,body,exit`}
+  starter={`class Box:
+    def __init__(self):
+        self.log = []
+
+def wrap(line: str) -> str:
+    b = Box()
+    return ','.join(b.log)
+`}
+  wrapSuffix={`
+print(wrap(input()))
+`}
+  sourceChecks={[
+    { name: 'enter', pattern: 'def __enter__', must: true, hint: 'def __enter__(self)' },
+    { name: 'exit', pattern: 'def __exit__', must: true, hint: 'def __exit__(self, exc_type, exc_value, traceback)' },
+    { name: 'with', pattern: '\\bwith\\b', must: true, hint: 'with Box() as b:' },
+  ]}
+  tests={[
+    { name: 'order', stdin: 'x', equals: 'enter,body,exit' },
+  ]}
+/>
+
+<MultipleChoice
+  id="py-int-ch18-as"
+  title="The as target"
+  questions={[
+    {
+      prompt: 'with Mgr() as x binds x to',
+      choices: [
+        'always Mgr()',
+        'the return value of Mgr().__enter__()',
+        'the return value of __exit__',
+        'None always',
+      ],
+      answer: 1,
+      why: 'LookingGlass().__enter__ returns JABBERWOCKY; the manager is still the LookingGlass instance.',
+    },
+  ]}
+/>
+
+## `contextlib`
+
+Look here before writing a class: `closing` (objects with `.close` only), `suppress`, `nullcontext` (3.7, for optional managers), `@contextmanager`, `AbstractContextManager` (3.6), `ContextDecorator` (also a decorator), `ExitStack` (enter N managers, exit LIFO). 3.7+ async twins for `async with`.
+
+### `@contextmanager`
+
+One `yield`: code **before** is `__enter__`; the yielded value is the `as` target; code **after** is `__exit__`. The decorator wraps the generator in a helper class (`next` to the yield; on the way out `throw` if there was an exception, else `next`).
+
+**Always** `try`/`finally` around `yield` — users can do anything in the block. Default vs a class: `@contextmanager` **suppresses** exceptions sent into the generator unless you **re-raise**. A class `__exit__` suppresses only if it returns `True`.
+
+That `yield` is a **coroutine pause**, not iteration. Pieters’ `inplace` file rewriter: backup and two handles before `yield`; restore on failure after.
+
+<CodingExam
+  title="@contextmanager"
+  heading="Challenge: @contextmanager"
+  lang="python"
+  filename="main.py"
+  prompt="looking(log) is a @contextmanager. Append enter, yield the string go, in finally append exit. wrap: with looking(log) as x: append x. Print log joined by commas."
+  sampleLog={`(input) x
+enter,go,exit`}
+  starter={`from contextlib import contextmanager
+
+def looking(log):
+    yield 'skip'
+
+def wrap(line: str) -> str:
+    log = []
+    with looking(log) as x:
+        log.append(x)
+    return ','.join(log)
+`}
+  wrapSuffix={`
+print(wrap(input()))
+`}
+  sourceChecks={[
+    { name: 'decorator', pattern: '@contextmanager', must: true, hint: '@contextmanager' },
+    { name: 'finally', pattern: 'finally', must: true, hint: 'try/finally around yield' },
+  ]}
+  tests={[
+    { name: 'split at yield', stdin: 'x', equals: 'enter,go,exit' },
+  ]}
+/>
+
+<CodingExam
+  title="Swallow zero divide"
+  heading="Challenge: swallow zero divide"
+  lang="python"
+  filename="main.py"
+  prompt="Safe.__exit__ returns True if exc_type is ZeroDivisionError, else False. wrap: with Safe(): 1/0 then print survived. Do not use contextlib.suppress."
+  sampleLog={`(input) x
+survived`}
+  starter={`class Safe:
+    def __enter__(self):
+        return self
+
+    def __exit__(self, exc_type, exc_value, traceback):
+        return False
+
+def wrap(line: str) -> str:
+    with Safe():
+        n = 1 / 0
+    return 'survived'
+`}
+  wrapSuffix={`
+print(wrap(input()))
+`}
+  sourceChecks={[
+    { name: 'checks type', pattern: 'ZeroDivisionError', must: true, hint: 'if exc_type is ZeroDivisionError' },
+    { name: 'not suppress', pattern: 'suppress', must: false, hint: 'implement __exit__, do not use suppress' },
+  ]}
+  tests={[
+    { name: 'caught', stdin: 'x', equals: 'survived' },
+  ]}
+/>
+
+## OR-patterns in `match`
+
+`case int(x) | float(x):` matches either class; **all branches must bind the same names**. `|` here is not bitwise or. Class pattern `int(x)` is `isinstance` plus capture.
+
+<CodingExam
+  title="OR-pattern"
+  heading="Challenge: OR-pattern"
+  lang="python"
+  filename="main.py"
+  prompt="wrap: a token. match: int or float (from int() or float() try) print number; a lone + or - print sign; else other. Use case with | for the two signs."
+  sampleLog={`(input) +
+sign`}
+  starter={`def wrap(line: str) -> str:
+    s = line.strip()
+    return 'other'
+`}
+  wrapSuffix={`
+print(wrap(input()))
+`}
+  sourceChecks={[
+    { name: 'match', pattern: '\\bmatch\\b', must: true, hint: 'match s:' },
+    { name: 'OR-pattern', pattern: '\\|', must: true, hint: "case '+' | '-':" },
+  ]}
+  tests={[
+    { name: 'plus', stdin: '+', equals: 'sign' },
+    { name: 'minus', stdin: '-', equals: 'sign' },
+    { name: 'word', stdin: 'gcd', equals: 'other' },
+  ]}
+/>
+
+The number case is optional; the tests only hit signs and `other`.
+
+<ExerciseSet
+  title="Exercises"
+  description="while-else."
+>
+  <CodingExam
+    title="while-else"
+    heading="Exercise: while-else"
+    lang="python"
+    filename="main.py"
+    prompt="wrap: n (int). Count i from 0 while i < n; if i == 3 break. else print done. If you broke, print stop. Use while/else."
+    starter={`def wrap(line: str) -> str:
+    n = int(line)
+    return ''
+`}
+    wrapSuffix={`
+print(wrap(input()))
+`}
+    sourceChecks={[
+      { name: 'while-else', pattern: 'while[\\s\\S]+else\\s*:', must: true, hint: 'else on while' },
+    ]}
+    tests={[
+      { name: 'no three', stdin: '2', equals: 'done' },
+      { name: 'hits three', stdin: '10', equals: 'stop' },
+    ]}
+  />
+</ExerciseSet>

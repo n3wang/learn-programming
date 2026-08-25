@@ -1,0 +1,327 @@
+---
+sidebar_position: 1
+title: "Static Factories and Builders"
+---
+
+> **Source:** Effective Java, 3rd Edition — Chapter 2 by Joshua Bloch (Items 1–5)
+
+This chapter is about **creating and destroying** objects: when to create them, when not to, and how to hand off the dependencies they need. Items 1–5: static factories, builders, singletons, noninstantiable utilities, and dependency injection.
+
+## Item 1: Prefer static factory methods
+
+A **static factory method** is a public static method that returns an instance. Not the Gang-of-Four “Factory Method” pattern — just a named static that hands you an object.
+
+```java
+public static Boolean valueOf(boolean b) {
+    return b ? Boolean.TRUE : Boolean.FALSE;
+}
+```
+
+### Advantages
+
+1. **Names.** `BigInteger.probablePrime(...)` beats a three-arg constructor nobody can decode. Same signature twice? Give each factory a clear name instead of swapping parameter order (a trap).
+2. **Need not create a new object.** Immutable types can cache / reuse (`Boolean.TRUE`). Instance-controlled classes: singleton, noninstantiable, or “`a.equals(b)` iff `a == b`” (Flyweight). Enums do this for free.
+3. **Return any subtype** of the declared type. Keep implementation classes package-private; clients code to the interface (`Collections.unmodifiableList`). Before Java 8, factories lived in a companion `Types` class; now many sit on the interface (Java 9: private static methods allowed; static fields on interfaces are still public).
+4. **Return type can depend on the arguments** (and change across releases). `EnumSet.of(...)` picks `RegularEnumSet` vs `JumboEnumSet` by enum size — clients never see those names.
+5. **Returned class need not exist yet** — service-provider frameworks (JDBC: `Connection`, `DriverManager.registerDriver` / `getConnection`, `Driver`). Prefer `ServiceLoader` today unless you are stuck on legacy APIs.
+
+### Costs
+
+- No public/protected constructor → **cannot subclass** (often good: push composition, Item 18; required for many immutables).
+- Harder to discover in Javadoc than constructors. Document them and use common names:
+
+| Name | Meaning |
+|---|---|
+| `from` | convert one value |
+| `of` | aggregate many |
+| `valueOf` | verbose `from`/`of` |
+| `getInstance` / `instance` | described by params, not “same value” |
+| `newInstance` / `create` | **new** object each call |
+| `getType` / `newType` / `type` | factory lives in another class |
+
+Constructors still have a place — just do not reach for a public constructor on reflex.
+
+<MultipleChoice
+  id="java-int-ch2-factory"
+  title="Static factories"
+  questions={[
+    {
+      prompt: 'Boolean.valueOf(true) called twice',
+      choices: [
+        'must return two distinct objects',
+        'may return the same cached Boolean.TRUE both times',
+        'is illegal',
+        'only works inside java.lang',
+      ],
+      answer: 1,
+      why: 'Factories are allowed to reuse instances. Constructors always allocate.',
+    },
+    {
+      prompt: 'Two constructors that differ only by parameter order',
+      choices: [
+        'recommended API design',
+        'a smell; prefer named static factories',
+        'required for overloading',
+        'how EnumSet chooses Regular vs Jumbo',
+      ],
+      answer: 1,
+      why: 'Callers will mix them up. Names fix the ambiguity.',
+    },
+  ]}
+/>
+
+<CodingExam
+  title="valueOf factory"
+  heading="Challenge: valueOf factory"
+  lang="java"
+  filename="Main.java"
+  prompt="Complete Status.valueOf(boolean ok): return the shared OK if true, ERR if false. Do not allocate with new. wrap prints status.label()."
+  sampleLog={`(input) true
+OK`}
+  starter={`public class Main {
+    public static final class Status {
+        public static final Status OK = new Status("OK");
+        public static final Status ERR = new Status("ERR");
+        private final String label;
+        private Status(String label) { this.label = label; }
+        public String label() { return label; }
+
+        public static Status valueOf(boolean ok) {
+            return null; // TODO
+        }
+    }
+}
+`}
+  wrapSuffix={`
+class Runner {
+    public static void main(String[] args) {
+        java.util.Scanner sc = new java.util.Scanner(System.in);
+        boolean ok = sc.nextBoolean();
+        System.out.println(Main.Status.valueOf(ok).label());
+    }
+}
+`}
+  sourceChecks={[
+    { name: 'uses OK/ERR', pattern: 'Status\\.(OK|ERR)', must: true, hint: 'return Status.OK or Status.ERR' },
+    { name: 'no new in valueOf', pattern: 'valueOf\\s*\\([^)]*\\)\\s*\\{[\\s\\S]*?\\bnew\\s+Status\\b', must: false, hint: 'do not new Status inside valueOf' },
+  ]}
+  tests={[
+    { name: 'true', stdin: 'true', equals: 'OK' },
+    { name: 'false', stdin: 'false', equals: 'ERR' },
+  ]}
+/>
+
+## Item 2: Prefer a builder for many parameters
+
+Optional fields explode. Three bad/good options:
+
+### Telescoping constructors
+
+`NutritionFacts(size, servings)`, then add calories, fat, … — does not scale. Call sites pass dummy zeros; identical `int`s get swapped silently.
+
+### JavaBeans
+
+Empty constructor + setters. Readable, but the object is **mutable**, can be **half-built**, and hard to keep consistent or thread-safe. “Freeze” APIs are awkward.
+
+### Builder
+
+Required args in `Builder(...)`; optional chainable setters return `this`; `build()` produces an **immutable** instance. Fluent and self-documenting:
+
+```java
+NutritionFacts cola = new NutritionFacts.Builder(240, 8)
+    .calories(100).sodium(35).carbohydrate(27).build();
+```
+
+Validate early in builder setters; multi-field invariants in the private constructor after copying from the builder. Hierarchies: abstract `Pizza.Builder<T extends Builder<T>>` + `self()` (simulated self-type) and **covariant** `build()` in subclasses (`NyPizza`, `Calzone`).
+
+**Cost:** an extra object; more code than a short telescoping list. Worth it around **four or more** parameters, especially optional or same-typed. Starting with a builder beats shipping telescoping APIs you later regret.
+
+<CodingExam
+  title="tiny NutritionFacts builder"
+  heading="Challenge: tiny NutritionFacts builder"
+  lang="java"
+  filename="Main.java"
+  prompt="Builder(servingSize, servings) required. calories(int) chains and returns this. build() returns NutritionFacts. summary() is 'size/servings/calories'. wrap: three ints → print summary()."
+  sampleLog={`(input) 240 8 100
+240/8/100`}
+  starter={`public class Main {
+    public static final class NutritionFacts {
+        private final int servingSize;
+        private final int servings;
+        private final int calories;
+
+        private NutritionFacts(Builder b) {
+            servingSize = b.servingSize;
+            servings = b.servings;
+            calories = b.calories;
+        }
+
+        public String summary() {
+            return servingSize + "/" + servings + "/" + calories;
+        }
+
+        public static final class Builder {
+            private final int servingSize;
+            private final int servings;
+            private int calories = 0;
+
+            public Builder(int servingSize, int servings) {
+                this.servingSize = servingSize;
+                this.servings = servings;
+            }
+
+            public Builder calories(int val) {
+                return this; // TODO store val and return this
+            }
+
+            public NutritionFacts build() {
+                return null; // TODO
+            }
+        }
+    }
+}
+`}
+  wrapSuffix={`
+class Runner {
+    public static void main(String[] args) {
+        java.util.Scanner sc = new java.util.Scanner(System.in);
+        int size = sc.nextInt();
+        int servings = sc.nextInt();
+        int cal = sc.nextInt();
+        Main.NutritionFacts n = new Main.NutritionFacts.Builder(size, servings)
+            .calories(cal)
+            .build();
+        System.out.println(n.summary());
+    }
+}
+`}
+  sourceChecks={[
+    { name: 'return this', pattern: 'return this\\s*;', must: true, hint: 'calories must return this for chaining' },
+    { name: 'build new', pattern: 'new\\s+NutritionFacts\\s*\\(', must: true, hint: 'build() → new NutritionFacts(this)' },
+  ]}
+  tests={[
+    { name: 'cola', stdin: '240 8 100', equals: '240/8/100' },
+    { name: 'defaults', stdin: '100 2 0', equals: '100/2/0' },
+  ]}
+/>
+
+## Item 3: Enforce a singleton
+
+Exactly one instance. Harder to mock unless the type is an interface.
+
+1. **`public static final` field** + private constructor — clearest API, simplest.  
+2. **`getInstance()`** static factory — can later change policy (per-thread, etc.); works as a method reference `Elvis::getInstance`.  
+3. **Single-element enum** — preferred: concise, serialization-safe, reflection-resistant. Cannot extend another class (can implement interfaces).
+
+Serializable field/factory singletons need `transient` fields + `readResolve()` returning `INSTANCE`, or deserialization creates clones.
+
+## Item 4: Noninstantiable utility classes
+
+`Math`, `Arrays`, `Collections`: static groups only. Making the class `abstract` fails — someone subclasses and constructs. Suppress the default constructor:
+
+```java
+public class UtilityClass {
+    private UtilityClass() {
+        throw new AssertionError();
+    }
+}
+```
+
+Side effect: **no subclasses** (no accessible super constructor).
+
+## Item 5: Prefer dependency injection
+
+Do not hard-wire a `Lexicon` inside a static utility or singleton `SpellChecker`. Languages, test dictionaries, and concurrency all break that assumption.
+
+**Inject** the resource (or a `Supplier<? extends Tile>` factory) into the constructor / static factory / builder:
+
+```java
+public class SpellChecker {
+    private final Lexicon dictionary;
+    public SpellChecker(Lexicon dictionary) {
+        this.dictionary = Objects.requireNonNull(dictionary);
+    }
+}
+```
+
+Simple, testable, immutable-friendly. Large graphs → Guice / Spring / Dagger — APIs designed for manual DI adapt cleanly.
+
+<MultipleChoice
+  id="java-int-ch2-singleton-di"
+  title="Singleton, utility, DI"
+  questions={[
+    {
+      prompt: 'Preferred singleton today (no superclass other than Enum)',
+      choices: [
+        'public static field only',
+        'single-element enum',
+        'mutable static dictionary field',
+        'abstract class with default constructor',
+      ],
+      answer: 1,
+      why: 'Serialization and reflection are handled; still one INSTANCE.',
+    },
+    {
+      prompt: 'SpellChecker that must work with many dictionaries',
+      choices: [
+        'static utility holding one Lexicon',
+        'singleton INSTANCE with a hardcoded Lexicon',
+        'constructor that takes Lexicon (dependency injection)',
+        'abstract SpellChecker to block new',
+      ],
+      answer: 2,
+      why: 'Pass the resource in. Static/singleton hard-wiring fights tests and i18n.',
+    },
+  ]}
+/>
+
+## Chapter 2 so far
+
+| Item | Move |
+|---|---|
+| 1 | Named static factories; cache; hide subtypes |
+| 2 | Builder when optional/same-typed params pile up |
+| 3 | Singleton via field, factory, or enum |
+| 4 | Private constructor (+ `AssertionError`) for utilities |
+| 5 | Inject resources; do not hard-wire them |
+
+Next items pick up cleanup, avoid unnecessary objects, and more creation pitfalls.
+
+<ExerciseSet
+  title="Exercises"
+  description="Private constructor + AssertionError — the utility must not construct."
+>
+  <CodingExam
+    title="noninstantiable Mathish"
+    heading="Exercise: noninstantiable Mathish"
+    lang="java"
+    filename="Main.java"
+    prompt="Mathish has private constructor that throws AssertionError. static abs(int n) returns n < 0 ? -n : n. wrap: print abs of the input int."
+    starter={`public class Main {
+    public static final class Mathish {
+        // TODO private constructor
+
+        public static int abs(int n) {
+            return 0; // TODO
+        }
+    }
+}
+`}
+    wrapSuffix={`
+class Runner {
+    public static void main(String[] args) {
+        java.util.Scanner sc = new java.util.Scanner(System.in);
+        System.out.println(Main.Mathish.abs(sc.nextInt()));
+    }
+}
+`}
+    sourceChecks={[
+      { name: 'private ctor', pattern: 'private\\s+Mathish\\s*\\(', must: true, hint: 'private Mathish() { ... }' },
+      { name: 'AssertionError', pattern: 'AssertionError', must: true, hint: 'throw new AssertionError()' },
+    ]}
+    tests={[
+      { name: 'neg', stdin: '-5', equals: '5' },
+      { name: 'pos', stdin: '3', equals: '3' },
+    ]}
+  />
+</ExerciseSet>

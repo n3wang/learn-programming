@@ -1,0 +1,299 @@
+---
+sidebar_position: 19
+title: "Generators in the Library"
+---
+
+> **Source:** Fluent Python, 2nd Edition — Chapter 17 by Luciano Ramalho (generator expressions through `iter(func, sentinel)`)
+
+Part 1 built `Sentence` with `yield`. This half: when a **genexp** is enough, **arithmetic progressions**, **`itertools`**, **`yield from`**, reducing built-ins, and `iter(callable, sentinel)`. Generators as **coroutines** (`.send`) wait for Chapter 19 — Beazley: producers vs consumers; do not mix.
+
+## When to use a generator expression
+
+Vector used genexps in `__eq__`, `__hash__`, `__add__`, and friends: a listcomp would work and waste RAM. A genexp is a one-line factory; a generator **function** wins when the body needs statements or will become a coroutine.
+
+Rule of thumb: **more than a couple of lines → function**.
+
+If the genexp is the **only** argument, drop the extra parens: `Vector(n * scalar for n in self)`. A second argument needs `(genexp)`.
+
+Generators are not only for walking collections. They can **invent** a series.
+
+## Arithmetic progression
+
+`range` is a bounded integer AP. `itertools.count` is unbounded. Need `Fraction` / `Decimal` / a float step and an optional end? Yield `begin`, then `begin + step * index` (index, not repeated `+= step`, to limit float drift). Coerce with `type(begin + step)(begin)`.
+
+That can be a class with `__iter__`, or a generator function `aritprog_gen`. If the class exists only to wrap `__iter__`, drop the class.
+
+Never `list(count())`. Compose: `takewhile(lambda n: n < end, count(first, step))`. A factory **without** `yield` that **returns** that iterator is still a generator factory.
+
+<CodingExam
+  title="Bounded AP"
+  heading="Challenge: bounded AP"
+  lang="python"
+  filename="main.py"
+  prompt="aritprog_gen(begin, step, end=None) yields begin, begin+step, ... while result < end (or forever if end is None). Use type(begin+step)(begin) for the first value. wrap: begin step end as numbers (end required here). Print list(...) of ints or simple floats as the default str."
+  sampleLog={`(input) 0 1 3
+[0, 1, 2]`}
+  starter={`def aritprog_gen(begin, step, end=None):
+    return []
+
+def wrap(line: str) -> str:
+    a, b, c = line.split()
+    begin, step, end = int(a), float(b) if '.' in b else int(b), float(c) if '.' in c else int(c)
+    return str(list(aritprog_gen(begin, step, end)))
+`}
+  wrapSuffix={`
+print(wrap(input()))
+`}
+  sourceChecks={[
+    { name: 'yields', pattern: '\\byield\\b', must: true, hint: 'yield result in a loop' },
+  ]}
+  tests={[
+    { name: 'ints', stdin: '0 1 3', equals: '[0, 1, 2]' },
+    { name: 'halves', stdin: '1 0.5 3', equals: '[1.0, 1.5, 2.0, 2.5]' },
+  ]}
+/>
+
+<CodingExam
+  title="count plus takewhile"
+  heading="Challenge: count plus takewhile"
+  lang="python"
+  filename="main.py"
+  prompt="Same AP but no yield: return itertools.takewhile(...) around itertools.count. wrap: begin step end (ints/floats as above)."
+  sampleLog={`(input) 1 0.5 3
+[1.0, 1.5, 2.0, 2.5]`}
+  starter={`import itertools
+
+def aritprog_gen(begin, step, end=None):
+    return []
+
+def wrap(line: str) -> str:
+    a, b, c = line.split()
+    begin = float(a) if '.' in a else int(a)
+    step = float(b) if '.' in b else int(b)
+    end = float(c) if '.' in c else int(c)
+    return str(list(aritprog_gen(begin, step, end)))
+`}
+  wrapSuffix={`
+print(wrap(input()))
+`}
+  sourceChecks={[
+    { name: 'count', pattern: 'count\\s*\\(', must: true, hint: 'itertools.count' },
+    { name: 'takewhile', pattern: 'takewhile', must: true, hint: 'itertools.takewhile' },
+    { name: 'No yield', pattern: '\\byield\\b', must: false, hint: 'return a composed iterator' },
+  ]}
+  tests={[
+    { name: 'halves', stdin: '1 0.5 3', equals: '[1.0, 1.5, 2.0, 2.5]' },
+    { name: 'ints', stdin: '0 1 3', equals: '[0, 1, 2]' },
+  ]}
+/>
+
+## `itertools` (and friends) by job
+
+Know the catalog or you will rewrite it. Groups:
+
+**Filter** (same items, fewer of them): `filter`, `filterfalse`, `dropwhile`, `takewhile`, `compress`, `islice`. `dropwhile` skips while the predicate is true, then **everything** after. `takewhile` is the opposite stop.
+
+**Map**: `map`, `starmap`, `enumerate`, `accumulate` (running sum, or `min` / `operator.mul` for factorials).
+
+**Merge**: `chain`, `chain.from_iterable`, `zip`, `zip_longest`, `product` (lazy Cartesian, `repeat=`).
+
+**Expand**: `count`, `cycle`, `repeat`, `combinations`, `combinations_with_replacement`, `permutations`.
+
+**Rearrange**: `groupby` (input must already be clustered/sorted by key), `tee` (n independent iterators), `reversed` (sequence or `__reversed__` only).
+
+Pipe them: they take iterators and return iterators.
+
+<PistonRunner
+  lang="python"
+  interactive={false}
+  height="260px"
+  code={`import itertools
+import operator
+
+def vowel(c):
+    return c.lower() in 'aeiou'
+
+print(list(filter(vowel, 'Aardvark')))
+print(list(itertools.takewhile(vowel, 'Aardvark')))
+print(list(itertools.accumulate([5, 4, 2], operator.mul)))
+print(list(itertools.chain('AB', range(2))))
+print(list(itertools.product('AB', range(2))))
+`}
+/>
+
+<CodingExam
+  title="filter takewhile islice"
+  heading="Challenge: filter takewhile islice"
+  lang="python"
+  filename="main.py"
+  prompt="vowel = letter in aeiou (case insensitive). wrap: word then cmd filter | take | slice N. filter: vowels only. take: takewhile vowel. slice: islice(word, N)."
+  sampleLog={`(input) Aardvark filter
+A,a,a`}
+  starter={`import itertools
+
+def vowel(c):
+    return c.lower() in 'aeiou'
+
+def wrap(line: str) -> str:
+    p = line.split()
+    word, cmd = p[0], p[1]
+    return ''
+`}
+  wrapSuffix={`
+print(wrap(input()))
+`}
+  sourceChecks={[
+    { name: 'takewhile or islice or filter', pattern: 'takewhile|islice|filter\\s*\\(', must: true, hint: 'use the itertools/builtin named in cmd' },
+  ]}
+  tests={[
+    { name: 'filter', stdin: 'Aardvark filter', equals: 'A,a,a' },
+    { name: 'take', stdin: 'Aardvark take', equals: 'A,a' },
+    { name: 'slice 4', stdin: 'Aardvark slice 4', equals: 'A,a,r,d' },
+  ]}
+/>
+
+## `yield from`
+
+`yield from sub_gen()` **suspends** the delegating generator; values (and later, `.send`) go **straight** to the client. The expression value of `yield from` is the subgenerator’s **`return`**. Nested `for it in xs: for i in it: yield i` becomes `for it in xs: yield from it` (`chain`).
+
+Tree walk: `yield cls.__name__, level` then `yield from tree(sub, level+1)`. The `for` over empty `__subclasses__()` is the base case — no extra `if`.
+
+<CodingExam
+  title="chain with yield from"
+  heading="Challenge: chain with yield from"
+  lang="python"
+  filename="main.py"
+  prompt="chain(*iterables) yields every item in order using yield from (no nested yield i). wrap: two words; chain(word1, word2) joined by commas."
+  sampleLog={`(input) AB 12
+A,B,1,2`}
+  starter={`def chain(*iterables):
+    return
+
+def wrap(line: str) -> str:
+    a, b = line.split()
+    return ','.join(str(x) for x in chain(a, b))
+`}
+  wrapSuffix={`
+print(wrap(input()))
+`}
+  sourceChecks={[
+    { name: 'yield from', pattern: 'yield from', must: true, hint: 'yield from it' },
+  ]}
+  tests={[
+    { name: 'str+str', stdin: 'AB 12', equals: 'A,B,1,2' },
+    { name: 'xy z', stdin: 'xy z', equals: 'x,y,z' },
+  ]}
+/>
+
+<CodingExam
+  title="Class tree"
+  heading="Challenge: class tree"
+  lang="python"
+  filename="main.py"
+  prompt="Mini hierarchy: class A: pass; class B(A): pass; class C(B): pass; class D(A): pass. tree(cls, level=0) yields (name, level) then yield from each subclass. wrap ignored. Print names with 2-space indent per level, one per line, starting at A."
+  starter={`class A:
+    pass
+
+class B(A):
+    pass
+
+class C(B):
+    pass
+
+class D(A):
+    pass
+
+def tree(cls, level=0):
+    return
+    yield
+
+def wrap(line: str) -> str:
+    lines = []
+    for name, level in tree(A):
+        lines.append('  ' * level + name)
+    return '\\n'.join(lines)
+`}
+  wrapSuffix={`
+print(wrap(input()))
+`}
+  sourceChecks={[
+    { name: 'yield from', pattern: 'yield from', must: true, hint: 'yield from tree(sub_cls, level+1)' },
+  ]}
+  tests={[
+    { name: 'depth-first', stdin: 'x', equals: 'A\n  B\n    C\n  D' },
+  ]}
+/>
+
+`wrap` in the starter uses `'\\n'.join` inside a JS template — that becomes `\n` in Python. Subclass order of `A` is typically `B` then `D`.
+
+## Reducing functions
+
+`all` / `any` / `max` / `min` / `sum` / `functools.reduce` fold an iterable to one value. `all([])` is `True`, `any([])` is `False`. They **short-circuit**: `any` on a generator can leave items unconsumed. `sorted` consumes everything into a **list**. They need a finite iterable.
+
+## `iter(func, sentinel)`
+
+Two-arg `iter`: call `func()` with no args until it returns `sentinel`, then stop (do not yield the sentinel). Dice until `1`. File blocks: `iter(partial(f.read, 64), b'')`. Rebuild the iterator to start over.
+
+<CodingExam
+  title="Sentinel iter"
+  heading="Challenge: sentinel iter"
+  lang="python"
+  filename="main.py"
+  prompt="wrap: digits as separate tokens, last token is sentinel. Make a closure or iterator over those digits in order (pop from a list). iter(callable, sentinel) and join remaining yielded digits with commas."
+  sampleLog={`(input) 4 3 6 1
+4,3,6`}
+  starter={`def wrap(line: str) -> str:
+    *vals, stop = line.split()
+    stop = int(stop)
+    box = list(map(int, vals))
+
+    def draw():
+        return 0  # TODO: pop from box
+
+    return ','.join(str(n) for n in iter(draw, stop))
+`}
+  wrapSuffix={`
+print(wrap(input()))
+`}
+  sourceChecks={[
+    { name: 'iter two args', pattern: 'iter\\s*\\([^,]+,', must: true, hint: 'iter(draw, stop)' },
+  ]}
+  tests={[
+    { name: 'stop at 1', stdin: '4 3 6 1', equals: '4,3,6' },
+    { name: 'immediate', stdin: '9 9', equals: '' },
+  ]}
+/>
+
+`draw` should pop from the **front** of `box`. The sentinel is not included in the output.
+
+A conversion script that must stream ISO and `.mst` files into JSON keeps **one record** in memory by making each format a generator (`iter_iso_records` / `iter_mst_records`) and one `write_json` loop. New formats add a reader, not a thicker writer.
+
+`typing.Iterable[T_co]` and `Iterator[T_co]` are the generic spellings; `.send` is Chapter 19.
+
+<ExerciseSet
+  title="Exercises"
+  description="groupby cluster and any short-circuit."
+>
+  <CodingExam
+    title="groupby lengths"
+    heading="Exercise: groupby lengths"
+    lang="python"
+    filename="main.py"
+    prompt="wrap: words. Sort by len, groupby len, print length:comma-words for each group, groups separated by | ."
+    starter={`import itertools
+
+def wrap(line: str) -> str:
+    words = line.split()
+    return ''
+`}
+    wrapSuffix={`
+print(wrap(input()))
+`}
+    sourceChecks={[
+      { name: 'groupby', pattern: 'groupby', must: true, hint: 'itertools.groupby' },
+    ]}
+    tests={[
+      { name: 'two lengths', stdin: 'aa b cc d', equals: '1:b,d|2:aa,cc' },
+    ]}
+  />
+</ExerciseSet>

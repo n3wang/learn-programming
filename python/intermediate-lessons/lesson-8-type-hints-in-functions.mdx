@@ -1,0 +1,1146 @@
+---
+sidebar_position: 8
+title: "Type Hints in Functions"
+---
+
+> **Source:** Fluent Python, 2nd Edition — Chapter 8 by Luciano Ramalho
+
+Python has a **gradual type system**: annotations are optional, a checker like Mypy assumes `Any` (compatible with everything) wherever a hint is missing, and — this is the part people trip on — **the Python interpreter never enforces any of it**. Type hints exist purely for static tools (type checkers, IDEs, linters) to catch bugs by reading your source code, without running it.
+
+Every example in this lesson runs with real Python, not a type checker, so you'll see the flip side of that directly: code with "wrong" type hints executes exactly the same as code without them. The hints are for the *tools*, not the runtime.
+
+---
+
+## Gradual typing: optional, unenforced, no speedup
+
+A gradual type system has three defining properties: it's **optional** (untyped code is never flagged by default), it does **not** catch type errors **at runtime**, and it does **not** improve performance — annotations carry no bytecode-level benefit today.
+
+<details>
+<summary>🧪 A "wrong" argument still runs</summary>
+
+<PistonRunner
+  lang="python"
+  interactive={false}
+  height="340px"
+  code={`def show_count(count: int, word: str) -> str:
+    if count == 1:
+        return f'1 {word}'
+    count_str = str(count) if count else 'no'
+    return f'{count_str} {word}s'
+
+print(show_count(2, 'bird'))
+print(show_count(1, 'bird'))
+print(show_count(0, 'bird'))
+
+# count: int says int — Python never checks that at runtime:
+print(show_count('surprise', 'bird'))
+`}
+/>
+
+</details>
+
+A type checker like Mypy would reject that last call — `'surprise'` is not `int`. Plain Python doesn't care; it just runs the code, and in this case the string happens to be truthy so nothing crashes. That gap — between what the annotation *claims* and what the interpreter *checks* — is the whole reason type checkers exist as a separate tool in your CI pipeline, not a language feature.
+
+---
+
+## Mini quiz — gradual typing
+
+<MultipleChoice
+  id="py-int-ch8-gradual"
+  title="Properties of a gradual type system"
+  questions={[
+    {
+      prompt: 'By default, a type checker on an unannotated function',
+      choices: ['refuses to compile it', 'assumes Any and stays silent', 'raises a runtime error', 'infers int for every parameter'],
+      answer: 1,
+      why: 'Gradual typing means untyped code is treated as Any — compatible with everything — not flagged.',
+    },
+    {
+      prompt: 'def f(x: int) -> int: ... called as f("oops") in plain Python',
+      choices: ['raises TypeError immediately, before the function body runs', 'runs the function body normally — the hint is not checked at runtime', 'is a SyntaxError', 'only fails under pytest'],
+      answer: 1,
+      why: "CPython never inspects parameter annotations to validate arguments. Only a separate static type checker does that, by reading source, not running it.",
+    },
+  ]}
+/>
+
+---
+
+## Challenge: fully annotate show_count
+
+Add the type hints from the prose above: `count: int`, `word: str`, return type `str`.
+
+<CodingExam
+  title="fully annotate show_count"
+  heading="Challenge: fully annotate show_count"
+  lang="python"
+  filename="main.py"
+  prompt="def show_count(count: int, word: str) -> str:"
+  sampleLog={`(input) 2 bird
+2 birds`}
+  starter={`def show_count(count, word):
+    # TODO: add type hints — count: int, word: str, return type str
+    if count == 1:
+        return f'1 {word}'
+    count_str = str(count) if count else 'no'
+    return f'{count_str} {word}s'
+`}
+  wrapSuffix={`
+n, w = input().split()
+print(show_count(int(n), w))
+`}
+  sourceChecks={[
+    { name: 'count: int', pattern: 'count:\\s*int', must: true, hint: 'def show_count(count: int, word: str) -> str:' },
+    { name: 'word: str', pattern: 'word:\\s*str', must: true, hint: 'word: str' },
+    { name: 'return type str', pattern: '->\\s*str', must: true, hint: '-> str:' },
+  ]}
+  tests={[
+    { name: 'plural', stdin: '2 bird', equals: '2 birds' },
+    { name: 'singular', stdin: '1 bird', equals: '1 bird' },
+    { name: 'zero', stdin: '0 bird', equals: 'no birds' },
+  ]}
+/>
+
+---
+
+## Duck typing vs. nominal typing
+
+Plain Python uses **duck typing**: an object's declared type never matters, only whether the operation you attempt actually works at the moment you attempt it. Annotated Python adds **nominal typing** on top, checked statically: a type checker only cares what a variable is *declared* as, and rejects operations that type doesn't advertise — even if, at runtime, the actual object would have handled it fine.
+
+<details>
+<summary>🧪 What a type checker would flag, still runs</summary>
+
+<PistonRunner
+  lang="python"
+  interactive={false}
+  height="420px"
+  code={`class Bird:
+    pass
+
+class Duck(Bird):
+    def quack(self):
+        print('Quack!')
+
+def alert(birdie):
+    birdie.quack()
+
+def alert_duck(birdie: Duck) -> None:
+    birdie.quack()
+
+def alert_bird(birdie: Bird) -> None:
+    birdie.quack()
+
+daffy = Duck()
+alert(daffy)
+alert_duck(daffy)
+alert_bird(daffy)
+
+woody = Bird()
+try:
+    alert_bird(woody)
+except AttributeError as e:
+    print('Runtime error:', e)
+`}
+/>
+
+</details>
+
+Mypy flags `alert_bird`'s own body — `Bird` has no `.quack()` — the moment it reads `birds.py`, regardless of how the function is ever called. Calling `alert_bird(daffy)` here works at runtime because `daffy` actually is a `Duck`. But `alert_bird(woody)` blows up with `AttributeError`, exactly the failure Mypy was warning about — just discovered at runtime instead of before you shipped it.
+
+---
+
+## Mini quiz — duck typing vs. nominal typing
+
+<MultipleChoice
+  id="py-int-ch8-duck"
+  title="Two views of type"
+  questions={[
+    {
+      prompt: 'Duck typing is enforced',
+      choices: ['statically, before the program runs', 'at runtime, only when an operation is actually attempted', 'by the type checker only', 'never — Python has no duck typing'],
+      answer: 1,
+      why: "\"If it quacks like a duck\" is checked the moment .quack() is called, not before.",
+    },
+    {
+      prompt: 'Why does Mypy flag alert_bird(birdie: Bird) even though alert_bird(daffy) runs fine?',
+      choices: [
+        'Mypy actually executes the function to check it',
+        'Mypy only looks at the declared type (Bird), which has no .quack — it never knows daffy happens to be a Duck at that call site',
+        'Mypy cannot analyze functions with a body',
+        'This is a Mypy bug',
+      ],
+      answer: 1,
+      why: 'Nominal typing is enforced purely from the source: the parameter is declared Bird, and Bird has no quack method — full stop.',
+    },
+  ]}
+/>
+
+---
+
+## Challenge: bird hierarchy
+
+`alert_bird(birdie: Bird) -> None` calls `birdie.quack()`. Wire that call up, then watch it succeed for a `Duck` and fail for a plain `Bird`.
+
+<CodingExam
+  title="bird hierarchy"
+  heading="Challenge: bird hierarchy"
+  lang="python"
+  filename="main.py"
+  prompt="birdie.quack() inside alert_bird"
+  sampleLog={`(input) duck
+Quack!`}
+  starter={`class Bird:
+    pass
+
+class Duck(Bird):
+    def quack(self):
+        print('Quack!')
+
+def alert_bird(birdie: Bird) -> None:
+    # TODO: call birdie.quack()
+    pass
+`}
+  wrapSuffix={`
+kind = input().strip()
+b = Duck() if kind == 'duck' else Bird()
+try:
+    alert_bird(b)
+except AttributeError:
+    print('no quack')
+`}
+  sourceChecks={[
+    { name: 'Calls birdie.quack()', pattern: 'birdie\\.quack\\(\\)', must: true, hint: 'birdie.quack()' },
+  ]}
+  tests={[
+    { name: 'a duck', stdin: 'duck', equals: 'Quack!' },
+    { name: 'a plain bird', stdin: 'bird', equals: 'no quack' },
+  ]}
+/>
+
+---
+
+## Any vs. object, and "consistent-with"
+
+`Any` is a wildcard: every type is consistent with `Any`, and `Any` is consistent with every type — a type checker lets *anything* flow through it, in either direction. `object` is completely different: everything is a subtype of `object`, so it accepts every value too, but a checker only lets you use operations that `object` itself defines (which is almost nothing). Also worth knowing: PEP 484 special-cases the numeric tower so `int` is consistent-with `float`, and `float` is consistent-with `complex` — even though none of them actually subclass each other.
+
+<details>
+<summary>🧪 int flows through a float parameter</summary>
+
+<PistonRunner
+  lang="python"
+  interactive={false}
+  height="240px"
+  code={`def half(x: float) -> float:
+    return x / 2
+
+print(half(4))
+print(half(5.0))
+`}
+/>
+
+</details>
+
+---
+
+## Mini quiz — Any, object, and consistent-with
+
+<MultipleChoice
+  id="py-int-ch8-any"
+  title="Any vs. object"
+  questions={[
+    {
+      prompt: 'x: Any lets a type checker',
+      choices: [
+        'reject every operation on x',
+        'accept x as any type, and accept any operation on it — Any opts out of checking entirely',
+        'only accept x if it is exactly type object',
+        'treat x as always None',
+      ],
+      answer: 1,
+      why: 'Any sits at both the top and bottom of the type lattice: everything is consistent with it, in both directions.',
+    },
+    {
+      prompt: 'def f(x: object) -> object: return x * 2 — a type checker will',
+      choices: [
+        'accept it, because object accepts every value',
+        "reject the multiplication — object doesn't define __mul__, even though it accepts every value as x",
+        'treat object exactly like Any',
+        'only allow this for int arguments',
+      ],
+      answer: 1,
+      why: "object is the most general type by acceptance, but the narrowest by supported operations — it's the opposite of Any in that sense.",
+    },
+  ]}
+/>
+
+---
+
+## Optional and Union types
+
+`Optional[str]` is shorthand for `Union[str, None]` — the value may be a `str` or it may be `None`. It does **not** make the parameter optional by itself; you still need `= None` in the signature for that. `Union[A, B]` means "either type is acceptable," and is the right tool when a function's return value can genuinely be one of several unrelated types.
+
+<details>
+<summary>🧪 Optional default, and a Union return type</summary>
+
+<PistonRunner
+  lang="python"
+  interactive={false}
+  height="380px"
+  code={`from typing import Optional, Union
+
+def show_count(count: int, singular: str, plural: Optional[str] = None) -> str:
+    if count == 1:
+        return f'1 {singular}'
+    count_str = str(count) if count else 'no'
+    if not plural:
+        plural = singular + 's'
+    return f'{count_str} {plural}'
+
+print(show_count(2, 'child', 'children'))
+print(show_count(2, 'bird'))
+
+def parse_token(token: str) -> Union[str, float]:
+    try:
+        return float(token)
+    except ValueError:
+        return token
+
+print(parse_token('3.14'), type(parse_token('3.14')))
+print(parse_token('hello'), type(parse_token('hello')))
+`}
+/>
+
+</details>
+
+Avoid `Union` return types when you can — they push a runtime type check onto every caller. `parse_token` is a reasonable exception: a small expression evaluator that genuinely produces either a number or a leftover token.
+
+---
+
+## Mini quiz — Optional and Union
+
+<MultipleChoice
+  id="py-int-ch8-optional"
+  title="Optional[X] and Union[X, Y]"
+  questions={[
+    {
+      prompt: 'plural: Optional[str] = None means',
+      choices: [
+        'plural is now optional to pass — the Optional[] alone makes it so',
+        "plural's type is str or None, and separately, = None gives it a default so it's optional to pass",
+        'plural must always be None',
+        'plural cannot be a string',
+      ],
+      answer: 1,
+      why: "Optional[str] only widens the *type*. What actually makes the argument optional at a call site is the = None default value.",
+    },
+    {
+      prompt: 'Why is a Union[str, float] return type something to avoid when possible?',
+      choices: [
+        'Python cannot represent it',
+        'it forces every caller to check the runtime type of the result before using it',
+        'it always crashes',
+        'Union is deprecated',
+      ],
+      answer: 1,
+      why: 'A caller receiving Union[str, float] cannot safely call float-only or str-only methods without an isinstance check first.',
+    },
+  ]}
+/>
+
+---
+
+## Challenge: parse token
+
+Return `float(token)` if it parses; otherwise return `token` unchanged.
+
+<CodingExam
+  title="parse token"
+  heading="Challenge: parse token"
+  lang="python"
+  filename="main.py"
+  prompt="try float(token); except ValueError: return token"
+  sampleLog={`(input) 3.14 hello 2
+3.14 hello 2.0`}
+  starter={`from typing import Union
+
+def parse_token(token: str) -> Union[str, float]:
+    # TODO: try float(token); fall back to returning token itself
+    return token
+`}
+  wrapSuffix={`
+tokens = input().split()
+print(*[parse_token(t) for t in tokens])
+`}
+  sourceChecks={[
+    { name: 'Tries float(token)', pattern: 'float\\(token\\)', must: true, hint: 'return float(token)' },
+  ]}
+  tests={[
+    { name: 'mixed tokens', stdin: '3.14 hello 2', equals: '3.14 hello 2.0' },
+    { name: 'word and int', stdin: 'abc 5', equals: 'abc 5.0' },
+  ]}
+/>
+
+---
+
+## Generic collections
+
+Since Python 3.9, built-in collections accept `[]` directly: `list[str]` means "a list of strings," `dict[str, set[str]]` means "a dict mapping strings to sets of strings." `stuff: list` and `stuff: list[Any]` mean exactly the same thing. Return types should stay **concrete** (`list[str]`, not `Sequence[str]`) — Postel's law: be liberal in parameter types, conservative in what you return.
+
+<details>
+<summary>🧪 A tokenizer and a first-letter index</summary>
+
+<PistonRunner
+  lang="python"
+  interactive={false}
+  height="380px"
+  code={`def tokenize(text: str) -> list[str]:
+    return text.upper().split()
+
+print(tokenize('hello brave new world'))
+
+def first_letter_index(words: list[str]) -> dict[str, set[str]]:
+    index: dict[str, set[str]] = {}
+    for w in words:
+        index.setdefault(w[0], set()).add(w)
+    return index
+
+idx = first_letter_index(['cat', 'car', 'dog', 'deer'])
+print(sorted(idx['c']))
+print(sorted(idx['d']))
+`}
+/>
+
+</details>
+
+Notice `index: dict[str, set[str]] = {}` — a **local variable** annotation. Without it, a type checker can't tell what the empty `{}` is meant to hold, and will ask you to spell it out. The same "accept the abstract type, return the concrete one" logic applies to `collections.abc.Mapping` vs. `dict`: annotate a *parameter* as `Mapping` so callers can pass a `dict`, a `defaultdict`, or a `UserDict` subclass — `dict` alone would reject a `UserDict`, even though it's the recommended way to build a custom mapping.
+
+---
+
+## Mini quiz — generic collections
+
+<MultipleChoice
+  id="py-int-ch8-generics"
+  title="list[str], dict[K, V]"
+  questions={[
+    {
+      prompt: 'stuff: list and stuff: list[Any]',
+      choices: ['are different — list is stricter', 'mean exactly the same thing', 'list is a syntax error', 'list[Any] is faster'],
+      answer: 1,
+      why: 'An unparameterized generic collection type is equivalent to parameterizing it with Any.',
+    },
+    {
+      prompt: 'index: dict[str, set[str]] = {} — why annotate a local variable here?',
+      choices: [
+        'it is required by the Python interpreter',
+        "a checker can't infer what an empty {} is meant to hold without help",
+        'it makes the dict immutable',
+        'it changes runtime performance',
+      ],
+      answer: 1,
+      why: 'An empty literal carries no element-type information on its own — the annotation supplies what inference cannot.',
+    },
+    {
+      prompt: "A parameter annotated abc.Mapping[str, int] instead of dict[str, int]",
+      choices: [
+        'rejects a UserDict subclass, same as dict would',
+        'accepts a wider range of caller types, including UserDict subclasses that dict would reject',
+        'is functionally identical to dict',
+        'only works with frozen dicts',
+      ],
+      answer: 1,
+      why: "Postel's law: accept the more abstract type as a parameter so more caller types qualify; dict alone excludes UserDict, a sibling type under abc.MutableMapping.",
+    },
+  ]}
+/>
+
+---
+
+## Challenge: first-letter index
+
+Group words by their first letter into `dict[str, set[str]]`.
+
+<CodingExam
+  title="first-letter index"
+  heading="Challenge: first-letter index"
+  lang="python"
+  filename="main.py"
+  prompt="index.setdefault(w[0], set()).add(w)"
+  sampleLog={`(input) cat car dog deer|c
+car cat`}
+  starter={`def first_letter_index(words: list[str]) -> dict[str, set[str]]:
+    index: dict[str, set[str]] = {}
+    # TODO: group each word under its first letter
+    return index
+`}
+  wrapSuffix={`
+parts = input().split('|')
+words = parts[0].split()
+letter = parts[1].strip()
+idx = first_letter_index(words)
+print(*sorted(idx.get(letter, set())))
+`}
+  sourceChecks={[
+    { name: 'Uses setdefault', pattern: 'setdefault\\(', must: true, hint: "index.setdefault(w[0], set()).add(w)" },
+  ]}
+  tests={[
+    { name: 'letter c', stdin: 'cat car dog deer|c', equals: 'car cat' },
+    { name: 'letter a', stdin: 'apple ant bee|a', equals: 'ant apple' },
+  ]}
+/>
+
+---
+
+## Tuple types
+
+Three distinct uses need three distinct annotations. A tuple as a fixed **record** — `tuple[str, float, str]` for `('Shanghai', 24.28, 'China')`. A record with named fields — just use `typing.NamedTuple`, which is consistent-with the equivalent plain tuple type (so a `NamedTuple` instance works anywhere that plain-tuple type is expected — but not the reverse). A tuple of **unspecified length**, uniform type — `tuple[int, ...]`, the literal `...` token meaning "one or more of the same type."
+
+<details>
+<summary>🧪 A record, a NamedTuple record, and a variadic tuple</summary>
+
+<PistonRunner
+  lang="python"
+  interactive={false}
+  height="400px"
+  code={`from typing import NamedTuple
+
+def display(lat_lon: tuple[float, float]) -> str:
+    lat, lon = lat_lon
+    ns = 'N' if lat >= 0 else 'S'
+    ew = 'E' if lon >= 0 else 'W'
+    return f'{abs(lat):0.1f} {ns}, {abs(lon):0.1f} {ew}'
+
+print(display((35.68, 139.69)))
+
+class Coordinate(NamedTuple):
+    lat: float
+    lon: float
+
+tokyo = Coordinate(35.68, 139.69)
+print(display(tokyo))
+
+def total(nums: tuple[int, ...]) -> int:
+    return sum(nums)
+
+print(total((1, 2, 3, 4)))
+`}
+/>
+
+</details>
+
+`display` is annotated to take a plain `tuple[float, float]`, but a `Coordinate` (a `NamedTuple`) passes through it without complaint from a type checker or the runtime — that's the "consistent-with" relationship in action.
+
+---
+
+## Mini quiz — tuple annotations
+
+<MultipleChoice
+  id="py-int-ch8-tuples"
+  title="Three tuple flavors"
+  questions={[
+    {
+      prompt: 'tuple[int, ...]',
+      choices: [
+        'exactly three ints',
+        'one or more ints, all the same type — length unspecified',
+        'a tuple of any type at all',
+        'a syntax error',
+      ],
+      answer: 1,
+      why: 'The ellipsis after a single type marks a variable-length, uniformly-typed tuple — there is no way to mix types in this form.',
+    },
+    {
+      prompt: 'A Coordinate(NamedTuple) with lat: float, lon: float, passed where tuple[float, float] is expected',
+      choices: [
+        'is rejected — NamedTuple is not a real tuple',
+        "is accepted — Coordinate is consistent-with tuple[float, float], though the reverse isn't true",
+        'silently converts to a plain tuple first',
+        'only works at runtime, never statically',
+      ],
+      answer: 1,
+      why: 'NamedTuple produces an actual tuple subclass, so an instance satisfies any signature expecting the equivalent plain-tuple record type.',
+    },
+  ]}
+/>
+
+---
+
+## Challenge: variadic tuple sum
+
+`total(nums: tuple[int, ...]) -> int` — sum an unspecified number of ints.
+
+<CodingExam
+  title="variadic tuple sum"
+  heading="Challenge: variadic tuple sum"
+  lang="python"
+  filename="main.py"
+  prompt="return sum(nums)"
+  sampleLog={`(input) 1 2 3 4
+10`}
+  starter={`def total(nums: tuple[int, ...]) -> int:
+    # TODO: return the sum of nums
+    return 0
+`}
+  wrapSuffix={`
+nums = tuple(int(x) for x in input().split())
+print(total(nums))
+`}
+  sourceChecks={[
+    { name: 'Uses sum', pattern: 'sum\\(nums\\)', must: true, hint: 'return sum(nums)' },
+  ]}
+  tests={[
+    { name: 'four ints', stdin: '1 2 3 4', equals: '10' },
+    { name: 'one int', stdin: '5', equals: '5' },
+  ]}
+/>
+
+---
+
+## TypeVar and generic functions
+
+A parameterized generic like `Sequence[T]` links a parameter's element type to the return type: whatever `T` turns out to be when the function is called, that's what comes back. `T = TypeVar('T')` is how you introduce that variable name — Python's `[]` syntax has no other way to declare it.
+
+<details>
+<summary>🧪 first() returns whatever type it was given</summary>
+
+<PistonRunner
+  lang="python"
+  interactive={false}
+  height="280px"
+  code={`from collections.abc import Sequence
+from typing import TypeVar
+
+T = TypeVar('T')
+
+def first(seq: Sequence[T]) -> T:
+    return seq[0]
+
+print(first([3, 1, 2]))
+print(first('hello'))
+print(first(('a', 'b', 'c')))
+`}
+/>
+
+</details>
+
+An unrestricted `TypeVar` accepts anything. `TypeVar('N', float, Decimal, Fraction)` **restricts** it to exactly those listed types. `TypeVar('H', bound=Hashable)` **bounds** it — any type is fine, as long as it's consistent-with `Hashable` — which is usually the more flexible and maintainable choice.
+
+---
+
+## Mini quiz — TypeVar
+
+<MultipleChoice
+  id="py-int-ch8-typevar"
+  title="Generic functions"
+  questions={[
+    {
+      prompt: 'def first(seq: Sequence[T]) -> T — calling first("hello")',
+      choices: [
+        "type checker infers T is str, so the return type is inferred as str",
+        'always returns Any regardless of the input type',
+        'is a runtime error',
+        'T is fixed to int no matter what'
+      ],
+      answer: 0,
+      why: 'A TypeVar links the input element type to the return type — whatever T resolves to at that call site propagates to the result.',
+    },
+    {
+      prompt: "TypeVar('N', float, Decimal, Fraction) vs. TypeVar('H', bound=Hashable)",
+      choices: [
+        'identical behavior',
+        'the first restricts N to exactly those 3 types; the second allows any type consistent-with Hashable',
+        'the first is deprecated',
+        'bound= only works with abstract base classes',
+      ],
+      answer: 1,
+      why: 'A restricted TypeVar is a closed list of acceptable types; a bounded TypeVar is open to any subtype of the bound.',
+    },
+  ]}
+/>
+
+---
+
+## Challenge: generic top-N
+
+`top(series: Iterable[T], n: int) -> list[T]` — the `n` largest items, sorted descending.
+
+<CodingExam
+  title="generic top-N"
+  heading="Challenge: generic top-N"
+  lang="python"
+  filename="main.py"
+  prompt="sorted(series, reverse=True)[:n]"
+  sampleLog={`(input) 4 1 5 2 6 7 3|3
+7 6 5`}
+  starter={`from collections.abc import Iterable
+from typing import TypeVar
+
+T = TypeVar('T')
+
+def top(series: Iterable[T], n: int) -> list[T]:
+    # TODO: return the n largest items, sorted descending
+    return []
+`}
+  wrapSuffix={`
+parts = input().split('|')
+nums = [int(x) for x in parts[0].split()]
+n = int(parts[1])
+print(*top(nums, n))
+`}
+  sourceChecks={[
+    { name: 'Sorts descending', pattern: 'sorted\\(series, reverse=True\\)', must: true, hint: 'sorted(series, reverse=True)[:n]' },
+  ]}
+  tests={[
+    { name: 'top 3', stdin: '4 1 5 2 6 7 3|3', equals: '7 6 5' },
+    { name: 'top 1', stdin: '9 1|1', equals: '9' },
+  ]}
+/>
+
+---
+
+## Static protocols
+
+A `typing.Protocol` subclass declares "any type with these methods counts" — no inheritance, registration, or explicit relationship required. That's **static duck typing**: it makes the informal "if it quacks like a duck" contract explicit enough for a type checker to verify. Decorate one `@runtime_checkable` and `isinstance()` will check it structurally too — purely by "does this object have the method," not by checking any declared relationship.
+
+<details>
+<summary>🧪 isinstance() against a Protocol, structurally</summary>
+
+<PistonRunner
+  lang="python"
+  interactive={false}
+  height="380px"
+  code={`from typing import Protocol, runtime_checkable
+
+@runtime_checkable
+class SupportsQuack(Protocol):
+    def quack(self) -> None: ...
+
+class Duck:
+    def quack(self):
+        print('Quack!')
+
+class Robot:
+    def quack(self):
+        print('Beep quack!')
+
+class Cat:
+    def meow(self):
+        print('Meow!')
+
+for obj in (Duck(), Robot(), Cat()):
+    print(type(obj).__name__, isinstance(obj, SupportsQuack))
+`}
+/>
+
+</details>
+
+`Robot` never mentions `SupportsQuack` anywhere — no base class, no registration — yet `isinstance(Robot(), SupportsQuack)` is `True`, purely because it happens to define `.quack()`. That's the whole point: a `Protocol` lets pre-existing types, including ones you don't control, satisfy an interface just by shape.
+
+---
+
+## Mini quiz — Protocol
+
+<MultipleChoice
+  id="py-int-ch8-protocol"
+  title="Static duck typing"
+  questions={[
+    {
+      prompt: 'To make a class satisfy a Protocol, it must',
+      choices: [
+        'explicitly subclass the Protocol',
+        'call Protocol.register(cls)',
+        'do nothing special — just implement the methods the Protocol declares',
+        'be decorated with @implements',
+      ],
+      answer: 2,
+      why: "Protocol conformance is structural: shape matters, not declared ancestry.",
+    },
+    {
+      prompt: '@runtime_checkable on a Protocol enables',
+      choices: [
+        'isinstance() checks that verify method presence at runtime',
+        'automatic type coercion',
+        'static type checking only, no runtime effect at all',
+        'nothing — it is purely decorative',
+      ],
+      answer: 0,
+      why: 'Without @runtime_checkable, isinstance() against a Protocol raises TypeError; with it, isinstance checks structurally for the declared methods.',
+    },
+  ]}
+/>
+
+---
+
+## Challenge: structural quack check
+
+`quacks(obj) -> bool` returns whether `obj` satisfies `SupportsQuack` — no inheritance needed.
+
+<CodingExam
+  title="structural quack check"
+  heading="Challenge: structural quack check"
+  lang="python"
+  filename="main.py"
+  prompt="return isinstance(obj, SupportsQuack)"
+  sampleLog={`(input) duck
+True`}
+  starter={`from typing import Protocol, runtime_checkable
+
+@runtime_checkable
+class SupportsQuack(Protocol):
+    def quack(self) -> None: ...
+
+def quacks(obj) -> bool:
+    # TODO: return isinstance(obj, SupportsQuack)
+    return False
+
+class Duck:
+    def quack(self):
+        pass
+
+class Cat:
+    def meow(self):
+        pass
+`}
+  wrapSuffix={`
+kind = input().strip()
+obj = Duck() if kind == 'duck' else Cat()
+print(quacks(obj))
+`}
+  sourceChecks={[
+    { name: 'Checks isinstance against SupportsQuack', pattern: 'isinstance\\(obj, SupportsQuack\\)', must: true, hint: 'isinstance(obj, SupportsQuack)' },
+  ]}
+  tests={[
+    { name: 'a duck', stdin: 'duck', equals: 'True' },
+    { name: 'a cat', stdin: 'cat', equals: 'False' },
+  ]}
+/>
+
+---
+
+## Callable, NoReturn, and annotated variadic parameters
+
+`Callable[[ParamType1, ParamType2], ReturnType]` annotates a function passed as an argument — the list in `[]` is the parameter types, and `...` in place of that list means "any signature." `NoReturn` marks a function that never returns normally — it always raises. And the `*args`/`**kwargs` you met in Chapter 7 get typed too: `*content: str` means every item collected into `content` is `str`, and `**attrs: str` means `attrs` ends up as `dict[str, str]`.
+
+<details>
+<summary>🧪 Callable parameter, NoReturn helper, typed variadics</summary>
+
+<PistonRunner
+  lang="python"
+  interactive={false}
+  height="440px"
+  code={`from typing import Callable, NoReturn
+
+def apply_op(a: int, b: int, op: Callable[[int, int], int]) -> int:
+    return op(a, b)
+
+print(apply_op(3, 4, lambda x, y: x + y))
+print(apply_op(3, 4, lambda x, y: x * y))
+
+def fail(message: str) -> NoReturn:
+    raise RuntimeError(message)
+
+try:
+    fail('boom')
+except RuntimeError as e:
+    print('caught:', e)
+
+def tag(name: str, /, *content: str, class_: str | None = None, **attrs: str) -> str:
+    if class_ is not None:
+        attrs['class'] = class_
+    attr_str = ''.join(f' {k}="{v}"' for k, v in sorted(attrs.items()))
+    if content:
+        return '\\n'.join(f'<{name}{attr_str}>{c}</{name}>' for c in content)
+    return f'<{name}{attr_str} />'
+
+print(tag('br'))
+print(tag('p', 'hi', class_='note'))
+`}
+/>
+
+</details>
+
+---
+
+## Mini quiz — Callable, NoReturn, typed variadics
+
+<MultipleChoice
+  id="py-int-ch8-callable"
+  title="Higher-order and never-returning functions"
+  questions={[
+    {
+      prompt: 'Callable[[int, int], int]',
+      choices: [
+        'a function taking two ints and returning an int',
+        'a tuple of two ints',
+        'any callable regardless of signature',
+        'a function returning a list of ints',
+      ],
+      answer: 0,
+      why: 'The bracketed list is the parameter types; the second element is the return type.',
+    },
+    {
+      prompt: 'A function annotated -> NoReturn',
+      choices: [
+        'always returns None',
+        'is expected to never return normally — it always raises or otherwise never reaches a return',
+        'cannot be called',
+        'is the same as -> None',
+      ],
+      answer: 1,
+      why: "NoReturn tells a checker the function's normal control flow never completes — sys.exit() and a raise-only helper are typical examples.",
+    },
+    {
+      prompt: 'def tag(name: str, /, *content: str, **attrs: str) — the type of content inside the function body is',
+      choices: ['str', 'list[str]', 'tuple[str, ...]', 'dict[str, str]'],
+      answer: 2,
+      why: '*args always collects into a tuple; the str annotation describes each individual item, so the tuple itself is tuple[str, ...].',
+    },
+  ]}
+/>
+
+---
+
+## Challenge: apply an operator
+
+`apply_op(a, b, op: Callable[[int, int], int]) -> int` just calls `op(a, b)`.
+
+<CodingExam
+  title="apply an operator"
+  heading="Challenge: apply an operator"
+  lang="python"
+  filename="main.py"
+  prompt="return op(a, b)"
+  sampleLog={`(input) 3 4 add
+7`}
+  starter={`from typing import Callable
+from operator import add, mul
+
+def apply_op(a: int, b: int, op: Callable[[int, int], int]) -> int:
+    # TODO: return op(a, b)
+    return 0
+`}
+  wrapSuffix={`
+a, b, name = input().split()
+op = add if name == 'add' else mul
+print(apply_op(int(a), int(b), op))
+`}
+  sourceChecks={[
+    { name: 'Calls op(a, b)', pattern: 'op\\(a, b\\)', must: true, hint: 'return op(a, b)' },
+  ]}
+  tests={[
+    { name: 'add', stdin: '3 4 add', equals: '7' },
+    { name: 'mul', stdin: '3 4 mul', equals: '12' },
+  ]}
+/>
+
+---
+
+## Chapter summary
+
+:::important Key takeaways
+
+1. Type hints are optional, unenforced at runtime, and give no performance boost — they exist purely for static tools.
+2. Duck typing (runtime) and nominal typing (static) coexist in a gradual system; a type checker can flag code that runs correctly, and miss code that will crash.
+3. `Any` opts an expression out of checking entirely; `object` accepts every value but supports almost no operations. `int` is consistent-with `float`, which is consistent-with `complex`.
+4. `Optional[X]` means `Union[X, None]` — it does not by itself make a parameter optional; you still need `= None`.
+5. Generic collections use `[]` directly (`list[str]`, `dict[str, set[str]]`) since Python 3.9. Annotate parameters with abstract types (`Mapping`, `Sequence`, `Iterable`); keep return types concrete.
+6. Tuples get three annotation styles: fixed record (`tuple[str, float]`), named record (`NamedTuple`), and variable-length uniform (`tuple[int, ...]`).
+7. `TypeVar` links a parameter's element type to the return type in a generic function; restrict it to a closed list of types, or bound it to anything consistent-with an ABC like `Hashable`.
+8. `typing.Protocol` (optionally `@runtime_checkable`) makes duck typing explicit and checkable — no inheritance required, just matching methods.
+9. `Callable[[...], R]` types a function argument; `NoReturn` marks a function that always raises; `*args`/`**kwargs` can be typed per-item.
+10. Type hints catch real bugs in large codebases, but they produce false positives and negatives, can't express most business-logic constraints ("quantity must be > 0"), and are never a substitute for automated tests.
+
+:::
+
+## Exercises
+
+<ExerciseSet>
+<Exercise title="NamedTuple as a tuple" anchor="exercise-namedtuple">
+
+:::tip Activity: NamedTuple as a tuple
+`distance(p: tuple[float, float]) -> float` returns the Euclidean distance from the origin. A `Point(NamedTuple)` instance should work here too, since it's consistent-with `tuple[float, float]`.
+
+<CodingExam
+  title="NamedTuple as a tuple"
+  heading="exercise-namedtuple"
+  lang="python"
+  filename="main.py"
+  prompt="(p[0] ** 2 + p[1] ** 2) ** 0.5"
+  sampleLog={`(input) 3 4
+5.0`}
+  starter={`from typing import NamedTuple
+
+class Point(NamedTuple):
+    x: float
+    y: float
+
+def distance(p: tuple[float, float]) -> float:
+    # TODO: return the Euclidean distance from the origin
+    return 0.0
+`}
+  wrapSuffix={`
+x, y = [float(v) for v in input().split()]
+p = Point(x, y)
+print(round(distance(p), 2))
+`}
+  sourceChecks={[
+    { name: 'Uses ** 0.5', pattern: '\\*\\*\\s*0\\.5', must: true, hint: '(p[0] ** 2 + p[1] ** 2) ** 0.5' },
+  ]}
+  tests={[
+    { name: '3 4 5 triangle', stdin: '3 4', equals: '5.0' },
+    { name: 'origin', stdin: '0 0', equals: '0.0' },
+  ]}
+/>
+
+:::
+
+</Exercise>
+
+<Exercise title="Safe divide with Optional" anchor="exercise-optional">
+
+:::tip Activity: Safe divide with Optional
+`safe_divide(a: float, b: float) -> Optional[float]` returns `a / b`, or `None` when `b == 0` — no exception.
+
+<CodingExam
+  title="Safe divide with Optional"
+  heading="exercise-optional"
+  lang="python"
+  filename="main.py"
+  prompt="return None if b == 0 else a / b"
+  sampleLog={`(input) 10 2
+5.0`}
+  starter={`from typing import Optional
+
+def safe_divide(a: float, b: float) -> Optional[float]:
+    # TODO: return a / b, or None if b == 0
+    return None
+`}
+  wrapSuffix={`
+a, b = [float(v) for v in input().split()]
+result = safe_divide(a, b)
+print('none' if result is None else result)
+`}
+  sourceChecks={[
+    { name: 'Checks b == 0', pattern: 'b == 0', must: true, hint: 'if b == 0: return None' },
+  ]}
+  tests={[
+    { name: 'normal division', stdin: '10 2', equals: '5.0' },
+    { name: 'divide by zero', stdin: '5 0', equals: 'none' },
+  ]}
+/>
+
+:::
+
+</Exercise>
+
+<Exercise title="Positional-only clamp" anchor="exercise-clamp">
+
+:::tip Activity: Positional-only clamp
+`clamp(value, lo, hi, /)` bounds `value` to `[lo, hi]`. Make all three positional-only with `/`.
+
+<CodingExam
+  title="Positional-only clamp"
+  heading="exercise-clamp"
+  lang="python"
+  filename="main.py"
+  prompt="def clamp(value, lo, hi, /):"
+  sampleLog={`(input) 15 0 10
+10.0`}
+  starter={`def clamp(value, lo, hi):
+    # TODO: make value, lo, hi positional-only with /
+    return max(lo, min(value, hi))
+`}
+  wrapSuffix={`
+v, lo, hi = [float(x) for x in input().split()]
+print(clamp(v, lo, hi))
+`}
+  sourceChecks={[
+    { name: 'value, lo, hi are positional-only', pattern: 'def clamp\\(value,\\s*lo,\\s*hi,\\s*/\\)', must: true, hint: 'def clamp(value, lo, hi, /):' },
+  ]}
+  tests={[
+    { name: 'above range', stdin: '15 0 10', equals: '10.0' },
+    { name: 'below range', stdin: '-5 0 10', equals: '0.0' },
+  ]}
+/>
+
+:::
+
+</Exercise>
+
+<Exercise title="Callable default" anchor="exercise-callable-default">
+
+:::tip Activity: Callable default
+`shout(text: str, transform: Callable[[str], str] = str.upper) -> str` returns `transform(text)`.
+
+<CodingExam
+  title="Callable default"
+  heading="exercise-callable-default"
+  lang="python"
+  filename="main.py"
+  prompt="return transform(text)"
+  sampleLog={`(input) hello
+HELLO`}
+  starter={`from typing import Callable
+
+def shout(text: str, transform: Callable[[str], str] = str.upper) -> str:
+    # TODO: return transform(text)
+    return text
+`}
+  wrapSuffix={`
+print(shout(input()))
+`}
+  sourceChecks={[
+    { name: 'Calls transform(text)', pattern: 'transform\\(text\\)', must: true, hint: 'return transform(text)' },
+  ]}
+  tests={[
+    { name: 'one word', stdin: 'hello', equals: 'HELLO' },
+    { name: 'phrase', stdin: 'Already Loud', equals: 'ALREADY LOUD' },
+  ]}
+/>
+
+:::
+
+</Exercise>
+
+<Exercise title="NoReturn guard" anchor="exercise-noreturn">
+
+:::tip Activity: NoReturn guard
+`fail(message: str) -> NoReturn` always raises. `check_positive(n: int) -> None` should call it when `n <= 0`.
+
+<CodingExam
+  title="NoReturn guard"
+  heading="exercise-noreturn"
+  lang="python"
+  filename="main.py"
+  prompt="if n <= 0: fail('must be positive')"
+  sampleLog={`(input) 5
+ok`}
+  starter={`from typing import NoReturn
+
+def fail(message: str) -> NoReturn:
+    raise ValueError(message)
+
+def check_positive(n: int) -> None:
+    # TODO: call fail('must be positive') if n <= 0
+    pass
+`}
+  wrapSuffix={`
+n = int(input())
+try:
+    check_positive(n)
+    print('ok')
+except ValueError as e:
+    print('error:', e)
+`}
+  sourceChecks={[
+    { name: "Calls fail('must be positive')", pattern: "fail\\('must be positive'\\)", must: true, hint: "fail('must be positive')" },
+  ]}
+  tests={[
+    { name: 'positive', stdin: '5', equals: 'ok' },
+    { name: 'negative', stdin: '-1', equals: 'error: must be positive' },
+  ]}
+/>
+
+:::
+
+</Exercise>
+</ExerciseSet>

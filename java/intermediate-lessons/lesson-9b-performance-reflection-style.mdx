@@ -1,0 +1,392 @@
+---
+sidebar_position: 15
+title: "Performance, Reflection, and Style"
+---
+
+> **Source:** Effective Java, 3rd Edition — Chapter 9 by Joshua Bloch (Items 63–68)
+
+This lesson closes Chapter 9: building strings efficiently, programming to interfaces, limited reflection, native methods, optimization discipline, and Java naming conventions.
+
+## Item 63: Beware the performance of string concatenation
+
+`+` on strings is fine for a **few** pieces, but repeated concatenation in a loop is **O(n²)** — each `+` copies both operands because strings are immutable.
+
+```java
+// Bad in a loop
+String result = "";
+for (int i = 0; i < n; i++)
+    result += lineForItem(i);
+
+// Good
+StringBuilder b = new StringBuilder(n * LINE_WIDTH);
+for (int i = 0; i < n; i++)
+    b.append(lineForItem(i));
+return b.toString();
+```
+
+Pre-size `StringBuilder` when you know approximate length. For many strings, also consider joining in one pass without building one giant intermediate string per step.
+
+<CodingExam
+  title="string builder join"
+  heading="Challenge: StringBuilder not +="
+  lang="java"
+  filename="Main.java"
+  prompt="joinLines(lines) concatenates all strings in order using StringBuilder.append in a loop — not += on a String. wrap: join [a,b,c]; print result."
+  sampleLog={`abc`}
+  starter={`import java.util.List;
+
+public class Main {
+    public static String joinLines(List<String> lines) {
+        String result = "";
+        for (String line : lines) {
+            result += line;
+        }
+        return result;
+    }
+}
+`}
+  wrapSuffix={`
+class Runner {
+    public static void main(String[] args) {
+        System.out.println(Main.joinLines(java.util.Arrays.asList("a", "b", "c")));
+    }
+}
+`}
+  sourceChecks={[
+    { name: 'StringBuilder', pattern: 'StringBuilder', must: true, hint: 'StringBuilder b = new StringBuilder(); b.append(line); return b.toString();' },
+    { name: 'append', pattern: '\\.append\\s*\\(', must: true, hint: 'append each line inside the loop' },
+    { name: 'no plus equals', pattern: '\\+=', must: false, hint: 'do not use result += line in the loop' },
+  ]}
+  tests={[
+    { name: 'abc', stdin: '', equals: 'abc' },
+  ]}
+/>
+
+## Item 64: Refer to objects by their interfaces
+
+Declare variables, parameters, return types, and fields with the **interface** when one exists. Use the **implementation class only in `new`**:
+
+```java
+Set<Son> sons = new LinkedHashSet<>();
+```
+
+Then switching `LinkedHashSet` → `HashSet` doesn’t break callers. Exception: code that depends on **implementation-specific** behavior (e.g. `LinkedHashSet` iteration order) must keep that type.
+
+When no interface fits: **value classes** (`String`, `BigInteger`), **framework base classes** (`OutputStream`), or types with **extra methods** not on the interface (`PriorityQueue.comparator()`).
+
+<CodingExam
+  title="set interface type"
+  heading="Challenge: Set not LinkedHashSet"
+  lang="java"
+  filename="Main.java"
+  prompt="unique(items) returns deduplicated names preserving first-seen order. Declare the local and return type as Set<String> — construct with new LinkedHashSet<>(). wrap: [b,a,b,c,a]; print size (3)."
+  sampleLog={`3`}
+  starter={`import java.util.LinkedHashSet;
+import java.util.List;
+
+public class Main {
+    public static LinkedHashSet<String> unique(List<String> items) {
+        LinkedHashSet<String> set = new LinkedHashSet<>();
+        for (String item : items) {
+            set.add(item);
+        }
+        return set;
+    }
+}
+`}
+  wrapSuffix={`
+class Runner {
+    public static void main(String[] args) {
+        System.out.println(Main.unique(java.util.Arrays.asList("b", "a", "b", "c", "a")).size());
+    }
+}
+`}
+  sourceChecks={[
+    { name: 'Set return type', pattern: 'Set\\s*<\\s*String\\s*>\\s+unique', must: true, hint: 'public static Set<String> unique(...)' },
+    { name: 'Set local', pattern: 'Set\\s*<\\s*String\\s*>\\s+\\w+\\s*=\\s*new\\s+LinkedHashSet', must: true, hint: 'Set<String> set = new LinkedHashSet<>();' },
+    { name: 'no LinkedHashSet in signature', pattern: 'LinkedHashSet\\s*<\\s*String\\s*>\\s+unique', must: false, hint: 'use Set<String> in the method signature' },
+  ]}
+  tests={[
+    { name: 'three unique', stdin: '', equals: '3' },
+  ]}
+/>
+
+<MultipleChoice
+  id="java-int-ch9-interfaces"
+  title="Program to interfaces"
+  questions={[
+    {
+      prompt: 'Field is HashMap<K,V>; you only need Map operations and may swap to EnumMap later',
+      choices: [
+        'keep HashMap<K,V> — changing both type and class together always compiles',
+        'declare Map<K,V> — swap implementation without touching callers',
+        'use Object — maximum flexibility',
+        'must use ConcurrentHashMap in the field type',
+      ],
+      answer: 1,
+      why: 'Interface types decouple callers from implementation. Clients may still depend on methods only HashMap had.',
+    },
+    {
+      prompt: 'Code relies on LinkedHashSet insertion-order iteration',
+      choices: [
+        'safe to substitute HashSet in the variable declaration only',
+        'must keep an implementation that preserves that ordering contract',
+        'use List instead always',
+        'interfaces forbid ordering',
+      ],
+      answer: 1,
+      why: 'Switch implementations only when the interface contract (and any ordering you rely on) still holds.',
+    },
+  ]}
+/>
+
+## Item 65: Prefer interfaces to reflection
+
+**Reflection** (`Class.forName`, `Constructor.newInstance`, `Method.invoke`) can touch classes unknown at compile time, but costs compile-time checking, readability, and speed (~11× slower for a trivial invoke in Bloch’s tests).
+
+**Limited pattern:** reflect only to **construct** objects; use them through a **known interface or superclass** afterward:
+
+```java
+Class<? extends Set<String>> cl = (Class<? extends Set<String>>) Class.forName(args[0]);
+Set<String> s = cl.getDeclaredConstructor().newInstance();
+s.addAll(...); // normal Set usage from here
+```
+
+Catch **`ReflectiveOperationException`** (Java 7+) to shrink catch blocks. If you don’t need runtime class loading, skip reflection.
+
+<CodingExam
+  title="reflect new set"
+  heading="Challenge: reflect then use Set"
+  lang="java"
+  filename="Main.java"
+  prompt="newSet(className) loads className with Class.forName, calls getDeclaredConstructor().newInstance(), returns as Set<String>. wrap: TreeSet, add c/a/b; print set (sorted)."
+  sampleLog={`[a, b, c]`}
+  starter={`import java.util.Set;
+
+public class Main {
+    @SuppressWarnings("unchecked")
+    public static Set<String> newSet(String className) throws Exception {
+        return null; // TODO Class.forName, getDeclaredConstructor, newInstance
+    }
+}
+`}
+  wrapSuffix={`
+class Runner {
+    public static void main(String[] args) throws Exception {
+        java.util.Set<String> s = Main.newSet("java.util.TreeSet");
+        s.add("c");
+        s.add("a");
+        s.add("b");
+        System.out.println(s);
+    }
+}
+`}
+  sourceChecks={[
+    { name: 'Class.forName', pattern: 'Class\\.forName\\s*\\(', must: true, hint: 'Class.forName(className)' },
+    { name: 'constructor', pattern: 'getDeclaredConstructor\\s*\\(', must: true, hint: 'cl.getDeclaredConstructor().newInstance()' },
+    { name: 'Set return', pattern: 'Set\\s*<\\s*String\\s*>', must: true, hint: 'cast/newInstance result to Set<String>' },
+  ]}
+  tests={[
+    { name: 'sorted tree set', stdin: '', equals: '[a, b, c]' },
+  ]}
+/>
+
+## Item 66: Use native methods judiciously
+
+**JNI** calls C/C++ code. Legitimate uses: platform-specific APIs, legacy native libraries, and **rare** extreme performance (e.g. GMP for huge `BigInteger`-scale math).
+
+Downsides: no memory safety, weaker portability, harder debugging, GC can’t track native memory well, JNI transition cost. JVM and Java libraries closed most old “must go native for speed” gaps (`BigInteger` reimplemented in Java beat its C version).
+
+Default: stay in Java unless a vetted native library clearly wins.
+
+<MultipleChoice
+  id="java-int-ch9-native"
+  title="Native methods"
+  questions={[
+    {
+      prompt: 'Primary reason to avoid JNI for routine hot loops today',
+      choices: [
+        'Java cannot loop',
+        'JVMs improved; native adds safety/portability/debug cost — measure first',
+        'JNI is required for BigInteger',
+        'native code always faster',
+      ],
+      answer: 1,
+      why: 'Modern JVMs are fast. JNI trades safety and portability; use only when justified.',
+    },
+    {
+      prompt: 'Application uses JNI and native code corrupts memory',
+      choices: [
+        'only the native method fails',
+        'can corrupt the entire JVM process',
+        'caught as checked exception always',
+        'GC fixes it automatically',
+      ],
+      answer: 1,
+      why: 'Native languages are not memory-safe. Bugs can take down the whole app.',
+    },
+  ]}
+/>
+
+## Item 67: Optimize judiciously
+
+**Don’t optimize prematurely.** Write clear, well-structured programs first; profile before tuning.
+
+- **Rule 1:** Don’t do it.
+- **Rule 2 (experts):** Don’t do it yet — not until you have a clean baseline.
+- **Rule 3:** Measure before and after each change.
+
+Think about performance at **design** time for hard-to-change surfaces: **APIs**, wire protocols, persistent formats. A mutable `Dimension` return from `Component.getSize()` forces allocations forever.
+
+Fix **algorithmic** problems (quadratic string concat, wrong data structure) before micro-optimizing. Use profilers and **JMH** for microbenchmarks — Java’s cost model varies by JVM and hardware.
+
+<MultipleChoice
+  id="java-int-ch9-optimize"
+  title="Optimization discipline"
+  questions={[
+    {
+      prompt: 'statement() builds a large report with += in a loop',
+      choices: [
+        'add synchronized first',
+        'replace with StringBuilder — algorithmic fix before micro-tuning',
+        'declare fields volatile',
+        'switch to float for speed',
+      ],
+      answer: 1,
+      why: 'Quadratic concatenation is an algorithm/data-structure problem. StringBuilder is linear.',
+    },
+    {
+      prompt: 'Program feels slow; first step per Item 67',
+      choices: [
+        'rewrite hot methods in C',
+        'profile to find where time is spent, then measure each change',
+        'cache everything statically',
+        'make all API types final for speed',
+      ],
+      answer: 1,
+      why: 'Guesswork wastes time. Profile, fix algorithms, measure every optimization attempt.',
+    },
+  ]}
+/>
+
+## Item 68: Adhere to generally accepted naming conventions
+
+**Typographical** (JLS §6.1):
+
+| Kind | Style | Example |
+|---|---|---|
+| Package | lowercase, reversed domain | `com.google.common.collect` |
+| Class / interface | PascalCase | `HttpClient`, `FutureTask` |
+| Method / field | camelCase | `remove`, `ensureCapacity` |
+| Constant | `UPPER_SNAKE` | `MAX_VALUE` (`static final` immutable) |
+| Type parameter | single letter | `T`, `E`, `K`, `V` |
+
+**Grammatical:** classes are **singular nouns** (`Thread`); utility classes often **plural** (`Collections`); interfaces like classes or `…able`; action methods are **verbs**; boolean accessors often **`is`/`has`** (`isEmpty`); getters may be `getTime` or `time()`.
+
+Break conventions only when long-established usage says otherwise.
+
+<MultipleChoice
+  id="java-int-ch9-naming"
+  title="Naming conventions"
+  questions={[
+    {
+      prompt: 'static final int maxConnections = 10;',
+      choices: [
+        'MAX_CONNECTIONS — static final constant field naming',
+        'maxConnections is correct for all static fields',
+        'MaxConnections PascalCase field',
+        'max_connections with underscores everywhere',
+      ],
+      answer: 0,
+      why: 'Static final fields with immutable values use UPPER_SNAKE (MAX_CONNECTIONS).',
+    },
+    {
+      prompt: 'Method returns whether a queue has no elements',
+      choices: [
+        'empty() — preferred boolean name',
+        'isEmpty() or hasElements() — boolean accessor pattern',
+        'getEmpty()',
+        'queueEmptyStatus()',
+      ],
+      answer: 1,
+      why: 'Boolean methods commonly start with is or has (isEmpty matches Collections API).',
+    },
+  ]}
+/>
+
+## Items 63–68 map
+
+| Item | Move |
+|---|---|
+| 63 | StringBuilder for many concatenations |
+| 64 | `Set` in types; `LinkedHashSet` in `new` |
+| 65 | Reflect to construct; interface for everything else |
+| 66 | JNI only when Java libraries aren’t enough |
+| 67 | Profile; fix algorithms; measure changes |
+| 68 | JLS naming — packages, classes, constants, booleans |
+
+Chapter 9 complete. Next: [Exceptions](./lesson-10a-exceptions) (Chapter 10, Items 69–73).
+
+<ExerciseSet
+  title="Exercises"
+  description="StringBuilder with separators; boolean accessor naming."
+>
+  <CodingExam
+    title="join with comma"
+    heading="Exercise: StringBuilder separators"
+    lang="java"
+    filename="Main.java"
+    prompt="joinComma(words) returns words joined by comma (no trailing comma) using StringBuilder. wrap: [x,y,z]; print."
+    starter={`import java.util.List;
+
+public class Main {
+    public static String joinComma(List<String> words) {
+        return ""; // TODO StringBuilder, append word and comma between
+    }
+}
+`}
+    wrapSuffix={`
+class Runner {
+    public static void main(String[] args) {
+        System.out.println(Main.joinComma(java.util.Arrays.asList("x", "y", "z")));
+    }
+}
+`}
+    sourceChecks={[
+      { name: 'StringBuilder', pattern: 'StringBuilder', must: true, hint: 'build with StringBuilder.append' },
+      { name: 'no String join only', pattern: 'String\\.join\\s*\\(', must: false, hint: 'use StringBuilder loop, not String.join' },
+    ]}
+    tests={[
+      { name: 'xyz', stdin: '', equals: 'x,y,z' },
+    ]}
+  />
+  <CodingExam
+    title="is empty list"
+    heading="Exercise: isEmpty naming"
+    lang="java"
+    filename="Main.java"
+    prompt="Rename/fix isEmptyList so the public static boolean follows the is* convention for predicates. wrap: empty list; print true."
+    starter={`import java.util.List;
+
+public class Main {
+    public static boolean emptyList(List<?> items) {
+        return items.isEmpty();
+    }
+}
+`}
+    wrapSuffix={`
+class Runner {
+    public static void main(String[] args) {
+        System.out.println(Main.isEmptyList(java.util.Collections.emptyList()));
+    }
+}
+`}
+    sourceChecks={[
+      { name: 'is prefix', pattern: 'boolean\\s+is\\w+\\s*\\(', must: true, hint: 'public static boolean isEmptyList(...)' },
+      { name: 'no emptyList name', pattern: 'emptyList\\s*\\(', must: false, hint: 'rename to isEmptyList (or similar is*)' },
+    ]}
+    tests={[
+      { name: 'true', stdin: '', equals: 'true' },
+    ]}
+  />
+</ExerciseSet>

@@ -1,0 +1,390 @@
+---
+sidebar_position: 13
+title: "Sequences and Special Methods"
+---
+
+> **Source:** Fluent Python, 2nd Edition — Chapter 12 by Luciano Ramalho
+
+A 2-D vector was a pair of named floats. An **n-D** vector is a **flat sequence** of floats: same dunders as `tuple` or `array` where they make sense, stored by **composition** (an `array` inside), not by inheriting `list`.
+
+Search engines treat documents as vectors with one axis per word. Cosine similarity is real work for NumPy, SciPy, or gensim. This chapter is about the **data model** for a sequence type, not production linear algebra.
+
+The constructor takes **one iterable**, like every built-in sequence: `Vector([3, 4, 5])`, `Vector(range(10))`. `Vector(3, 4)` would fight that convention. Two-component results can still match the old `Vector2d` tests; the call shape does not.
+
+## Take #1: compatible, but `repr` must stay small
+
+Keep `_components` as `array('d', ...)`. Iterate it. `str` can stay `str(tuple(self))`. `bytes` / `frombytes` can dump the array (pass a `memoryview` into the constructor; do not unpack with `*`). `math.hypot(*self)` works in n-D from Python 3.8.
+
+`repr` is for debugging. A thousand-dimension object must not print a thousand lines. `reprlib.repr` cuts the display and inserts `...`. Apply it to the array, then keep only the `[...]` part so the user sees `Vector([0.0, 1.0, 2.0, 3.0, 4.0, ...])` instead of `array('d', ...)`. Copying to a `list` just to reuse list-repr wastes memory.
+
+`repr()` itself should not raise. If formatting fails, still emit something that identifies the object.
+
+Subclassing `Vector2d` is a poor fit: constructors disagree, and the point of this type is to **be a sequence**, not a 2-D subclass.
+
+<details>
+<summary>🧪 reprlib on a long array</summary>
+
+<PistonRunner
+  lang="python"
+  interactive={false}
+  height="220px"
+  code={`from array import array
+import reprlib
+
+xs = array('d', range(10))
+raw = reprlib.repr(xs)
+print(raw)
+print(raw[raw.find('['):-1])
+`}
+/>
+
+</details>
+
+<MultipleChoice
+  id="py-int-ch12-ctor"
+  title="Sequence constructor"
+  questions={[
+    {
+      prompt: 'A sequence-like Vector should take',
+      choices: [
+        'x, y only, like Vector2d',
+        'one iterable of components, like list and array',
+        '*args of scalars only',
+        'a dict of named axes',
+      ],
+      answer: 1,
+      why: 'Built-in sequences are built from one iterable. Vector(3, 4) would be the odd one out.',
+    },
+  ]}
+/>
+
+## Protocols and duck typing
+
+A **protocol** here is an informal interface: documented by behavior, not by a base class. The **sequence protocol** is `__len__` and `__getitem__` with the usual meanings. `FrenchDeck` is a sequence because it **acts** like one. Alex Martelli’s line is the slogan: do not ask “is-a duck”; ask whether it quacks the way you need.
+
+You can implement **part** of a protocol for a known context. Iteration historically works from `__getitem__` alone; many call sites still want `__len__`.
+
+PEP 544 **static protocols** (`typing.Protocol`) are related but stricter: you must provide every method the protocol class lists. Dynamic duck typing stays the older, looser idea.
+
+## Take #2: `__len__`, `__getitem__`, and real slices
+
+Delegating both methods to `_components` is a one-liner each. Indexing then works. Slicing “works” too — and returns an **`array`**, which drops your type. Built-in sequences return **the same type**.
+
+Python turns `seq[1:4:2]` into `seq.__getitem__(slice(1, 4, 2))`. Commas inside `[]` pass a **tuple** (possibly of slices). `slice` has `start`, `stop`, `step`, and `indices(len)` which normalizes negatives and oversize bounds the way `'ABCDE'[:10:2]` does. If you already hold an `array`, you can slice that array and wrap the result; `indices` is the lifesaver when you do not.
+
+A slice-aware `__getitem__`:
+
+```python
+def __getitem__(self, key):
+    if isinstance(key, slice):
+        cls = type(self)
+        return cls(self._components[key])
+    index = operator.index(key)
+    return self._components[index]
+```
+
+`isinstance` on `slice` is a justified special case. `operator.index` (PEP 357) is for “this value is an index,” not for “coerce like `int`.” `int(3.14)` is `3`; `operator.index(3.14)` is a `TypeError`. A tuple key fails the same way: this vector is not a matrix.
+
+<PistonRunner
+  lang="python"
+  interactive={false}
+  height="280px"
+  code={`class MySeq:
+    def __getitem__(self, index):
+        return index
+
+s = MySeq()
+print(s[1])
+print(s[1:4])
+print(s[1:4:2])
+print(s[1:4:2, 9])
+print(slice(None, 10, 2).indices(5))
+print(slice(-3, None, None).indices(5))
+`}
+/>
+
+<CodingExam
+  title="Slice returns the same type"
+  heading="Challenge: slice returns the same type"
+  lang="python"
+  filename="main.py"
+  prompt="Seq stores a list of floats. __len__ and __getitem__: a slice must return Seq (same class via type(self)), an index must use operator.index and return one float. wrap: first token n builds Seq(range(n)). If one more token, print the index result. If two more, print the class name and the sliced values as a list."
+  sampleLog={`(input) 7 1 4
+Seq [1.0, 2.0, 3.0]`}
+  starter={`import operator
+
+class Seq:
+    def __init__(self, xs):
+        self._xs = [float(x) for x in xs]
+
+    def __len__(self):
+        return 0
+
+    def __getitem__(self, key):
+        return None
+
+def wrap(line: str) -> str:
+    p = line.split()
+    n = int(p[0])
+    v = Seq(range(n))
+    if len(p) == 2:
+        return str(v[int(p[1])])
+    a, b = int(p[1]), int(p[2])
+    part = v[a:b]
+    return f'{type(part).__name__} {list(part)}'
+`}
+  wrapSuffix={`
+print(wrap(input()))
+`}
+  sourceChecks={[
+    { name: 'Handles slice', pattern: 'isinstance\\(.*slice', must: true, hint: 'isinstance(key, slice)' },
+    { name: 'operator.index', pattern: 'operator\\.index', must: true, hint: 'operator.index(key)' },
+  ]}
+  tests={[
+    { name: 'last item', stdin: '7 -1', equals: '6.0' },
+    { name: 'middle slice', stdin: '7 1 4', equals: 'Seq [1.0, 2.0, 3.0]' },
+    { name: 'tail slice is Seq', stdin: '7 6 7', equals: 'Seq [6.0]' },
+  ]}
+/>
+
+## Take #3: `v.x` without four properties
+
+Shortcuts `x, y, z, t` for the first four components beat writing four `@property`s. `__getattr__` runs only after normal lookup fails. Map the name through `__match_args__ = ('x', 'y', 'z', 't')` and index `_components` if the position exists; otherwise raise `AttributeError`. A 3-D vector has no `.t`.
+
+That is not enough. `v.x = 10` **creates** a real instance attribute. Later reads skip `__getattr__` and return `10` while `[0]` is still `0.0`. Pair `__getattr__` with `__setattr__`: refuse single-letter names in `__match_args__` (read-only) and other lowercase single letters (too easy to confuse with axes). Delegate everything else with `super().__setattr__`.
+
+Do **not** use `__slots__` just to block extra attributes. Slots are a memory trade; they have inheritance caveats.
+
+Keep the vector immutable if you plan to hash it. `__setitem__` can wait.
+
+<CodingExam
+  title="Virtual x y z t"
+  heading="Challenge: virtual x y z t"
+  lang="python"
+  filename="main.py"
+  prompt="Seq has _xs (floats) and __match_args__ = ('x','y','z','t'). __getattr__ returns the matching component or raises AttributeError. __setattr__: if the name is one of those four letters, raise AttributeError. wrap: numbers then a letter then get or set. get prints the value or missing. set tries assigning 9 and prints blocked or wrote, then prints get of that letter."
+  sampleLog={`(input) 0 1 2 3 x get
+0.0`}
+  starter={`class Seq:
+    __match_args__ = ('x', 'y', 'z', 't')
+
+    def __init__(self, xs):
+        self._xs = [float(x) for x in xs]
+
+    def __getattr__(self, name):
+        raise AttributeError(name)
+
+    def __setattr__(self, name, value):
+        object.__setattr__(self, name, value)
+
+def wrap(line: str) -> str:
+    p = line.split()
+    *nums, letter, op = p
+    v = Seq(nums)
+    if op == 'get':
+        try:
+            return str(getattr(v, letter))
+        except AttributeError:
+            return 'missing'
+    try:
+        setattr(v, letter, 9)
+        kind = 'wrote'
+    except AttributeError:
+        kind = 'blocked'
+    try:
+        shown = str(getattr(v, letter))
+    except AttributeError:
+        shown = 'missing'
+    return f'{kind} {shown}'
+`}
+  wrapSuffix={`
+print(wrap(input()))
+`}
+  sourceChecks={[
+    { name: 'getattr', pattern: 'def __getattr__', must: true, hint: 'def __getattr__(self, name)' },
+    { name: 'setattr', pattern: 'def __setattr__', must: true, hint: 'def __setattr__(self, name, value)' },
+  ]}
+  tests={[
+    { name: 'x of 4-D', stdin: '0 1 2 3 x get', equals: '0.0' },
+    { name: 't missing on 3-D', stdin: '0 1 2 t get', equals: 'missing' },
+    { name: 'assign x blocked', stdin: '0 1 2 3 x set', equals: 'blocked 0.0' },
+    { name: 'k missing', stdin: '0 1 2 k get', equals: 'missing' },
+  ]}
+/>
+
+The last test (`k get`) is `missing` from `__getattr__`. After a successful `set` on `x` without `__setattr__` guards, `get` would show `9` while the list still starts with `0` — that is the bug you are closing. `blocked 0.0` means the virtual axis still reads from `_xs`.
+
+## Take #4: hash with `reduce`, equality with `zip`
+
+Two-D hash was `hash(x) ^ hash(y)`. n-D is XOR of **every** component hash. `functools.reduce` folds a two-arg function across an iterable. `operator.xor` beats a lambda. Always pass an **initializer**: `0` for `^` (and for `+`, `|`); `1` for `*` and `&`. Empty input without it raises `TypeError`.
+
+That is map-reduce: `map(hash, components)` then XOR. In Python 3 `map` is lazy, like a generator expression.
+
+`tuple(self) == tuple(other)` copies huge vectors. Prefer:
+
+```python
+def __eq__(self, other):
+    return len(self) == len(other) and all(
+        a == b for a, b in zip(self, other)
+    )
+```
+
+`zip` stops at the **shortest** input, so the length check is required. Python 3.10 added `zip(..., strict=True)` to fail when lengths differ. `itertools.zip_longest` pads instead. `zip(*rows)` transposes nested sequences. `enumerate` is the usual partner when you still need an index.
+
+`Vector([1, 2]) == (1, 2)` stays true with this `__eq__`; live with it until operator overloading.
+
+<CodingExam
+  title="XOR reduce and zip equality"
+  heading="Challenge: XOR reduce and zip equality"
+  lang="python"
+  filename="main.py"
+  prompt="Seq is a list of ints. __hash__: XOR of hash(x) for each x, functools.reduce(..., 0). __eq__: same length and all pairs equal via zip. wrap: two groups of ints split by |. Print hash(a) hash(b) and a==b as True/False."
+  sampleLog={`(input) 3 4 | 3 4
+7 7 True`}
+  starter={`import functools
+import operator
+
+class Seq:
+    def __init__(self, xs):
+        self._xs = [int(x) for x in xs]
+
+    def __iter__(self):
+        return iter(self._xs)
+
+    def __len__(self):
+        return len(self._xs)
+
+    def __hash__(self):
+        return 0
+
+    def __eq__(self, other):
+        return False
+
+def wrap(line: str) -> str:
+    left, right = line.split('|')
+    a = Seq(left.split())
+    b = Seq(right.split())
+    return f'{hash(a)} {hash(b)} {a == b}'
+`}
+  wrapSuffix={`
+print(wrap(input()))
+`}
+  sourceChecks={[
+    { name: 'reduce', pattern: 'functools\\.reduce', must: true, hint: 'functools.reduce(operator.xor, ..., 0)' },
+    { name: 'zip in eq', pattern: '\\bzip\\s*\\(', must: true, hint: 'zip(self, other)' },
+  ]}
+  tests={[
+    { name: 'same pair', stdin: '3 4 | 3 4', equals: '7 7 True' },
+    { name: '3-D hash', stdin: '3 4 5 | 3 4 5', equals: '2 2 True' },
+    { name: 'length trap', stdin: '1 2 3 | 1 2', equals: '0 3 False' },
+    { name: 'empty xor seed', stdin: ' | ', equals: '0 0 True' },
+  ]}
+/>
+
+Empty sequences hash to the XOR identity **0** only if you pass that initializer. The length-trap row is `False` even though a naive `zip` would compare `1,2` and stop.
+
+## Take #5: format in n-D (and a peek at `h`)
+
+Cartesian `__format__` applies the spec to **each** component and joins with `', '` inside `'({})'`. For a custom suffix, Vector2d used `p` (polar). n-D uses **`h`** (hyperspherical): magnitude plus n−1 angles, angle brackets. The angles come from n-sphere formulas (`angle` / `angles`); `itertools.chain` glues `abs(self)` onto the angle stream. Avoid colliding with float codes `eEfFgGn%`.
+
+The spherical math is a lookup in the n-sphere article, not the point of the data model. The exams stay on Cartesian join and the `h` **wrapper** idea: suffix `h` means brackets around formatted coords you already know how to list.
+
+<CodingExam
+  title="n-D format join"
+  heading="Challenge: n-D format join"
+  lang="python"
+  filename="main.py"
+  prompt="Seq of floats. __format__: if spec ends with h, drop h and wrap with <...>; else (...). Format each component with the remaining spec, join with comma-space. wrap: numbers then optional spec (token after ; )."
+  sampleLog={`(input) 3 4 5 ; .2f
+(3.00, 4.00, 5.00)`}
+  starter={`class Seq:
+    def __init__(self, xs):
+        self._xs = [float(x) for x in xs]
+
+    def __iter__(self):
+        return iter(self._xs)
+
+    def __format__(self, fmt_spec=''):
+        return ''
+
+def wrap(line: str) -> str:
+    if ';' in line:
+        body, spec = line.split(';', 1)
+        spec = spec.strip()
+    else:
+        body, spec = line, ''
+    return format(Seq(body.split()), spec)
+`}
+  wrapSuffix={`
+print(wrap(input()))
+`}
+  sourceChecks={[
+    { name: 'h suffix', pattern: "endswith\\(['\\\"]h['\\\"]\\)", must: true, hint: "fmt_spec.endswith('h')" },
+  ]}
+  tests={[
+    { name: '3-D default', stdin: '3 4 5', equals: '(3.0, 4.0, 5.0)' },
+    { name: 'fixed-point', stdin: '3 4 5 ; .2f', equals: '(3.00, 4.00, 5.00)' },
+    { name: 'h brackets', stdin: '1 2 ; h', equals: '<1.0, 2.0>' },
+    { name: 'h with spec', stdin: '1 2 ; .1fh', equals: '<1.0, 2.0>' },
+  ]}
+/>
+
+That `h` path is the **shape** of hyperspherical display (angle brackets, remaining spec on each number). Real Vector also replaces the components with radius and angles before formatting.
+
+Chapter 16 will add infix operators. Generators inside `angles` / `chain` return in the generators chapter.
+
+<ExerciseSet
+  title="Exercises"
+  description="index vs int, and zip length."
+>
+  <CodingExam
+    title="index rejects float"
+    heading="Exercise: index rejects float"
+    lang="python"
+    filename="main.py"
+    prompt="wrap one token. If you can operator.index it, print that int; else print no."
+    starter={`import operator
+
+def wrap(line: str) -> str:
+    raw = line.strip()
+    try:
+        x = float(raw) if '.' in raw else int(raw)
+    except ValueError:
+        x = raw
+    return ''
+`}
+    wrapSuffix={`
+print(wrap(input()))
+`}
+    sourceChecks={[
+      { name: 'operator.index', pattern: 'operator\\.index', must: true, hint: 'try operator.index(x)' },
+    ]}
+    tests={[
+      { name: 'int ok', stdin: '3', equals: '3' },
+      { name: 'float no', stdin: '3.14', equals: 'no' },
+    ]}
+  />
+  <CodingExam
+    title="zip stops short"
+    heading="Exercise: zip stops short"
+    lang="python"
+    filename="main.py"
+    prompt="wrap: two groups split by |. Print the list of zip pairs, then whether lens are equal (True/False). Do not use zip(..., strict=True)."
+    starter={`def wrap(line: str) -> str:
+    left, right = line.split('|')
+    a = left.split()
+    b = right.split()
+    return ''
+`}
+    wrapSuffix={`
+print(wrap(input()))
+`}
+    sourceChecks={[
+      { name: 'Uses zip', pattern: '\\bzip\\s*\\(', must: true, hint: 'zip(a, b)' },
+    ]}
+    tests={[
+      { name: 'same length', stdin: 'A B C | 1 2 3', equals: "[('A', '1'), ('B', '2'), ('C', '3')] True" },
+      { name: 'short zip', stdin: 'A B C | 1 2', equals: "[('A', '1'), ('B', '2')] False" },
+    ]}
+  />
+</ExerciseSet>

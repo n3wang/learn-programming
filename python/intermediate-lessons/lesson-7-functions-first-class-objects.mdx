@@ -1,0 +1,1031 @@
+---
+sidebar_position: 7
+title: "Functions as First-Class Objects"
+---
+
+> **Source:** Fluent Python, 2nd Edition — Chapter 7 by Luciano Ramalho
+
+A **first-class object** is a program entity that can be created at runtime, assigned to a variable or stored in a data structure, passed as an argument to a function, and returned as the result of a function. Integers, strings, and dicts already work this way in Python — nothing special. The point of this chapter is that **functions** work this way too.
+
+That single fact — functions are just objects — is what makes higher-order functions, decorators, and a good chunk of Python's standard library (`sorted`, `functools`, `operator`) possible.
+
+---
+
+## Treating a function like an object
+
+A `def` statement creates a `function` object and binds it to a name, exactly the way any other assignment binds a name to an object. The function has attributes (`__doc__` among them) and a type, just like any other value.
+
+<details>
+<summary>🧪 A function is an instance of the function class</summary>
+
+<PistonRunner
+  lang="python"
+  interactive={false}
+  height="320px"
+  code={`def factorial(n):
+    """returns n!"""
+    return 1 if n < 2 else n * factorial(n - 1)
+
+print(factorial(5))
+print(factorial.__doc__)
+print(type(factorial))
+
+fact = factorial
+print(fact(5))
+print(list(map(factorial, range(6))))
+`}
+/>
+
+</details>
+
+`fact = factorial` doesn't copy the function — it's a second label on the same object, exactly like the aliasing from the last chapter. And because `factorial` is just an object, it can be handed straight to `map(function, iterable)`, which calls the function once per item and returns an iterable of results.
+
+---
+
+## Mini quiz — functions as objects
+
+<MultipleChoice
+  id="py-int-ch7-objects"
+  title="First-class functions"
+  questions={[
+    {
+      prompt: 'fact = factorial then fact(5)',
+      choices: ['re-runs the def and creates a new function', 'calls the same function object factorial refers to', 'raises TypeError', 'only works with lambda'],
+      answer: 1,
+      why: 'fact is a second name for the same function object — no copying, no re-definition.',
+    },
+    {
+      prompt: 'What makes map(factorial, range(6)) possible?',
+      choices: [
+        'map has special-cased support for recursive functions',
+        'factorial is a first-class object, so it can be passed as an ordinary argument',
+        'factorial secretly becomes a lambda',
+        'range objects are callable',
+      ],
+      answer: 1,
+      why: "There's nothing special about passing a function as an argument — it's just an object like any other.",
+    },
+  ]}
+/>
+
+---
+
+## Challenge: factorials via map
+
+Build the factorials from `0!` to `n!` using `map(factorial, range(n + 1))`, not a loop.
+
+<CodingExam
+  title="factorials via map"
+  heading="Challenge: factorials via map"
+  lang="python"
+  filename="main.py"
+  prompt="list(map(factorial, range(n + 1)))"
+  sampleLog={`(input) 5
+1 1 2 6 24 120`}
+  starter={`def factorial(n):
+    return 1 if n < 2 else n * factorial(n - 1)
+
+def factorials_upto(n):
+    # TODO: use map(factorial, range(n + 1)) and return it as a list
+    return []
+`}
+  wrapSuffix={`
+n = int(input())
+print(*factorials_upto(n))
+`}
+  sourceChecks={[
+    { name: 'Uses map', pattern: 'map\\(factorial', must: true, hint: 'list(map(factorial, range(n + 1)))' },
+  ]}
+  tests={[
+    { name: '5', stdin: '5', equals: '1 1 2 6 24 120' },
+    { name: '0', stdin: '0', equals: '1' },
+  ]}
+/>
+
+---
+
+## Higher-order functions
+
+A function that takes a function as an argument, or returns one, is a **higher-order function**. `sorted(iterable, key=...)` is the one you'll reach for constantly: `key` is called once per item, and its return value — not the item itself — decides the order.
+
+<details>
+<summary>🧪 Sorting by length, then by reversed spelling</summary>
+
+<PistonRunner
+  lang="python"
+  interactive={false}
+  height="320px"
+  code={`fruits = ['strawberry', 'fig', 'apple', 'cherry', 'raspberry', 'banana']
+print(sorted(fruits, key=len))
+
+def reverse(word):
+    return word[::-1]
+
+print(sorted(fruits, key=reverse))
+`}
+/>
+
+</details>
+
+Note what `key=reverse` does *not* do: it never changes the words themselves, only what's compared while sorting — which is why words that rhyme (`raspberry`, `strawberry`, `cherry`) cluster together without any word being altered.
+
+---
+
+## Mini quiz — higher-order functions
+
+<MultipleChoice
+  id="py-int-ch7-hof"
+  title="key= functions"
+  questions={[
+    {
+      prompt: 'sorted(words, key=len) sorts by',
+      choices: ['alphabetical order', 'the length of each word', 'reversed alphabetical order', 'insertion order'],
+      answer: 1,
+      why: 'key(item) is computed for every item and used as the sort criterion instead of the item itself.',
+    },
+    {
+      prompt: 'sorted(fruits, key=reverse) changes',
+      choices: ['the spelling of every fruit in the returned list', 'only the order — the words themselves are untouched', 'nothing at all', 'the type of fruits'],
+      answer: 1,
+      why: 'key just computes a sort criterion; the original items are returned unmodified, in a new order.',
+    },
+  ]}
+/>
+
+---
+
+## Challenge: sort by reversed spelling
+
+Write `reverse(word)` and use it as a `key=` function to sort words by their reversed spelling.
+
+<CodingExam
+  title="sort by reversed spelling"
+  heading="Challenge: sort by reversed spelling"
+  lang="python"
+  filename="main.py"
+  prompt="sorted(words, key=reverse) where reverse(word) returns word[::-1]"
+  sampleLog={`(input) fig apple cherry banana
+banana apple fig cherry`}
+  starter={`def reverse(word):
+    # TODO: return word reversed
+    return word
+
+def sort_by_reverse(words):
+    return sorted(words, key=reverse)
+`}
+  wrapSuffix={`
+words = input().split()
+print(*sort_by_reverse(words))
+`}
+  sourceChecks={[
+    { name: 'Reverses the word', pattern: 'word\\[::-1\\]', must: true, hint: 'return word[::-1]' },
+  ]}
+  tests={[
+    { name: 'fruits', stdin: 'fig apple cherry banana', equals: 'banana apple fig cherry' },
+    { name: 'cat tac act', stdin: 'cat tac act', equals: 'tac cat act' },
+  ]}
+/>
+
+---
+
+## Modern replacements for map, filter, and reduce
+
+`map` and `filter` still exist, but a list comprehension (or generator expression) usually reads better and does the same job without a `lambda`. `reduce` moved from a built-in to `functools` in Python 3 — its most common use, summation, is better served by `sum`. `all` and `any` cover two other common reductions.
+
+<details>
+<summary>🧪 map/filter/reduce next to their comprehension equivalents</summary>
+
+<PistonRunner
+  lang="python"
+  interactive={false}
+  height="380px"
+  code={`def factorial(n):
+    return 1 if n < 2 else n * factorial(n - 1)
+
+print(list(map(factorial, range(6))))
+print([factorial(n) for n in range(6)])
+
+print(list(map(factorial, filter(lambda n: n % 2, range(6)))))
+print([factorial(n) for n in range(6) if n % 2])
+
+from functools import reduce
+from operator import add
+print(reduce(add, range(100)))
+print(sum(range(100)))
+`}
+/>
+
+</details>
+
+`all(iterable)` is `True` if every element is truthy (`all([])` is `True`); `any(iterable)` is `True` if at least one element is truthy (`any([])` is `False`).
+
+---
+
+## Mini quiz — map/filter/reduce vs comprehensions
+
+<MultipleChoice
+  id="py-int-ch7-reduce"
+  title="Reducing built-ins"
+  questions={[
+    {
+      prompt: 'The most common use of reduce — summation — is better written as',
+      choices: ['reduce(add, items)', 'sum(items)', 'map(sum, items)', 'filter(sum, items)'],
+      answer: 1,
+      why: 'sum is a built-in specifically for this, and reads clearer than importing reduce and add.',
+    },
+    {
+      prompt: 'all([]) and any([])',
+      choices: ['both True', 'both False', 'all([]) is True, any([]) is False', 'all([]) is False, any([]) is True'],
+      answer: 2,
+      why: '"no falsy elements" is vacuously true for an empty iterable; "any truthy element" is vacuously false.',
+    },
+  ]}
+/>
+
+---
+
+## Challenge: sum without reduce
+
+Return the sum of the squares of the even numbers in `nums`, using `sum()` with a generator expression — no `functools.reduce`.
+
+<CodingExam
+  title="sum without reduce"
+  heading="Challenge: sum without reduce"
+  lang="python"
+  filename="main.py"
+  prompt="sum(n * n for n in nums if n % 2 == 0)"
+  sampleLog={`(input) 1 2 3 4 5 6
+56`}
+  starter={`def sum_even_squares(nums):
+    # TODO: use sum() with a generator expression, not reduce
+    return 0
+`}
+  wrapSuffix={`
+nums = [int(x) for x in input().split()]
+print(sum_even_squares(nums))
+`}
+  sourceChecks={[
+    { name: 'Uses sum', pattern: 'sum\\(', must: true, hint: 'sum(n * n for n in nums if n % 2 == 0)' },
+  ]}
+  tests={[
+    { name: 'mixed', stdin: '1 2 3 4 5 6', equals: '56' },
+    { name: 'no evens', stdin: '1 3 5', equals: '0' },
+  ]}
+/>
+
+---
+
+## Anonymous functions
+
+`lambda` builds a function object inline. The catch: the body must be a single **expression** — no `while`, no `try`, no `=` assignment. Outside the narrow case of a short `key=` argument, a `lambda` usually hurts readability more than it helps.
+
+<details>
+<summary>🧪 The same sort, without naming reverse</summary>
+
+<PistonRunner
+  lang="python"
+  interactive={false}
+  height="260px"
+  code={`fruits = ['strawberry', 'fig', 'apple', 'cherry', 'raspberry', 'banana']
+print(sorted(fruits, key=lambda word: word[::-1]))
+`}
+/>
+
+</details>
+
+If a `lambda` is hard to read, Fredrik Lundh's refactoring recipe is worth memorizing: write a comment explaining what it does, think of a name that captures that comment, convert the `lambda` to a `def` with that name, then delete the comment — the name alone should now carry the meaning.
+
+---
+
+## Mini quiz — lambda
+
+<MultipleChoice
+  id="py-int-ch7-lambda"
+  title="Anonymous functions"
+  questions={[
+    {
+      prompt: 'A lambda body can contain',
+      choices: ['any statement, like a def body', 'exactly one expression', 'multiple statements separated by ;', 'a while loop'],
+      answer: 1,
+      why: "Python's grammar restricts lambda to a single expression — no statements, including assignment with =.",
+    },
+    {
+      prompt: 'lambda is just',
+      choices: ['a faster kind of function', 'syntactic sugar — it creates a function object like def does', 'a special built-in type unrelated to functions', 'only usable inside sorted'],
+      answer: 1,
+      why: 'lambda word: word[::-1] and a def with the same body produce equivalent function objects.',
+    },
+  ]}
+/>
+
+---
+
+## Challenge: one-line reverse sort
+
+Sort words by reversed spelling using a `lambda` directly as `key=` — no separate `def`.
+
+<CodingExam
+  title="one-line reverse sort"
+  heading="Challenge: one-line reverse sort"
+  lang="python"
+  filename="main.py"
+  prompt="sorted(words, key=lambda w: w[::-1])"
+  sampleLog={`(input) fig apple cherry banana
+banana apple fig cherry`}
+  starter={`def sort_by_reverse_lambda(words):
+    # TODO: sorted(words, key=lambda w: ...)
+    return words
+`}
+  wrapSuffix={`
+words = input().split()
+print(*sort_by_reverse_lambda(words))
+`}
+  sourceChecks={[
+    { name: 'Uses lambda', pattern: 'lambda', must: true, hint: 'key=lambda w: w[::-1]' },
+  ]}
+  tests={[
+    { name: 'fruits', stdin: 'fig apple cherry banana', equals: 'banana apple fig cherry' },
+    { name: 'cat tac act', stdin: 'cat tac act', equals: 'tac cat act' },
+  ]}
+/>
+
+---
+
+## The nine flavors of callable objects
+
+`()` isn't reserved for `def`-made functions. As of Python 3.9, the data model lists nine callable types: user-defined functions, built-in functions (`len`), built-in methods (`dict.get`), methods, **classes** (calling one runs `__new__` then `__init__`), class instances with `__call__`, generator functions, native coroutine functions (`async def`), and asynchronous generator functions (`async def` with `yield`). The safest way to check any of them is the `callable()` built-in.
+
+<details>
+<summary>🧪 callable() sees through all of them</summary>
+
+<PistonRunner
+  lang="python"
+  interactive={false}
+  height="280px"
+  code={`print(callable(abs), callable(str), callable('Ni!'))
+
+def gen():
+    yield 1
+
+print(callable(gen))
+print(type(gen()))
+`}
+/>
+
+</details>
+
+`str` is a class, and classes are callable — calling one is how you get an instance. `gen` is a generator **function**: calling `gen()` doesn't run its body yet, it returns a generator object that only does work when you iterate it.
+
+---
+
+## Mini quiz — callable types
+
+<MultipleChoice
+  id="py-int-ch7-callable"
+  title="Nine flavors"
+  questions={[
+    {
+      prompt: 'Calling a class, like str() or MyClass()',
+      choices: ['is a syntax error — classes need new', 'runs __new__ then __init__ and returns the instance', 'always returns None', 'only works for built-in types'],
+      answer: 1,
+      why: "Python has no new operator — calling a class is exactly how instances get created, which is why classes are callable.",
+    },
+    {
+      prompt: 'The safest way to check whether an arbitrary object can be called with ()',
+      choices: ['isinstance(obj, function)', 'the callable() built-in', 'hasattr(obj, "__init__")', 'type(obj) == "function"'],
+      answer: 1,
+      why: "callable() correctly recognizes all nine flavors — functions, methods, classes, callable instances, and more.",
+    },
+  ]}
+/>
+
+---
+
+## User-defined callable types
+
+Give a class a `__call__` method and its instances become callable — a function-like object that can also carry state between calls. That combination is exactly what decorators (Chapter 9) need.
+
+<details>
+<summary>🧪 BingoCage: state plus __call__</summary>
+
+<PistonRunner
+  lang="python"
+  interactive={false}
+  height="380px"
+  code={`import random
+
+class BingoCage:
+    def __init__(self, items):
+        self._items = list(items)
+        random.shuffle(self._items)
+
+    def pick(self):
+        try:
+            return self._items.pop()
+        except IndexError:
+            raise LookupError('pick from empty BingoCage')
+
+    def __call__(self):
+        return self.pick()
+
+bingo = BingoCage(range(3))
+first_len = len(bingo._items)
+value = bingo()
+print(first_len, len(bingo._items), callable(bingo))
+print(value in {0, 1, 2})
+`}
+/>
+
+</details>
+
+`bingo()` is shorthand for `bingo.pick()` — that's all `__call__` does. The state (`self._items`) survives between calls, which is the whole point: a plain function can't remember anything from one call to the next without extra machinery like a closure.
+
+---
+
+## Mini quiz — __call__
+
+<MultipleChoice
+  id="py-int-ch7-dunder-call"
+  title="Callable instances"
+  questions={[
+    {
+      prompt: 'Defining __call__ on a class means',
+      choices: [
+        'the class itself becomes callable',
+        "instances of the class can be invoked with () — instance() works like a function call",
+        '__init__ is skipped',
+        'the class can no longer have other methods',
+      ],
+      answer: 1,
+      why: '__call__ is looked up on an instance when you write instance(...) — it makes the instance behave like a function.',
+    },
+    {
+      prompt: "Why use a __call__ class instead of a plain function for something like BingoCage?",
+      choices: [
+        'plain functions cannot be passed as arguments',
+        'a class instance can hold state (like the remaining items) across calls; a bare function has nowhere natural to keep that',
+        '__call__ is required by Python for every class',
+        'functions cannot use exceptions',
+      ],
+      answer: 1,
+      why: 'self._items persists on the instance between invocations — exactly the kind of state a stateless plain function has no home for.',
+    },
+  ]}
+/>
+
+---
+
+## Challenge: callable counter
+
+Build `Counter` with a `__call__` that increments `self.count` and returns it, so each call yields the next count.
+
+<CodingExam
+  title="callable counter"
+  heading="Challenge: callable counter"
+  lang="python"
+  filename="main.py"
+  prompt="__call__ increments self.count and returns it"
+  sampleLog={`(input) 3
+3 True`}
+  starter={`class Counter:
+    def __init__(self):
+        self.count = 0
+
+    def __call__(self):
+        # TODO: increment self.count and return it
+        return self.count
+`}
+  wrapSuffix={`
+n = int(input())
+c = Counter()
+result = None
+for _ in range(n):
+    result = c()
+print(result, callable(c))
+`}
+  sourceChecks={[
+    { name: 'Increments count', pattern: 'self\\.count \\+= 1', must: true, hint: 'self.count += 1; return self.count' },
+  ]}
+  tests={[
+    { name: 'three calls', stdin: '3', equals: '3 True' },
+    { name: 'one call', stdin: '1', equals: '1 True' },
+  ]}
+/>
+
+---
+
+## From positional to keyword-only parameters
+
+A parameter name after a bare `*content` (or a lone `*`) can only be passed **by keyword** — it will never soak up an unnamed positional argument. Since Python 3.8, a `/` in the signature marks everything before it **positional-only** — it can never be passed by keyword, matching how built-ins like `divmod(a, b)` have always worked.
+
+<details>
+<summary>🧪 Keyword-only b, and a small HTML tag builder</summary>
+
+<PistonRunner
+  lang="python"
+  interactive={false}
+  height="420px"
+  code={`def f(a, *, b):
+    return a, b
+
+print(f(1, b=2))
+
+def tag(name, *content, class_=None, **attrs):
+    if class_ is not None:
+        attrs['class'] = class_
+    attr_pairs = (f' {k}="{v}"' for k, v in sorted(attrs.items()))
+    attr_str = ''.join(attr_pairs)
+    if content:
+        elements = (f'<{name}{attr_str}>{c}</{name}>' for c in content)
+        return '\\n'.join(elements)
+    return f'<{name}{attr_str} />'
+
+print(tag('br'))
+print(tag('p', 'hello', 'world'))
+print(tag('p', 'hello', class_='sidebar'))
+`}
+/>
+
+</details>
+
+`f(1, 2)` would raise `TypeError` — `b` demands a keyword. `class_` (trailing underscore because `class` is reserved) works the same way in `tag`: it can only ever be passed as `class_=...`, never as a stray positional argument swallowed by `*content`.
+
+---
+
+## Mini quiz — parameter flavors
+
+<MultipleChoice
+  id="py-int-ch7-params"
+  title="Keyword-only and positional-only"
+  questions={[
+    {
+      prompt: 'def f(a, *, b): f(1, 2)',
+      choices: ['returns (1, 2)', 'raises TypeError — b can only be passed by keyword', 'binds b to None', 'is a SyntaxError'],
+      answer: 1,
+      why: 'The bare * marks everything after it keyword-only; a second positional argument has nowhere to go.',
+    },
+    {
+      prompt: 'def divmod(a, b, /): divmod(a=10, b=4)',
+      choices: ['works exactly like divmod(10, 4)', 'raises TypeError — a and b are positional-only, no keyword form', 'raises SyntaxError at definition', 'only works in Python 2'],
+      answer: 1,
+      why: 'Everything before / can never be passed by keyword — this mirrors how built-ins like the real divmod have always behaved.',
+    },
+  ]}
+/>
+
+---
+
+## Challenge: keyword-only greeting
+
+Make `loud` keyword-only by putting `*` before it in the signature.
+
+<CodingExam
+  title="keyword-only greeting"
+  heading="Challenge: keyword-only greeting"
+  lang="python"
+  filename="main.py"
+  prompt="def greet(name, *, loud=False):"
+  sampleLog={`(input) ada loud
+ADA!`}
+  starter={`def greet(name, loud=False):
+    # TODO: make loud keyword-only (put * before it)
+    if loud:
+        return name.upper() + '!'
+    return 'Hello, ' + name
+`}
+  wrapSuffix={`
+parts = input().split()
+name = parts[0]
+loud = len(parts) > 1 and parts[1] == 'loud'
+if loud:
+    print(greet(name, loud=True))
+else:
+    print(greet(name))
+`}
+  sourceChecks={[
+    { name: 'loud is keyword-only', pattern: 'def greet\\(name,\\s*\\*,\\s*loud', must: true, hint: 'def greet(name, *, loud=False):' },
+  ]}
+  tests={[
+    { name: 'loud', stdin: 'ada loud', equals: 'ADA!' },
+    { name: 'quiet', stdin: 'bob', equals: 'Hello, bob' },
+  ]}
+/>
+
+---
+
+## The operator module
+
+Sorting or extracting by a field is common enough that writing `lambda fields: fields[1]` every time gets old. `operator.itemgetter(i)` builds that function for you (it works on anything with `__getitem__`, not just sequences); `operator.attrgetter('a.b')` does the same for attributes, including dotted, nested lookups; `operator.methodcaller('name', *args)` builds a function that calls `.name(*args)` on whatever it's given.
+
+<details>
+<summary>🧪 itemgetter and methodcaller</summary>
+
+<PistonRunner
+  lang="python"
+  interactive={false}
+  height="320px"
+  code={`from operator import itemgetter, methodcaller
+
+metro = [('Tokyo', 'JP', 36), ('Delhi', 'IN', 21), ('Mexico City', 'MX', 20)]
+for city in sorted(metro, key=itemgetter(1)):
+    print(city)
+
+upcase = methodcaller('upper')
+print(upcase('hello'))
+`}
+/>
+
+</details>
+
+`operator` also has plain function equivalents for arithmetic — `add`, `mul`, `and_`, and friends — so `reduce(mul, range(1, n + 1))` doesn't need a throwaway `lambda a, b: a * b` just to compute a factorial.
+
+---
+
+## Mini quiz — operator module
+
+<MultipleChoice
+  id="py-int-ch7-operator"
+  title="itemgetter, attrgetter, methodcaller"
+  questions={[
+    {
+      prompt: 'itemgetter(1) builds a function that',
+      choices: ['returns the second item of whatever it is given, using []', 'sorts a list in place', 'only works on tuples', 'returns the first item'],
+      answer: 0,
+      why: 'itemgetter(1)(x) is equivalent to x[1] — it works on anything supporting __getitem__.',
+    },
+    {
+      prompt: "attrgetter('coord.lat')",
+      choices: [
+        'raises SyntaxError — dots are not allowed',
+        "reaches through nested attributes, equivalent to a lambda x: x.coord.lat",
+        'only works on dicts',
+        'is identical to itemgetter(\'coord.lat\')',
+      ],
+      answer: 1,
+      why: 'A dotted name in attrgetter navigates nested objects — handy for something like Metropolis(coord=LatLon(...)).',
+    },
+  ]}
+/>
+
+---
+
+## Challenge: sort cities by country code
+
+Sort `(name, cc, pop)` tuples with `operator.itemgetter(1)` and print just the names, in order.
+
+<CodingExam
+  title="sort cities by country code"
+  heading="Challenge: sort cities by country code"
+  lang="python"
+  filename="main.py"
+  prompt="sorted(cities, key=itemgetter(1))"
+  sampleLog={`(input) 3
+Tokyo JP 36
+Delhi IN 21
+Mexico MX 20
+Delhi Tokyo Mexico`}
+  starter={`from operator import itemgetter
+
+def sort_by_cc(cities):
+    # TODO: return sorted(cities, key=itemgetter(1))
+    return cities
+`}
+  wrapSuffix={`
+n = int(input())
+cities = []
+for _ in range(n):
+    name, cc, pop = input().split()
+    cities.append((name, cc, int(pop)))
+result = sort_by_cc(cities)
+print(*(c[0] for c in result))
+`}
+  sourceChecks={[
+    { name: 'Uses itemgetter(1)', pattern: 'itemgetter\\(1\\)', must: true, hint: 'sorted(cities, key=itemgetter(1))' },
+  ]}
+  tests={[
+    { name: 'three cities', stdin: `3
+Tokyo JP 36
+Delhi IN 21
+Mexico MX 20`, equals: 'Delhi Tokyo Mexico' },
+    { name: 'two cities', stdin: `2
+A ZZ 1
+B AA 2`, equals: 'B A' },
+  ]}
+/>
+
+---
+
+## Freezing arguments with functools.partial
+
+`functools.partial(fn, *args, **kwargs)` returns a new callable with some of `fn`'s arguments already filled in. It's how you adapt a function that needs *N* arguments to a spot that only ever hands it *N - k*.
+
+<details>
+<summary>🧪 Freezing the first argument of mul</summary>
+
+<PistonRunner
+  lang="python"
+  interactive={false}
+  height="280px"
+  code={`from operator import mul
+from functools import partial
+
+triple = partial(mul, 3)
+print(triple(7))
+print(list(map(triple, range(1, 6))))
+`}
+/>
+
+</details>
+
+`mul` takes two arguments, so it can't be passed straight to `map(fn, iterable)` where `fn` must take exactly one. `partial(mul, 3)` fixes the first argument at `3`, producing a genuine one-argument function — `triple` — that `map` can call directly. The resulting `functools.partial` object exposes `.func`, `.args`, and `.keywords` if you ever need to inspect what got frozen.
+
+---
+
+## Mini quiz — functools.partial
+
+<MultipleChoice
+  id="py-int-ch7-partial"
+  title="partial application"
+  questions={[
+    {
+      prompt: 'partial(mul, 3) returns',
+      choices: [
+        'the number 3 times mul',
+        'a new callable that calls mul with its first argument fixed to 3',
+        'a syntax error, mul takes two arguments',
+        'the same object as mul',
+      ],
+      answer: 1,
+      why: 'partial produces a functools.partial object — a new callable wrapping mul with some arguments pre-bound.',
+    },
+    {
+      prompt: 'Why use partial(mul, 3) instead of mul directly with map(triple, range(1, 6))?',
+      choices: [
+        'map requires the function to take exactly one argument per iterable, and mul takes two',
+        'mul cannot be imported from operator',
+        'partial is required syntax for all higher-order functions',
+        'there is no difference',
+      ],
+      answer: 0,
+      why: 'map calls its function with one argument per element of a single iterable — partial adapts the two-argument mul to fit.',
+    },
+  ]}
+/>
+
+---
+
+## Challenge: freeze an argument
+
+Use `functools.partial` with `operator.add` to build a function that adds a fixed `n` to whatever it's given, then `map` it over a list.
+
+<CodingExam
+  title="freeze an argument"
+  heading="Challenge: freeze an argument"
+  lang="python"
+  filename="main.py"
+  prompt="add_n = partial(add, n); list(map(add_n, nums))"
+  sampleLog={`(input) 5 1 2 3
+6 7 8`}
+  starter={`from functools import partial
+from operator import add
+
+def add_n_to_all(n, nums):
+    # TODO: build add_n = partial(add, n), then map it over nums
+    return nums
+`}
+  wrapSuffix={`
+parts = [int(x) for x in input().split()]
+n, *nums = parts
+print(*add_n_to_all(n, nums))
+`}
+  sourceChecks={[
+    { name: 'Uses partial(add, n)', pattern: 'partial\\(add', must: true, hint: 'add_n = partial(add, n)' },
+  ]}
+  tests={[
+    { name: 'add 5', stdin: '5 1 2 3', equals: '6 7 8' },
+    { name: 'add 0', stdin: '0 4 5', equals: '4 5' },
+  ]}
+/>
+
+---
+
+## Chapter summary
+
+:::important Key takeaways
+
+1. Functions are first-class objects — assignable, storable, passable, returnable — exactly like ints or dicts.
+2. Higher-order functions (`sorted(key=...)`, `map`, `functools.partial`) take or return functions. `sorted`/`min`/`max` with a `key` are the ones you'll actually use daily.
+3. List/generator comprehensions usually replace `map`/`filter` more readably; `sum`, `all`, `any` cover the common `reduce` cases.
+4. `lambda` is a single-expression function literal — great for a short `key=`, awkward for anything more.
+5. There are nine callable flavors in Python; `callable()` recognizes all of them.
+6. A class with `__call__` makes its instances invocable like functions, while still holding state between calls.
+7. `*args` capture extra positionals, `**kwargs` capture extra keywords, a bare `*` (or a named `*param`) forces everything after it to be keyword-only, and `/` forces everything before it to be positional-only.
+8. `operator.itemgetter` / `attrgetter` / `methodcaller` replace one-off `lambda`s for extracting items, attributes, and calling methods.
+9. `functools.partial` freezes some of a callable's arguments, adapting it to fit an API that expects fewer.
+
+:::
+
+## Exercises
+
+<ExerciseSet>
+<Exercise title="Listcomp instead of map/filter" anchor="exercise-listcomp">
+
+:::tip Activity: Listcomp instead of map/filter
+Return the same result as `list(map(str.upper, filter(lambda w: len(w) > 3, words)))`, but as a single list comprehension.
+
+<CodingExam
+  title="Listcomp instead of map/filter"
+  heading="exercise-listcomp"
+  lang="python"
+  filename="main.py"
+  prompt="[w.upper() for w in words if len(w) > 3]"
+  sampleLog={`(input) cat dog elephant ant zebra
+ELEPHANT ZEBRA`}
+  starter={`def long_upper(words):
+    # TODO: same result as
+    # list(map(str.upper, filter(lambda w: len(w) > 3, words)))
+    # written as a single list comprehension
+    return []
+`}
+  wrapSuffix={`
+words = input().split()
+print(*long_upper(words))
+`}
+  sourceChecks={[
+    { name: 'Uses a comprehension', pattern: 'for \\w+ in words', must: true, hint: '[w.upper() for w in words if len(w) > 3]' },
+  ]}
+  tests={[
+    { name: 'mixed lengths', stdin: 'cat dog elephant ant zebra', equals: 'ELEPHANT ZEBRA' },
+    { name: 'one long word', stdin: 'a bb ccc dddd', equals: 'DDDD' },
+  ]}
+/>
+
+:::
+
+</Exercise>
+
+<Exercise title="Positional-only distance" anchor="exercise-posonly">
+
+:::tip Activity: Positional-only distance
+Make `x` and `y` positional-only by adding `/` after them, then return `abs(x) + abs(y)`.
+
+<CodingExam
+  title="Positional-only distance"
+  heading="exercise-posonly"
+  lang="python"
+  filename="main.py"
+  prompt="def manhattan(x, y, /):"
+  sampleLog={`(input) -3 4
+7`}
+  starter={`def manhattan(x, y):
+    # TODO: make x and y positional-only using /
+    return abs(x) + abs(y)
+`}
+  wrapSuffix={`
+x, y = [int(v) for v in input().split()]
+print(manhattan(x, y))
+`}
+  sourceChecks={[
+    { name: 'x, y are positional-only', pattern: 'def manhattan\\(x,\\s*y,\\s*/\\)', must: true, hint: 'def manhattan(x, y, /):' },
+  ]}
+  tests={[
+    { name: 'negative x', stdin: '-3 4', equals: '7' },
+    { name: 'origin', stdin: '0 0', equals: '0' },
+  ]}
+/>
+
+:::
+
+</Exercise>
+
+<Exercise title="Nested attribute sort" anchor="exercise-attrgetter">
+
+:::tip Activity: Nested attribute sort
+Sort `Circle(center, r)` namedtuples by `attrgetter('center.x')`, reaching through the nested `Point`.
+
+<CodingExam
+  title="Nested attribute sort"
+  heading="exercise-attrgetter"
+  lang="python"
+  filename="main.py"
+  prompt="sorted(circles, key=attrgetter('center.x'))"
+  sampleLog={`(input) 3
+5 0 1
+-2 0 1
+3 0 1
+-2 3 5`}
+  starter={`from collections import namedtuple
+from operator import attrgetter
+
+Point = namedtuple('Point', 'x y')
+Circle = namedtuple('Circle', 'center r')
+
+def sort_by_center_x(circles):
+    # TODO: return sorted(circles, key=attrgetter('center.x'))
+    return circles
+`}
+  wrapSuffix={`
+n = int(input())
+circles = []
+for _ in range(n):
+    x, y, r = [int(v) for v in input().split()]
+    circles.append(Circle(Point(x, y), r))
+result = sort_by_center_x(circles)
+print(*(c.center.x for c in result))
+`}
+  sourceChecks={[
+    { name: "Uses attrgetter('center.x')", pattern: "attrgetter\\('center\\.x'\\)", must: true, hint: "attrgetter('center.x')" },
+  ]}
+  tests={[
+    { name: 'three circles', stdin: `3
+5 0 1
+-2 0 1
+3 0 1`, equals: '-2 3 5' },
+    { name: 'two circles', stdin: `2
+1 1 1
+0 0 1`, equals: '0 1' },
+  ]}
+/>
+
+:::
+
+</Exercise>
+
+<Exercise title="methodcaller hyphenate" anchor="exercise-methodcaller">
+
+:::tip Activity: methodcaller hyphenate
+Use `methodcaller('replace', ' ', '-')` to turn spaces into hyphens.
+
+<CodingExam
+  title="methodcaller hyphenate"
+  heading="exercise-methodcaller"
+  lang="python"
+  filename="main.py"
+  prompt="methodcaller('replace', ' ', '-')"
+  sampleLog={`(input) The time has come
+The-time-has-come`}
+  starter={`from operator import methodcaller
+
+def hyphenate(sentence):
+    # TODO: use methodcaller('replace', ' ', '-')
+    return sentence
+`}
+  wrapSuffix={`
+print(hyphenate(input()))
+`}
+  sourceChecks={[
+    { name: "Uses methodcaller('replace', ...)", pattern: "methodcaller\\('replace'", must: true, hint: "methodcaller('replace', ' ', '-')" },
+  ]}
+  tests={[
+    { name: 'sentence', stdin: 'The time has come', equals: 'The-time-has-come' },
+    { name: 'three words', stdin: 'a b c', equals: 'a-b-c' },
+  ]}
+/>
+
+:::
+
+</Exercise>
+
+<Exercise title="Stateful drawer" anchor="exercise-drawer">
+
+:::tip Activity: Stateful drawer
+Build `Drawer` — a `BingoCage`-style callable, but deterministic: `__call__` pops and returns the **last** item, raising `LookupError('empty')` once it's exhausted.
+
+<CodingExam
+  title="Stateful drawer"
+  heading="exercise-drawer"
+  lang="python"
+  filename="main.py"
+  prompt="__call__ pops and returns self._items.pop()"
+  sampleLog={`(input) a b c
+c b a`}
+  starter={`class Drawer:
+    def __init__(self, items):
+        self._items = list(items)
+
+    def __call__(self):
+        # TODO: pop and return the last item;
+        # raise LookupError('empty') if none are left
+        pass
+`}
+  wrapSuffix={`
+items = input().split()
+d = Drawer(items)
+results = []
+for _ in range(len(items)):
+    results.append(d())
+print(*results)
+`}
+  sourceChecks={[
+    { name: 'Pops from _items', pattern: 'self\\._items\\.pop\\(\\)', must: true, hint: 'return self._items.pop()' },
+  ]}
+  tests={[
+    { name: 'three items', stdin: 'a b c', equals: 'c b a' },
+    { name: 'two items', stdin: 'x y', equals: 'y x' },
+  ]}
+/>
+
+:::
+
+</Exercise>
+</ExerciseSet>

@@ -1,0 +1,228 @@
+---
+sidebar_position: 25
+title: "Concurrent Downloads"
+---
+
+> **Source:** Fluent Python, 2nd Edition — Chapter 21 by Luciano Ramalho (through `Executor.map` vs a homegrown process pool)
+
+Network I/O: the CPU is idle while packets fly. A sequential client waits for each response before starting the next. Overlap the waits and twenty small files stop taking ~5× longer than they should.
+
+Ramalho’s demo (warm CDN, 20 flag GIFs): sequential `flags.py` ~7.2 s; `flags_threadpool.py` ~1.4 s; `flags_asyncio.py` ~1.35 s. Concurrent runs print country codes **out of list order**. Hundreds of files: the gap can hit 20×. Threads vs coroutines: **no meaningful HTTP-client difference** if you cap how many requests you open. asyncio is Chapter 22.
+
+Do **not** hammer public sites while you experiment. Twenty hardcoded URLs is one thing; a tight loop against a stranger’s server looks like a DoS. Later in the chapter he uses `http.server` locally.
+
+This lesson: sequential client shape, then `concurrent.futures` (`ThreadPoolExecutor.map`, `submit` / `as_completed`, what a **Future** is). CPU-bound work with `ProcessPoolExecutor` is the same API. We will not download flags in the sandbox.
+
+## Sequential `flags.py`
+
+`requests` (third-party, nicer than `urllib.request`). `POP20_CC` — ISO codes of the twenty most populous countries. `get_flag(cc)` GETs `{BASE}/{cc}/{cc}.gif`. `save_flag` writes bytes. **No error handling** yet — structure first.
+
+`download_many` is the piece that will change: `for cc in sorted(cc_list): get, save, print(cc, flush=True)` so progress is not stuck in the stdout buffer until a newline. Returns `len(cc_list)`.
+
+`main(downloader)` times whatever callable you pass. Sequential script: `main(download_many)`. Threaded and async scripts **reuse** `get_flag` / `save_flag` / `main`.
+
+## `ThreadPoolExecutor.map`
+
+```python
+def download_one(cc: str):
+    image = get_flag(cc)
+    save_flag(image, f'{cc}.gif')
+    print(cc, end=' ', flush=True)
+    return cc
+
+def download_many(cc_list: list[str]) -> int:
+    with futures.ThreadPoolExecutor() as executor:
+        res = executor.map(download_one, sorted(cc_list))
+        return len(list(res))
+```
+
+The sequential **loop body** becomes the worker. That refactor is the usual move.
+
+`with` calls `shutdown(wait=True)` on exit — wait for workers.
+
+`Executor.map` is like `map`, but the callable runs in the pool. It yields a **generator** of **return values**, in **argument order**. `list(res)` drives it; if a worker raised, the exception surfaces on that `next()`.
+
+`max_workers`: required before 3.5; default `None`. Since 3.8:
+
+`min(32, os.cpu_count() + 4)` — at least about five threads for I/O, cap 32, reuse idle workers. Override when you know your rate limit.
+
+<MultipleChoice
+  id="py-int-ch21a-io"
+  title="I/O overlap"
+  questions={[
+    {
+      prompt: 'Twenty independent HTTP GETs, properly overlapped',
+      choices: [
+        'must use ProcessPoolExecutor or the GIL blocks every request',
+        'threads and asyncio clients in the same ballpark; both crush sequential waits',
+        'only asyncio can overlap TCP',
+        'max_workers must equal the number of URLs',
+      ],
+      answer: 1,
+      why: 'Each wait releases the GIL (threads) or awaits (asyncio). Processes add fork cost for no I/O win.',
+    },
+    {
+      prompt: 'ThreadPoolExecutor.map vs built-in map',
+      choices: [
+        'map returns Futures; you must call .result() yourself',
+        'it still yields results in the same order as the inputs',
+        'it always prints in alphabetical order',
+        'exceptions are swallowed',
+      ],
+      answer: 1,
+      why: 'Internally each __next__ waits on that slot’s Future.result(). Finish order can differ; yield order matches submit order.',
+    },
+  ]}
+/>
+
+<CodingExam
+  title="map the worker"
+  heading="Challenge: map the worker"
+  lang="python"
+  filename="main.py"
+  prompt="download_one(cc) returns cc.upper(). download_many(codes) uses ThreadPoolExecutor.map(download_one, codes) and returns a space-joined string of those results in input order. wrap splits the line and prints download_many(...). Do not sort. Do not call download_one in a plain for-loop."
+  sampleLog={`(input) br cn
+BR CN`}
+  starter={`from concurrent import futures
+
+def download_one(cc: str) -> str:
+    return cc
+
+def download_many(codes: list[str]) -> str:
+    return ' '.join(codes)
+
+def wrap(line: str) -> str:
+    return download_many(line.split())
+`}
+  wrapSuffix={`
+print(wrap(input()))
+`}
+  sourceChecks={[
+    { name: 'ThreadPoolExecutor', pattern: 'ThreadPoolExecutor', must: true, hint: 'with ThreadPoolExecutor() as executor' },
+    { name: 'map', pattern: '\\.map\\s*\\(', must: true, hint: 'executor.map(download_one, codes)' },
+    { name: 'upper in worker', pattern: '\\.upper\\s*\\(', must: true, hint: 'upper-case inside download_one' },
+  ]}
+  tests={[
+    { name: 'two', stdin: 'br cn', equals: 'BR CN' },
+    { name: 'order', stdin: 'us id', equals: 'US ID' },
+  ]}
+/>
+
+If you upper in `download_many` and `map` identity, the first test can pass and `upper in worker` fails. If you skip `map`, `ThreadPoolExecutor` / `map` checks fail.
+
+## Where are the futures?
+
+`concurrent.futures.Future` and `asyncio.Future`: a **deferred** result (Twisted `Deferred`, JS `Promise`). You put them in queues, ask `.done()`, attach `.add_done_callback(fn)` (`fn(future)` when finished).
+
+**Do not construct them.** A Future means “this is scheduled.” Only the framework does that. `Executor.submit(fn, *args)` schedules and **returns** a Future. You do not flip its state.
+
+`.result()`: if done, value or re-raise the worker’s exception. If **not** done: `concurrent.futures.Future.result(timeout=...)` **blocks** the calling thread (`TimeoutError` if you set a timeout). `asyncio.Future.result` has no timeout; you **`await`**. You cannot `await` a `concurrent.futures.Future`.
+
+`Executor.map` never shows you the Future objects — `__next__` already called `.result()`.
+
+### `submit` and `as_completed`
+
+To **see** them: `submit` in a loop, then `futures.as_completed(to_do)` yields each Future **as it finishes** (not submit order). After that, `.result()` does not block. Demo with `max_workers=3` and five codes: first three `state=running`, last two `pending`. Worker `print`s can interleave with the main thread’s `result:` lines. `max_workers=1` → sequential, submit order. `max_workers=5` → more shuffle.
+
+<CodingExam
+  title="submit and as_completed"
+  heading="Challenge: submit and as_completed"
+  lang="python"
+  filename="main.py"
+  prompt="work(n) returns n*n. wrap: ints from the line; submit each to ThreadPoolExecutor; as_completed; collect results; print them sorted ascending as decimals joined by spaces (sort so the sandbox does not depend on finish order)."
+  sampleLog={`(input) 3 1 2
+1 4 9`}
+  starter={`from concurrent import futures
+
+def work(n: int) -> int:
+    return n
+
+def wrap(line: str) -> str:
+    nums = [int(x) for x in line.split()]
+    return ' '.join(str(n) for n in nums)
+`}
+  wrapSuffix={`
+print(wrap(input()))
+`}
+  sourceChecks={[
+    { name: 'submit', pattern: '\\.submit\\s*\\(', must: true, hint: 'executor.submit(work, n)' },
+    { name: 'as_completed', pattern: 'as_completed', must: true, hint: 'futures.as_completed(...)' },
+  ]}
+  tests={[
+    { name: 'squares', stdin: '3 1 2', equals: '1 4 9' },
+    { name: 'ten', stdin: '10', equals: '100' },
+  ]}
+/>
+
+Starter `work` is identity: `3 1 2` would sort to `1 2 3`, not `1 4 9`.
+
+## `ProcessPoolExecutor`
+
+Same `Executor` interface. Default `max_workers` is `os.cpu_count()`. **Useless** for flag downloads (start + RAM). **Useful** for Python CPU work (Chapter 20 primes).
+
+`proc_pool.py` vs homegrown `procs.py`: no queues, no sentinel worker. `check` still returns `PrimeResult(n, flag, elapsed)`. `ProcessPoolExecutor(None)` then peek `_max_workers` (undocumented; mypy hates it) if you want to print the pool size.
+
+`executor.map(check, numbers)` returns results in **`numbers` order**, not “whoever finished.” Sort descending and the **largest prime in the sample** sits in slot two: the first composite with a tiny factor prints instantly; then the UI **looks frozen** until that prime’s Future is ready; then the rest dump at once — they already finished in other processes. Homegrown `procs.py` printed **completion** order (easy composites first). Wall time is about the same.
+
+<MultipleChoice
+  id="py-int-ch21a-proc"
+  title="map order vs finish order"
+  questions={[
+    {
+      prompt: 'ProcessPoolExecutor for the flag HTTP client',
+      choices: [
+        'required to beat the GIL on sockets',
+        'slower/heavier than threads for this I/O; switch the class, same map API',
+        'the only way as_completed works',
+        'sets max_workers to 32 always',
+      ],
+      answer: 1,
+      why: 'I/O-bound + GIL released in requests. Processes help is_prime, not GET.',
+    },
+    {
+      prompt: 'Why proc_pool.py can sit silent after a cheap first line',
+      choices: [
+        'map yields in input order; the next number is a huge prime still running',
+        'SimpleQueue deadlocked',
+        'ThreadPoolExecutor ignores max_workers',
+        'print is buffered until the process exits only',
+      ],
+      answer: 0,
+      why: 'Other workers already have results, but map will not yield slot 3 until slot 2’s Future is done.',
+    },
+  ]}
+/>
+
+Chapter 21 continues with a demo of `Executor.map` timing and then error handling / `http.server`. Next lesson.
+
+<ExerciseSet
+  title="Exercises"
+  description="max_workers=1 makes map look like a for-loop — still go through the executor."
+>
+  <CodingExam
+    title="one worker"
+    heading="Exercise: one worker"
+    lang="python"
+    filename="main.py"
+    prompt="tag(s) returns '[' + s + ']'. wrap: ThreadPoolExecutor(max_workers=1).map(tag, line.split()) joined by spaces. Must pass max_workers=1."
+    starter={`from concurrent import futures
+
+def tag(s: str) -> str:
+    return s
+
+def wrap(line: str) -> str:
+    return line
+`}
+    wrapSuffix={`
+print(wrap(input()))
+`}
+    sourceChecks={[
+      { name: 'max_workers', pattern: 'max_workers\\s*=\\s*1', must: true, hint: 'ThreadPoolExecutor(max_workers=1)' },
+      { name: 'map', pattern: '\\.map\\s*\\(', must: true, hint: 'executor.map(tag, ...)' },
+    ]}
+    tests={[
+      { name: 'two', stdin: 'a b', equals: '[a] [b]' },
+      { name: 'one', stdin: 'z', equals: '[z]' },
+    ]}
+  />
+</ExerciseSet>

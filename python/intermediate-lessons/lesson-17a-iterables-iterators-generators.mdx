@@ -1,0 +1,250 @@
+---
+sidebar_position: 18
+title: "Iterables, Iterators, and Generators"
+---
+
+> **Source:** Fluent Python, 2nd Edition — Chapter 17 by Luciano Ramalho (through generator expressions)
+
+Paul Graham: repeated shapes in code often mean you are expanding by hand a macro you should have written. Python has no Lisp macros; it added **`yield`** (2.2) so the Iterator pattern lives in the language. You almost never write a full iterator class.
+
+`range` is lazy; `list(range(100))` is the explicit list. `for`, comprehensions, unpacking, `*` args, `list(x)`, and line-by-line files all sit on **iterators**. This half of the chapter: `iter()`, iterable vs iterator, the classic pattern, generator functions, laziness, generator expressions. `yield from`, stdlib generators, and coroutines vs generators come later.
+
+## A sequence of words
+
+`Sentence(text)` iterates **word by word**. Take #1 is a **sequence**: `re.findall`, `__getitem__`, `__len__`. Sequences are iterable because **`iter(x)`** does this:
+
+1. If `__iter__` exists, call it (must return an iterator).
+2. Else if `__getitem__` exists, build a 0-based indexer (legacy; still works; new types should implement `__iter__`).
+3. Else `TypeError: C object is not iterable`.
+
+`abc.Iterable` only looks for `__iter__` (`__subclasshook__`). `Sentence` with only `__getitem__` is iterable in practice but **not** `isinstance(..., Iterable)`. Most accurate check: `iter(x)` and catch `TypeError`. Skip the check if you are about to loop anyway.
+
+<PistonRunner
+  lang="python"
+  interactive={false}
+  height="220px"
+  code={`import re
+RE_WORD = re.compile(r'\\w+')
+
+class Sentence:
+    def __init__(self, text):
+        self.words = RE_WORD.findall(text)
+
+    def __getitem__(self, i):
+        return self.words[i]
+
+s = Sentence('The time has come')
+print(list(s))
+print(s[0], s[-1])
+`}
+/>
+
+<CodingExam
+  title="Sequence of words"
+  heading="Challenge: sequence of words"
+  lang="python"
+  filename="main.py"
+  prompt="Sentence stores words = text.split(). __getitem__ returns words[i]. wrap: a sentence; print list(Sentence(line)) joined by commas."
+  sampleLog={`(input) pig and pepper
+pig,and,pepper`}
+  starter={`class Sentence:
+    def __init__(self, text):
+        self.words = []
+
+    def __getitem__(self, index):
+        return None
+
+def wrap(line: str) -> str:
+    return ','.join(Sentence(line))
+`}
+  wrapSuffix={`
+print(wrap(input()))
+`}
+  sourceChecks={[
+    { name: 'getitem', pattern: 'def __getitem__', must: true, hint: 'def __getitem__(self, index)' },
+  ]}
+  tests={[
+    { name: 'three words', stdin: 'pig and pepper', equals: 'pig,and,pepper' },
+    { name: 'one', stdin: 'Hello', equals: 'Hello' },
+  ]}
+/>
+
+## Iterable vs iterator
+
+An **iterable** is anything `iter` can hook. An **iterator** has `__next__` (raise `StopIteration` when done) and `__iter__` returning **self**. `for` is `it = iter(s)` then `next` until `StopIteration`.
+
+`abc.Iterator` ⊂ `Iterable`. Do not call `__next__` by hand; use `next(it)`. `isinstance(x, abc.Iterator)` is the practical iterator test (`__subclasshook__` wants both `__next__` and `__iter__`). `types.py` says: iterators are a protocol, not a type.
+
+An exhausted iterator stays empty. `iter(it)` does **not** reset it. Call `iter(original_iterable)` again. There is no `has_next` except trying `next`.
+
+**Anti-pattern:** putting `__next__` on the collection so one `Sentence` is its own iterator. GoF iterators exist so you can run **two independent** walks. `iter(s)` must return a **new** iterator each time. Collections implement `__iter__`, not `__next__`. Iterators implement both.
+
+<MultipleChoice
+  id="py-int-ch17a-iter"
+  title="iter and next"
+  questions={[
+    {
+      prompt: 'After it = iter(s); list(it); list(it) the second list is',
+      choices: [
+        'the same words again',
+        'empty — the iterator is spent; list(iter(s)) would refill',
+        'a TypeError',
+        'the reverse of s',
+      ],
+      answer: 1,
+      why: 'Iterator.__iter__ returns self. Restart from the iterable, not from the dead iterator.',
+    },
+  ]}
+/>
+
+## Take #2: a classic iterator class
+
+`Sentence.__iter__` returns `SentenceIterator(words)` with an index. Lots of state machinery. Works; not idiomatic.
+
+## Take #3: a generator function
+
+Any function with **`yield`** is a **generator factory**: calling it returns a generator object (an iterator). `Sentence.__iter__` can `for word in self.words: yield word`. No iterator class. Falling off the end raises `StopIteration`; you do not raise it yourself. Say the generator **yields** values; the function **returns** a generator.
+
+```python
+def gen_123():
+    yield 1
+    yield 2
+    yield 3
+```
+
+`next` runs to the next `yield` and pauses. Prints in the body interleave with the consumer (`gen_AB`).
+
+<CodingExam
+  title="Two independent walks"
+  heading="Challenge: two independent walks"
+  lang="python"
+  filename="main.py"
+  prompt="Sentence(text) with words from split. __iter__ must be a generator (yield each word). Do not put __next__ on Sentence. wrap: print comma-join of two full for-loops over the same instance, separated by a slash."
+  sampleLog={`(input) a b
+a,b/a,b`}
+  starter={`class Sentence:
+    def __init__(self, text):
+        self.words = text.split()
+
+    def __iter__(self):
+        return iter([])
+
+def wrap(line: str) -> str:
+    s = Sentence(line)
+    a = ','.join(s)
+    b = ','.join(s)
+    return f'{a}/{b}'
+`}
+  wrapSuffix={`
+print(wrap(input()))
+`}
+  sourceChecks={[
+    { name: 'yields', pattern: '\\byield\\b', must: true, hint: 'yield word in __iter__' },
+    { name: 'Sentence has no next', pattern: 'def __next__', must: false, hint: 'do not implement __next__ on Sentence' },
+  ]}
+  tests={[
+    { name: 'two passes', stdin: 'a b', equals: 'a,b/a,b' },
+    { name: 'one word twice', stdin: 'only', equals: 'only/only' },
+  ]}
+/>
+
+If `Sentence` were its own iterator, the second join would be empty.
+
+## Lazy sentences
+
+Eager `__init__` + `findall` builds every word even if you only need the first. **`re.finditer`** yields match objects. `__init__` keeps only `text`; `__iter__` yields `match.group()`.
+
+A **generator expression** is a lazy list comprehension: `(x*3 for x in gen_AB())` does not run `gen_AB` until you iterate. `__iter__` can `return (m.group() for m in RE_WORD.finditer(self.text))` with **no** `yield` in that method — it still returns a generator.
+
+Genexps are sugar; a generator function is always legal and often clearer when the body is more than one expression.
+
+<PistonRunner
+  lang="python"
+  interactive={false}
+  height="280px"
+  code={`def gen_AB():
+    print('start')
+    yield 'A'
+    print('continue')
+    yield 'B'
+    print('end.')
+
+print('listcomp:')
+print([x * 3 for x in gen_AB()])
+print('genexp:')
+g = (x * 3 for x in gen_AB())
+print(g)
+print(list(g))
+`}
+/>
+
+<CodingExam
+  title="Lazy split"
+  heading="Challenge: lazy split"
+  lang="python"
+  filename="main.py"
+  prompt="Sentence stores only self.text (no words list). __iter__ yields each split() word (generator function or genexp). wrap: comma-join."
+  sampleLog={`(input) red blue
+red,blue`}
+  starter={`class Sentence:
+    def __init__(self, text):
+        self.text = text
+        self.words = text.split()
+
+    def __iter__(self):
+        return iter(self.words)
+
+def wrap(line: str) -> str:
+    return ','.join(Sentence(line))
+`}
+  wrapSuffix={`
+print(wrap(input()))
+`}
+  sourceChecks={[
+    { name: 'No words cache', pattern: 'self\\.words\\s*=', must: false, hint: 'store only self.text' },
+    { name: 'yields or genexp', pattern: 'yield|\\(.*for .* in', must: true, hint: 'yield word or return (w for w in ...)' },
+  ]}
+  tests={[
+    { name: 'two', stdin: 'red blue', equals: 'red,blue' },
+    { name: 'three', stdin: 'one two three', equals: 'one,two,three' },
+  ]}
+/>
+
+The starter still assigns `self.words` — tests pass only after you drop that cache and iterate `self.text`.
+
+<ExerciseSet
+  title="Exercises"
+  description="next() and a tiny generator."
+>
+  <CodingExam
+    title="Manual next"
+    heading="Exercise: manual next"
+    lang="python"
+    filename="main.py"
+    prompt="wrap: words. it = iter(Sentence(line)) with Sentence that yields split words. Count how many next(it) succeed before StopIteration. Print the count."
+    starter={`class Sentence:
+    def __init__(self, text):
+        self.text = text
+
+    def __iter__(self):
+        return iter(self.text.split())
+
+def wrap(line: str) -> str:
+    it = iter(Sentence(line))
+    n = 0
+    # TODO: while/try next
+    return str(n)
+`}
+    wrapSuffix={`
+print(wrap(input()))
+`}
+    sourceChecks={[
+      { name: 'next', pattern: '\\bnext\\s*\\(', must: true, hint: 'next(it)' },
+      { name: 'StopIteration', pattern: 'StopIteration', must: true, hint: 'except StopIteration' },
+    ]}
+    tests={[
+      { name: 'three', stdin: 'a b c', equals: '3' },
+      { name: 'empty', stdin: '', equals: '0' },
+    ]}
+  />
+</ExerciseSet>

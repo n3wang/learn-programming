@@ -1,0 +1,241 @@
+---
+sidebar_position: 29
+title: "Dynamic Attributes"
+---
+
+> **Source:** Fluent Python, 2nd Edition — Chapter 23 by Luciano Ramalho (OSCON JSON through `@cached_property`)
+
+JSON as nested dicts works; `feed['Schedule']['events'][40]['name']` does not feel like JavaScript’s `feed.Schedule.events[40].name`. This lesson: a **read-only** façade (`FrozenJSON`), then **records keyed by serial**, then **properties** that dereference foreign keys — including the trap where a property **has the same name** as the field. Read/write properties are the next slice.
+
+## OSCON feed
+
+One object, key `Schedule`, four lists: `conferences` (1), `events` (484), `speakers` (357), `venues` (53). Every record has a unique **`serial`**. Events store **lists of speaker serials**, not nested speaker objects — so `events[40]['speakers']` is `[3471, 5199]`, not names.
+
+## `FrozenJSON`
+
+`__getattr__` runs only after the instance, class, and bases fail. Two methods + `__data`:
+
+1. `getattr(self.__data, name)` — so `.keys()` / `.items()` are **dict methods**, not JSON keys.
+2. Else `FrozenJSON.build(self.__data[name])`.
+
+`build`: `Mapping` → `FrozenJSON`; `MutableSequence` → list of `build`s; else leave `str`/`int`. Goose typing (`abc.Mapping`). Nested dicts become `FrozenJSON` **as you walk**; no cache. Missing key: Ramalho left **`KeyError`** (not `AttributeError`) to keep `__getattr__` short.
+
+Lists stay lists; elements that were objects become `FrozenJSON` (`type(talk)`).
+
+<CodingExam
+  title="__getattr__ then build"
+  heading="Challenge: __getattr__ then build"
+  lang="python"
+  filename="main.py"
+  prompt="FrozenJSON as in the book: __init__ copies the mapping to self._FrozenJSON__data (name-mangled __data). __getattr__: try getattr on that dict; on AttributeError return FrozenJSON.build(self.__data[name]). build: Mapping → FrozenJSON, list → [build(x) for x in obj], else obj. wrap: FrozenJSON of a nested dict from the line 'k v' meaning {outer: {k: int(v)}}; print wrap.outer.k (the inner key is the first token)."
+  sampleLog={`(input) n 7
+7`}
+  starter={`from collections import abc
+
+class FrozenJSON:
+    def __init__(self, mapping):
+        self.__data = dict(mapping)
+
+    def __getattr__(self, name):
+        return None
+
+    @classmethod
+    def build(cls, obj):
+        return obj
+
+def wrap(line: str) -> str:
+    k, v = line.split()
+    feed = FrozenJSON({'outer': {k: int(v)}})
+    return str(getattr(getattr(feed, 'outer'), k))
+`}
+  wrapSuffix={`
+print(wrap(input()))
+`}
+  sourceChecks={[
+    { name: 'getattr data', pattern: 'getattr\\s*\\(\\s*self\\._', must: true, hint: 'getattr(self.__data, name) first' },
+    { name: 'build', pattern: 'FrozenJSON\\.build|cls\\(obj\\)', must: true, hint: 'build mappings recursively' },
+  ]}
+  tests={[
+    { name: 'n', stdin: 'n 7', equals: '7' },
+    { name: 'x', stdin: 'x 3', equals: '3' },
+  ]}
+/>
+
+`wrap` already uses `getattr` for a possibly-invalid identifier. Your `__getattr__` + `build` must turn `outer` into another `FrozenJSON`.
+
+## Invalid names
+
+`{'class': 1982}` → `student.class` is a **SyntaxError**. `keyword.iskeyword`: append `_` in `__init__` → `student.class_`. `getattr(student, 'class')` still works on the raw key if you did not rename.
+
+`'2be'` is not an identifier (`str.isidentifier()`). Raising or `attr_0` — book skips it.
+
+## `__new__` is the constructor
+
+`__init__(self, ...)` is an **initializer**; the object exists; it must return `None`. **`__new__(cls, ...)`** is a classmethod without `@classmethod`. Interpreter: `obj = C.__new__(...)`; if `isinstance(obj, C)` then `C.__init__(obj, ...)`. If `__new__` returns a **list** or an `int`, **`__init` is skipped**.
+
+`explore2`: `build` logic lives in `__new__`. Mapping → `super().__new__(cls)` (actually `object.__new__(FrozenJSON)`). List → `[cls(item) for item in arg]`. Else return `arg`. `__getattr__` then does `FrozenJSON(self.__data[name])` instead of `.build`.
+
+<MultipleChoice
+  id="py-int-ch23a-new"
+  title="__new__ and keywords"
+  questions={[
+    {
+      prompt: 'FrozenJSON.__new__ returns a list for a JSON array',
+      choices: [
+        '__init__ still runs on that list',
+        'Python skips FrozenJSON.__init__',
+        'the list is wrapped in another FrozenJSON',
+        'KeyError',
+      ],
+      answer: 1,
+      why: 'Only instances of the requested class get __init__.',
+    },
+    {
+      prompt: 'JSON key class',
+      choices: [
+        'student.class works',
+        'append _ in __init__ if keyword.iskeyword(key)',
+        'isidentifier() already rejects it',
+        '__getattr__ cannot see dict methods',
+      ],
+      answer: 1,
+      why: 'class is a keyword, still a legal identifier if you spell class_. 2be is the identifier problem.',
+    },
+  ]}
+/>
+
+## `Record`: data-driven attributes
+
+Converted OSCON is **flat**: strings, ints, lists of those — no nested mappings. You do not need FrozenJSON’s `.keys()` on `__data`.
+
+```python
+class Record:
+    def __init__(self, **kwargs):
+        self.__dict__.update(kwargs)
+```
+
+Same idea as `argparse.Namespace` / `multiprocessing.Namespace`. Keys `speaker.3471`. `load`: for each Schedule list, `record_type = collection[:-1]` (`speakers` → `speaker`), `Record(**raw_record)`. `__slots__` would block this `__dict__` trick.
+
+Invalid keys in the wild: same as FrozenJSON; OSCON is clean.
+
+## Linked records: `Event.venue`
+
+Want `event.venue.name` like a Django `ForeignKey`. `Record.fetch(key)` is a **`@staticmethod`** on `Record.__index` (lazy `load()`). Not a `@classmethod` — `cls` would be a lie if you call `Event.fetch`.
+
+```python
+@property
+def venue(self):
+    key = f'venue.{self.venue_serial}'
+    return self.__class__.fetch(key)
+```
+
+**`self.fetch(key)` is wrong** if any event JSON has a field named `fetch` — that instance attribute **shadows** the method. `self.__class__.fetch` stays the staticmethod. A mapping with `__getitem__` would not have this clash; we are here to feel dynamic attributes.
+
+`load` v2: `cls_name = record_type.capitalize()` → `globals().get(cls_name, Record)` if `inspect.isclass` and `issubclass(..., Record)` else `Record`. Only `Event` exists at first; add `Speaker` later without touching the loop.
+
+`Event.__repr__`: use `.name` if present.
+
+## Property that overrides a field: `speakers`
+
+The JSON field **is** `speakers` (list of ints). The property **is also** `speakers` (list of `Record`). `self.speakers` inside the property → **`RecursionError`**. Bypass: `self.__dict__['speakers']`. Lookup **class first**: a `property` **wins** over the instance dict — Chapter 24 will call that an **overriding descriptor**.
+
+Handmade cache `self.__speaker_objs` after init **breaks PEP 412 key-sharing**. Pre-create `None` in `Event.__init__`. Two threads filling the cache: torn reads. **`@cached_property` (3.8)** is thread-safe (reentrant lock) but is **not** a real `property`: **non-overriding** descriptor — first miss runs the method and **writes** `self.venue`; later reads/writes are the attribute. Delete the attr to recompute. Unsuitable for `speakers` (**already** an instance field of that name). No `__slots__`. Still creates a dict key after `__init__`.
+
+Docs: stack **`@property` on `@cache`** (order: `speakers = property(cache(speakers))`) so the name clash is handled like a normal property and the function is memoized.
+
+<MultipleChoice
+  id="py-int-ch23a-prop"
+  title="Shadowing"
+  questions={[
+    {
+      prompt: 'Inside Event.speakers property, self.speakers',
+      choices: [
+        'reads the int list from JSON',
+        're-enters the property (RecursionError)',
+        'calls Record.fetch',
+        'is a KeyError',
+      ],
+      answer: 1,
+      why: 'Read self.__dict__[\'speakers\'] (or a private cache).',
+    },
+    {
+      prompt: '@cached_property on speakers when JSON already has speakers',
+      choices: [
+        'perfect drop-in for @property',
+        'will not re-run: the instance field already exists',
+        'requires __slots__',
+        'only works as a staticmethod',
+      ],
+      answer: 1,
+      why: 'It only runs when the attribute is missing. Use @property then @cache.',
+    },
+  ]}
+/>
+
+<CodingExam
+  title="__dict__ bypass"
+  heading="Challenge: __dict__ bypass"
+  lang="python"
+  filename="main.py"
+  prompt="Event.__init__ does self.__dict__.update(kwargs). Property speakers: read the int list from self.__dict__['speakers'] (not self.speakers) and return those ints each multiplied by 10 as a list. wrap: Event(speakers=[ints from the line]); print the property as space-separated decimals."
+  sampleLog={`(input) 1 2
+10 20`}
+  starter={`class Event:
+    def __init__(self, **kwargs):
+        self.__dict__.update(kwargs)
+
+    @property
+    def speakers(self):
+        return []
+
+def wrap(line: str) -> str:
+    nums = [int(x) for x in line.split()]
+    ev = Event(speakers=nums)
+    return ' '.join(str(x) for x in ev.speakers)
+`}
+  wrapSuffix={`
+print(wrap(input()))
+`}
+  sourceChecks={[
+    { name: 'dunder dict', pattern: '__dict__\\s*\\[', must: true, hint: "self.__dict__['speakers']" },
+    { name: 'property', pattern: '@property', must: true, hint: 'keep @property' },
+  ]}
+  tests={[
+    { name: 'two', stdin: '1 2', equals: '10 20' },
+    { name: 'one', stdin: '5', equals: '50' },
+  ]}
+/>
+
+If you write `self.speakers` in the getter, the process dies on recursion (or you never return the scaled list).
+
+<ExerciseSet
+  title="Exercises"
+  description="keyword.iskeyword — append underscore, do not rename every key."
+>
+  <CodingExam
+    title="keyword keys"
+    heading="Exercise: keyword keys"
+    lang="python"
+    filename="main.py"
+    prompt="freeze(mapping): new dict; if keyword.iskeyword(key), store under key+'_'. wrap: freeze a one-key dict {line: 1}; print the stored key (the only key)."
+    starter={`import keyword
+
+def freeze(mapping: dict) -> dict:
+    return dict(mapping)
+
+def wrap(line: str) -> str:
+    d = freeze({line: 1})
+    return next(iter(d))
+`}
+    wrapSuffix={`
+print(wrap(input()))
+`}
+    sourceChecks={[
+      { name: 'iskeyword', pattern: 'iskeyword', must: true, hint: 'keyword.iskeyword(key)' },
+    ]}
+    tests={[
+      { name: 'class', stdin: 'class', equals: 'class_' },
+      { name: 'name', stdin: 'name', equals: 'name' },
+    ]}
+  />
+</ExerciseSet>

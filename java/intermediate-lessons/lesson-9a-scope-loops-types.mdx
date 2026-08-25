@@ -1,0 +1,334 @@
+---
+sidebar_position: 14
+title: "Scope, Loops, and Types"
+---
+
+> **Source:** Effective Java, 3rd Edition — Chapter 9 by Joshua Bloch (Items 57–62)
+
+Chapter 9 covers everyday Java craft: variable scope, iteration, standard libraries, exact arithmetic, primitives vs boxes, and choosing the right types over strings.
+
+## Item 57: Minimize the scope of local variables
+
+Declare locals **where first used**, with an initializer when possible. Premature declaration widens scope and adds clutter.
+
+Prefer **`for`** loops that declare loop variables in the header — scope ends with the loop, preventing copy-paste bugs like reusing `i` from an earlier `while`:
+
+```java
+for (Iterator<Element> i = c.iterator(); i.hasNext(); ) {
+    Element e = i.next();
+}
+```
+
+Keep methods **small** so unrelated locals don’t share scope. Exception: variables used after a `try` block may need declaration before `try` if initialization can throw checked exceptions.
+
+## Item 58: Prefer for-each loops to traditional for loops
+
+**Enhanced for** (`for (Element e : c)`) removes iterator/index clutter and works for collections, arrays, and anything **`Iterable`**:
+
+```java
+for (Suit suit : suits)
+    for (Rank rank : ranks)
+        deck.add(new Card(suit, rank));
+```
+
+Avoid nested **iterator** loops that call **`next()`** on the outer iterator inside the inner loop (52-card deck bug).
+
+When for-each **won’t** work: **destructive filtering** (`Iterator.remove`, or `removeIf`), **in-place transform** (list iterator / index), **parallel iteration** across collections. Then use explicit `for`/`Iterator` carefully.
+
+<MultipleChoice
+  id="java-int-ch9-foreach"
+  title="For-each vs iterators"
+  questions={[
+    {
+      prompt: 'Nested iterators: inner loop calls i.next() on outer iterator',
+      choices: [
+        'builds full Cartesian product correctly',
+        'calls outer next() too often — deck/dice bugs',
+        'compile error',
+        'only fails on arrays',
+      ],
+      answer: 1,
+      why: 'Outer element should be taken once per outer iteration. Nested for-each avoids this.',
+    },
+    {
+      prompt: 'Iterator i declared before while; second loop copy-pastes but uses i instead of i2',
+      choices: [
+        'compile error',
+        'may compile and fail silently — prefer for-loop declaration',
+        'throws always',
+        'fixed by parallel()',
+      ],
+      answer: 1,
+      why: 'while-loop iterators stay in scope. For-loop headers limit scope and catch wrong-variable bugs.',
+    },
+  ]}
+/>
+
+<CodingExam
+  title="for each sum"
+  heading="Challenge: for-each sum"
+  lang="java"
+  filename="Main.java"
+  prompt="sum(nums) adds all ints using an enhanced for loop (not index-based for). wrap: sum [1,2,3,4]; print result."
+  sampleLog={`10`}
+  starter={`import java.util.List;
+
+public class Main {
+    public static int sum(List<Integer> nums) {
+        return 0; // TODO for (int n : nums) ...
+    }
+}
+`}
+  wrapSuffix={`
+class Runner {
+    public static void main(String[] args) {
+        System.out.println(Main.sum(java.util.Arrays.asList(1, 2, 3, 4)));
+    }
+}
+`}
+  sourceChecks={[
+    { name: 'enhanced for', pattern: 'for\\s*\\(\\s*int\\s+\\w+\\s*:', must: true, hint: 'for (int n : nums)' },
+    { name: 'no index loop', pattern: 'for\\s*\\(\\s*int\\s+\\w+\\s*=\\s*0\\s*;', must: false, hint: 'use for-each, not for (int i = 0; ...)' },
+  ]}
+  tests={[
+    { name: '1234', stdin: '', equals: '10' },
+  ]}
+/>
+
+## Item 59: Know and use the libraries
+
+Don’t reinvent **`Random.nextInt(bound)`** with `Math.abs(rnd.nextInt()) % n` — bias, bad periods, and rare negative results.
+
+Prefer **`ThreadLocalRandom.current().nextInt(bound)`** (Java 7+) for general use; **`SplittableRandom`** for parallel/fork-join. Use **`Objects`**, **`Collections`**, **`java.util.concurrent`**, streams — experts already debugged them.
+
+<CodingExam
+  title="bounded random"
+  heading="Challenge: Random.nextInt"
+  lang="java"
+  filename="Main.java"
+    prompt={`roll(rnd, sides) returns a value in [0, sides) using rnd.nextInt(sides) — not abs % n. wrap: Random(1), roll 6 twice; print both space-separated.`}
+  sampleLog={`3 4`}
+  starter={`import java.util.Random;
+
+public class Main {
+    public static int roll(Random rnd, int sides) {
+        return Math.abs(rnd.nextInt()) % sides; // TODO use rnd.nextInt(sides)
+    }
+}
+`}
+  wrapSuffix={`
+class Runner {
+    public static void main(String[] args) {
+        java.util.Random rnd = new java.util.Random(1L);
+        System.out.println(Main.roll(rnd, 6) + " " + Main.roll(rnd, 6));
+    }
+}
+`}
+  sourceChecks={[
+    { name: 'nextInt bound', pattern: 'nextInt\\s*\\(\\s*sides\\s*\\)', must: true, hint: 'return rnd.nextInt(sides);' },
+    { name: 'no abs mod', pattern: 'Math\\.abs.*%|%\\s*sides', must: false, hint: 'do not use Math.abs(rnd.nextInt()) % sides' },
+  ]}
+  tests={[
+    { name: 'seed 1', stdin: '', equals: '3 4' },
+  ]}
+/>
+
+## Item 60: Avoid float and double if exact answers are required
+
+`double` cannot represent **`0.1`** exactly — money math drifts (`1.03 - 0.42`, candy-shopping loops).
+
+For **exact** decimal needs:
+
+- **`BigDecimal`** with **String** constructors (not `double` ctor)
+- **`int`/`long` cents** (or smallest currency unit) when range allows
+
+Use `float`/`double` for science/engineering approximations, not ledgers.
+
+<CodingExam
+  title="cents candy loop"
+  heading="Challenge: int cents not double"
+  lang="java"
+  filename="Main.java"
+  prompt="buyWhileAffordable(fundsCents) counts purchases: start price at 10 cents, increase by 10 after each buy while funds >= price. Use int cents only — not double dollars. wrap: 100 cents; print count (expect 4)."
+  sampleLog={`4`}
+  starter={`public class Main {
+    public static int buyWhileAffordable(int fundsCents) {
+        int items = 0;
+        double funds = fundsCents / 100.0;
+        for (double price = 0.10; funds >= price; price += 0.10) {
+            funds -= price;
+            items++;
+        }
+        return items;
+    }
+}
+`}
+  wrapSuffix={`
+class Runner {
+    public static void main(String[] args) {
+        System.out.println(Main.buyWhileAffordable(100));
+    }
+}
+`}
+  sourceChecks={[
+    { name: 'int cents', pattern: 'int\\s+funds\\s*=\\s*fundsCents|fundsCents', must: true, hint: 'int funds = fundsCents; for (int price = 10; funds >= price; price += 10)' },
+    { name: 'no double money', pattern: 'double\\s+funds|0\\.10', must: false, hint: 'use int cents throughout' },
+  ]}
+  tests={[
+    { name: 'four items', stdin: '', equals: '4' },
+  ]}
+/>
+
+## Item 61: Prefer primitive types to boxed primitives
+
+Primitives vs boxes differ in **identity**, **`null`**, and **performance**.
+
+Broken comparator: `(i == j)` compares **references**. Use **`Integer.compare(a, b)`** or compare unboxed `int` values.
+
+**`Integer i; if (i == 42)`** → NPE on unboxing. **`Long sum = 0L`** in a tight loop → boxing churn.
+
+Use boxes when required: **collections**, **generics**, **reflection**.
+
+<CodingExam
+  title="integer compare"
+  heading="Challenge: Integer.compare"
+  lang="java"
+  filename="Main.java"
+  prompt="compare(a,b) returns sign like natural Integer order. Use Integer.compare — not == on boxed values. wrap: compare two Integer(42); print result (0)."
+  sampleLog={`0`}
+  starter={`public class Main {
+    public static int compare(Integer a, Integer b) {
+        return (a < b) ? -1 : (a == b ? 0 : 1); // TODO Integer.compare
+    }
+}
+`}
+  wrapSuffix={`
+class Runner {
+    public static void main(String[] args) {
+        System.out.println(Main.compare(Integer.valueOf(42), Integer.valueOf(42)));
+    }
+}
+`}
+  sourceChecks={[
+    { name: 'Integer.compare', pattern: 'Integer\\.compare\\s*\\(', must: true, hint: 'return Integer.compare(a, b);' },
+    { name: 'no boxed ==', pattern: 'a\\s*==\\s*b', must: false, hint: '== on Integer compares identity, not value' },
+  ]}
+  tests={[
+    { name: 'equal', stdin: '', equals: '0' },
+  ]}
+/>
+
+## Item 62: Avoid strings where other types are more appropriate
+
+Strings fit **text**. Don’t use them as:
+
+- **Numbers** → parse to `int`, `BigDecimal`, etc.
+- **Enums** → use enum types (Item 34)
+- **Aggregates** → small classes, not `"className#index"` keys
+- **Capabilities** → unforgeable keys (`ThreadLocal.Key`), not global string namespaces
+
+`ThreadLocal<T>` replaced string-keyed thread locals with type-safe, fast instances.
+
+<MultipleChoice
+  id="java-int-ch9-strings"
+  title="Strings vs other types"
+  questions={[
+    {
+      prompt: 'ThreadLocal.set(String key, Object value) with client-chosen keys',
+      choices: [
+        'type-safe and secure',
+        'shared global namespace — collisions and spoofing',
+        'required by java.lang.ThreadLocal',
+        'faster than generics',
+      ],
+      answer: 1,
+      why: 'String keys collide across clients. Use capability objects or ThreadLocal<T>.',
+    },
+    {
+      prompt: 'User input "42" kept as String for arithmetic',
+      choices: [
+        'always best',
+        'parse to numeric type when data is numeric',
+        'required for BigDecimal',
+        'same as enum',
+      ],
+      answer: 1,
+      why: 'Use the type that matches the data. Strings are for text.',
+    },
+  ]}
+/>
+
+## Items 57–62 map
+
+| Item | Move |
+|---|---|
+| 57 | Declare locals late; for-loop scope |
+| 58 | for-each when you only need elements |
+| 59 | Use library experts — Random.nextInt, etc. |
+| 60 | BigDecimal or int cents for exact money |
+| 61 | Primitives in hot paths; Integer.compare |
+| 62 | Parse/enums/classes — not string everything |
+
+Next: [Performance, Reflection, and Style](./lesson-9b-performance-reflection-style) (Items 63–68).
+
+<ExerciseSet
+  title="Exercises"
+  description="Parse int and nested for-each pairs."
+>
+  <CodingExam
+    title="parse int"
+    heading="Exercise: Integer.parseInt"
+    lang="java"
+    filename="Main.java"
+    prompt="twice(text) parses text as int and returns 2 * value — use Integer.parseInt, not string concatenation tricks. wrap: twice 21; print."
+    starter={`public class Main {
+    public static int twice(String text) {
+        return 0; // TODO Integer.parseInt(text) * 2
+    }
+}
+`}
+    wrapSuffix={`
+class Runner {
+    public static void main(String[] args) {
+        System.out.println(Main.twice("21"));
+    }
+}
+`}
+    sourceChecks={[
+      { name: 'parseInt', pattern: 'Integer\\.parseInt|parseInt\\s*\\(', must: true, hint: 'Integer.parseInt(text)' },
+    ]}
+    tests={[
+      { name: '42', stdin: '', equals: '42' },
+    ]}
+  />
+  <CodingExam
+    title="nested pairs count"
+    heading="Exercise: nested for-each"
+    lang="java"
+    filename="Main.java"
+    prompt="pairCount(as, bs) counts pairs (a,b) with nested for-each — one loop per collection, no manual iterators. wrap: [1,2] x [10,20,30]; print count."
+    starter={`import java.util.List;
+
+public class Main {
+    public static int pairCount(List<Integer> as, List<Integer> bs) {
+        return 0; // TODO nested for-each, count++
+    }
+}
+`}
+    wrapSuffix={`
+class Runner {
+    public static void main(String[] args) {
+        System.out.println(Main.pairCount(
+            java.util.Arrays.asList(1, 2),
+            java.util.Arrays.asList(10, 20, 30)));
+    }
+}
+`}
+    sourceChecks={[
+      { name: 'nested foreach', pattern: 'for\\s*\\([^)]+:[^)]+\\)\\s*\\{[^}]*for\\s*\\([^)]+:', must: true, hint: 'for (Integer a : as) for (Integer b : bs)' },
+    ]}
+    tests={[
+      { name: 'six pairs', stdin: '', equals: '6' },
+    ]}
+  />
+</ExerciseSet>

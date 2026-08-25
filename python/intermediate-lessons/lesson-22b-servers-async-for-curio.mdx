@@ -1,0 +1,269 @@
+---
+sidebar_position: 28
+title: "Servers, async for, Curio"
+---
+
+> **Source:** Fluent Python, 2nd Edition — Chapter 22 by Luciano Ramalho (mojifinder servers through “how async doesn’t”)
+
+[22a](./lesson-22a-asynchronous-programming) ended at client `await`s. This half: **ASGI/FastAPI** and a **pure asyncio TCP** toy, then **`async for`**, async generators, `@asynccontextmanager`, PEP 530 comprehensions, **Curio**, and why “I/O-bound system” is a myth. No live uvicorn/Telnet in the sandbox.
+
+## Inverted index (mojifinder)
+
+Search Unicode by **words in `unicodedata.name`**. Documents = characters. `InvertedIndex`: `defaultdict` from each name-word → set of chars. `DIGIT` → hundreds of glyphs; `SEVEN` includes clocks and dingbats. `search` splits the query and **intersects** the posting lists: `"cat"` 14, `"face"` 171, `"cat face"` 10. Classic IR. Concurrent servers only **call** this; the index itself is sync.
+
+<CodingExam
+  title="intersect postings"
+  heading="Challenge: intersect postings"
+  lang="python"
+  filename="main.py"
+  prompt="search(q, index): split q on spaces (lower). For each word, look up a set in index (skip missing words). Return the intersection of those sets as a string of sorted characters with no separator. Empty query or no known words → empty string."
+  sampleLog={`(input) cat face
+😺`}
+  starter={`INDEX = {
+    'cat': set('🐱😺'),
+    'face': set('😺😀'),
+    'fire': set('🔥'),
+}
+
+def search(q: str, index: dict) -> str:
+    return ''
+
+def wrap(line: str) -> str:
+    return search(line, INDEX)
+`}
+  wrapSuffix={`
+print(wrap(input()))
+`}
+  sourceChecks={[
+    { name: 'split', pattern: '\\.split\\s*\\(', must: true, hint: 'split the query into words' },
+    { name: 'and or intersection', pattern: '&|intersection', must: true, hint: 'intersect the posting sets' },
+  ]}
+  tests={[
+    { name: 'and', stdin: 'cat face', equals: '😺' },
+    { name: 'one', stdin: 'fire', equals: '🔥' },
+  ]}
+/>
+
+Starter returns `''` so both tests fail until you intersect.
+
+## FastAPI (`web_mojifinder.py`)
+
+ASGI (Chapter 20b). SPA: first HTML, then JS hits JSON. FastAPI (Starlette → asyncio): decorators, type hints, **OpenAPI `/docs`**. Run: `uvicorn web_mojifinder:app --reload`. **No `main`** — the server loads `app`.
+
+`app = FastAPI(title=..., description=...)`. `CharName(BaseModel)` with `char` / `name`. `init` stashes `InvertedIndex` and `form.html` on `app.state` (`pathlib` `/`). `@app.get('/search', response_model=list[CharName]) async def search(q: str):` — params **not** in the path come from the query string; missing `q` → **422**. Return a generator of dicts; pydantic serializes. `@app.get('/', response_class=HTMLResponse, include_in_schema=False) def form()` can be **sync**. `search` has no `await` here — still `async def` so a real app can `await` a DB. **`response_model=`** not a return annotation: the function may return dicts/ORM rows; FastAPI still limits fields.
+
+Serving HTML from the app is a demo hack. Prod: Traefik/CDN/static on the proxy. Project generators assume that.
+
+## asyncio TCP (`tcp_mojifinder.py`)
+
+Telnet/netcat, bytes, no HTTP. `main` builds the index (~0.6 s), `asyncio.run(supervisor)`, `KeyboardInterrupt` → clean message.
+
+```python
+server = await asyncio.start_server(
+    functools.partial(finder, index),  # callback must be (reader, writer) only
+    host, port)
+await server.serve_forever()  # without this, supervisor returns and the process exits
+```
+
+`start_server` already accepts connections; `serve_forever` **keeps** the supervisor parked. Each client gets a **new** `finder` task — many sessions, one loop.
+
+`finder`: `peername`; loop: `writer.write(PROMPT)` (**not** a coro — buffers), `await writer.drain()` (**is** a coro — real I/O), `data = await reader.readline()`, decode UTF-8 (CTRL-C junk → `'\x00'`), break if first codepoint `< 32`, `await search(...)`, then `writer.close(); await writer.wait_closed()`.
+
+`search`: `index.search`, `writelines` of encoded rows (**not** a coro), `await drain()`, status line, `drain` again. Mix of plain vs awaitable on `StreamWriter` is the gotcha; docs now label coroutines. Lower layer: Transports/Protocols (Twisted-shaped).
+
+<MultipleChoice
+  id="py-int-ch22b-io"
+  title="write vs drain"
+  questions={[
+    {
+      prompt: 'StreamWriter.write vs drain',
+      choices: [
+        'both are coroutines',
+        'write buffers (plain); drain flushes to the net (await)',
+        'writelines is the only coroutine',
+        'readline is a plain function',
+      ],
+      answer: 1,
+      why: 'Forgetting await drain() is a silent stall. readline is a coroutine too.',
+    },
+    {
+      prompt: 'Why await server.serve_forever() after start_server?',
+      choices: [
+        'start_server does not bind until forever',
+        'otherwise supervisor returns, asyncio.run ends, the process exits',
+        'FastAPI requires it',
+        'it replaces functools.partial',
+      ],
+      answer: 1,
+      why: 'The server is already a task; the supervisor still needs to not finish.',
+    },
+  ]}
+/>
+
+## `async for`
+
+Like `async with` vs `__aenter__`: **`async for`** needs an **asynchronous iterable** — `__aiter__` is a **regular** method returning an **asynchronous iterator**. That iterator: `__anext__` **coroutine** (awaitable) and usually `__aiter__` → `self`. Don’t make the iterable its own iterator (Chapter 17).
+
+aiopg cursor: `async for row in cur` so a fat `SELECT` can **yield the loop** between row batches.
+
+### Async generator functions
+
+`async def` + `yield` → async generator (parallel to sync generators vs iterator classes). **`for` over `as_completed` is sync** — that API is a classic generator. Then `yield await coro`.
+
+```python
+async def multi_probe(domains) -> AsyncIterator[Result]:
+    coros = [probe(d, loop) for d in domains]
+    for coro in asyncio.as_completed(coros):
+        yield await coro   # parsed as yield (await coro)
+```
+
+`probe` may take an optional `loop` to avoid repeating `get_running_loop`. Return `NamedTuple`. `domaincheck.py`: `async for domain, found in multi_probe(...):` two columns.
+
+**`python -m asyncio` (3.8+):** loop already running; top-level `await` / `async for` / `async with`. Calling `probe()` → coroutine object; `multi_probe()` → `async_generator`; plain `for` → `TypeError: not iterable`.
+
+### `@asynccontextmanager` (3.7)
+
+Same split as `@contextmanager`: before `yield` = `__aenter__`, after = `__aexit__`. Hattingh: `await run_in_executor(None, download_webpage, url)` then `yield data` then executor `update_stats`.
+
+### Native coro vs async gen
+
+| | native coro | async gen |
+|---|---|---|
+| `async def` | yes | yes |
+| `yield` | never | required |
+| `return value` | allowed | only empty `return` |
+| driven by | `await`, `create_task`, … | `async for`, async comprehensions |
+| awaitable? | yes | **no** |
+
+## PEP 530 (3.6)
+
+**Async generator expression** can be **defined** anywhere: `(domain async for domain, found in multi_probe(names) if found)`. Use it only inside `async def` (or the asyncio REPL).
+
+List/dict/set with `async for` / `await` **only** in `async def` (or REPL).
+
+`[i async for i in aiter() if i % 2]` ≡ the obvious loop. `[await fun() for fun in funcs]` ≡ **`gather` order** (submit order if you sort names first). `{name: found async for name, found in multi_probe(names)}`. `if (await probe(name)).found` needs parens — `.` binds tighter than `await`.
+
+### Typing (prefer `collections.abc` on 3.9+)
+
+`AsyncContextManager`, `AsyncIterable`, `AsyncIterator`, `AsyncGenerator[Yield, Send]`, `Awaitable`, `Coroutine[Yield, Send, Return]`. Yield **covariant**; Send **contravariant**. `AsyncGenerator` has **no return type** (unlike `Generator`) — StopIteration hacks are not how native coros work.
+
+## Curio (and Trio)
+
+`async`/`await` are **language**, not asyncio. Beazley rebuilt a loop after 3.4’s `yield from` asyncio. Cleaner: `curio.socket.getaddrinfo` (no loop object), `run(main())` instead of get/run_until_complete/close.
+
+`TaskGroup`: `async with`, `await group.spawn(probe, domain)`, `async for task in group:` as tasks finish — **`as_completed` unnecessary**. `g.results` instead of `gather`. **Structured concurrency**: one enter/exit; all spawned work done or cancelled (like structured programming vs GOTO). Trio **nurseries**. PEP 654 exception groups / `except*` aimed at asyncio catching up.
+
+Curio: `spawn_thread`, `AWAIT(coro)` from threads, `UniversalQueue` with asyncio in another thread. In 2021 few HTTP/DB drivers; strong low-level/WebSocket/Happy Eyeballs samples. asyncio later deprecated passing `loop=` everywhere.
+
+## How it works / doesn’t
+
+Dahl: treating file/net I/O like `x+1` is wrong. ~1 GHz: L1 “3 s” human scale → RAM minutes → disk **years** → net **worse**. Overlap waits or you bought a very expensive sleep.
+
+There are I/O-bound **functions**, not I/O-bound **systems**. Under load something is CPU. Slow loop = every connection waits. Measure **early**. Options: process pool, **task queue from day one**, Cython/C/Rust (drop GIL), or accept the hit and **write it down**. Threads still GIL. First `async def` breeds more; blocking libs become the tax. Videla again.
+
+<MultipleChoice
+  id="py-int-ch22b-asyncfor"
+  title="async gen vs coro"
+  questions={[
+    {
+      prompt: 'async def with yield in the body',
+      choices: [
+        'a native coroutine; await it',
+        'an async generator; drive with async for, not await',
+        'illegal',
+        'the same as @types.coroutine',
+      ],
+      answer: 1,
+      why: 'yield is the split. await multi_probe(...) is the wrong tool.',
+    },
+    {
+      prompt: 'Structured concurrency (TaskGroup / nursery)',
+      choices: [
+        'GOTO for tasks',
+        'spawned work cannot outlive the block; cleanup and errors are scoped',
+        'only works with requests',
+        'replaces UTF-8 on TCP',
+      ],
+      answer: 1,
+      why: 'One entry, one exit — the concurrent analogue of a with/for block.',
+    },
+  ]}
+/>
+
+<CodingExam
+  title="async generator yield await"
+  heading="Challenge: async generator yield await"
+  lang="python"
+  filename="main.py"
+  prompt="async probe(n): await asyncio.sleep(0); return n*10. async def multi(nums) is an async generator: as_completed of probe(n) for each n, yield await coro. wrap: asyncio.run a collector that async-for's multi, sorts the ints, joins with spaces."
+  sampleLog={`(input) 1 2
+10 20`}
+  starter={`import asyncio
+
+async def probe(n: int) -> int:
+    return n
+
+async def multi(nums):
+    if False:
+        yield 0
+
+async def collect(nums) -> list:
+    return []
+
+def wrap(line: str) -> str:
+    nums = [int(x) for x in line.split()]
+    got = asyncio.run(collect(nums))
+    return ' '.join(str(x) for x in sorted(got))
+`}
+  wrapSuffix={`
+print(wrap(input()))
+`}
+  sourceChecks={[
+    { name: 'as_completed', pattern: 'as_completed', must: true, hint: 'for coro in asyncio.as_completed(...)' },
+    { name: 'yield', pattern: '\\byield\\b', must: true, hint: 'yield await coro' },
+    { name: 'async for', pattern: 'async\\s+for', must: true, hint: 'async for in collect' },
+  ]}
+  tests={[
+    { name: 'two', stdin: '1 2', equals: '10 20' },
+    { name: 'one', stdin: '5', equals: '50' },
+  ]}
+/>
+
+Starter `multi` never probes; `collect` returns `[]`.
+
+<ExerciseSet
+  title="Exercises"
+  description="@asynccontextmanager: code before yield is aenter."
+>
+  <CodingExam
+    title="asynccontextmanager yield"
+    heading="Exercise: asynccontextmanager yield"
+    lang="python"
+    filename="main.py"
+    prompt="Decorate async def box(s) with contextlib.asynccontextmanager. Body: yield s.upper() (and nothing that blocks). async take(s): async with box(s) as v: return v. wrap: asyncio.run(take(line))."
+    starter={`import asyncio
+from contextlib import asynccontextmanager
+
+async def box(s: str):
+    yield s
+
+async def take(s: str) -> str:
+    return s
+
+def wrap(line: str) -> str:
+    return asyncio.run(take(line))
+`}
+    wrapSuffix={`
+print(wrap(input()))
+`}
+    sourceChecks={[
+      { name: 'decorator', pattern: '@asynccontextmanager', must: true, hint: '@asynccontextmanager on box' },
+      { name: 'async with', pattern: 'async\\s+with', must: true, hint: 'async with box(s) as v' },
+      { name: 'upper', pattern: '\\.upper\\s*\\(', must: true, hint: 'upper-case before or at yield' },
+    ]}
+    tests={[
+      { name: 'hi', stdin: 'hi', equals: 'HI' },
+      { name: 'a', stdin: 'a', equals: 'A' },
+    ]}
+  />
+</ExerciseSet>

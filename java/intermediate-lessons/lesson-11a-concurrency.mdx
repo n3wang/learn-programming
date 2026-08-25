@@ -1,0 +1,390 @@
+---
+sidebar_position: 18
+title: "Concurrency"
+---
+
+> **Source:** Effective Java, 3rd Edition — Chapter 11 by Joshua Bloch (Items 78–81)
+
+Multicore machines require concurrency for good performance. These items cover shared mutable data, synchronization discipline, executors, and `java.util.concurrent` utilities.
+
+## Item 78: Synchronize access to shared mutable data
+
+**`synchronized`** provides **mutual exclusion** and **visibility** — without it, one thread’s writes may never be seen by another (memory model).
+
+The broken **`StopThread`** pattern: a plain `boolean stopRequested` with no sync can loop forever due to **hoisting**. Fix with **synchronized read and write** methods, or declare the flag **`volatile`** when you only need visibility (not compound actions like `++`).
+
+**`volatile int next++`** is still broken — `++` is read-modify-write, not atomic. Use **`synchronized`** or **`AtomicLong.getAndIncrement()`** from `java.util.concurrent.atomic`.
+
+Best default: **don’t share mutable data**. Share **immutable** data, or **confine** mutation to one thread. **Safe publication** (final field, volatile, static init, concurrent collection) lets other threads read without further sync once published.
+
+<CodingExam
+  title="atomic serial number"
+  heading="Challenge: AtomicLong not volatile++"
+  lang="java"
+  filename="Main.java"
+  prompt="nextId() returns unique increasing ids starting at 0 using AtomicLong.getAndIncrement() — not volatile int ++. wrap: call three times; print space-separated."
+  sampleLog={`0 1 2`}
+  starter={`public class Main {
+    private static volatile int nextId = 0;
+
+    public static long nextId() {
+        return nextId++;
+    }
+}
+`}
+  wrapSuffix={`
+class Runner {
+    public static void main(String[] args) {
+        System.out.println(Main.nextId() + " " + Main.nextId() + " " + Main.nextId());
+    }
+}
+`}
+  sourceChecks={[
+    { name: 'AtomicLong', pattern: 'AtomicLong', must: true, hint: 'private static final AtomicLong nextId = new AtomicLong();' },
+    { name: 'getAndIncrement', pattern: 'getAndIncrement\\s*\\(', must: true, hint: 'return nextId.getAndIncrement();' },
+    { name: 'no volatile int plus plus', pattern: 'volatile\\s+int|\\+\\+|nextId\\+\\+', must: false, hint: '++ on volatile int is not atomic across threads' },
+  ]}
+  tests={[
+    { name: '012', stdin: '', equals: '0 1 2' },
+  ]}
+/>
+
+<MultipleChoice
+  id="java-int-ch11-sync"
+  title="Shared mutable data"
+  questions={[
+    {
+      prompt: 'stopRequested boolean written in main, read in background thread — no sync',
+      choices: [
+        'always terminates within a second',
+        'liveness failure — reader may never see the write',
+        'compile error',
+        'fixed by making boolean final',
+      ],
+      answer: 1,
+      why: 'Synchronization (or volatile) is required for visibility between threads, not just mutual exclusion.',
+    },
+    {
+      prompt: 'Only the write to stopRequested is synchronized; read is unsynchronized',
+      choices: [
+        'sufficient — write publishes the value',
+        'insufficient — both read and write must sync (or use volatile field)',
+        'required for AtomicLong only',
+        'fine on single-core machines only',
+      ],
+      answer: 1,
+      why: 'Both sides of the communication must participate in synchronization for the guarantee to hold.',
+    },
+  ]}
+/>
+
+## Item 79: Avoid excessive synchronization
+
+Never call **alien methods** (overridable methods, callbacks, lambdas supplied by clients) **inside** a synchronized block — they can cause **`ConcurrentModificationException`**, **deadlock**, or corrupt invariants.
+
+**Open call** pattern: copy shared state under the lock, release the lock, then invoke callbacks on the copy:
+
+```java
+List<Observer<E>> snapshot;
+synchronized (observers) {
+    snapshot = new ArrayList<>(observers);
+}
+for (Observer<E> o : snapshot)
+    o.added(this, element);
+```
+
+For rarely modified observer lists, **`CopyOnWriteArrayList`** avoids explicit locking on iteration. Do **minimal work** while holding locks — oversynchronization hurts throughput on multicore CPUs.
+
+<CodingExam
+  title="open call snapshot"
+  heading="Challenge: callbacks outside synchronized"
+  lang="java"
+  filename="Main.java"
+  prompt="fire(value) notifies all listeners. Copy listeners to a snapshot inside synchronized, then call accept outside the lock (open call). wrap: two listeners sum values; fire 10 then 20; print total."
+  sampleLog={`30`}
+  starter={`import java.util.ArrayList;
+import java.util.List;
+import java.util.function.IntConsumer;
+
+public class Main {
+    private static final List<IntConsumer> listeners = new ArrayList<>();
+
+    public static void addListener(IntConsumer listener) {
+        synchronized (listeners) {
+            listeners.add(listener);
+        }
+    }
+
+    public static void fire(int value) {
+        synchronized (listeners) {
+            for (IntConsumer listener : listeners) {
+                listener.accept(value);
+            }
+        }
+    }
+}
+`}
+  wrapSuffix={`
+class Runner {
+    public static void main(String[] args) {
+        java.util.concurrent.atomic.AtomicInteger total =
+            new java.util.concurrent.atomic.AtomicInteger();
+        Main.addListener(total::add);
+        Main.addListener(total::add);
+        Main.fire(10);
+        Main.fire(20);
+        System.out.println(total.get());
+    }
+}
+`}
+  sourceChecks={[
+    { name: 'snapshot copy', pattern: 'new\\s+ArrayList\\s*\\(\\s*listeners\\s*\\)|new\\s+ArrayList\\s*<[^>]*>\\s*\\(\\s*listeners', must: true, hint: 'snapshot = new ArrayList<>(listeners) inside synchronized' },
+    { name: 'loop outside sync', pattern: 'synchronized\\s*\\(\\s*listeners\\s*\\)\\s*\\{[^}]*\\}[^;]*for\\s*\\(', must: true, hint: 'for-loop over snapshot after the synchronized block closes' },
+    { name: 'no callback inside sync', pattern: 'synchronized\\s*\\(\\s*listeners\\s*\\)\\s*\\{[\\s\\S]*\\.accept\\s*\\(', must: false, hint: 'do not invoke listener.accept inside synchronized' },
+  ]}
+  tests={[
+    { name: 'sum 30', stdin: '', equals: '30' },
+  ]}
+/>
+
+<MultipleChoice
+  id="java-int-ch11-open-call"
+  title="Excessive synchronization"
+  questions={[
+    {
+      prompt: 'notifyElementAdded iterates observers and calls observer.added inside synchronized(observers)',
+      choices: [
+        'always safe — lock prevents concurrent modification',
+        'callback may re-enter and modify observers — CME or deadlock risk',
+        'required for CopyOnWriteArrayList',
+        'only a problem with checked exceptions',
+      ],
+      answer: 1,
+      why: 'Alien methods inside synchronized regions cause reentrancy and open-call failures. Snapshot or CopyOnWriteArrayList.',
+    },
+    {
+      prompt: 'StringBuffer vs StringBuilder for single-threaded code',
+      choices: [
+        'StringBuffer is faster',
+        'StringBuilder — no needless internal synchronization',
+        'StringBuffer required since Java 8',
+        'identical performance always',
+      ],
+      answer: 1,
+      why: 'Don\'t synchronize internally unless thread-safe sharing wins. StringBuilder drops unused sync.',
+    },
+  ]}
+/>
+
+## Item 80: Prefer executors, tasks, and streams to threads
+
+Don’t hand-roll worker threads and queues. Use **`ExecutorService`**:
+
+```java
+ExecutorService exec = Executors.newSingleThreadExecutor();
+try {
+    exec.execute(runnable);
+    Future<T> f = exec.submit(callable);
+} finally {
+    exec.shutdown();
+}
+```
+
+**`Runnable`** = no return value; **`Callable`** = returns a value. Pick **`newFixedThreadPool`** for loaded servers; **`newCachedThreadPool`** only for light workloads. **Fork/join** and **parallel streams** (Item 48) build on the same ideas.
+
+<CodingExam
+  title="executor sum"
+  heading="Challenge: ExecutorService.submit"
+  lang="java"
+  filename="Main.java"
+  prompt="sumThrough(n) submits a Callable that sums 1..n to a single-thread ExecutorService, returns Future.get() result, and shuts down the executor in finally. wrap: n=5; print 15."
+  sampleLog={`15`}
+  starter={`public class Main {
+    public static int sumThrough(int n) throws Exception {
+        int sum = 0;
+        for (int i = 1; i <= n; i++) {
+            sum += i;
+        }
+        return sum;
+    }
+}
+`}
+  wrapSuffix={`
+class Runner {
+    public static void main(String[] args) throws Exception {
+        System.out.println(Main.sumThrough(5));
+    }
+}
+`}
+  sourceChecks={[
+    { name: 'ExecutorService', pattern: 'ExecutorService|Executors\\.new', must: true, hint: 'ExecutorService exec = Executors.newSingleThreadExecutor();' },
+    { name: 'submit Callable', pattern: 'submit\\s*\\(', must: true, hint: 'exec.submit(() -> { ... sum loop ... })' },
+    { name: 'shutdown', pattern: 'shutdown\\s*\\(', must: true, hint: 'exec.shutdown() in finally' },
+  ]}
+  tests={[
+    { name: 'sum 5', stdin: '', equals: '15' },
+  ]}
+/>
+
+## Item 81: Prefer concurrency utilities to wait and notify
+
+Use **`java.util.concurrent`** instead of hand-coded **`wait`/`notify`**.
+
+**Concurrent collections** (`ConcurrentHashMap`, `CopyOnWriteArrayList`, `BlockingQueue`) manage their own locking. Atomic compound ops like **`putIfAbsent`** support patterns such as **`String.intern`**:
+
+```java
+String result = map.get(s);
+if (result == null) {
+    result = map.putIfAbsent(s, s);
+    if (result == null) result = s;
+}
+return result;
+```
+
+**Synchronizers**: **`CountDownLatch`**, **`Semaphore`**, **`CyclicBarrier`**, **`Phaser`**. If you must maintain legacy `wait` code: always **`while (condition) wait()`**, prefer **`notifyAll`**.
+
+<CodingExam
+  title="concurrent intern"
+  heading="Challenge: ConcurrentHashMap intern"
+  lang="java"
+  filename="Main.java"
+  prompt="intern(s) returns a canonical String equal to s using ConcurrentHashMap.putIfAbsent (same reference for equal inputs). wrap: intern x twice; print true if same reference."
+  sampleLog={`true`}
+  starter={`public class Main {
+    public static String intern(String s) {
+        return s; // TODO ConcurrentHashMap.putIfAbsent
+    }
+}
+`}
+  wrapSuffix={`
+class Runner {
+    public static void main(String[] args) {
+        String a = Main.intern("x");
+        String b = Main.intern("x");
+        System.out.println(a == b);
+    }
+}
+`}
+  sourceChecks={[
+    { name: 'ConcurrentHashMap', pattern: 'ConcurrentHashMap', must: true, hint: 'private static final ConcurrentHashMap<String, String> pool = ...' },
+    { name: 'putIfAbsent', pattern: 'putIfAbsent\\s*\\(', must: true, hint: 'pool.putIfAbsent(s, s)' },
+  ]}
+  tests={[
+    { name: 'same ref', stdin: '', equals: 'true' },
+  ]}
+/>
+
+<MultipleChoice
+  id="java-int-ch11-utilities"
+  title="Concurrency utilities"
+  questions={[
+    {
+      prompt: 'New code needs threads to wait until N tasks finish setup',
+      choices: [
+        'Object.wait in a loop',
+        'CountDownLatch — prefer j.u.c. synchronizers',
+        'Thread.sleep polling',
+        'Thread.stop when ready',
+      ],
+      answer: 1,
+      why: 'Higher-level utilities replace error-prone wait/notify assembly code.',
+    },
+    {
+      prompt: 'Legacy synchronized method uses wait()',
+      choices: [
+        'invoke wait once outside a loop',
+        'while (condition) wait() inside synchronized — standard idiom',
+        'notify before wait always',
+        'never use notifyAll',
+      ],
+      answer: 1,
+      why: 'Always wait in a loop; re-check condition after wakeup for safety and liveness.',
+    },
+  ]}
+/>
+
+## Items 78–81 map
+
+| Item | Move |
+|---|---|
+| 78 | Sync or volatile for visibility; AtomicLong for compound ops |
+| 79 | Open calls — no alien methods inside synchronized |
+| 80 | ExecutorService + Runnable/Callable, not raw Thread |
+| 81 | ConcurrentHashMap, latches — not wait/notify |
+
+Next: [Thread Safety and Lazy Init](./lesson-11b-thread-safety-lazy-init) (Items 82–84).
+
+<ExerciseSet
+  title="Exercises"
+  description="volatile stop flag; get-then-putIfAbsent intern."
+>
+  <CodingExam
+    title="volatile stop flag"
+    heading="Exercise: volatile for visibility"
+    lang="java"
+    filename="Main.java"
+    prompt="StopFlag holds a volatile boolean stopped field (default false). stop() sets it true; isStopped() reads it. Use volatile on the field — not plain boolean. wrap: new StopFlag, call stop(), print isStopped."
+    starter={`public class Main {
+    public static class StopFlag {
+        private boolean stopped = false;
+
+        public void stop() {
+            stopped = true;
+        }
+
+        public boolean isStopped() {
+            return stopped;
+        }
+    }
+}
+`}
+    wrapSuffix={`
+class Runner {
+    public static void main(String[] args) {
+        Main.StopFlag flag = new Main.StopFlag();
+        flag.stop();
+        System.out.println(flag.isStopped());
+    }
+}
+`}
+    sourceChecks={[
+      { name: 'volatile field', pattern: 'volatile\\s+boolean\\s+stopped', must: true, hint: 'private volatile boolean stopped = false;' },
+    ]}
+    tests={[
+      { name: 'stopped true', stdin: '', equals: 'true' },
+    ]}
+  />
+  <CodingExam
+    title="intern get optimize"
+    heading="Exercise: get then putIfAbsent"
+    lang="java"
+    filename="Main.java"
+    prompt="fastIntern(s) uses ConcurrentHashMap: get first; only if null call putIfAbsent(s,s) and use s when absent. wrap: fastIntern hello twice; print same-reference true."
+    starter={`import java.util.concurrent.ConcurrentHashMap;
+
+public class Main {
+    private static final ConcurrentHashMap<String, String> pool = new ConcurrentHashMap<>();
+
+    public static String fastIntern(String s) {
+        return pool.putIfAbsent(s, s); // TODO get first, then putIfAbsent only if needed
+    }
+}
+`}
+    wrapSuffix={`
+class Runner {
+    public static void main(String[] args) {
+        String a = Main.fastIntern("hello");
+        String b = Main.fastIntern("hello");
+        System.out.println(a == b);
+    }
+}
+`}
+    sourceChecks={[
+      { name: 'get first', pattern: '\\.get\\s*\\(\\s*s\\s*\\)', must: true, hint: 'String result = pool.get(s); if (result != null) return result;' },
+      { name: 'putIfAbsent fallback', pattern: 'putIfAbsent\\s*\\(\\s*s\\s*,\\s*s\\s*\\)', must: true, hint: 'result = pool.putIfAbsent(s, s); return result == null ? s : result;' },
+    ]}
+    tests={[
+      { name: 'same ref', stdin: '', equals: 'true' },
+    ]}
+  />
+</ExerciseSet>

@@ -1,0 +1,363 @@
+---
+sidebar_position: 2
+title: "Objects, Leaks, and try-with-resources"
+---
+
+> **Source:** Effective Java, 3rd Edition — Chapter 2 by Joshua Bloch (Items 6–9)
+
+[Lesson 1a](./lesson-1a-static-factories-builders) covered how to **obtain** instances. This half: do not create junk, do not retain junk, do not finalize junk — and **close** resources with try-with-resources.
+
+## Item 6: Avoid creating unnecessary objects
+
+Reuse when the object is **immutable** (or you know a mutable one will not change).
+
+```java
+String s = new String("bikini"); // wasteful
+String s = "bikini";             // one pooled literal
+```
+
+Prefer `Boolean.valueOf(...)` over the deprecated `Boolean(String)` constructor — factories may cache.
+
+### Expensive objects: compile once
+
+`String.matches(regex)` compiles a `Pattern` **every call**. Cache a static `Pattern`:
+
+```java
+private static final Pattern ROMAN = Pattern.compile("...");
+static boolean isRomanNumeral(String s) {
+    return ROMAN.matcher(s).matches();
+}
+```
+
+~6× faster in Bloch’s numbers on short strings. Naming the pattern also clarifies intent. Lazy-init the field only if you measure a real win (Item 83 / 67 — usually not).
+
+### Views / adapters
+
+`map.keySet()` may return the **same** `Set` view each time. Creating more is harmless but pointless — they all share the map’s state.
+
+### Autoboxing
+
+```java
+Long sum = 0L;
+for (long i = 0; i <= Integer.MAX_VALUE; i++)
+    sum += i; // ~2^31 Long allocations
+```
+
+Use `long sum`. Prefer primitives; watch accidental boxing (Item 61).
+
+Object creation is **cheap** for small objects — clarity wins. Hand-rolled **object pools** for light objects lose to the GC; pools make sense for heavyweight things like DB connections. Counterweight: Item 50 (defensive copies) — wrong reuse is worse than extra allocation.
+
+<MultipleChoice
+  id="java-int-ch2-item6"
+  title="Unnecessary objects"
+  questions={[
+    {
+      prompt: 'String.matches(regex) in a hot loop',
+      choices: [
+        'ideal — Pattern is free',
+        'recompiles the regex each call; cache a static Pattern',
+        'requires new String(regex) first',
+        'is faster than Pattern.matcher',
+      ],
+      answer: 1,
+      why: 'Compilation builds an FSM. Do it once.',
+    },
+    {
+      prompt: 'Long sum in a tight add loop',
+      choices: [
+        'same speed as long',
+        'autoboxes on every += ; use primitive long',
+        'required because int overflows',
+        'prevents GC',
+      ],
+      answer: 1,
+      why: 'The running total should be a primitive. Overflow is why the *addend loop* uses long, not Long.',
+    },
+  ]}
+/>
+
+<CodingExam
+  title="cached Pattern"
+  heading="Challenge: cached Pattern"
+  lang="java"
+  filename="Main.java"
+    prompt={`Digits holds a private static final Pattern DIGITS for ^\\d+$. matches(String s) uses DIGITS.matcher(s).matches(). Do not call s.matches(...).`}
+  sampleLog={`(input) 42
+true`}
+  starter={`import java.util.regex.Pattern;
+
+public class Main {
+    public static final class Digits {
+        // TODO static Pattern DIGITS
+
+        public static boolean matches(String s) {
+            return false; // TODO
+        }
+    }
+}
+`}
+  wrapSuffix={`
+class Runner {
+    public static void main(String[] args) {
+        java.util.Scanner sc = new java.util.Scanner(System.in);
+        System.out.println(Main.Digits.matches(sc.next()));
+    }
+}
+`}
+  sourceChecks={[
+    { name: 'Pattern.compile', pattern: 'Pattern\\.compile', must: true, hint: 'Pattern.compile("^\\\\d+$")' },
+    { name: 'no String.matches', pattern: '\\.matches\\s*\\(\\s*"', must: false, hint: 'do not call String.matches(regex)' },
+  ]}
+  tests={[
+    { name: 'digits', stdin: '42', equals: 'true' },
+    { name: 'letters', stdin: 'ab', equals: 'false' },
+  ]}
+/>
+
+## Item 7: Eliminate obsolete references
+
+GC does not save you from **unintentional retention**. Classic stack:
+
+```java
+public Object pop() {
+    if (size == 0) throw new EmptyStackException();
+    return elements[--size]; // leak: array still holds the object
+}
+```
+
+After pop, null the slot:
+
+```java
+Object result = elements[--size];
+elements[size] = null;
+return result;
+```
+
+Classes that **manage their own memory** (array pools, buffers) must clear freed slots — the GC sees every array cell as a live root.
+
+Do **not** null every local “just in case.” Prefer narrow scopes (Item 57). Null when you own a long-lived structure.
+
+Other leak sources:
+
+| Source | Mitigation |
+|---|---|
+| Caches | `WeakHashMap` if lifetime follows **external key** refs; else periodic eviction (`LinkedHashMap.removeEldestEntry`, scheduler) |
+| Listeners / callbacks | Deregister, or hold **weak** refs |
+
+Leaks rarely crash loudly — profilers and code review find them years later.
+
+<CodingExam
+  title="Stack pop nulls the slot"
+  heading="Challenge: Stack pop nulls the slot"
+  lang="java"
+  filename="Main.java"
+  prompt="pop() must return the top element and set elements[size] to null after decrementing size. push is done. wrap: push each token, pop all, print joined by commas; also print whether the backing slot after last pop is null (true/false)."
+  sampleLog={`(input) a b
+b,a
+true`}
+  starter={`public class Main {
+    public static final class Stack {
+        private Object[] elements = new Object[8];
+        private int size = 0;
+
+        public void push(Object e) {
+            elements[size++] = e;
+        }
+
+        public Object pop() {
+            if (size == 0) throw new IllegalStateException();
+            return elements[--size]; // TODO also null the slot
+        }
+
+        /** For tests: is elements[i] null? */
+        public boolean slotNull(int i) {
+            return elements[i] == null;
+        }
+
+        public int size() { return size; }
+    }
+}
+`}
+  wrapSuffix={`
+class Runner {
+    public static void main(String[] args) {
+        java.util.Scanner sc = new java.util.Scanner(System.in);
+        Main.Stack st = new Main.Stack();
+        java.util.List<String> in = new java.util.ArrayList<>();
+        while (sc.hasNext()) in.add(sc.next());
+        for (String s : in) st.push(s);
+        java.util.List<String> out = new java.util.ArrayList<>();
+        int n = in.size();
+        for (int i = 0; i < n; i++) out.add(String.valueOf(st.pop()));
+        System.out.println(String.join(",", out));
+        System.out.println(st.slotNull(st.size()));
+    }
+}
+`}
+  sourceChecks={[
+    { name: 'nulls slot', pattern: 'elements\\s*\\[\\s*size\\s*\\]\\s*=\\s*null', must: true, hint: 'elements[size] = null after --size' },
+  ]}
+  tests={[
+    { name: 'two', stdin: 'a b', equals: 'b,a true' },
+    { name: 'one', stdin: 'x', equals: 'x true' },
+  ]}
+/>
+
+Starter pop leaves the reference — `slotNull` is false until you clear it. Tests normalize whitespace so the two printed lines become one check string… wait, normalize collapses whitespace including newlines to spaces. So `b,a\ntrue` becomes `b,a true`. Good.
+
+## Item 8: Avoid finalizers and cleaners
+
+Not C++ destructors. GC frees memory; **non-memory** resources need `close` (Item 9).
+
+Problems:
+
+- **No promptness / no guarantee they run** — never close files or release DB locks there.
+- Behavior varies by GC and JVM — “works on my machine.”
+- Finalizers: ignored exceptions, **~50×** slower create/destroy, **finalizer attacks** on non-`final` classes (malicious subclass `finalize` resurrects a half-built object). Protect with a empty `final finalize()` or make the class final.
+- Cleaners (Java 9): better thread control, still unpredictable as a primary cleanup path.
+
+**Do this instead:** implement `AutoCloseable`; clients use try-with-resources. Track a closed flag; methods throw `IllegalStateException` after close.
+
+Legitimate uses: **safety net** if someone forgets `close` (still may never run), or reclaiming **noncritical native peers**. `Room` example: static nested `State` (must **not** reference `Room` — cycles block GC), register with `Cleaner`, `close()` calls `cleanable.clean()`.
+
+## Item 9: Prefer try-with-resources
+
+Resources that need `close()`: streams, JDBC `Connection`, etc. Finalizer safety nets are weak (Item 8).
+
+`try-finally` nests badly with two resources and can **hide** the first exception when `close` also throws. try-with-resources (Java 7+) needs `AutoCloseable`:
+
+```java
+try (BufferedReader br = new BufferedReader(new FileReader(path))) {
+    return br.readLine();
+}
+```
+
+Multiple resources in one `try (...)`. Close failures become **suppressed** exceptions (`Throwable.getSuppressed()`). You can still attach `catch`.
+
+Always prefer this over try-finally for closeable resources.
+
+<MultipleChoice
+  id="java-int-ch2-item8-9"
+  title="Finalizers and try-with-resources"
+  questions={[
+    {
+      prompt: 'Closing a file descriptor',
+      choices: [
+        'finalize() is the portable guarantee',
+        'AutoCloseable + try-with-resources (cleaner only as a safety net)',
+        'System.gc() then System.runFinalization()',
+        'new String(path)',
+      ],
+      answer: 1,
+      why: 'Finalizers/cleaners are not timely and may never run.',
+    },
+    {
+      prompt: 'try-with-resources when readLine and close both throw',
+      choices: [
+        'only the close exception survives',
+        'the primary exception is kept; close is suppressed',
+        'the JVM halts',
+        'you must write nested finally by hand',
+      ],
+      answer: 1,
+      why: 'That is the diagnostic win over naive try-finally.',
+    },
+  ]}
+/>
+
+<CodingExam
+  title="try-with-resources AutoCloseable"
+  heading="Challenge: try-with-resources AutoCloseable"
+  lang="java"
+  filename="Main.java"
+  prompt="Box implements AutoCloseable: close() sets closed=true and appends 'c' to a shared StringBuilder log. work() appends 'w' or throws IllegalStateException if already closed. wrap: try-with-resources calls work() then ends; print the log."
+  sampleLog={`(input) x
+wc`}
+  starter={`public class Main {
+    public static final class Box implements AutoCloseable {
+        private final StringBuilder log;
+        private boolean closed = false;
+
+        public Box(StringBuilder log) {
+            this.log = log;
+        }
+
+        public void work() {
+            // TODO
+        }
+
+        @Override
+        public void close() {
+            // TODO
+        }
+    }
+}
+`}
+  wrapSuffix={`
+class Runner {
+    public static void main(String[] args) {
+        StringBuilder log = new StringBuilder();
+        try (Main.Box b = new Main.Box(log)) {
+            b.work();
+        }
+        System.out.println(log);
+    }
+}
+`}
+  sourceChecks={[
+    { name: 'AutoCloseable', pattern: 'implements\\s+AutoCloseable', must: true, hint: 'implements AutoCloseable' },
+    { name: 'close sets flag', pattern: 'closed\\s*=\\s*true', must: true, hint: 'closed = true in close()' },
+  ]}
+  tests={[
+    { name: 'order', stdin: 'x', equals: 'wc' },
+  ]}
+/>
+
+Starter does nothing — log stays empty until `work`/`close` append. try-with-resources guarantees `close` after `work`.
+
+## Chapter 2 wrap (Items 6–9)
+
+| Item | Rule |
+|---|---|
+| 6 | Reuse immutables / compiled Patterns; prefer primitives; no DIY light pools |
+| 7 | Null obsolete refs in self-managed storage; watch caches and listeners |
+| 8 | No finalizers/cleaners for real cleanup — maybe safety net / native peer |
+| 9 | try-with-resources for `AutoCloseable` |
+
+Defensive copying (Item 50) is the opposite instinct when sharing mutable state — covered later.
+
+<ExerciseSet
+  title="Exercises"
+  description="Primitive sum — one character fixes a billion boxes."
+>
+  <CodingExam
+    title="sum with long"
+    heading="Exercise: sum with long"
+    lang="java"
+    filename="Main.java"
+    prompt="sumTo(n) returns 0+1+...+n using a primitive long accumulator (not Long). wrap: print sumTo of the input int."
+    starter={`public class Main {
+    public static long sumTo(int n) {
+        Long sum = 0L; // TODO fix the type and loop
+        return sum;
+    }
+}
+`}
+    wrapSuffix={`
+class Runner {
+    public static void main(String[] args) {
+        java.util.Scanner sc = new java.util.Scanner(System.in);
+        System.out.println(Main.sumTo(sc.nextInt()));
+    }
+}
+`}
+    sourceChecks={[
+      { name: 'primitive long', pattern: '\\blong\\s+sum\\b', must: true, hint: 'long sum = 0L;' },
+      { name: 'no Long sum', pattern: '\\bLong\\s+sum\\b', must: false, hint: 'do not declare Long sum' },
+    ]}
+    tests={[
+      { name: 'ten', stdin: '10', equals: '55' },
+      { name: 'zero', stdin: '0', equals: '0' },
+    ]}
+  />
+</ExerciseSet>

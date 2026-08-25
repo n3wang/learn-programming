@@ -1,0 +1,381 @@
+---
+sidebar_position: 20
+title: "Serialization"
+---
+
+> **Source:** Effective Java, 3rd Edition — Chapter 12 by Joshua Bloch (Items 85–87)
+
+Java serialization encodes object graphs as bytes — and opens a large **attack surface** (gadget chains, deserialization bombs). These items: avoid it when you can, implement `Serializable` only with care, and design a **logical** serialized form.
+
+## Item 85: Prefer alternatives to Java serialization
+
+Deserialization invokes **`readObject`** on types that implement **`Serializable`** — including library **gadgets** you never intended to run. Untrusted byte streams can mean **RCE**, **DoS** (deserialization bombs), or worse.
+
+**Winning move:** don’t play — **don’t deserialize untrusted data**. For new systems use **JSON**, **Protocol Buffers**, or similar **cross-platform structured data** (attribute maps, not arbitrary object graphs).
+
+If legacy serialization is unavoidable:
+
+- Never accept untrusted streams (including careless **RMI**)
+- Use **`ObjectInputFilter`** (Java 9+) — prefer **whitelisting** over blacklisting
+- Filters limit class/memory depth but **won’t** stop all bombs
+
+<MultipleChoice
+  id="java-int-ch12-alternatives"
+  title="Alternatives to Java serialization"
+  questions={[
+    {
+      prompt: 'New microservice exchanging data with a browser and a Go backend',
+      choices: [
+        'Java serialization — built into the platform',
+        'JSON or protobuf — structured, safer cross-platform representations',
+        'ObjectInputStream on all HTTP bodies',
+        'RMI between public endpoints',
+      ],
+      answer: 1,
+      why: 'Prefer structured-data formats for new systems. Avoid Java serialization attack surface.',
+    },
+    {
+      prompt: 'ObjectInputFilter blacklist vs whitelist for untrusted streams',
+      choices: [
+        'blacklist is safer — blocks known bad classes only',
+        'whitelist — reject by default, allow known-safe classes',
+        'filters eliminate gadget chains completely',
+        'no filter needed for HashSet payloads',
+      ],
+      answer: 1,
+      why: 'Whitelisting rejects unknown classes. Blacklists only cover known threats; bombs may remain.',
+    },
+  ]}
+/>
+
+<CodingExam
+  title="no serializable"
+  heading="Challenge: drop Serializable"
+  lang="java"
+  filename="Main.java"
+  prompt="Settings is a simple in-memory config holder — it should NOT implement Serializable (Item 85). Remove Serializable; keep theme() working. wrap: new Settings(dark); print theme."
+  sampleLog={`dark`}
+  starter={`import java.io.Serializable;
+
+public class Main {
+    public static class Settings implements Serializable {
+        private static final long serialVersionUID = 1L;
+        private final String theme;
+
+        public Settings(String theme) {
+            this.theme = theme;
+        }
+
+        public String theme() {
+            return theme;
+        }
+    }
+}
+`}
+  wrapSuffix={`
+class Runner {
+    public static void main(String[] args) {
+        System.out.println(new Main.Settings("dark").theme());
+    }
+}
+`}
+  sourceChecks={[
+    { name: 'no Serializable', pattern: 'implements\\s+Serializable|implements\\s+java\\.io\\.Serializable', must: false, hint: 'remove implements Serializable from Settings' },
+    { name: 'no serialVersionUID', pattern: 'serialVersionUID', must: false, hint: 'drop serialVersionUID when class is not serializable' },
+  ]}
+  tests={[
+    { name: 'dark theme', stdin: '', equals: 'dark' },
+  ]}
+/>
+
+## Item 86: Implement Serializable with great caution
+
+`implements Serializable` is a **long-term API commitment**: the **serialized form** becomes exported forever. Default serialization exposes **private fields** and ties you to the **physical** representation.
+
+Costs:
+
+- **Evolution** — missing **`serialVersionUID`** breaks compatibility when the class changes
+- **Security** — deserialization is a hidden constructor (Item 88)
+- **Testing** — round-trip across releases
+
+**Declare explicitly:**
+
+```java
+private static final long serialVersionUID = 1L;
+```
+
+**Inner classes** should not implement Serializable (ill-defined default form). **Static member classes** may. Classes for **inheritance** rarely should implement Serializable.
+
+<CodingExam
+  title="serial version uid"
+  heading="Challenge: declare serialVersionUID"
+  lang="java"
+  filename="Main.java"
+  prompt="Point implements Serializable for legacy interop. Add private static final long serialVersionUID = 1L. wrap: serialize/deserialize a Point(3,4); print x."
+  sampleLog={`3`}
+  starter={`import java.io.Serializable;
+
+public class Main {
+    public static class Point implements Serializable {
+        private final int x;
+        private final int y;
+
+        public Point(int x, int y) {
+            this.x = x;
+            this.y = y;
+        }
+
+        public int x() {
+            return x;
+        }
+    }
+}
+`}
+  wrapSuffix={`
+class Runner {
+    public static void main(String[] args) throws Exception {
+        Main.Point p = new Main.Point(3, 4);
+        byte[] bytes;
+        try (java.io.ByteArrayOutputStream bos = new java.io.ByteArrayOutputStream();
+             java.io.ObjectOutputStream oos = new java.io.ObjectOutputStream(bos)) {
+            oos.writeObject(p);
+            bytes = bos.toByteArray();
+        }
+        try (java.io.ObjectInputStream ois = new java.io.ObjectInputStream(
+                new java.io.ByteArrayInputStream(bytes))) {
+            Main.Point restored = (Main.Point) ois.readObject();
+            System.out.println(restored.x());
+        }
+    }
+}
+`}
+  sourceChecks={[
+    { name: 'serialVersionUID', pattern: 'static\\s+final\\s+long\\s+serialVersionUID\\s*=\\s*1L', must: true, hint: 'private static final long serialVersionUID = 1L;' },
+  ]}
+  tests={[
+    { name: 'x is 3', stdin: '', equals: '3' },
+  ]}
+/>
+
+<MultipleChoice
+  id="java-int-ch12-implement"
+  title="Implementing Serializable"
+  questions={[
+    {
+      prompt: 'Non-static inner class implements Serializable',
+      choices: [
+        'recommended — captures enclosing instance',
+        'avoid — default serialized form is ill-defined; use static member class',
+        'required for collections',
+        'same as static nested class',
+      ],
+      answer: 1,
+      why: 'Inner classes have synthetic fields for enclosing scopes. Prefer static member classes if serialization is needed.',
+    },
+    {
+      prompt: 'Add convenience method to serializable class; no serialVersionUID declared',
+      choices: [
+        'no compatibility impact',
+        'auto-generated UID may change — InvalidClassException risk',
+        'only affects transient fields',
+        'fixed by @serial Javadoc',
+      ],
+      answer: 1,
+      why: 'Declare explicit serialVersionUID to control evolution (Item 87).',
+    },
+  ]}
+/>
+
+## Item 87: Consider using a custom serialized form
+
+**Default serialized form** mirrors the **physical** object graph — often wrong when representation ≠ **logical state** (linked lists, hash tables).
+
+Prefer **custom** `writeObject` / `readObject` emitting **logical data** only. Mark implementation fields **`transient`**. Still call **`defaultWriteObject`/`defaultReadObject`** first (even if all fields are transient) for forward compatibility.
+
+Document serialized fields with **`@serial`** and custom writers with **`@serialData`**. Declare **`serialVersionUID`**.
+
+<CodingExam
+  title="custom write read"
+  heading="Challenge: logical serialized form"
+  lang="java"
+  filename="Main.java"
+  prompt="StringBag stores strings in a transient list. writeObject: defaultWriteObject, writeInt(size), each string. readObject: defaultReadObject, new ArrayList, read size, add each string. serialVersionUID=1L. wrap: round-trip bag with a,b; print size:second."
+  sampleLog={`2:b`}
+  starter={`import java.io.IOException;
+import java.io.ObjectInputStream;
+import java.io.ObjectOutputStream;
+import java.io.Serializable;
+import java.util.ArrayList;
+import java.util.List;
+
+public class Main {
+    public static class StringBag implements Serializable {
+        private static final long serialVersionUID = 1L;
+        private transient List<String> items = new ArrayList<>();
+
+        public void add(String s) {
+            items.add(s);
+        }
+
+        public List<String> items() {
+            return List.copyOf(items);
+        }
+
+        private void writeObject(ObjectOutputStream out) throws IOException {
+            out.defaultWriteObject();
+        }
+
+        private void readObject(ObjectInputStream in) throws IOException, ClassNotFoundException {
+            in.defaultReadObject();
+            items = new ArrayList<>();
+        }
+    }
+}
+`}
+  wrapSuffix={`
+class Runner {
+    public static void main(String[] args) throws Exception {
+        Main.StringBag bag = new Main.StringBag();
+        bag.add("a");
+        bag.add("b");
+        byte[] bytes;
+        try (java.io.ByteArrayOutputStream bos = new java.io.ByteArrayOutputStream();
+             java.io.ObjectOutputStream oos = new java.io.ObjectOutputStream(bos)) {
+            oos.writeObject(bag);
+            bytes = bos.toByteArray();
+        }
+        try (java.io.ObjectInputStream ois = new java.io.ObjectInputStream(
+                new java.io.ByteArrayInputStream(bytes))) {
+            Main.StringBag restored = (Main.StringBag) ois.readObject();
+            System.out.println(restored.items().size() + ":" + restored.items().get(1));
+        }
+    }
+}
+`}
+  sourceChecks={[
+    { name: 'transient list', pattern: 'transient\\s+List\\s*<\\s*String\\s*>\\s+items', must: true, hint: 'private transient List<String> items' },
+    { name: 'write size', pattern: 'writeInt\\s*\\(\\s*items\\.size\\(\\s*\\)|writeInt\\s*\\(', must: true, hint: 'out.writeInt(items.size()); then write each string' },
+    { name: 'read loop', pattern: 'readInt\\s*\\(|for\\s*\\(\\s*int\\s+\\w+\\s*=\\s*0', must: true, hint: 'int n = in.readInt(); for (...) add((String) in.readObject())' },
+  ]}
+  tests={[
+    { name: 'two items', stdin: '', equals: '2:b' },
+  ]}
+/>
+
+## Items 85–87 map
+
+| Item | Move |
+|---|---|
+| 85 | JSON/protobuf; never deserialize untrusted bytes |
+| 86 | Serializable is a commitment; serialVersionUID; no inner classes |
+| 87 | Custom form = logical state; transient implementation fields |
+
+Next: [Safe Deserialization](./lesson-12b-safe-deserialization) (Items 88–90).
+
+<ExerciseSet
+  title="Exercises"
+  description="Transient cache field; static nested vs inner."
+>
+  <CodingExam
+    title="transient cache"
+    heading="Exercise: transient derived field"
+    lang="java"
+    filename="Main.java"
+    prompt="Label implements Serializable with text and cachedLength (text.length()). Mark cachedLength transient (derived, not logical state). length() must return text.length() so round-trip works. serialVersionUID=1L. wrap: serialize Label(abc); print length()."
+    starter={`import java.io.Serializable;
+
+public class Main {
+    public static class Label implements Serializable {
+        private static final long serialVersionUID = 1L;
+        private final String text;
+        private int cachedLength;
+
+        public Label(String text) {
+            this.text = text;
+            this.cachedLength = text.length();
+        }
+
+        public int length() {
+            return cachedLength;
+        }
+    }
+}
+`}
+    wrapSuffix={`
+class Runner {
+    public static void main(String[] args) throws Exception {
+        Main.Label label = new Main.Label("abc");
+        byte[] bytes;
+        try (java.io.ByteArrayOutputStream bos = new java.io.ByteArrayOutputStream();
+             java.io.ObjectOutputStream oos = new java.io.ObjectOutputStream(bos)) {
+            oos.writeObject(label);
+            bytes = bos.toByteArray();
+        }
+        try (java.io.ObjectInputStream ois = new java.io.ObjectInputStream(
+                new java.io.ByteArrayInputStream(bytes))) {
+            Main.Label restored = (Main.Label) ois.readObject();
+            System.out.println(restored.length());
+        }
+    }
+}
+`}
+    sourceChecks={[
+      { name: 'transient cache', pattern: 'transient\\s+int\\s+cachedLength', must: true, hint: 'private transient int cachedLength;' },
+      { name: 'length from text', pattern: 'return\\s+text\\.length\\s*\\(', must: true, hint: 'return text.length(); — logical state survives deserialize' },
+    ]}
+    tests={[
+      { name: 'len 3', stdin: '', equals: '3' },
+    ]}
+  />
+  <CodingExam
+    title="static nested serializable"
+    heading="Exercise: static member class"
+    lang="java"
+    filename="Main.java"
+    prompt="Outer holds a static nested Entry (not inner class) that implements Serializable with serialVersionUID=1L and value field. wrap: serialize Entry(hi); print value."
+    starter={`import java.io.Serializable;
+
+public class Main {
+    public static class Outer {
+        public class Entry implements Serializable {
+            private static final long serialVersionUID = 1L;
+            private final String value;
+
+            public Entry(String value) {
+                this.value = value;
+            }
+
+            public String value() {
+                return value;
+            }
+        }
+    }
+}
+`}
+    wrapSuffix={`
+class Runner {
+    public static void main(String[] args) throws Exception {
+        Main.Outer.Entry entry = new Main.Outer.Entry("hi");
+        byte[] bytes;
+        try (java.io.ByteArrayOutputStream bos = new java.io.ByteArrayOutputStream();
+             java.io.ObjectOutputStream oos = new java.io.ObjectOutputStream(bos)) {
+            oos.writeObject(entry);
+            bytes = bos.toByteArray();
+        }
+        try (java.io.ObjectInputStream ois = new java.io.ObjectInputStream(
+                new java.io.ByteArrayInputStream(bytes))) {
+            Main.Outer.Entry restored = (Main.Outer.Entry) ois.readObject();
+            System.out.println(restored.value());
+        }
+    }
+}
+`}
+    sourceChecks={[
+      { name: 'static nested', pattern: 'static\\s+class\\s+Entry', must: true, hint: 'public static class Entry implements Serializable' },
+      { name: 'not inner', pattern: 'public\\s+class\\s+Entry', must: false, hint: 'non-static inner class should become static nested class' },
+    ]}
+    tests={[
+      { name: 'hi', stdin: '', equals: 'hi' },
+    ]}
+  />
+</ExerciseSet>

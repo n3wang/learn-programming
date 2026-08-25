@@ -1,0 +1,506 @@
+---
+sidebar_position: 10
+title: "Design Patterns with Functions"
+---
+
+> **Source:** Fluent Python, 2nd Edition — Chapter 10 by Luciano Ramalho
+
+A **design pattern** is a known recipe for a recurring design problem. The Gang of Four catalog assumed C++/Smalltalk. In a language with **first-class functions**, several of those recipes shrink: you do not need a class whose only job is one method named `execute` or `discount`.
+
+This chapter is not “use more patterns.” It is: start from Strategy and Command, then replace single-method objects with **callables**.
+
+---
+
+## Strategy, in one paragraph
+
+**Strategy:** a family of algorithms, each interchangeable, so the client can vary the algorithm without rewriting the context.
+
+Ecommerce sketch — an order (the **context**) asks a **promotion** for a discount:
+
+- 5% off the whole order if loyalty points ≥ 1000
+- 10% off each line with quantity ≥ 20
+- 7% off the whole order if there are ≥ 10 distinct products
+
+The caller chooses one promotion (or a “best of” later). Classic OOP: ABC `Promotion` plus three subclasses with **no instance state**. That is a lot of types for three formulas.
+
+<details>
+<summary>🧪 A promo is just a function</summary>
+
+<PistonRunner
+  lang="python"
+  interactive={false}
+  height="300px"
+  code={`def fidelity_promo(points, total):
+    return total // 20 if points >= 1000 else 0
+
+def due(total, points, promo):
+    return total - promo(points, total)
+
+print(due(100, 0, fidelity_promo))
+print(due(100, 1000, fidelity_promo))
+`}
+/>
+
+</details>
+
+---
+
+## Mini quiz — Strategy
+
+<MultipleChoice
+  id="py-int-ch10-strategy"
+  title="Strategy"
+  questions={[
+    {
+      prompt: 'In Strategy, the context (Order) should',
+      choices: [
+        'hard-code every discount formula',
+        'delegate the varying algorithm to a plugged-in component',
+        'subclass int',
+        'avoid functions',
+      ],
+      answer: 1,
+      why: 'The algorithm is a separate object or function you pass in.',
+    },
+    {
+      prompt: 'If a concrete strategy has no fields, in Python you can often',
+      choices: [
+        'only use an ABC with three subclasses',
+        'use a plain function (one shared callable per process)',
+        'must apply Flyweight first',
+        'cannot pass it to Order',
+      ],
+      answer: 1,
+      why: 'A function is already a shared object you can reuse on every order.',
+    },
+  ]}
+/>
+
+---
+
+## Challenge: loyalty discount
+
+`promo(points, total)` returns the discount in whole units: 5% of `total` (`//`) if `points >= 1000`, else `0`.
+
+<CodingExam
+  title="loyalty discount"
+  heading="Challenge: loyalty discount"
+  lang="python"
+  filename="main.py"
+  prompt="Return the discount amount, not due. 5% via integer //."
+  sampleLog={`(input) 1100 200
+10`}
+  starter={`def promo(points, total):
+    return 0
+`}
+  wrapSuffix={`
+points, total = [int(x) for x in input().split()]
+print(promo(points, total))
+`}
+  tests={[
+    { name: 'loyal', stdin: '1100 200', equals: '10' },
+    { name: 'not enough points', stdin: '0 200', equals: '0' },
+    { name: 'exactly 1000', stdin: '1000 40', equals: '2' },
+  ]}
+/>
+
+---
+
+## Functions instead of promo classes
+
+Pass the function in. If `promotion` is an **instance attribute** holding a callable, `self.promotion(self)` is not a method call — you retrieve the function, then pass the order. Bound methods get `self` for free; stored functions do not.
+
+When a strategy **does** keep mutable state, keep a class or a closure. The GoF hint that Strategy objects make good flyweights is a hint you were paying for extra instances — a module-level function is already shared.
+
+---
+
+## Mini quiz — callables as strategies
+
+<MultipleChoice
+  id="py-int-ch10-callable"
+  title="Callables as strategies"
+  questions={[
+    {
+      prompt: 'order.promotion(order) mentions order twice because',
+      choices: [
+        'it is a syntax error',
+        'promotion is a stored callable, not a bound method',
+        'Python always needs two arguments',
+        'it copies the order',
+      ],
+      answer: 1,
+      why: 'Methods bind self automatically; a function sitting on the instance does not.',
+    },
+    {
+      prompt: 'A new promo function that is not in the best_promo list',
+      choices: [
+        'cannot be used at all',
+        'still works if passed explicitly, but “best” silently skips it',
+        'crashes import',
+        'is required by the ABC',
+      ],
+      answer: 1,
+      why: 'That is why a registration decorator is useful.',
+    },
+  ]}
+/>
+
+---
+
+## Best of several functions
+
+`best_promo(order)` is `max(fn(order) for fn in promos)`. A list of functions is ordinary data.
+
+| How you fill `promos` | Risk |
+|---|---|
+| Typed list | Easy to forget a new function |
+| `globals()` + `_promo` suffix | Brittle names |
+| `inspect` on a module | Every function in that module is assumed to be a promo |
+| `@promotion` registration | Explicit; disable one promo by commenting `@promotion` |
+
+---
+
+## Challenge: max over strategies
+
+`best(total, promos)` must apply **every** function in `promos` to `total` and return the **largest** result. Calling only the first function fails a hidden test.
+
+<CodingExam
+  title="max over strategies"
+  heading="Challenge: max over strategies"
+  lang="python"
+  filename="main.py"
+  prompt="max(fn(total) for fn in promos)"
+  sampleLog={`(input) a 100
+5`}
+  starter={`def best(total, promos):
+    return 0
+`}
+  wrapSuffix={`
+kind, n = input().split()
+n = int(n)
+
+def p5(t):
+    return t // 20
+
+def p0(t):
+    return 0
+
+def p9(t):
+    return 9 if t > 50 else 0
+
+if kind == "a":
+    print(best(n, [p5, p0]))
+else:
+    print(best(n, [p0, p9]))
+`}
+  tests={[
+    { name: 'p5 wins', stdin: 'a 100', equals: '5' },
+    { name: 'p9 wins', stdin: 'b 100', equals: '9' },
+    { name: 'all zero-ish', stdin: 'b 10', equals: '0' },
+  ]}
+/>
+
+---
+
+## Registration decorator
+
+Same idea as chapter 9: `@promotion` appends the function to a list and returns it. Then `best` cannot forget a promo unless you skip the decorator on purpose.
+
+---
+
+## Challenge: register then best
+
+Implement `promotion` so it records functions in `promos`. `best(total)` must use **that list**, not a hard-coded formula. The wrap will register a promo that is larger than “10%”.
+
+<CodingExam
+  title="register then best"
+  heading="Challenge: register then best"
+  lang="python"
+  filename="main.py"
+  prompt="Decorator appends to promos; best takes the max over that list."
+  sampleLog={`(input) 80
+50`}
+  starter={`promos = []
+
+def promotion(fn):
+    return fn
+
+def best(total):
+    return 0
+`}
+  wrapSuffix={`
+@promotion
+def tenth(t):
+    return t // 10
+
+@promotion
+def none(t):
+    return 0
+
+@promotion
+def flat(t):
+    return 50 if t >= 10 else 0
+
+print(best(int(input())))
+`}
+  sourceChecks={[
+    { name: 'Appends to promos', pattern: 'promos\\.append', must: true, hint: 'append the function in the decorator' },
+  ]}
+  tests={[
+    { name: 'flat wins', stdin: '80', equals: '50' },
+    { name: 'below threshold', stdin: '5', equals: '0' },
+  ]}
+/>
+
+---
+
+## Command as a callback
+
+**Command** puts an object between “menu clicked” (invoker) and “document changed” (receiver), with an `execute()` method. Gamma et al. even call commands an OO stand-in for callbacks.
+
+In Python, the invoker can store a **function** and call `command()`. A **macro** is a callable that holds a list of callables:
+
+```python
+class Macro:
+    def __init__(self, commands):
+        self.commands = list(commands)
+    def __call__(self):
+        for c in self.commands:
+            c()
+```
+
+Undo and extra state may still want a class with more than `__call__`, or a closure. The smell to watch: an interface with one method named `run` / `do_it` / `execute` — often a function would do.
+
+---
+
+## Mini quiz — Command
+
+<MultipleChoice
+  id="py-int-ch10-command"
+  title="Command"
+  questions={[
+    {
+      prompt: 'A Python callable already implements',
+      choices: ['SQL', 'a one-method interface named __call__', 'only ABC Meta', 'Java overloading'],
+      answer: 1,
+      why: 'That is why functions substitute for Command.execute in simple cases.',
+    },
+    {
+      prompt: 'MacroCommand.__call__ should',
+      choices: [
+        'ignore stored commands',
+        'invoke each stored callable in order',
+        'delete the receiver',
+        'require an ABC',
+      ],
+      answer: 1,
+      why: 'A macro is a composite command.',
+    },
+  ]}
+/>
+
+---
+
+## Challenge: run a macro
+
+`Macro(cmds)` must copy the list. Calling the instance runs each command. Each command is a function of no args that appends a letter to a shared list `log` in the wrap. Print `''.join(log)`.
+
+<CodingExam
+  title="run a macro"
+  heading="Challenge: run a macro"
+  lang="python"
+  filename="main.py"
+  prompt="Callable that runs every stored command."
+  sampleLog={`(input) ab
+ab`}
+  starter={`class Macro:
+    def __init__(self, commands):
+        self.commands = []
+
+    def __call__(self):
+        pass
+`}
+  wrapSuffix={`
+log = []
+letters = input().strip()
+cmds = []
+for ch in letters:
+    def make(c):
+        def cmd():
+            log.append(c)
+        return cmd
+    cmds.append(make(ch))
+Macro(cmds)()
+print("".join(log))
+`}
+  sourceChecks={[
+    { name: 'Defines __call__', pattern: 'def __call__', must: true, hint: 'def __call__(self):' },
+  ]}
+  tests={[
+    { name: 'ab', stdin: 'ab', equals: 'ab' },
+    { name: 'xyz', stdin: 'xyz', equals: 'xyz' },
+  ]}
+/>
+
+---
+
+## Chapter summary
+
+:::important Key takeaways
+
+1. Strategy plugs an algorithm into a context; in Python that plug is often a function.
+2. `self.promo(self)` is a stored callable, not a bound method.
+3. `best` is `max` over a list of functions; keep that list honest with a decorator (or accept the maintenance hazard).
+4. Command is often a callback; `__call__` plus a list gives macros.
+5. First-class functions make some GoF patterns shorter — not every pattern, and not when the strategy is stateful.
+
+:::
+
+## Exercises
+
+<ExerciseSet>
+<Exercise title="Bulk line discount" anchor="exercise-bulk">
+
+:::tip Activity: Bulk line discount
+Each input pair is `qty price` (integers). Discount is 10% (`// 10`) of `qty * price` for every line with `qty >= 20`, summed. Lines under 20 add 0.
+
+<CodingExam
+  title="Bulk line discount"
+  heading="exercise-bulk"
+  lang="python"
+  filename="main.py"
+  prompt="10% of line total when qty >= 20, integer //."
+  sampleLog={`(input) 30 2 10 5
+6`}
+  starter={`def bulk(lines):
+    # lines is a list of (qty, price)
+    return 0
+`}
+  wrapSuffix={`
+toks = [int(x) for x in input().split()]
+pairs = list(zip(toks[0::2], toks[1::2]))
+print(bulk(pairs))
+`}
+  tests={[
+    { name: 'one bulk line', stdin: '30 2 10 5', equals: '6' },
+    { name: 'none bulk', stdin: '5 10', equals: '0' },
+    { name: 'two bulk', stdin: '20 3 20 3', equals: '12' },
+  ]}
+/>
+
+:::
+
+</Exercise>
+
+<Exercise title="Distinct SKU promo" anchor="exercise-skus">
+
+:::tip Activity: Distinct SKU promo
+Tokens are product names (repeats allowed). If there are **at least 10 distinct** names, return `7`; otherwise `0`.
+
+<CodingExam
+  title="Distinct SKU promo"
+  heading="exercise-skus"
+  lang="python"
+  filename="main.py"
+  prompt="7 if 10+ unique tokens, else 0."
+  sampleLog={`(input) 0 1 2 3 4 5 6 7 8 9
+7`}
+  starter={`def large_order(names):
+    return 0
+`}
+  wrapSuffix={`
+print(large_order(input().split()))
+`}
+  tests={[
+    { name: 'ten distinct', stdin: '0 1 2 3 4 5 6 7 8 9', equals: '7' },
+    { name: 'repeats', stdin: 'a a a a a a a a a a', equals: '0' },
+    { name: 'nine distinct', stdin: '0 1 2 3 4 5 6 7 8', equals: '0' },
+  ]}
+/>
+
+:::
+
+</Exercise>
+
+<Exercise title="Pay with a strategy" anchor="exercise-due">
+
+:::tip Activity: Pay with a strategy
+`due(total, points, promo)` subtracts `promo(points, total)` from `total`. You must call the function you were given — do not reimplement loyalty inside `due`.
+
+<CodingExam
+  title="Pay with a strategy"
+  heading="exercise-due"
+  lang="python"
+  filename="main.py"
+  prompt="due = total - promo(points, total). Always call promo."
+  sampleLog={`(input) 100 0
+100`}
+  starter={`def due(total, points, promo):
+    return total
+`}
+  wrapSuffix={`
+def fidelity(points, total):
+    return total // 20 if points >= 1000 else 0
+
+total, points = [int(x) for x in input().split()]
+print(due(total, points, fidelity))
+`}
+  sourceChecks={[
+    { name: 'Calls promo', pattern: 'promo\\(', must: true, hint: 'call the promo argument' },
+  ]}
+  tests={[
+    { name: 'no points', stdin: '100 0', equals: '100' },
+    { name: 'loyal', stdin: '100 1000', equals: '95' },
+  ]}
+/>
+
+:::
+
+</Exercise>
+
+<Exercise title="Macro copies the list" anchor="exercise-macro-copy">
+
+:::tip Activity: Macro copies the list
+If `Macro` aliases the list it was given, later `cmds.append(...)` would change a finished macro. Store `list(commands)`. After building the macro, the wrap will append a poison command to the original list; your macro must **not** run it.
+
+<CodingExam
+  title="Macro copies the list"
+  heading="exercise-macro-copy"
+  lang="python"
+  filename="main.py"
+  prompt="Copy commands in __init__; run only the copy."
+  sampleLog={`(input) a
+a`}
+  starter={`class Macro:
+    def __init__(self, commands):
+        self.commands = commands
+
+    def __call__(self):
+        for c in self.commands:
+            c()
+`}
+  wrapSuffix={`
+log = []
+letters = input().strip()
+cmds = []
+for ch in letters:
+    def make(c):
+        def cmd():
+            log.append(c)
+        return cmd
+    cmds.append(make(ch))
+m = Macro(cmds)
+cmds.append(lambda: log.append("X"))
+m()
+print("".join(log))
+`}
+  tests={[
+    { name: 'a only', stdin: 'a', equals: 'a' },
+    { name: 'ab not X', stdin: 'ab', equals: 'ab' },
+  ]}
+/>
+
+:::
+
+</Exercise>
+</ExerciseSet>

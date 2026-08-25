@@ -29,6 +29,6 @@ Copy `src/components/interactive/shell/_template.js` when you add a new demo.
 - [CPU pipeline](./computer-engineering/lesson-notes/cpu-pipeline)
 - [Cache hierarchy](./computer-engineering/lesson-notes/cache-hierarchy)
 - [Branch prediction](./computer-engineering/lesson-notes/branch-prediction)
-- [0-1 BFS](./algorithms/01-bfs)
+- [0-1 BFS](./algorithms/bfs)
 
 Developer notes: `src/components/interactive/README.md`.

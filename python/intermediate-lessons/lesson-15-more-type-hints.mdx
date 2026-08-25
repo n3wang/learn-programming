@@ -1,0 +1,337 @@
+---
+sidebar_position: 16
+title: "More About Type Hints"
+---
+
+> **Source:** Fluent Python, 2nd Edition — Chapter 15 by Luciano Ramalho
+
+Chapter 8 was the first pass at gradual typing. This sequel is the awkward parts: **`@overload`**, **`TypedDict`**, **`cast`**, reading hints at **runtime**, and **generics** (including variance and generic protocols).
+
+Guido’s line: small programs love dynamism; large ones want a language that can be strict. You still do not need 100% annotations. Pythonic APIs are often the hardest to hint — `max` needs six overloads.
+
+## Overloaded signatures
+
+When the **return type depends on which arguments you passed**, one signature is a lie. `@typing.overload` lists legal shapes. The checker tries them **in order**. In a `.pyi` stub, overloads are the whole story. In a `.py` file they sit **above** the real `def`, which usually has **no** hints:
+
+```python
+@overload
+def sum(it: Iterable[T]) -> T | int: ...
+
+@overload
+def sum(it: Iterable[T], /, start: S) -> T | S: ...
+
+def sum(it, /, start=0):
+    return functools.reduce(operator.add, it, start)
+```
+
+Empty `sum([])` is `int` because `start` defaults to `0` — that is why the first return is `T | int`. Typeshed’s `builtins.pyi` is full of this (`__arg` prefixes mark positional-only).
+
+`max` is worse: iterable **or** two-or-more args, plus `key` and `default`. A `SupportsLessThan` protocol (`__lt__`) plus six overloads lets Mypy reject `max([None, None])`. Copy-pasting the same block for `min` is the tax. João Bueno: the idea of `max` fits in a head; the annotation language does not.
+
+<CodingExam
+  title="Overload then implement"
+  heading="Challenge: overload then implement"
+  lang="python"
+  filename="main.py"
+  prompt="Write two @overload stubs for add: (iterable) and (iterable, start). Implementation: functools.reduce(operator.add, it, start) with start default 0. wrap: ints; print add(nums) and add(nums, 10)."
+  sampleLog={`(input) 1 2 3
+6 16`}
+  starter={`import functools
+import operator
+from collections.abc import Iterable
+from typing import TypeVar, overload
+
+T = TypeVar('T')
+S = TypeVar('S')
+
+def add(it, start=0):
+    return 0
+
+def wrap(line: str) -> str:
+    nums = list(map(int, line.split()))
+    return f'{add(nums)} {add(nums, 10)}'
+`}
+  wrapSuffix={`
+print(wrap(input()))
+`}
+  sourceChecks={[
+    { name: 'overload', pattern: '@overload', must: true, hint: '@overload above the real def' },
+    { name: 'reduce', pattern: 'reduce', must: true, hint: 'functools.reduce(operator.add, it, start)' },
+  ]}
+  tests={[
+    { name: 'three ints', stdin: '1 2 3', equals: '6 16' },
+    { name: 'empty uses start', stdin: '', equals: '0 10' },
+  ]}
+/>
+
+Empty input: `add([])` is `0`, `add([], 10)` is `10`.
+
+## TypedDict
+
+A JSON book record has **different value types per key**. `dict[str, Any]` is mush. `dict[str, str | int | list[str]]` does not tie `title` to `str`.
+
+`TypedDict` (PEP 589) is a **checker-only** record shape. At runtime `BookDict(...)` **is `dict`**. No attributes, no defaults, no methods. Wrong `authors='Jon'` is silent until a checker or **pydantic** (or similar) validates.
+
+```python
+class BookDict(TypedDict):
+    isbn: str
+    title: str
+    authors: list[str]
+    pagecount: int
+```
+
+Mypy will flag assigning `str` to `authors`, adding `weight`, deleting `title`. `json.loads` returns `Any`. Annotating `whatever: BookDict = json.loads(data)` **silences** `--disallow-any-expr` and still does not make the JSON a book. Garbage in, garbage XML out. `isinstance(value, list)` in `to_xml` is what the checker understands; `key == 'authors'` was not enough in the book’s example.
+
+Optional keys and inheritance exist in PEP 589. They still are not a JSON schema.
+
+<MultipleChoice
+  id="py-int-ch15-typeddict"
+  title="TypedDict"
+  questions={[
+    {
+      prompt: 'BookDict(title=..., isbn=...) returns',
+      choices: [
+        'a BookDict instance with .title',
+        'a plain dict; field access is book["title"]',
+        'a NamedTuple',
+        'a pydantic model',
+      ],
+      answer: 1,
+      why: 'TypedDict is not a class builder. Use pydantic (or similar) for runtime JSON.',
+    },
+  ]}
+/>
+
+<CodingExam
+  title="TypedDict is a dict"
+  heading="Challenge: TypedDict is a dict"
+  lang="python"
+  filename="main.py"
+  prompt="Define Rec(TypedDict) with keys name: str and n: int. wrap: word then int. Build Rec(name=..., n=...). Print type(r).__name__, r['name'], r['n'], and whether hasattr(r, 'name') is yes/no."
+  sampleLog={`(input) Ada 36
+dict Ada 36 no`}
+  starter={`from typing import TypedDict
+
+class Rec:
+    pass
+
+def wrap(line: str) -> str:
+    name, n = line.split()
+    r = Rec(name=name, n=int(n))
+    has = 'yes' if hasattr(r, 'name') else 'no'
+    return f'{type(r).__name__} {r["name"]} {r["n"]} {has}'
+`}
+  wrapSuffix={`
+print(wrap(input()))
+`}
+  sourceChecks={[
+    { name: 'TypedDict', pattern: 'TypedDict', must: true, hint: 'class Rec(TypedDict)' },
+  ]}
+  tests={[
+    { name: 'plain dict', stdin: 'Ada 36', equals: 'dict Ada 36 no' },
+    { name: 'other row', stdin: 'Bob 1', equals: 'dict Bob 1 no' },
+  ]}
+/>
+
+## `cast`
+
+`typing.cast(typ, val)` **returns `val` unchanged**. The checker must believe `typ`. Use it when typeshed or inference is wrong (`list[object]` item that you already proved is `str`; `asyncio.Server.sockets` lagging the real tuple).
+
+Overuse is a smell. `# type: ignore` says less. `Any` infects inference. Occasional `cast` is what Guido called fine. It does not catch `[][0]`.
+
+<CodingExam
+  title="cast is a no-op"
+  heading="Challenge: cast is a no-op"
+  lang="python"
+  filename="main.py"
+  prompt="wrap: tokens. Find the first token that is not an int (try int()), then return typing.cast(str, that_token). If none, return none."
+  sampleLog={`(input) 1 2 hi 3
+hi`}
+  starter={`from typing import cast
+
+def wrap(line: str) -> str:
+    return ''
+`}
+  wrapSuffix={`
+print(wrap(input()))
+`}
+  sourceChecks={[
+    { name: 'Uses cast', pattern: 'cast\\s*\\(', must: true, hint: 'cast(str, token)' },
+  ]}
+  tests={[
+    { name: 'first word', stdin: '1 2 hi 3', equals: 'hi' },
+    { name: 'all ints', stdin: '4 5', equals: 'none' },
+  ]}
+/>
+
+## Reading hints at runtime
+
+Import time used to **evaluate** annotations into `__annotations__` (`str`, not `'str'`). That costs CPU/RAM and needs quotes for **forward refs** (`-> 'Rectangle'` inside the class).
+
+`from __future__ import annotations` (PEP 563) stores **strings**. `typing.get_type_hints` resolves many of them. It fails on inner classes, some factories, some self-types. FastAPI/pydantic pushed back; default postponed evaluation slipped. Prefer **`get_type_hints`**, wrapped in **your** helper so one place can absorb future changes (`Checked._fields`).
+
+Do not parse `__annotations__` yourself if you can avoid it.
+
+<PistonRunner
+  lang="python"
+  interactive={false}
+  height="220px"
+  code={`from typing import get_type_hints
+
+def clip(text: str, max_len: int = 80) -> str:
+    return text[:max_len]
+
+print(clip.__annotations__)
+print(get_type_hints(clip))
+`}
+/>
+
+<CodingExam
+  title="get_type_hints"
+  heading="Challenge: get_type_hints"
+  lang="python"
+  filename="main.py"
+  prompt="def clip(text: str, max_len: int = 80) -> str: return text. wrap ignored. Print the return annotation from get_type_hints(clip) as the class name (str)."
+  starter={`from typing import get_type_hints
+
+def clip(text, max_len=80):
+    return text
+
+def wrap(line: str) -> str:
+    return ''
+`}
+  wrapSuffix={`
+print(wrap(input()))
+`}
+  sourceChecks={[
+    { name: 'get_type_hints', pattern: 'get_type_hints', must: true, hint: 'get_type_hints(clip)' },
+    { name: 'Annotated clip', pattern: 'def clip\\(text:\\s*str', must: true, hint: 'def clip(text: str, max_len: int = 80) -> str' },
+  ]}
+  tests={[
+    { name: 'return str', stdin: 'x', equals: 'str' },
+  ]}
+/>
+
+## Generic classes
+
+```python
+class LottoBlower(Tombola, Generic[T]):
+    def pick(self) -> T: ...
+```
+
+Users write `LottoBlower[int]`. **Generic type** = declared with variables. **Formal parameter** = `T`. **Parameterized type** = `LottoBlower[int]`. **Actual parameter** = `int`. Mutable collections stay **invariant**: `list[int]` is not a `list[float]`.
+
+## Variance
+
+School: only a **juice** dispenser. Invariant `BeverageDispenser[Juice]` rejects both generic `Beverage` and specialized `OrangeJuice`. Covariance (`TypeVar(..., covariant=True)`, name `T_co`): orange juice dispenser OK; any-beverage still not. Same direction as the beverage hierarchy. **Immutable / output-only** types (`FrozenSet`, iterators) can be covariant.
+
+Trash: need a can that accepts **biodegradable**. Contravariant `T_contra`: a `TrashCan[Refuse]` (more general) is OK; `TrashCan[Compostable]` is too picky. **Sinks** reverse the hierarchy. `Generator` / `Coroutine` mix a contravariant send type with a covariant yield type.
+
+Rules of thumb: **out → co**, **in after construct → contra**, **both → invariant**. Default `TypeVar` is invariant. When unsure, stay invariant.
+
+<MultipleChoice
+  id="py-int-ch15-var"
+  title="Variance"
+  questions={[
+    {
+      prompt: 'list[int] vs list[float] is',
+      choices: [
+        'covariant — int list is a float list',
+        'invariant — neither is a subtype of the other',
+        'contravariant',
+        'the same as frozenset',
+      ],
+      answer: 1,
+      why: 'You could append a float into a list[int] if it were treated as list[float].',
+    },
+    {
+      prompt: 'A write-only trash can parameterized on refuse type is typically',
+      choices: [
+        'covariant',
+        'contravariant: a more general can still accepts biodegradable',
+        'illegal in Python',
+        'the same as list',
+      ],
+      answer: 1,
+      why: 'Refuse :> Biodegradable but TrashCan[Refuse] <: TrashCan[Biodegradable].',
+    },
+  ]}
+/>
+
+## Generic static protocols
+
+`SupportsAbs[T_co]` is a one-method protocol; `__abs__` returns `T_co`. `is_unit(v: SupportsAbs[float])` accepts `Vector2d`, `complex`, `int`. `RandomPicker[T_co]` tightens Chapter 13’s `Any` pick.
+
+```python
+T_co = TypeVar('T_co', covariant=True)
+
+class RandomPicker(Protocol[T_co]):
+    def pick(self) -> T_co: ...
+```
+
+<CodingExam
+  title="Generic box"
+  heading="Challenge: generic box"
+  lang="python"
+  filename="main.py"
+  prompt="class Cell(Generic[T]) stores one T. wrap: one int. Cell[int](n).get() must return that int. Use TypeVar T and Generic[T]."
+  sampleLog={`(input) 7
+7`}
+  starter={`from typing import TypeVar, Generic
+
+class Cell:
+    def __init__(self, item):
+        self._item = item
+
+    def get(self):
+        return None
+
+def wrap(line: str) -> str:
+    n = int(line)
+    return str(Cell(n).get())
+`}
+  wrapSuffix={`
+print(wrap(input()))
+`}
+  sourceChecks={[
+    { name: 'Generic', pattern: 'Generic', must: true, hint: 'class Cell(Generic[T])' },
+    { name: 'TypeVar', pattern: 'TypeVar', must: true, hint: "T = TypeVar('T')" },
+  ]}
+  tests={[
+    { name: 'round trip', stdin: '7', equals: '7' },
+    { name: 'other', stdin: '0', equals: '0' },
+  ]}
+/>
+
+This chapter is not the whole type system. Robust Python (Viafore) and Mypy’s docs keep up better than the language reference.
+
+<ExerciseSet
+  title="Exercises"
+  description="cast and a covariant-style protocol method."
+>
+  <CodingExam
+    title="Empty add"
+    heading="Exercise: empty add"
+    lang="python"
+    filename="main.py"
+    prompt="Same add as the overload challenge. wrap ignored. Print add([]) ."
+    starter={`import functools
+import operator
+
+def add(it, start=0):
+    return None
+
+def wrap(line: str) -> str:
+    return str(add([]))
+`}
+    wrapSuffix={`
+print(wrap(input()))
+`}
+    sourceChecks={[
+      { name: 'reduce', pattern: 'reduce', must: true, hint: 'reduce(operator.add, it, start)' },
+    ]}
+    tests={[
+      { name: 'zero', stdin: 'x', equals: '0' },
+    ]}
+  />
+</ExerciseSet>

@@ -1,0 +1,996 @@
+---
+sidebar_position: 6
+title: "Object References, Mutability, and Recycling"
+---
+
+> **Source:** Fluent Python, 2nd Edition — Chapter 6 by Luciano Ramalho
+
+Every Python object has an **identity**, a **type**, and a **value**. Only the value can change over time. This chapter is about the gap between a variable and the object it points to — and the bugs that live in that gap: aliasing, mutable default arguments, shallow copies, and functions that mutate what you handed them.
+
+`b = a` does not copy `a`. It sticks a second label on the same object. Everything else in this chapter follows from that one fact.
+
+---
+
+## Variables are labels, not boxes
+
+Think "box" and `b = a` should copy the contents of `a`'s box into `b`'s box. Python doesn't work that way. Think "sticky note" instead: `a` and `b` are two notes stuck on the **same** object.
+
+<details>
+<summary>🧪 One list, two labels</summary>
+
+<PistonRunner
+  lang="python"
+  interactive={false}
+  height="260px"
+  code={`a = [1, 2, 3]
+b = a
+a.append(4)
+print(b)
+`}
+/>
+
+</details>
+
+Read an assignment **right side first**: that's where the object gets created or looked up. *Then* the name on the left gets bound to it, like a label. If the right side raises before finishing, the left name is never bound at all — there is no half-built object sitting in a box waiting for a name.
+
+---
+
+## Mini quiz — labels, not boxes
+
+<MultipleChoice
+  id="py-int-ch6-labels"
+  title="Variables as labels"
+  questions={[
+    {
+      prompt: 'After b = a on two lists, appending to a',
+      choices: ['never affects b', 'is visible through b too, because they are the same object', 'raises TypeError', 'only affects b, not a'],
+      answer: 1,
+      why: 'b = a does not copy — it adds a second name for the same list.',
+    },
+    {
+      prompt: 'y = Gizmo() * 10 where Gizmo has no __mul__: what happens to y if the multiplication raises?',
+      choices: ['y is bound to a broken Gizmo', 'y is never bound at all — the exception happens before assignment', 'y is bound to None', 'the Gizmo is not created'],
+      answer: 1,
+      why: 'The right-hand side runs fully (creating the Gizmo) before the assignment. If it raises, the name on the left never gets bound.',
+    },
+  ]}
+/>
+
+---
+
+## Challenge: same list, two names
+
+Read `n1 n2 n3 extra`. Build `a` from the first numbers, alias `b = a`, then append `extra` through `b`. Print `a` — the append must be visible there too.
+
+<CodingExam
+  title="same list, two names"
+  heading="Challenge: same list, two names"
+  lang="python"
+  filename="main.py"
+  prompt="b = a (alias, not copy); append extra via b; return a"
+  sampleLog={`(input) 1 2 3 9
+1 2 3 9`}
+  starter={`def apply(nums, extra):
+    a = nums
+    b = a
+    # TODO: append extra to b so it shows up in a too
+    return a
+`}
+  wrapSuffix={`
+parts = [int(x) for x in input().split()]
+*nums, extra = parts
+print(*apply(nums, extra))
+`}
+  sourceChecks={[
+    { name: 'Appends via b', pattern: 'b\\.append\\(extra\\)', must: true, hint: 'b.append(extra)' },
+  ]}
+  tests={[
+    { name: '1 2 3 9', stdin: '1 2 3 9', equals: '1 2 3 9' },
+    { name: '5 1', stdin: '5 1', equals: '5 1' },
+  ]}
+/>
+
+---
+
+## Identity, equality, and aliases
+
+`==` compares **values**. `is` compares **identity** (`id()`, the object's address in CPython). Two variables can hold equal-but-distinct objects — same data, different identity.
+
+<details>
+<summary>🧪 Aliases vs. lookalikes</summary>
+
+<PistonRunner
+  lang="python"
+  interactive={false}
+  height="300px"
+  code={`charles = {'name': 'Charles L. Dodgson', 'born': 1832}
+lewis = charles
+alex = {'name': 'Charles L. Dodgson', 'born': 1832}
+
+print(lewis is charles)
+print(alex is charles)
+print(alex == charles)
+`}
+/>
+
+</details>
+
+`lewis` is an **alias** for `charles`: same object, so mutating through one shows up through the other. `alex` is a separate dict that happens to compare equal — a lookalike, not an alias.
+
+By far the most common `is` check is against `None`:
+
+```python
+if x is None:
+    ...
+```
+
+`is` is also right for **sentinel** objects — a private marker object used only to detect "argument not given":
+
+```python
+MISSING = object()
+
+def describe(x=MISSING):
+    return "missing" if x is MISSING else str(x)
+```
+
+`is` is faster than `==` because it can't be overloaded — it's just an integer comparison, no `__eq__` call. But that's a side benefit, not the reason to reach for it. Use `==` for values; save `is` for identity questions: "is this the same object," "is this None," "is this my sentinel."
+
+---
+
+## Mini quiz — is vs ==
+
+<MultipleChoice
+  id="py-int-ch6-is-eq"
+  title="Choosing is vs =="
+  questions={[
+    {
+      prompt: 'The recommended way to check for None is',
+      choices: ['x == None', 'x is None', 'not x', 'x.is_none()'],
+      answer: 1,
+      why: 'None is a singleton — there is only ever one. is is the idiomatic, and faster, check.',
+    },
+    {
+      prompt: 'Two dicts with identical key/value pairs but built separately',
+      choices: ['always fail == ', 'compare equal with ==, but are not the same object under is', 'are automatically the same object', 'cannot be compared'],
+      answer: 1,
+      why: "dict.__eq__ compares contents, not identity. They're equal lookalikes, not aliases.",
+    },
+  ]}
+/>
+
+---
+
+## Challenge: update through alias
+
+Build `record = {'name': name}`, alias `person = record`, then set `person['balance']`. Print `record['balance']` — the mutation through the alias must be visible on `record`.
+
+<CodingExam
+  title="update through alias"
+  heading="Challenge: update through alias"
+  lang="python"
+  filename="main.py"
+  prompt="person = record (alias); set person['balance'] = balance"
+  sampleLog={`(input) Ada 950
+950`}
+  starter={`def add_balance(name, balance):
+    record = {'name': name}
+    person = record
+    # TODO: set person['balance'] = balance
+    return record
+`}
+  wrapSuffix={`
+name, balance = input().split()
+result = add_balance(name, int(balance))
+print(result['balance'])
+`}
+  sourceChecks={[
+    { name: "Sets person['balance']", pattern: "person\\['balance'\\]", must: true, hint: "person['balance'] = balance" },
+  ]}
+  tests={[
+    { name: 'Ada 950', stdin: 'Ada 950', equals: '950' },
+    { name: 'Bob 10', stdin: 'Bob 10', equals: '10' },
+  ]}
+/>
+
+---
+
+## The relative immutability of tuples
+
+A tuple is immutable — but only its own slots are. It can't be resized and its items can't be swapped for other objects. If one of those items is itself mutable (a list, say), *that* item can still change, and the tuple's **value** changes with it, even though its **identity** and its **references** never do.
+
+<details>
+<summary>🧪 A tuple whose value changes</summary>
+
+<PistonRunner
+  lang="python"
+  interactive={false}
+  height="320px"
+  code={`t1 = (1, 2, [30, 40])
+t2 = (1, 2, [30, 40])
+print(t1 == t2)
+
+inner_id_before = id(t1[-1])
+t1[-1].append(99)
+inner_id_after = id(t1[-1])
+
+print(t1)
+print(inner_id_before == inner_id_after)
+print(t1 == t2)
+`}
+/>
+
+</details>
+
+The identity of `t1[-1]` never changes — it's the same list object before and after. What changed is that list's *contents*, and that's enough to make `t1 != t2`. This is also why a tuple containing a list is unhashable: hashing needs a value that can't shift under it.
+
+---
+
+## Mini quiz — tuples and mutable items
+
+<MultipleChoice
+  id="py-int-ch6-tuple"
+  title="Relative immutability"
+  questions={[
+    {
+      prompt: 'A tuple (1, [2, 3]) is immutable. Which is true?',
+      choices: [
+        'the inner list can never change',
+        "the tuple's own slots can't change, but a mutable item inside it can — changing the tuple's value",
+        'the tuple becomes a list once mutated',
+        'this tuple cannot exist',
+      ],
+      answer: 1,
+      why: "Immutability applies to the tuple's references, not transitively to what those references point to.",
+    },
+    {
+      prompt: 'Why is a tuple containing a list unhashable?',
+      choices: [
+        'tuples are never hashable',
+        "its value can change after creation (via the list), which would break hash()'s contract",
+        'lists cannot be tuple items',
+        'only strings are hashable',
+      ],
+      answer: 1,
+      why: 'A hashable value must not change. A tuple holding a mutable item can, so Python refuses to hash it.',
+    },
+  ]}
+/>
+
+---
+
+## Challenge: tuple with a mutable item
+
+Build `t = (1, 2, list(nums))`. Append `extra` to the list **inside** the tuple — not the tuple itself. Return that inner list.
+
+<CodingExam
+  title="tuple with a mutable item"
+  heading="Challenge: tuple with a mutable item"
+  lang="python"
+  filename="main.py"
+  prompt="t[-1].append(extra) — mutate the item, not the tuple"
+  sampleLog={`(input) 30 40 99
+30 40 99`}
+  starter={`def grow(nums, extra):
+    t = (1, 2, list(nums))
+    # TODO: mutate the list inside t (not the tuple itself) by appending extra
+    return t[-1]
+`}
+  wrapSuffix={`
+parts = [int(x) for x in input().split()]
+*nums, extra = parts
+print(*grow(nums, extra))
+`}
+  sourceChecks={[
+    { name: 'Mutates t[-1]', pattern: 't\\[-1\\]\\.append\\(extra\\)', must: true, hint: 't[-1].append(extra)' },
+  ]}
+  tests={[
+    { name: '30 40 99', stdin: '30 40 99', equals: '30 40 99' },
+    { name: '5 1', stdin: '5 1', equals: '5 1' },
+  ]}
+/>
+
+---
+
+## Copies are shallow by default
+
+`list(l1)` and `l1[:]` both copy the **outer** container only — the copy's slots point at the exact same inner objects as the original. That's a **shallow copy**. Cheap, and fine when every item is immutable. Risky the moment an item is mutable.
+
+<details>
+<summary>🧪 A shallow copy shares its inner list</summary>
+
+<PistonRunner
+  lang="python"
+  interactive={false}
+  height="320px"
+  code={`l1 = [3, [66, 55, 44], (7, 8, 9)]
+l2 = list(l1)
+
+l1.append(100)
+l1[1].remove(55)
+
+print(l1)
+print(l2)
+`}
+/>
+
+</details>
+
+`l1.append(100)` only touched `l1`'s own slots — `l2` doesn't see it. But `l1[1].remove(55)` mutated the **inner list**, and `l2[1]` is the same inner list object, so `l2` sees that change too.
+
+For a real independent copy — including nested mutable items — use `copy.deepcopy`. It's smarter than a naive recursive copy: it remembers objects it has already copied, so **cyclic references** (an object that (indirectly) contains itself) don't cause infinite recursion.
+
+---
+
+## Mini quiz — shallow vs deep
+
+<MultipleChoice
+  id="py-int-ch6-copy"
+  title="Copying containers"
+  questions={[
+    {
+      prompt: 'list(l1) and l1[:] both produce',
+      choices: ['deep copies', 'shallow copies — new outer container, shared inner objects', 'the same object as l1', 'a TypeError if l1 has mutable items'],
+      answer: 1,
+      why: 'Only the outermost container is duplicated; the items inside are shared by reference.',
+    },
+    {
+      prompt: 'copy.deepcopy handles an object that contains a reference back to itself by',
+      choices: ['crashing with RecursionError', 'remembering objects already copied, so cycles terminate', 'refusing to copy any nested containers', 'ignoring the cyclic reference entirely'],
+      answer: 1,
+      why: 'deepcopy tracks a memo of already-copied objects specifically to survive cycles.',
+    },
+  ]}
+/>
+
+---
+
+## Challenge: deep copy a passenger list
+
+Clone `names` with `copy.deepcopy` before removing `to_drop` from the original. The clone must be unaffected by that removal.
+
+<CodingExam
+  title="deep copy a passenger list"
+  heading="Challenge: deep copy a passenger list"
+  lang="python"
+  filename="main.py"
+  prompt="clone = copy.deepcopy(original) before mutating original"
+  sampleLog={`(input) Alice Bill Claire Bill
+Alice Bill Claire`}
+  starter={`import copy
+
+def clone_and_drop(names, to_drop):
+    original = list(names)
+    # TODO: make clone an independent deep copy of original
+    clone = original
+    original.remove(to_drop)
+    return clone
+`}
+  wrapSuffix={`
+parts = input().split()
+*names, drop = parts
+print(*clone_and_drop(names, drop))
+`}
+  sourceChecks={[
+    { name: 'Uses deepcopy', pattern: 'copy\\.deepcopy\\(', must: true, hint: 'clone = copy.deepcopy(original)' },
+  ]}
+  tests={[
+    { name: 'drop Bill', stdin: 'Alice Bill Claire Bill', equals: 'Alice Bill Claire' },
+    { name: 'drop Ann', stdin: 'Ann Bob Ann', equals: 'Ann Bob' },
+  ]}
+/>
+
+---
+
+## Function parameters are references
+
+Python passes arguments by **call by sharing**: each parameter becomes a new alias for the same object the caller passed. A function can mutate a mutable argument, but it can never make the caller's variable point somewhere else — rebinding a parameter inside the function only rebinds the *local* name.
+
+<details>
+<summary>🧪 += reacts differently depending on the type</summary>
+
+<PistonRunner
+  lang="python"
+  interactive={false}
+  height="340px"
+  code={`def f(a, b):
+    a += b
+    return a
+
+x, y = 1, 2
+print(f(x, y), x, y)
+
+lst_a, lst_b = [1, 2], [3, 4]
+print(f(lst_a, lst_b), lst_a, lst_b)
+`}
+/>
+
+</details>
+
+For the ints, `a += b` rebinds the local `a` to a new int; `x` never sees it. For the lists, `a += b` calls `list.__iadd__`, which extends **in place** and rebinds `a` to that same, now-mutated, object — so `lst_a` shows the change too.
+
+---
+
+## Mini quiz — call by sharing
+
+<MultipleChoice
+  id="py-int-ch6-params"
+  title="Parameters as aliases"
+  questions={[
+    {
+      prompt: 'A function does items.append(x) where items is a list parameter. After the call, the caller\'s list',
+      choices: ['is unaffected — parameters are always local copies', 'includes x — the parameter aliases the same list object', 'raises an error', 'only changes if the function returns items'],
+      answer: 1,
+      why: 'Call by sharing means the parameter is a second name for the caller\'s object. append mutates it in place.',
+    },
+    {
+      prompt: 'Inside a function, items = [] (a plain rebind, not items.clear())',
+      choices: [
+        "empties the caller's list too",
+        "only rebinds the local name — the caller's list is untouched",
+        'raises TypeError',
+        'is identical to items.clear()',
+      ],
+      answer: 1,
+      why: 'Rebinding a parameter never reaches back to the caller; only in-place mutation does.',
+    },
+  ]}
+/>
+
+---
+
+## Challenge: mutate the caller's list
+
+Use `items.extend(more)` — in-place mutation, not `items = items + more`, which would only rebind the local name. The caller must see the change without using your return value.
+
+<CodingExam
+  title="mutate the caller's list"
+  heading="Challenge: mutate the caller's list"
+  lang="python"
+  filename="main.py"
+  prompt="items.extend(more), mutating in place"
+  sampleLog={`(input) 1 2|3 4
+1 2 3 4`}
+  starter={`def extend_inplace(items, more):
+    # TODO: mutate items in place using .extend, not reassignment
+    return items
+`}
+  wrapSuffix={`
+parts = input().split('|')
+items = [int(x) for x in parts[0].split()]
+more = [int(x) for x in parts[1].split()]
+extend_inplace(items, more)
+print(*items)
+`}
+  sourceChecks={[
+    { name: 'Uses .extend', pattern: 'items\\.extend\\(more\\)', must: true, hint: 'items.extend(more)' },
+  ]}
+  tests={[
+    { name: '1 2|3 4', stdin: '1 2|3 4', equals: '1 2 3 4' },
+    { name: '5|9', stdin: '5|9', equals: '5 9' },
+  ]}
+/>
+
+---
+
+## Mutable defaults are a bad idea
+
+A default value is evaluated **once**, when the `def` runs — not once per call. It becomes an attribute of the function object itself. If that default is mutable and a method mutates it in place, every future call that relies on the default shares the same damaged object.
+
+<details>
+<summary>🧪 The haunted bus</summary>
+
+<PistonRunner
+  lang="python"
+  interactive={false}
+  height="340px"
+  code={`class HauntedBus:
+    def __init__(self, passengers=[]):
+        self.passengers = passengers
+
+    def pick(self, name):
+        self.passengers.append(name)
+
+bus2 = HauntedBus()
+bus2.pick('Carrie')
+
+bus3 = HauntedBus()
+print(bus3.passengers)
+print(bus2.passengers is bus3.passengers)
+`}
+/>
+
+</details>
+
+`bus3` never picked anyone up, yet it starts with `'Carrie'` already aboard — because both instances share the exact same default list. The fix: default to `None`, and build a fresh list inside `__init__` when nothing was passed.
+
+```python
+def __init__(self, passengers=None):
+    if passengers is None:
+        self.passengers = []
+    else:
+        self.passengers = list(passengers)
+```
+
+---
+
+## Mini quiz — mutable defaults
+
+<MultipleChoice
+  id="py-int-ch6-defaults"
+  title="Default argument pitfall"
+  questions={[
+    {
+      prompt: 'def f(items=[]): default values are evaluated',
+      choices: ['fresh, on every call', 'once, when the def statement runs', 'lazily, only when items is read', 'never, unless explicitly called'],
+      answer: 1,
+      why: 'The list is built once at definition time and lives on as an attribute of the function object.',
+    },
+    {
+      prompt: 'The idiomatic fix for a mutable default is',
+      choices: ['default to None, build a fresh mutable inside the function', 'default to a tuple instead', 'add frozen=True', 'always pass the argument explicitly and hope'],
+      answer: 0,
+      why: 'None is immutable and safe to share as a default; the real mutable container gets built fresh per call.',
+    },
+  ]}
+/>
+
+---
+
+## Challenge: fix the haunted bus
+
+`Bus(passengers=[])` shares one list across every instance that skips the argument. Fix `__init__` so each `Bus` gets its own passenger list.
+
+<CodingExam
+  title="fix the haunted bus"
+  heading="Challenge: fix the haunted bus"
+  lang="python"
+  filename="main.py"
+  prompt="default to None, build a fresh list per instance"
+  sampleLog={`(input) Ann Bob
+Ann Bob`}
+  starter={`class Bus:
+    def __init__(self, passengers=[]):
+        # TODO: fix so each Bus gets its own passenger list
+        self.passengers = passengers
+
+    def pick(self, name):
+        self.passengers.append(name)
+`}
+  wrapSuffix={`
+a, b = input().split()
+bus1 = Bus()
+bus1.pick(a)
+bus2 = Bus()
+bus2.pick(b)
+print(*bus1.passengers, *bus2.passengers)
+`}
+  sourceChecks={[
+    { name: 'Defaults to None', pattern: 'passengers\\s*=\\s*None', must: true, hint: 'def __init__(self, passengers=None):' },
+  ]}
+  tests={[
+    { name: 'Ann Bob', stdin: 'Ann Bob', equals: 'Ann Bob' },
+    { name: 'X Y', stdin: 'X Y', equals: 'X Y' },
+  ]}
+/>
+
+---
+
+## Defensive programming with mutable parameters
+
+Aliasing bites the other way too: if `__init__` stores the argument object directly, later mutations by the object leak back and change the **caller's** data — surprising and rarely wanted.
+
+<details>
+<summary>🧪 Passengers vanish from the caller's list</summary>
+
+<PistonRunner
+  lang="python"
+  interactive={false}
+  height="300px"
+  code={`class TwilightBus:
+    def __init__(self, passengers=None):
+        self.passengers = [] if passengers is None else passengers
+
+    def drop(self, name):
+        self.passengers.remove(name)
+
+team = ['Sue', 'Tina', 'Maya']
+bus = TwilightBus(team)
+bus.drop('Tina')
+print(team)
+`}
+/>
+
+</details>
+
+`team` shrank just because a `TwilightBus` dropped a passenger — that violates the *principle of least astonishment*. The fix is the same move as `HauntedBus`'s: don't alias what you were handed, **copy** it.
+
+```python
+self.passengers = list(passengers) if passengers is not None else []
+```
+
+Unless a method's whole job is to mutate what it received, think twice before storing an incoming mutable object directly on `self`. When in doubt, copy — a slightly slower API beats one with subtle action-at-a-distance bugs.
+
+---
+
+## Mini quiz — defensive copying
+
+<MultipleChoice
+  id="py-int-ch6-defensive"
+  title="Owning your data"
+  questions={[
+    {
+      prompt: 'self.passengers = passengers (no copy) in __init__ means',
+      choices: [
+        'the instance safely owns its own list',
+        "the instance aliases the caller's list — mutating one changes the other",
+        'passengers is deep-copied automatically',
+        'this only matters for tuples',
+      ],
+      answer: 1,
+      why: "Without list(passengers), self.passengers is just another name for the caller's object.",
+    },
+    {
+      prompt: 'self.passengers = list(passengers) instead of self.passengers = passengers',
+      choices: [
+        'breaks if passengers was a tuple or set',
+        'copies the reference iterable into a list the instance owns, decoupling it from the caller',
+        'has identical behavior to not copying',
+        'is only useful for performance',
+      ],
+      answer: 1,
+      why: 'list() accepts any iterable and produces a fresh list — the instance no longer aliases whatever the caller passed.',
+    },
+  ]}
+/>
+
+---
+
+## del and garbage collection
+
+`del` is a **statement**, not a function — `del x` removes the name `x` from the current scope. It does **not** destroy the object. An object is only reclaimed once its reference count reaches zero, whether that happens via `del` or by rebinding the last name pointing to it.
+
+<details>
+<summary>🧪 Watching an object actually go away</summary>
+
+<PistonRunner
+  lang="python"
+  interactive={false}
+  height="360px"
+  code={`import weakref
+
+s1 = {1, 2, 3}
+s2 = s1
+
+def bye():
+    print('...like tears in the rain.')
+
+ender = weakref.finalize(s1, bye)
+print(ender.alive)
+
+del s1
+print(ender.alive)
+
+s2 = 'spam'
+print(ender.alive)
+`}
+/>
+
+</details>
+
+`del s1` only removes the `s1` reference — `s2` still points at the set, so `ender.alive` stays `True`. Only when `s2` is rebound does the refcount hit zero, the set gets collected, `bye()` fires, and `ender.alive` flips to `False`. Note that `bye` must not hold a reference to the object it's watching (e.g. never a bound method of it) — that would keep the refcount above zero forever.
+
+CPython's primary mechanism is **reference counting**: as soon as an object's refcount hits zero it's destroyed immediately, `__del__` (if defined) runs, and the memory is freed. A separate generational collector also handles reference **cycles** — groups of objects that reference each other but are unreachable from anywhere else. You'll rarely need to write `__del__` yourself; it's easy to misuse and other Python implementations don't guarantee it runs promptly.
+
+---
+
+## Mini quiz — del and refcounting
+
+<MultipleChoice
+  id="py-int-ch6-del"
+  title="del and object lifetime"
+  questions={[
+    {
+      prompt: 'del x',
+      choices: ['destroys the object x referred to', 'removes the name x — the object survives if something else still refers to it', 'is a function call', 'only works on custom classes'],
+      answer: 1,
+      why: 'del removes a reference. The object is reclaimed only once its refcount reaches zero.',
+    },
+    {
+      prompt: "In CPython, an object's memory is reclaimed",
+      choices: [
+        'only when the program exits',
+        'as soon as its reference count reaches zero (plus a cycle collector for reference cycles)',
+        'on a fixed timer',
+        'only if __del__ is defined',
+      ],
+      answer: 1,
+      why: 'Refcounting is immediate; the generational collector exists specifically for unreachable cycles refcounting alone cannot catch.',
+    },
+  ]}
+/>
+
+---
+
+## Tricks Python plays with immutables
+
+For immutable types, CPython sometimes hands back the **same** object instead of building a new one — `tuple(t)` and `t[:]` on an existing tuple `t` both just return `t` itself, no copy at all. `str`, `bytes`, and `frozenset` (via `.copy()`) behave the same way.
+
+<details>
+<summary>🧪 Sometimes "new" isn't new</summary>
+
+<PistonRunner
+  lang="python"
+  interactive={false}
+  height="320px"
+  code={`t1 = (1, 2, 3)
+t2 = tuple(t1)
+t3 = t1[:]
+print(t2 is t1, t3 is t1)
+
+a = (1, 2, 3)
+b = (1, 2, 3)
+print(a is b)
+`}
+/>
+
+</details>
+
+The first line reliably prints `True True` — `tuple(t1)` and `t1[:]` are guaranteed no-op copies for an already-immutable tuple. The second line is where it gets interesting: `a` and `b` are built from two *separate* literals, yet depending on the interpreter and its optimizer, `a is b` can come back `True` (small integer tuples and short strings are common **interning** candidates) or `False`. This is an implementation detail, not a language guarantee.
+
+**Never depend on it.** Always compare `str` and `int` values with `==`, never `is`. Interning exists purely so the interpreter can save memory and time internally — it was never meant to be part of your program's logic.
+
+---
+
+## Mini quiz — interning
+
+<MultipleChoice
+  id="py-int-ch6-interning"
+  title="Interning is an implementation detail"
+  questions={[
+    {
+      prompt: 'tuple(t) and t[:] on an existing tuple t',
+      choices: ['always build a fresh tuple', 'return the same object — no copy needed for an already-immutable tuple', 'raise TypeError', 'only work on tuples of length 1'],
+      answer: 1,
+      why: "Copying an immutable object is pointless work, so CPython skips it and hands back t itself.",
+    },
+    {
+      prompt: 'Two separately-written string or int literals with the same value compared with is',
+      choices: [
+        'always return True — Python guarantees interning',
+        'always return False',
+        'may return True or False depending on the interpreter — never rely on it, use == instead',
+        'raises a SyntaxError',
+      ],
+      answer: 2,
+      why: 'Interning is an optimization, not a language guarantee. == is the only correct way to compare values.',
+    },
+  ]}
+/>
+
+---
+
+## Chapter summary
+
+:::important Key takeaways
+
+1. Variables are labels stuck on objects, not boxes holding copies — `b = a` creates an alias, not a duplicate.
+2. `==` compares values; `is` compares identity. Reserve `is` for `None` checks and sentinel objects.
+3. A tuple's own slots never change, but a mutable item inside it can — so a tuple's *value* isn't fully frozen.
+4. `list(x)` / `x[:]` / `copy.copy` make **shallow** copies; nested mutables are still shared. Use `copy.deepcopy` for real independence (it survives cycles too).
+5. Arguments are passed by call-by-sharing: a function can mutate a mutable argument in place, but rebinding a parameter never reaches the caller.
+6. Never use a mutable literal as a parameter default — it's built once, at `def` time, and shared across every call that relies on it. Default to `None` and build fresh inside the function.
+7. Copy incoming mutable arguments before storing them on `self`, unless mutating the caller's object is explicitly the point.
+8. `del` removes a reference, not an object. CPython reclaims memory via reference counting the instant a refcount hits zero; a separate collector handles reference cycles.
+9. CPython sometimes reuses immutable objects (interning) to save memory. It's an optimization detail — never branch your logic on it.
+
+:::
+
+## Exercises
+
+<ExerciseSet>
+<Exercise title="TwilightBus fix" anchor="exercise-twilight">
+
+:::tip Activity: TwilightBus fix
+`TwilightBus.__init__` currently aliases the caller's list, so `.drop()` mutates the caller's data. Fix it to copy with `list(passengers)` instead. Read names on one line, drop the first name, and print the **original** list — it must be untouched.
+
+<CodingExam
+  title="TwilightBus fix"
+  heading="exercise-twilight"
+  lang="python"
+  filename="main.py"
+  prompt="self.passengers = list(passengers) — copy, don't alias"
+  sampleLog={`(input) Sue Tina Maya
+Sue Tina Maya`}
+  starter={`class TwilightBus:
+    def __init__(self, passengers=None):
+        if passengers is None:
+            self.passengers = []
+        else:
+            self.passengers = passengers  # TODO: copy instead of aliasing
+
+    def drop(self, name):
+        self.passengers.remove(name)
+`}
+  wrapSuffix={`
+team = input().split()
+bus = TwilightBus(team)
+bus.drop(team[0])
+print(*team)
+`}
+  sourceChecks={[
+    { name: 'Copies with list()', pattern: 'list\\(passengers\\)', must: true, hint: 'self.passengers = list(passengers)' },
+  ]}
+  tests={[
+    { name: 'team intact', stdin: 'Sue Tina Maya', equals: 'Sue Tina Maya' },
+    { name: 'two members', stdin: 'Ann Bob', equals: 'Ann Bob' },
+  ]}
+/>
+
+:::
+
+</Exercise>
+
+<Exercise title="Tuple stays equal?" anchor="exercise-tuple-equal">
+
+:::tip Activity: Tuple stays equal?
+Build `t1 = (1, 2, list(nums))` and an equal `t2`. When `mutate` is true, append `extra` to `t1`'s inner list. Return `t1 == t2`.
+
+<CodingExam
+  title="Tuple stays equal?"
+  heading="exercise-tuple-equal"
+  lang="python"
+  filename="main.py"
+  prompt="append to t1[-1] only when mutate is True; return t1 == t2"
+  sampleLog={`(input) y 1 2 9
+False`}
+  starter={`def still_equal(nums, extra, mutate):
+    t1 = (1, 2, list(nums))
+    t2 = (1, 2, list(nums))
+    if mutate:
+        # TODO: append extra to t1's inner list
+        pass
+    return t1 == t2
+`}
+  wrapSuffix={`
+parts = input().split()
+flag = parts[0]
+if flag == 'y':
+    nums = [int(x) for x in parts[1:-1]]
+    extra = int(parts[-1])
+    print(still_equal(nums, extra, True))
+else:
+    nums = [int(x) for x in parts[1:]]
+    print(still_equal(nums, 0, False))
+`}
+  sourceChecks={[
+    { name: 'Appends extra', pattern: '\\.append\\(extra\\)', must: true, hint: 't1[-1].append(extra)' },
+  ]}
+  tests={[
+    { name: 'mutated', stdin: 'y 1 2 9', equals: 'False' },
+    { name: 'untouched', stdin: 'n 5 6', equals: 'True' },
+  ]}
+/>
+
+:::
+
+</Exercise>
+
+<Exercise title="Sentinel check" anchor="exercise-sentinel">
+
+:::tip Activity: Sentinel check
+A private `MISSING = object()` marks "no argument given." `describe(x=MISSING)` should return `"missing"` when `x is MISSING`, else `str(x)`.
+
+<CodingExam
+  title="Sentinel check"
+  heading="exercise-sentinel"
+  lang="python"
+  filename="main.py"
+  prompt="return 'missing' if x is MISSING else str(x)"
+  sampleLog={`(input) MISSING
+missing`}
+  starter={`MISSING = object()
+
+def describe(x=MISSING):
+    # TODO: use is to compare against MISSING
+    return ""
+`}
+  wrapSuffix={`
+token = input().strip()
+if token == "MISSING":
+    print(describe())
+else:
+    print(describe(token))
+`}
+  sourceChecks={[
+    { name: 'Uses is MISSING', pattern: 'is MISSING', must: true, hint: 'x is MISSING' },
+  ]}
+  tests={[
+    { name: 'not given', stdin: 'MISSING', equals: 'missing' },
+    { name: 'given', stdin: 'hello', equals: 'hello' },
+  ]}
+/>
+
+:::
+
+</Exercise>
+
+<Exercise title="Watch it go" anchor="exercise-watch">
+
+:::tip Activity: Watch it go
+Register a `weakref.finalize` callback on a set built from `words`, then `del` the only reference to it. The callback must fire, and `.alive` must become `False`.
+
+<CodingExam
+  title="Watch it go"
+  heading="exercise-watch"
+  lang="python"
+  filename="main.py"
+  prompt="del the only reference to s so it is collected"
+  sampleLog={`(input) a b c
+gone
+False`}
+  starter={`import weakref
+
+def watch(words):
+    s = set(words)
+
+    def bye():
+        print("gone")
+
+    ender = weakref.finalize(s, bye)
+    # TODO: remove the only reference to s so it gets collected
+    return ender.alive
+`}
+  wrapSuffix={`
+words = input().split()
+print(watch(words))
+`}
+  sourceChecks={[
+    { name: 'Deletes s', pattern: 'del s\\b', must: true, hint: 'del s to drop the last reference' },
+  ]}
+  tests={[
+    { name: 'three words', stdin: 'a b c', equals: `gone
+False` },
+    { name: 'one word', stdin: 'z', equals: `gone
+False` },
+  ]}
+/>
+
+:::
+
+</Exercise>
+
+<Exercise title="Reset in place" anchor="exercise-reset">
+
+:::tip Activity: Reset in place
+Empty `lst` **in place** — `lst[:] = []` or `lst.clear()` — so the caller's list is affected. Plain `lst = []` only rebinds the local name and the caller never sees it.
+
+<CodingExam
+  title="Reset in place"
+  heading="exercise-reset"
+  lang="python"
+  filename="main.py"
+  prompt="lst[:] = [] or lst.clear(), not lst = []"
+  sampleLog={`(input) 1 2 3
+0`}
+  starter={`def reset(lst):
+    # TODO: clear lst in place; do not just rebind the local name
+    lst = []
+`}
+  wrapSuffix={`
+items = [int(x) for x in input().split()]
+reset(items)
+print(len(items))
+`}
+  sourceChecks={[
+    { name: 'Clears in place', pattern: 'lst\\[:\\]\\s*=\\s*\\[\\]|lst\\.clear\\(\\)', must: true, hint: 'lst[:] = [] or lst.clear()' },
+  ]}
+  tests={[
+    { name: 'three items', stdin: '1 2 3', equals: '0' },
+    { name: 'two items', stdin: '9 9', equals: '0' },
+  ]}
+/>
+
+:::
+
+</Exercise>
+</ExerciseSet>

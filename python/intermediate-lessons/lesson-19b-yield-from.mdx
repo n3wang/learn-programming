@@ -1,0 +1,209 @@
+---
+sidebar_position: 22
+title: "yield from and Simulations"
+---
+
+> **Source:** Fluent Python, 2nd Edition — Chapter 19 by Luciano Ramalho (`return`, `yield from`, discrete events)
+
+Part 19a stopped at `.throw` / `.close`. This half: **returning a value** (PEP 380), the **`yield from` channel**, a **tiny discrete-event** taxi, and `Generator[Yield, Send, Return]` variance. `await` reuses this machinery with extra checks (PEP 492); study this if you care how asyncio ticks.
+
+## Returning a value
+
+A coroutine that only **accumulates** may yield `None` each time and `return` a `namedtuple` when a sentinel (`None`) breaks the loop. Before 3.3, `return x` in a generator was a `SyntaxError`.
+
+The value rides on **`StopIteration.value`**. Ugly by design: exhausted generators still raise `StopIteration`; `for` already swallows that. **`yield from`** catches it and the `.value` **is** the `yield from` expression. You cannot type `yield from` at the REPL (not inside a function).
+
+<CodingExam
+  title="StopIteration.value"
+  heading="Challenge: StopIteration.value"
+  lang="python"
+  filename="main.py"
+  prompt="averager: term = yield; break on None; return (count, average). wrap: numbers; prime; send each; send None; catch StopIteration and print count then average (one decimal like 15.5)."
+  sampleLog={`(input) 10 30 6.5
+3 15.5`}
+  starter={`def averager():
+    yield
+    return (0, 0.0)
+
+def wrap(line: str) -> str:
+    nums = list(map(float, line.split()))
+    g = averager()
+    next(g)
+    for n in nums:
+        g.send(n)
+    return ''
+`}
+  wrapSuffix={`
+print(wrap(input()))
+`}
+  sourceChecks={[
+    { name: 'return tuple', pattern: '\\breturn\\b', must: true, hint: 'return (count, average)' },
+    { name: 'StopIteration', pattern: 'StopIteration', must: true, hint: 'except StopIteration as exc' },
+  ]}
+  tests={[
+    { name: 'three terms', stdin: '10 30 6.5', equals: '3 15.5' },
+    { name: 'one', stdin: '8', equals: '1 8.0' },
+  ]}
+/>
+
+`exc.value` is the returned tuple. `send(None)` must actually terminate the loop.
+
+## `yield from`
+
+Not “yield, from a list.” The **subgenerator** talks **directly** to the **caller**; the **delegating** generator is frozen until the subgenerator **returns**. `await` is stricter (native coroutine, awaitable target). `yield from` works in any generator; the target is any **iterable** (`yield from [1, 2, 3]`).
+
+PEP names: **caller** (client), **delegating generator**, **subgenerator**. `iter(x)` first — even a plain iterator with only `__next__` works; `.send` / `.throw` / `.close` are forwarded when they exist.
+
+**Happy path** (no throw/close), `RESULT = yield from EXPR` is: prime sub with `next`; loop `yield` what it yields; `send` what the client sent; on `StopIteration` the `.value` is `RESULT`. Auto-prime means **do not** wrap the subgenerator in the 19a `@coroutine` decorator.
+
+**Must terminate the subgenerator.** In the grouper example, `group.send(None)` ends `averager` so `results[key] = yield from ...` actually assigns. Skip that `None` and the dict stays empty — the next outer loop **throws away** the stuck pair.
+
+Exceptions: non-`GeneratorExit` → sub `.throw`; `close` / `GeneratorExit` → sub `.close` if present. Nested `try` in the PEP expansion is for language lawyers; pipelines of `yield from` still need an outermost `next`/`send` (or a `for`).
+
+<CodingExam
+  title="yield from chain"
+  heading="Challenge: yield from chain"
+  lang="python"
+  filename="main.py"
+  prompt="chain(*its) uses yield from each iterable (no inner yield i). wrap: two tokens; join chain(a, b) with commas."
+  sampleLog={`(input) AB 12
+A,B,1,2`}
+  starter={`def chain(*iterables):
+    return
+
+def wrap(line: str) -> str:
+    a, b = line.split()
+    return ','.join(str(x) for x in chain(a, b))
+`}
+  wrapSuffix={`
+print(wrap(input()))
+`}
+  sourceChecks={[
+    { name: 'yield from', pattern: 'yield from', must: true, hint: 'yield from it' },
+  ]}
+  tests={[
+    { name: 'two strings', stdin: 'AB 12', equals: 'A,B,1,2' },
+  ]}
+/>
+
+<CodingExam
+  title="Delegating averager"
+  heading="Challenge: delegating averager"
+  lang="python"
+  filename="main.py"
+  prompt="averager as above (return count, avg). grouper(results, key): while True: results[key] = yield from averager(). wrap: key then numbers. Prime grouper; send each number; send None; print count and average from results[key]."
+  sampleLog={`(input) kg 10 30 5
+3 15.0`}
+  starter={`def averager():
+    yield
+    return (0, 0.0)
+
+def grouper(results, key):
+    yield
+
+def wrap(line: str) -> str:
+    key, *rest = line.split()
+    nums = list(map(float, rest))
+    results = {}
+    g = grouper(results, key)
+    next(g)
+    for n in nums:
+        g.send(n)
+    g.send(None)
+    c, avg = results[key]
+    return f'{c} {avg}'
+`}
+  wrapSuffix={`
+print(wrap(input()))
+`}
+  sourceChecks={[
+    { name: 'yield from averager', pattern: 'yield from', must: true, hint: 'results[key] = yield from averager()' },
+  ]}
+  tests={[
+    { name: 'three', stdin: 'kg 10 30 5', equals: '3 15.0' },
+    { name: 'two', stdin: 'm 1 3', equals: '2 2.0' },
+  ]}
+/>
+
+Without `send(None)`, `results[key]` is never set and wrap crashes — that is the lesson.
+
+## Discrete event simulation
+
+The clock **jumps** to the next event (taxi pick-up / drop-off), not 60 fps. Turn-based games are DES; real-time shooters are continuous. Coroutines are a good fit: each **process** (model entity, not OS process) is a generator. SimPy does this for real; asyncio’s loop is the same idea.
+
+A taxi: `time = yield Event(...)` — the sim sends the new clock when that event is due. `PriorityQueue` orders `Event.time`. `run`: prime each taxi, put first events, then get earliest, `send(next_time)`, reschedule or delete on `StopIteration`. `while`/`else` and `try`/`else` (Chapter 18) keep the loop readable.
+
+Drive one taxi from the console with `send(_.time + delay)` to feel the handshake.
+
+<CodingExam
+  title="One taxi"
+  heading="Challenge: one taxi"
+  lang="python"
+  filename="main.py"
+  prompt="Event = namedtuple time, action. taxi(trips): yield leave; for _ in range(trips): yield pick; yield drop; yield home. wrap: trips then delays (ints). Prime; for each delay send last.time+delay; print actions comma-separated. Last send after home should StopIteration — do not print that."
+  sampleLog={`(input) 1 5 10 1
+leave,pick,drop,home`}
+  starter={`from collections import namedtuple
+
+Event = namedtuple('Event', 'time action')
+
+def taxi(trips):
+    yield Event(0, 'leave')
+
+def wrap(line: str) -> str:
+    trips, *delays = map(int, line.split())
+    t = taxi(trips)
+    ev = next(t)
+    acts = [ev.action]
+    for d in delays:
+        ev = t.send(ev.time + d)
+        acts.append(ev.action)
+    return ','.join(acts)
+`}
+  wrapSuffix={`
+print(wrap(input()))
+`}
+  sourceChecks={[
+    { name: 'yield Event', pattern: 'yield Event', must: true, hint: 'time = yield Event(...)' },
+  ]}
+  tests={[
+    { name: 'one trip', stdin: '1 5 10 1', equals: 'leave,pick,drop,home' },
+    { name: 'two trips', stdin: '2 1 1 1 1 1', equals: 'leave,pick,drop,pick,drop,home' },
+  ]}
+/>
+
+`wrap` already drives; you implement `taxi` so each `send` gets the next action. `time = yield Event(...)` so the next clock is what the sim sent.
+
+## Generic `Generator[Y, S, R]`
+
+Pull-only generators: `Iterator[T_co]`. Classic coroutines: `Generator[YieldType, SendType, ReturnType]`. Yield and return are **covariant** (outputs). Send is **contravariant** (input): a client that sends `float` cannot use a coroutine that only accepts `int`. Skip if variance is still mush; the thumbs from Chapter 15 apply.
+
+Guido’s three styles: **pull** (iterators), **push** (averager), **tasks** (taxis / Beazley). Native coroutines take over async; classic remains for these niches and for reading `await`.
+
+<ExerciseSet
+  title="Exercises"
+  description="yield from range."
+>
+  <CodingExam
+    title="from range"
+    heading="Exercise: from range"
+    lang="python"
+    filename="main.py"
+    prompt="gen(n) yield from range(n). wrap: n; print list as the default str."
+    starter={`def gen(n):
+    return []
+
+def wrap(line: str) -> str:
+    return str(list(gen(int(line))))
+`}
+    wrapSuffix={`
+print(wrap(input()))
+`}
+    sourceChecks={[
+      { name: 'yield from', pattern: 'yield from', must: true, hint: 'yield from range(n)' },
+    ]}
+    tests={[
+      { name: 'three', stdin: '3', equals: '[0, 1, 2]' },
+    ]}
+  />
+</ExerciseSet>

@@ -108,6 +108,79 @@ class Main {
 :::
 
 
+### Try it: reading two numbers
+
+<PistonRunner
+  lang="java"
+  interactive={true}
+  height="280px"
+  code={`import java.util.Scanner;
+public class Main {
+  public static void main(String[] args) {
+    Scanner sc = new Scanner(System.in);
+    System.out.print("Enter the first number: ");
+    int a = sc.nextInt();
+    System.out.print("Enter the second number: ");
+    int b = sc.nextInt();
+    System.out.println("Sum: " + (a + b));
+  }
+}
+`}
+/>
+
+<MultipleChoice
+  id="java-ch3a-scanner"
+  title="Scanner basics"
+  questions={[
+    {
+      prompt: 'Which Scanner method reads a whole line of text, including spaces?',
+      choices: ['nextInt()', 'nextLine()', 'nextDouble()', 'next()'],
+      answer: 1,
+      why: 'nextLine() reads everything up to the next newline, spaces included. next() only reads a single word.',
+    },
+    {
+      prompt: 'What must you do before calling any Scanner method?',
+      choices: [
+        'Nothing, Scanner works automatically',
+        'Create a Scanner object with new Scanner(System.in)',
+        'Call System.in.open()',
+        'Import java.io.File',
+      ],
+      answer: 1,
+      why: 'You need a Scanner object wired to System.in before you can call nextInt(), nextLine(), etc. on it.',
+    },
+  ]}
+/>
+
+<CodingExam
+  title="add two scanned numbers"
+  heading="Try it: add two scanned numbers"
+  lang="java"
+  filename="Main.java"
+  prompt="Read two integers with Scanner (one per call to nextInt()) and print their sum."
+  sampleLog={`(input) 4 7
+11`}
+  starter={`import java.util.Scanner;
+
+public class Main {
+    public static void main(String[] args) {
+        Scanner sc = new Scanner(System.in);
+        // TODO: read two ints with sc.nextInt() and print their sum
+    }
+}
+`}
+  sourceChecks={[
+    { name: 'Uses Scanner', pattern: 'new Scanner', must: true, hint: 'new Scanner(System.in)' },
+    { name: 'Calls nextInt', pattern: 'nextInt\\(\\)', must: true, hint: 'sc.nextInt()' },
+  ]}
+  tests={[
+    { name: '4 7', stdin: '4 7', equals: '11' },
+    { name: '0 0', stdin: '0 0', equals: '0' },
+  ]}
+/>
+
+---
+
 :::caution No need to store inputs
 The following code works just fine too!
 ```java
@@ -216,6 +289,122 @@ class Main {
 <iframe src="https://trinket.io/embed/java/fb7a26acfd" width="100%" height="600" frameborder="0" marginwidth="0" marginheight="0" allowfullscreen></iframe>
 
 </details>
+
+---
+
+## Chapter summary
+
+:::important Key takeaways
+
+1. `Scanner sc = new Scanner(System.in);` wires up keyboard input; call `sc.nextInt()`, `sc.nextDouble()`, `sc.nextLine()`, etc. depending on the type you expect.
+2. `nextLine()` reads a whole line including spaces; `next()`/`nextInt()`/`nextDouble()` read one token up to the next whitespace.
+3. You do not have to store what you read in a variable — you can print or use a `Scanner` call's result directly.
+4. Mixing `nextInt()`/`next()` with `nextLine()` can leave a leftover newline in the buffer — read `charAt(0)` off a `next()` call when you only need one character.
+
+:::
+
+## Exercises
+
+<ExerciseSet>
+<Exercise title="Average of three" anchor="exercise-average-three">
+
+:::tip Activity: Average of three
+Read three integers with `Scanner`. Print their average as a `double`.
+
+<CodingExam
+  title="Average of three"
+  heading="exercise-average-three"
+  lang="java"
+  filename="Main.java"
+  prompt="Read three ints, sum them, divide by 3.0, print the result."
+  sampleLog={`(input) 3 4 5
+4.0`}
+  starter={`import java.util.Scanner;
+
+public class Main {
+    public static void main(String[] args) {
+        Scanner sc = new Scanner(System.in);
+        // TODO: read three ints, print their average
+    }
+}
+`}
+  sourceChecks={[
+    { name: 'Calls nextInt three times', pattern: '(nextInt\\(\\).*){3}', flags: 's', must: true, hint: 'Call sc.nextInt() three times.' },
+  ]}
+  tests={[
+    { name: '3 4 5', stdin: '3 4 5', equals: '4.0' },
+    { name: '0 0 0', stdin: '0 0 0', equals: '0.0' },
+  ]}
+/>
+
+:::
+
+</Exercise>
+
+<Exercise title="Name and age sentence" anchor="exercise-name-age">
+
+:::tip Activity: Name and age sentence
+Read a name (`next()`) and an age (`nextInt()`). Print: `Hello NAME, you are AGE years old.`
+
+<CodingExam
+  title="Name and age sentence"
+  heading="exercise-name-age"
+  lang="java"
+  filename="Main.java"
+  prompt="Read name with sc.next(), age with sc.nextInt(), then print the formatted sentence."
+  sampleLog={`(input) Sam 12
+Hello Sam, you are 12 years old.`}
+  starter={`import java.util.Scanner;
+
+public class Main {
+    public static void main(String[] args) {
+        Scanner sc = new Scanner(System.in);
+        // TODO
+    }
+}
+`}
+  tests={[
+    { name: 'Sam 12', stdin: 'Sam 12', equals: 'Hello Sam, you are 12 years old.' },
+    { name: 'Ada 30', stdin: 'Ada 30', equals: 'Hello Ada, you are 30 years old.' },
+  ]}
+/>
+
+:::
+
+</Exercise>
+
+<Exercise title="Total cost" anchor="exercise-total-cost">
+
+:::tip Activity: Total cost
+Read the price of one item (`double`) and the quantity bought (`int`). Print the total cost.
+
+<CodingExam
+  title="Total cost"
+  heading="exercise-total-cost"
+  lang="java"
+  filename="Main.java"
+  prompt="Read price as a double, quantity as an int, print price * quantity."
+  sampleLog={`(input) 2.5 4
+10.0`}
+  starter={`import java.util.Scanner;
+
+public class Main {
+    public static void main(String[] args) {
+        Scanner sc = new Scanner(System.in);
+        // TODO
+    }
+}
+`}
+  tests={[
+    { name: '2.5 4', stdin: '2.5 4', equals: '10.0' },
+    { name: '1.0 1', stdin: '1.0 1', equals: '1.0' },
+  ]}
+/>
+
+:::
+
+</Exercise>
+</ExerciseSet>
 
 
 

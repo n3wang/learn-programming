@@ -1,0 +1,393 @@
+---
+sidebar_position: 14
+title: "Interfaces, Protocols, and ABCs"
+---
+
+> **Source:** Fluent Python, 2nd Edition — Chapter 13 by Luciano Ramalho
+
+“Program to an interface, not an implementation.” In Python a type is the **operations** it supports. Since 3.8 there are four complementary ways to talk about that:
+
+| Quadrant | When | Mechanism |
+|---|---|---|
+| Duck typing | Runtime, structure | Informal protocols; no class name required |
+| Goose typing | Runtime, names | `isinstance` / `issubclass` against **ABCs** (and virtual subclasses) |
+| Static typing | Checkers (Mypy) | `typing` + PEP 484; class names and ABCs in hints |
+| Static duck typing | Checkers | `typing.Protocol` (PEP 544) |
+
+The interpreter handles the top half. The bottom half needs an external checker. Left = structure (methods). Right = named types. This chapter is duck, goose, and static duck — not the full static-hint story of Chapters 8 and 15.
+
+Do not pick one religion. A large codebase uses all four.
+
+## Two kinds of protocols
+
+A **dynamic protocol** is informal: docs and convention. The interpreter’s sequence and iterable protocols live in the data model. You may implement **part** of it and still be useful.
+
+A **static protocol** is a `typing.Protocol` subclass. A checker requires **every** method listed. Neither kind needs you to inherit the protocol by name — that is the structural part they share.
+
+`__getitem__` alone already gives indexing, `for`, and `in` (scan from 0). `PySequence_Check` in C even treats “has `__getitem__`, not a dict” as sequence-ish. `__len__` is still what people expect of a *full* sequence.
+
+<PistonRunner
+  lang="python"
+  interactive={false}
+  height="240px"
+  code={`class Vowels:
+    def __getitem__(self, i):
+        return 'AEIOU'[i]
+
+v = Vowels()
+print(v[0], v[-1])
+print(''.join(c for c in v))
+print('E' in v, 'Z' in v)
+print(hasattr(v, '__len__'))
+`}
+/>
+
+<MultipleChoice
+  id="py-int-ch13-proto"
+  title="Dynamic vs static protocol"
+  questions={[
+    {
+      prompt: 'A class that only implements __getitem__',
+      choices: [
+        'can never be iterated',
+        'may still support for and in; a static Protocol would still demand every declared method',
+        'must inherit abc.Sequence',
+        'is rejected by the interpreter',
+      ],
+      answer: 1,
+      why: 'The interpreter falls back to integer indexes. PEP 544 protocols are all-or-nothing for the checker.',
+    },
+  ]}
+/>
+
+`collections.abc.Sequence` **documents** a full sequence (`__getitem__` + `__len__`; the rest are mixins). `list` and the interpreter do not depend on that ABC. The ABC is a map and a goose-typing hook.
+
+## Programming ducks
+
+### Python digs sequences
+
+If `__iter__` is missing, iteration tries `__getitem__(0)`, `(1)`, … until `IndexError`. If `__contains__` is missing, `in` can scan the same way. Those fallbacks are **in the interpreter**, not in `Sequence.__iter__` (the ABC mixins only *emulate* them).
+
+Follow a protocol and you inherit the ecosystem: `random.shuffle` wants a **mutable** sequence (`__setitem__`). An immutable deck raises `TypeError` on assignment.
+
+### Monkey patches
+
+A **monkey patch** adds a method at runtime without editing the file. Attach a function as `FrenchDeck.__setitem__` and `shuffle` works. The function may poke `_cards` — tightly coupled, easy to break on upgrades. It also shows duck typing: `shuffle` never asks the class name.
+
+Naming the first argument `self` is convention; a console patch can use `deck, position, card`. In a module, use `self, key, value`.
+
+<CodingExam
+  title="Patch in a setter"
+  heading="Challenge: patch in a setter"
+  lang="python"
+  filename="main.py"
+  prompt="Box holds a list in _xs and already has __getitem__. wrap: integers, then two indexes i j. Assign Box.__setitem__ so it writes _xs[key] = value, then swap those two positions (like shuffle's swap) and print the list."
+  sampleLog={`(input) 10 20 30 0 2
+[30, 20, 10]`}
+  starter={`class Box:
+    def __init__(self, xs):
+        self._xs = list(xs)
+
+    def __getitem__(self, i):
+        return self._xs[i]
+
+def wrap(line: str) -> str:
+    p = line.split()
+    *nums, i, j = p
+    b = Box(map(int, nums))
+    i, j = int(i), int(j)
+    # TODO: install __setitem__, then swap b[i] and b[j]
+    return str(b._xs)
+`}
+  wrapSuffix={`
+print(wrap(input()))
+`}
+  sourceChecks={[
+    { name: 'Assigns __setitem__', pattern: '__setitem__\\s*=', must: true, hint: 'Box.__setitem__ = ...' },
+  ]}
+  tests={[
+    { name: 'swap ends', stdin: '10 20 30 0 2', equals: '[30, 20, 10]' },
+    { name: 'swap neighbors', stdin: '1 2 3 4 1 2', equals: '[1, 3, 2, 4]' },
+  ]}
+/>
+
+### Fail fast
+
+Many bugs only show at runtime even in Java. In Python, **reject bad input at the edge**. If you will treat data as a list, `self._balls = list(iterable)` copies any in-memory iterable and fails immediately if it is not iterable. Do **not** copy if the caller needs in-place mutation (`shuffle`) or the data is huge — then `isinstance(x, abc.MutableSequence)` (goose) or `len(x)` (rejects iterators) or `iter(x)` (any iterable) is the right first line.
+
+Type hints miss `Any`, inference, and everything at runtime. Fail fast is the last net.
+
+EAFP without `isinstance`: treat `field_names` as a `str` (`replace` / `split`); on `AttributeError`, assume an iterable of names; then `tuple(...)` and `str.isidentifier`. A hint can only say `Union[str, Iterable[str]]` — not “comma- or space-separated identifiers.”
+
+<CodingExam
+  title="String or names"
+  heading="Challenge: string or names"
+  lang="python"
+  filename="main.py"
+  prompt="wrap(line) is field_names: either a comma/space string or already several tokens. Return a tuple of identifiers, or the word bad if any token is not a valid identifier. Use try/except AttributeError around str.replace — do not use isinstance."
+  sampleLog={`(input) x, y z
+('x', 'y', 'z')`}
+  starter={`def wrap(line: str) -> str:
+    field_names = line.strip()
+    return ''
+`}
+  wrapSuffix={`
+print(wrap(input()))
+`}
+  sourceChecks={[
+    { name: 'EAFP replace', pattern: 'AttributeError', must: true, hint: 'except AttributeError' },
+    { name: 'No isinstance', pattern: 'isinstance', must: false, hint: 'do not use isinstance' },
+  ]}
+  tests={[
+    { name: 'commas and spaces', stdin: 'x, y z', equals: "('x', 'y', 'z')" },
+    { name: 'already tokens via split input', stdin: 'ab cd', equals: "('ab', 'cd')" },
+    { name: 'bad ident', stdin: '1x y', equals: 'bad' },
+  ]}
+/>
+
+The second row is still a **string** with a space — `replace`/`split` must produce two names. `1x` is not `isidentifier()`.
+
+## Goose typing
+
+Alex Martelli: `isinstance(obj, cls)` is fine when `cls` is an **ABC** (`ABCMeta`). Checking `type(foo) is bar` kills inheritance. Checking a **concrete** class kills polymorphism. A chain of `if isinstance` dispatch is a smell — use methods. Checking an ABC at a plugin boundary (“you must implement this”) is the justified case.
+
+**Register** a virtual subclass: `Sequence.register(FrenchDeck)`. `issubclass` becomes true; **no methods are inherited**. Python does not verify the promise. Mypy still struggles with `register` (historical issue).
+
+Some ABCs recognize you **without** register: `Struggle` with `__len__` is `abc.Sized` via `__subclasshook__`. That is structural typing on an ABC. Do not write `__subclasshook__` for a fat interface like Tombola — a class named `Spam` with `load`/`pick` is not automatically a lottery cage. `Sequence` has no hook: mappings also have `__len__` / `__getitem__` / `__iter__` but are not sequences.
+
+`isinstance(obj, Hashable)` true only means `__hash__` exists; a tuple of lists still explodes on `hash()`. `isinstance(obj, Iterable)` false can still iterate via `__getitem__`. Trust `hash(obj)` and `iter(obj)`.
+
+`callable(obj)` beats `isinstance(obj, Callable)`.
+
+Do not invent ABCs in ordinary apps. Use `collections.abc`. `abc.ABC` is the convenient base (metaclass `ABCMeta`). Stack `@classmethod` **above** `@abstractmethod`; abstractmethod is innermost, next to `def`.
+
+Python checks abstract methods at **instantiation**, not import.
+
+### `collections.abc` clusters
+
+`Iterable` / `Container` / `Sized` → `Collection` (3.6). Then `Sequence` / `Mapping` / `Set` and their mutable children. Mapping views. `Iterator` ⊂ `Iterable`. `Callable`, `Hashable`. Mixin methods are written against the **public** interface — override if you can do better (`__contains__` + `bisect` on a sorted sequence).
+
+Subclassing `MutableSequence` **forces** `__setitem__`, `__delitem__`, and `insert`, even if you only wanted shuffle. You gain `append`, `pop`, `extend`, `+=`, and the `Sequence` mixins.
+
+<CodingExam
+  title="MutableSequence tax"
+  heading="Challenge: MutableSequence tax"
+  lang="python"
+  filename="main.py"
+  prompt="Deck subclasses MutableSequence, stores a list of ints in _xs. Implement the abstract methods by delegating to that list. wrap: numbers then pop meaning delete last via del deck[len-1], then print list(deck)."
+  sampleLog={`(input) 1 2 3 pop
+[1, 2]`}
+  starter={`from collections.abc import MutableSequence
+
+class Deck(MutableSequence):
+    def __init__(self, xs):
+        self._xs = list(xs)
+
+    def __len__(self):
+        return len(self._xs)
+
+    def __getitem__(self, i):
+        return self._xs[i]
+
+def wrap(line: str) -> str:
+    p = line.split()
+    d = Deck(map(int, p[:-1]))
+    if p[-1] == 'pop':
+        del d[len(d) - 1]
+    return str(list(d))
+`}
+  wrapSuffix={`
+print(wrap(input()))
+`}
+  sourceChecks={[
+    { name: 'setitem', pattern: 'def __setitem__', must: true, hint: 'def __setitem__(self, position, value)' },
+    { name: 'delitem', pattern: 'def __delitem__', must: true, hint: 'required by MutableSequence' },
+    { name: 'insert', pattern: 'def insert', must: true, hint: 'def insert(self, position, value)' },
+  ]}
+  tests={[
+    { name: 'delete last', stdin: '1 2 3 pop', equals: '[1, 2]' },
+    { name: 'shuffle-ready length', stdin: '9 8 7 pop', equals: '[9, 8]' },
+  ]}
+/>
+
+Without `__delitem__` / `insert`, `Deck(...)` raises `Can't instantiate abstract class`.
+
+### A small ABC: Tombola
+
+Frameworks need an extension point. Tombola: `load(iterable)`, `pick()` (raise `LookupError` when empty). Concrete mixins may use only the interface: a silly `inspect` by picking everything then `load`ing back; `loaded` via `bool(inspect())`. Subclasses should override those. Catch `LookupError` so `IndexError` / `KeyError` still count.
+
+`BingoCage` shuffles then `pop`. `LottoBlower` uses `list(iterable)` in `__init__` (copy, fail fast) and `randrange`/`pop`. Extra methods like `__call__` are allowed.
+
+Virtual subclass: `@Tombola.register` on a `list` subclass, or `Tombola.register(TomboList)` after the fact (needed for classes you do not own). `tuple`, `str`, `range`, `memoryview` are registered on `Sequence` inside `_collections_abc` when that module is imported.
+
+`TomboList.__mro__` is `(TomboList, list, object)` — **Tombola is absent**. `load = list.extend` aliases a method.
+
+<CodingExam
+  title="ABC and register"
+  heading="Challenge: ABC and register"
+  lang="python"
+  filename="main.py"
+  prompt="Cage(abc.ABC) has abstract load and pick. Full implements both (list inside). wrap: full tries Cage-style class that only defines pick — print abstract if TypeError on instantiate else ok. Then register a list subclass Mini with pick/load onto Cage; print issubclass and whether Cage appears in Mini.__mro__ as yes/no."
+  sampleLog={`(input) go
+abstract True no`}
+  starter={`import abc
+
+class Cage(abc.ABC):
+    pass  # TODO: abstract load, pick
+
+class Full(Cage):
+    def __init__(self):
+        self._xs = []
+
+    def load(self, xs):
+        self._xs.extend(xs)
+
+    def pick(self):
+        return self._xs.pop()
+
+class OnlyPick(Cage):
+    def pick(self):
+        return 1
+
+class Mini(list):
+    def pick(self):
+        return self.pop()
+
+    load = list.extend
+
+def wrap(line: str) -> str:
+    try:
+        OnlyPick()
+        a = 'ok'
+    except TypeError:
+        a = 'abstract'
+    # TODO: Cage.register(Mini)
+    sub = issubclass(Mini, Cage)
+    in_mro = 'yes' if any(c is Cage for c in Mini.__mro__) else 'no'
+    return f'{a} {sub} {in_mro}'
+`}
+  wrapSuffix={`
+print(wrap(input()))
+`}
+  sourceChecks={[
+    { name: 'abstractmethod', pattern: 'abstractmethod', must: true, hint: '@abc.abstractmethod' },
+    { name: 'register', pattern: 'register', must: true, hint: 'Cage.register(Mini)' },
+  ]}
+  tests={[
+    { name: 'incomplete vs virtual', stdin: 'go', equals: 'abstract True no' },
+  ]}
+/>
+
+`Full` exists so a complete subclass still instantiates. `OnlyPick` must stay abstract. After `register`, `issubclass` is true and MRO still has no `Cage`.
+
+## Static protocols
+
+Nominal hints cannot describe `double(x)` that works for `float`, `str`, `list`, `Fraction`, and a future `Vector`. A `Protocol` with `__mul__(self, int) -> Self` can.
+
+`@runtime_checkable` makes `isinstance` work via `__subclasshook__` (presence of methods). Hints are **ignored at runtime**: `complex` has `__float__` only to raise; `isinstance(c, SupportsFloat)` can be a lie. Prefer `c = complex(o)` (EAFP) over `SupportsComplex` tuples when converting.
+
+`numbers.Complex` is fine for **goose** typing (NumPy types are registered). The numeric **tower** is a poor static hint: `Number` has no methods, Mypy does not treat `int` as `numbers.Number`. Use `SupportsFloat` / `SupportsComplex` for checkers; distrust them at runtime around `complex`. `Decimal` is deliberately not `numbers.Real`.
+
+Go-style: **one method** protocols (`RandomPicker.pick`). Extend by a **new** protocol that lists `Protocol` again and repeats `@runtime_checkable` (not inherited). typeshed names: plain concept (`Iterator`), `SupportsX` for methods, `HasX` for attributes. Verb + `-er` (`Formatter`) is the Go habit.
+
+`fromcomplex(datum: SupportsComplex)` should `c = complex(datum)` because the protocol does not promise `.real` / `.imag`.
+
+<CodingExam
+  title="Runtime protocol"
+  heading="Challenge: runtime protocol"
+  lang="python"
+  filename="main.py"
+  prompt="Define @runtime_checkable Picker(Protocol) with pick(self) -> object. Bag has pick returning the first int from wrap's numbers. wrap: print isinstance(Bag(nums), Picker) and Bag(nums).pick()."
+  sampleLog={`(input) 9 8 7
+True 9`}
+  starter={`from typing import Protocol, runtime_checkable
+
+# TODO: Picker
+
+class Bag:
+    def __init__(self, xs):
+        self._xs = list(xs)
+
+    def grab(self):
+        return self._xs[0]
+
+def wrap(line: str) -> str:
+    nums = list(map(int, line.split()))
+    b = Bag(nums)
+    return f'{isinstance(b, Picker)} {b.pick()}'
+`}
+  wrapSuffix={`
+print(wrap(input()))
+`}
+  sourceChecks={[
+    { name: 'runtime_checkable', pattern: 'runtime_checkable', must: true, hint: '@runtime_checkable on Picker' },
+    { name: 'Protocol', pattern: 'Protocol', must: true, hint: 'class Picker(Protocol)' },
+    { name: 'pick on Bag', pattern: 'def pick', must: true, hint: 'Bag.pick, not only grab' },
+  ]}
+  tests={[
+    { name: 'quacks', stdin: '9 8 7', equals: 'True 9' },
+    { name: 'other first', stdin: '3', equals: 'True 3' },
+  ]}
+/>
+
+`Bag` must not subclass `Picker`. If `pick` is missing, `isinstance` is false and `.pick()` would crash — both tests need a real `pick`.
+
+<ExerciseSet
+  title="Exercises"
+  description="Sized hook and fail-fast copy."
+>
+  <CodingExam
+    title="Sized without inheritance"
+    heading="Exercise: Sized without inheritance"
+    lang="python"
+    filename="main.py"
+    prompt="class Box with __len__ returning n from wrap. Print isinstance(Box(), Sized) from collections.abc — do not inherit Sized."
+    starter={`from collections.abc import Sized
+
+class Box:
+    def __init__(self, n):
+        self.n = n
+
+def wrap(line: str) -> str:
+    n = int(line)
+    return str(isinstance(Box(n), Sized))
+`}
+    wrapSuffix={`
+print(wrap(input()))
+`}
+    sourceChecks={[
+      { name: 'Defines __len__', pattern: 'def __len__', must: true, hint: 'def __len__(self)' },
+      { name: 'Not a Sized subclass', pattern: 'class Box\\s*\\(\\s*Sized', must: false, hint: 'do not inherit Sized' },
+    ]}
+    tests={[
+      { name: 'hook', stdin: '4', equals: 'True' },
+    ]}
+  />
+  <CodingExam
+    title="Copy the iterable"
+    heading="Exercise: copy the iterable"
+    lang="python"
+    filename="main.py"
+    prompt="Holder.__init__ must store list(iterable), not the same list object. wrap: two ints; build Holder from a list, mutate the original list, print holder items (unchanged)."
+    starter={`class Holder:
+    def __init__(self, iterable):
+        self._xs = iterable
+
+def wrap(line: str) -> str:
+    a, b = map(int, line.split())
+    src = [a, b]
+    h = Holder(src)
+    src[0] = 0
+    return str(h._xs)
+`}
+    wrapSuffix={`
+print(wrap(input()))
+`}
+    sourceChecks={[
+      { name: 'list() copy', pattern: 'list\\s*\\(', must: true, hint: 'self._xs = list(iterable)' },
+    ]}
+    tests={[
+      { name: 'not aliased', stdin: '5 6', equals: '[5, 6]' },
+    ]}
+  />
+</ExerciseSet>

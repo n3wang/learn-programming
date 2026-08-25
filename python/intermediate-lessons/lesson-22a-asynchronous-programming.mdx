@@ -1,0 +1,281 @@
+---
+sidebar_position: 27
+title: "Asynchronous Programming"
+---
+
+> **Source:** Fluent Python, 2nd Edition — Chapter 22 by Luciano Ramalho (through sequential `await`s in one download task)
+
+Videla & Williams: async is **all or nothing**. One blocking call stalls the loop; the rest of your `async def` was theatre.
+
+This chapter: `async def` / `await` / `async with` / `async for`; the objects that implement them; a thin slice of **asyncio** (plus aiohttp in the book). Builds on generators (17), `with` (18), classic coroutines (19). Also: **don’t block the loop** (`run_in_executor`), and “How async works and how it doesn’t” later. Hattingh, *Using Asyncio in Python*. After Selivanov, the docs split **app** APIs from framework guts. `asyncio.Future` is that low-level pile now.
+
+## Three coroutine kinds (3.5+)
+
+**Native:** `async def`. Always a native coroutine, even with no `await`. `await` only inside native coroutines. Delegate with `await` (like `yield from` for classic).
+
+**Classic:** generator + `.send` / `yield`. Not driven by `await`. asyncio dropped them.
+
+**Generator-based:** `@types.coroutine` so a generator is awaitable. Still used in Curio/Trio guts. `@asyncio.coroutine` deprecated 3.8, gone 3.11.
+
+This lesson is native only.
+
+## `blogdom.py`
+
+Check `kw.dev` for keywords of length ≤ 4. `+` means DNS resolved (`loop.getaddrinfo`); blank means `socket.gaierror` — might be free. Output order = **completion**, not keyword order. Wall time ≈ **slowest** lookup, not the sum.
+
+```python
+async def probe(domain: str) -> tuple[str, bool]:
+    loop = asyncio.get_running_loop()  # 3.7+; no running loop → RuntimeError
+    try:                               # faster than get_event_loop
+        await loop.getaddrinfo(domain, None)
+    except socket.gaierror:
+        return (domain, False)
+    return (domain, True)
+
+async def main() -> None:
+    ...
+    coros = [probe(d) for d in domains]  # objects, not yet run
+    for coro in asyncio.as_completed(coros):
+        domain, found = await coro      # done; await still needed for the value
+        ...
+asyncio.run(main())
+```
+
+**Guido’s squint:** ignore `async`/`await` and read it as sequential — except `await` **suspends** this `probe('if.dev')`, the loop drives `probe('or.dev')`, then resumes when DNS answers.
+
+`as_completed` here is the asyncio cousin of `futures.as_completed`.
+
+## Awaitable
+
+`for` wants iterables; `await` wants **awaitables**. Daily:
+
+1. Native coroutine object (`probe(d)`).
+2. `asyncio.Task` from `create_task`. Schedule without waiting (spinner). `await other()` when you **need the result now**.
+
+Lower: `__await__` → iterator (`Task` subclasses `Future`); C `am_await`. PEP 492: `await` is `yield from` plus “is this awaitable?”
+
+## flags with aiohttp
+
+3.9 stdlib: TCP/UDP, **no HTTP**. Book uses `aiohttp`. Happy path first.
+
+`download_many` stays a **plain** function so `flags.main` can call it: `return asyncio.run(supervisor(cc_list))`.
+
+```python
+async def supervisor(cc_list):
+    async with ClientSession() as session:  # all aiohttp I/O lives here
+        to_do = [download_one(session, cc) for cc in sorted(cc_list)]
+        res = await asyncio.gather(*to_do)  # wait for all; list in *submit* order
+        return len(res)
+```
+
+`download_one` awaits `get_flag`; `get_flag` does `async with session.get(url) as resp: return await resp.read()`. You **cannot** reuse `requests.get` — it blocks the loop. You cannot reuse the threadpool `download_one` either: it doesn’t `await`. All-or-nothing.
+
+`save_flag` is sync disk I/O. Node people treat that as blocking; CPython often shrugs. Fix: `run_in_executor` (below).
+
+### Humble generators
+
+You don’t `.send`. The **loop** sends. Your `await`s form a channel: user coro → aiohttp → low-level generator the loop ticks on sockets/timers (often C). `gather` / `create_task` = several such channels, **one thread**.
+
+### `async with`
+
+Classic `with` is `__enter__` / `__exit__` — not coroutines. DB transactions (`asyncpg`) need `await tr.start()` / commit / rollback without stalling everyone. PEP 492: `__aenter__` / `__aexit__` as coroutines. `async with connection.transaction(): ...`. Same for `ClientSession` / `ClientResponse`. (`contextlib` async generators: later, after async gen functions.)
+
+<MultipleChoice
+  id="py-int-ch22a-await"
+  title="Native coroutines"
+  questions={[
+    {
+      prompt: 'asyncio.run(main()) where main is async def',
+      choices: [
+        'illegal; run only takes Threads',
+        'drives main until it returns; the caller stays blocked',
+        'schedules main and returns a Task immediately',
+        'is the same as main.send(None) at the REPL',
+      ],
+      answer: 1,
+      why: 'Scripts: coroutine main + run. create_task is “fire this too,” not the process entry.',
+    },
+    {
+      prompt: 'requests.get inside an asyncio coroutine',
+      choices: [
+        'releases the event loop automatically',
+        'blocks the only thread; rewrite with awaitables or run_in_executor',
+        'is required before aiohttp',
+        'works if you add async before def',
+      ],
+      answer: 1,
+      why: 'async def does not make blocking I/O magical. Videla’s all-or-nothing.',
+    },
+  ]}
+/>
+
+<CodingExam
+  title="as_completed then await"
+  heading="Challenge: as_completed then await"
+  lang="python"
+  filename="main.py"
+  prompt="async probe(name): await asyncio.sleep(0); return (name, name.endswith('x')). async collect(names): as_completed on probe(n) for each name; await each; append '+name' or ' name' (leading space). wrap: asyncio.run(collect(line.split())) then print those marks sorted (sandbox ignores finish order)."
+  sampleLog={`(input) ax by
++ax  by`}
+  starter={`import asyncio
+
+async def probe(name: str):
+    return (name, False)
+
+async def collect(names: list) -> list:
+    return []
+
+def wrap(line: str) -> str:
+    marks = asyncio.run(collect(line.split()))
+    return ' '.join(sorted(marks))
+`}
+  wrapSuffix={`
+print(wrap(input()))
+`}
+  sourceChecks={[
+    { name: 'as_completed', pattern: 'as_completed', must: true, hint: 'asyncio.as_completed(...)' },
+    { name: 'await', pattern: '\\bawait\\b', must: true, hint: 'await the completed coro' },
+    { name: 'sleep', pattern: 'asyncio\\.sleep', must: true, hint: 'await asyncio.sleep(0) in probe' },
+  ]}
+  tests={[
+    { name: 'mix', stdin: 'ax by', equals: ' by +ax' },
+    { name: 'both', stdin: 'x xx', equals: '+x +xx' },
+  ]}
+/>
+
+`sorted` on `' by'` vs `'+ax'`: space (ASCII 32) before `+` (43), so `' by +ax'`. Starter never probes.
+
+## flags2 asyncio: semaphore + `as_completed`
+
+Same CLI as Chapter 21. asyncio can **open** connections faster than threads — more DoS-shaped. Test locally. Default max concurrent in the book’s asyncio client is **5** (REMOTE 503s).
+
+`gather` is useless for tqdm: it waits for **all**. Use `asyncio.as_completed`, wrap with `tqdm(..., total=len(cc_list))`.
+
+**Throttle:** threadpool used `max_workers`. Here: `asyncio.Semaphore(concur_req)`. Counter: `acquire` (coro, may suspend if 0) / `release` (never blocks). `async with semaphore:` around `get_flag` only — **this** coro waits; the loop keeps running. `__aenter__` awaits acquire; `__aexit__` releases. `BoundedSemaphore` forbids the counter from exceeding the start value.
+
+404 → `not_found` inside `download_one`. Other `ClientResponseError` → `raise FetchError(cc) from exc` (PEP 3134). You **cannot** key a dict by the objects `as_completed` yields: asyncio may **replace** your awaitables with wrappers that still produce the same result. Carry `cc` on the exception instead.
+
+`download_many` builds `supervisor(...)` and `asyncio.run`s it — `main` cannot call a coroutine directly.
+
+## `run_in_executor`
+
+`save_flag` freezes the **whole** loop (one thread). Threads: one worker blocks, GIL dropped on I/O. Fix:
+
+```python
+loop = asyncio.get_running_loop()
+loop.run_in_executor(None, save_flag, image, f'{cc}.gif')
+```
+
+`None` = the loop’s default **thread** pool. Pass a `ProcessPoolExecutor` (created once in `supervisor`) for CPU Python. Tiny GIFs: no win; 10× bytes or megapixels: yes. asyncio itself wraps blocking `socket.getaddrinfo` this way. Motor: async façade over threads. Libraries often hide the executor so callers only `await`.
+
+The flags2 snippet **does not `await`** that call — save races with the rest. For “file is on disk before we continue,” `await loop.run_in_executor(...)`.
+
+## Two HTTP calls, one task
+
+Flag bytes **then** `metadata.json` for the country name → filename. Threads: two blocking GETs, locals in one function. Callbacks: pyramid of doom. `await get_flag` then `await get_country` in the **same** coroutine — JS and Python both grew `await` for this.
+
+Don’t `gather` them if a failed flag makes metadata pointless. Two **separate** `async with semaphore:` blocks: hold the permit only while that request runs.
+
+Some APIs mix plain methods and coroutines (e.g. `StreamWriter` later). Rule of thumb: `await` awaitables; if it isn’t one, don’t.
+
+Servers next.
+
+<MultipleChoice
+  id="py-int-ch22a-sem"
+  title="Semaphore and gather"
+  questions={[
+    {
+      prompt: 'asyncio.gather(*download_ones)',
+      choices: [
+        'yields in finish order like as_completed',
+        'returns results in the order the awaitables were passed, after all complete',
+        'replaces ThreadPoolExecutor.max_workers',
+        'cannot be awaited',
+      ],
+      answer: 1,
+      why: 'Progress bars want as_completed. gather is “barrier then list.”',
+    },
+    {
+      prompt: 'async with semaphore around get_flag',
+      choices: [
+        'stops the event loop until a permit exists',
+        'suspends only that coroutine; others still run',
+        'is the same as threading.Lock on the GIL',
+        'requires ProcessPoolExecutor',
+      ],
+      answer: 1,
+      why: 'That is the point of an asyncio Semaphore vs a thread lock that parks the OS thread.',
+    },
+  ]}
+/>
+
+<CodingExam
+  title="gather in submit order"
+  heading="Challenge: gather in submit order"
+  lang="python"
+  filename="main.py"
+  prompt="async double(n): await asyncio.sleep(0); return n*2. async supervisor(nums): asyncio.gather of double for each n; return the list. wrap: space-join asyncio.run(supervisor(ints from the line)). Must use gather, not a for-loop of awaits (that would be sequential)."
+  sampleLog={`(input) 1 10
+2 20`}
+  starter={`import asyncio
+
+async def double(n: int) -> int:
+    return n
+
+async def supervisor(nums: list) -> list:
+    return nums
+
+def wrap(line: str) -> str:
+    nums = [int(x) for x in line.split()]
+    got = asyncio.run(supervisor(nums))
+    return ' '.join(str(x) for x in got)
+`}
+  wrapSuffix={`
+print(wrap(input()))
+`}
+  sourceChecks={[
+    { name: 'gather', pattern: 'asyncio\\.gather', must: true, hint: 'await asyncio.gather(...)' },
+    { name: 'sleep', pattern: 'asyncio\\.sleep', must: true, hint: 'await asyncio.sleep(0) in double' },
+  ]}
+  tests={[
+    { name: 'two', stdin: '1 10', equals: '2 20' },
+    { name: 'one', stdin: '7', equals: '14' },
+  ]}
+/>
+
+<ExerciseSet
+  title="Exercises"
+  description="Hold the semaphore only around the work, not around sleep you do not have."
+>
+  <CodingExam
+    title="async with semaphore"
+    heading="Exercise: async with semaphore"
+    lang="python"
+    filename="main.py"
+    prompt="async work(sem, n): async with sem: return n.upper(). supervisor(names): Semaphore(2), gather work(sem, n) for each. wrap: join asyncio.run(supervisor(line.split())) with spaces."
+    starter={`import asyncio
+
+async def work(sem, n: str) -> str:
+    return n
+
+async def supervisor(names: list) -> list:
+    return names
+
+def wrap(line: str) -> str:
+    got = asyncio.run(supervisor(line.split()))
+    return ' '.join(got)
+`}
+    wrapSuffix={`
+print(wrap(input()))
+`}
+    sourceChecks={[
+      { name: 'Semaphore', pattern: 'Semaphore', must: true, hint: 'asyncio.Semaphore(2)' },
+      { name: 'async with', pattern: 'async\\s+with', must: true, hint: 'async with sem:' },
+      { name: 'gather', pattern: 'gather', must: true, hint: 'await asyncio.gather(...)' },
+    ]}
+    tests={[
+      { name: 'two', stdin: 'ab cd', equals: 'AB CD' },
+      { name: 'one', stdin: 'z', equals: 'Z' },
+    ]}
+  />
+</ExerciseSet>

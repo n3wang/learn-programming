@@ -1,0 +1,294 @@
+---
+sidebar_position: 24
+title: "Process Pools and Scale"
+---
+
+> **Source:** Fluent Python, 2nd Edition — Chapter 20 by Luciano Ramalho (process pool, GIL workarounds, “the big picture”)
+
+[20a](./lesson-20a-concurrency-models) compared threads, processes, and asyncio on a spinner. This half: **queues** to farm CPU work to processes, why **threads lose** on `is_prime`, and how production Python **sidesteps** the GIL (WSGI workers, Celery, NumPy/Dask). Chapter 21’s `ProcessPoolExecutor` is the same idea with less ceremony — it already uses queues inside.
+
+`await asyncio.sleep(0)` to “let the spinner breathe” during CPU work is a **stopgap**. Real fix: `loop.run_in_executor` (Chapter 22) or a **task queue**.
+
+## Sequential baseline
+
+Ramalho times `is_prime` on 20 integers from 2 up to \(10^{16}-1\): small primes, huge primes, composites with small or large factors. `sequential.py` loops `check(n)`: `perf_counter`, `is_prime`, `Result(prime, elapsed)`. **Total time ≈ sum of the rows** (~40 s on his laptop) because nothing overlaps.
+
+You will **not** run that sample here. The pattern is what matters: a `NamedTuple` result, a wall-clock around the **whole** loop, not just the sum of printed slices.
+
+<CodingExam
+  title="check returns Result"
+  heading="Challenge: check returns Result"
+  lang="python"
+  filename="main.py"
+  prompt="Result is a NamedTuple with fields prime (bool) and elapsed (float). check(n) times is_prime(n) with time.perf_counter and returns Result. wrap: print 'P' or 'C' then a space then 1 if elapsed >= 0 else 0 (elapsed must be a real float from the timer, not a hardcoded 0)."
+  sampleLog={`(input) 7
+P 1`}
+  starter={`from time import perf_counter
+from typing import NamedTuple
+
+def is_prime(n: int) -> bool:
+    if n < 2:
+        return False
+    if n == 2:
+        return True
+    if n % 2 == 0:
+        return False
+    i = 3
+    while i * i <= n:
+        if n % i == 0:
+            return False
+        i += 2
+    return True
+
+class Result(NamedTuple):
+    prime: bool
+    elapsed: float
+
+def check(n: int) -> Result:
+    return Result(False, -1.0)
+
+def wrap(line: str) -> str:
+    n = int(line)
+    r = check(n)
+    flag = 'P' if r.prime else 'C'
+    ok = 1 if r.elapsed >= 0 else 0
+    return f'{flag} {ok}'
+`}
+  wrapSuffix={`
+print(wrap(input()))
+`}
+  sourceChecks={[
+    { name: 'perf_counter', pattern: 'perf_counter', must: true, hint: 'time the call with perf_counter' },
+    { name: 'is_prime', pattern: 'is_prime\\s*\\(', must: true, hint: 'call is_prime inside check' },
+  ]}
+  tests={[
+    { name: 'seven', stdin: '7', equals: 'P 1' },
+    { name: 'nine', stdin: '9', equals: 'C 1' },
+  ]}
+/>
+
+## A homegrown process pool
+
+`procs.py` starts **one worker process per core** (`multiprocessing.cpu_count()`, overridable on the command line). Each worker is **not** called like a function: the library drives it, so **return values go on a queue**.
+
+### Queues
+
+FIFO by default. Threads use `queue.Queue`. Processes use `multiprocessing` queues (`SimpleQueue` since 3.9; older code uses `Queue`). `asyncio` has its own. There are also LIFO and priority queues.
+
+`SimpleQueue` for **type hints** is `multiprocessing.queues.SimpleQueue` — the name on `multiprocessing` is a **factory** bound to a context, not the class.
+
+Two queues:
+
+1. **jobs** — integers to test  
+2. **results** — `PrimeResult(n, prime, elapsed)`  
+
+`n` rides with the result because **completion order ≠ submit order**. Fast composites finish first; a 8 s prime lands later while siblings ran in parallel. **Wall time** (~9.6 s vs ~40 s sequential, ~4× on a 6-core / 12-thread laptop) is **not** the sum of per-number times. Launch + pickle cost eat some of the speedup. Hyper-threading reports 12 CPUs; this trial-division workload behaves closer to **6** cores.
+
+### Worker and poison pill
+
+```python
+def worker(jobs, results):
+    while n := jobs.get():
+        results.put(check(n))
+```
+
+`0` is a **sentinel** (“poison pill”): truthy numbers are work; `0` ends the loop. `None` is the other usual pill. `object()` is a unique sentinel **in one process** — after pickle, the other side has a **different** object, so `==` fails. If `None` is valid payload, `...` (`Ellipsis`) pickles as itself.
+
+`main`: fill `jobs` with `NUMBERS`; start `N` `Process(target=worker, ...)`; then put **N copies of `0`**. Collect with blocking `results.get()` until you believe you are done.
+
+**Trap:** `jobs.empty()` after the last sentinel is *usually* OK here because every worker already got a `0`. If the last job were a huge prime and you treated “empty jobs queue” as “all done,” a worker might still be computing. If the parent dies first, `multiprocessing` can dump `FileNotFoundError` on an internal lock. `ProcessPoolExecutor` (Chapter 21) is less brittle.
+
+Experimenting with worker count: 1 process ≈ sequential; 2 ≈ ~2× if you have cores; past physical cores, contention. Ramalho’s medians dipped at 6, wiggled, then flattened — don’t overfit one laptop.
+
+### Threads are a non-solution
+
+`threads.py` is almost a find-replace of `Process` → `Thread`. For `is_prime` it is **slower than sequential**, and **worse** with more threads: GIL + context switches (registers, PC, stack, cache, pages).
+
+<MultipleChoice
+  id="py-int-ch20b-pool"
+  title="Pools and pills"
+  questions={[
+    {
+      prompt: 'Why does PrimeResult include n, not only prime and elapsed?',
+      choices: [
+        'pickle requires three fields',
+        'results arrive out of job order',
+        'SimpleQueue is LIFO',
+        'is_prime mutates n',
+      ],
+      answer: 1,
+      why: 'Workers race. You would not know which number a True belongs to.',
+    },
+    {
+      prompt: 'Poison pill across processes',
+      choices: [
+        'object() compares equal after pickle',
+        'a fresh object() in the child is not the parent sentinel; 0, None, or Ellipsis are safer',
+        'sentinels are illegal in SimpleQueue',
+        'threads cannot use 0',
+      ],
+      answer: 1,
+      why: 'Unpickling object() allocates a new instance.',
+    },
+    {
+      prompt: 'Many threads running is_prime in CPython',
+      choices: [
+        'beat sequential code on all cores',
+        'usually slower than one thread, and slower still as you add threads',
+        'disable the GIL',
+        'are required before ProcessPoolExecutor',
+      ],
+      answer: 1,
+      why: 'CPU Python + GIL + switches. Processes (or C that drops the GIL) for this work.',
+    },
+  ]}
+/>
+
+<CodingExam
+  title="sentinel worker loop"
+  heading="Challenge: sentinel worker loop"
+  lang="python"
+  filename="main.py"
+  prompt="worker(jobs, results) loops while n := jobs.get(): if n is 0 the loop stops (walrus on get). For each nonzero n, results.put((n, n % 2 == 0)) — even is True. wrap already enqueues the ints from the line, one 0, calls worker, drains results. Do not put from wrap except what is already there. Do not use multiprocessing."
+  sampleLog={`(input) 4 7 8
+4:E 7:O 8:E`}
+  starter={`from queue import Queue
+
+def worker(jobs, results):
+    pass
+
+def wrap(line: str) -> str:
+    jobs: Queue = Queue()
+    results: Queue = Queue()
+    for tok in line.split():
+        jobs.put(int(tok))
+    jobs.put(0)
+    worker(jobs, results)
+    parts = []
+    while not results.empty():
+        n, even = results.get()
+        parts.append(f"{n}:{'E' if even else 'O'}")
+    return ' '.join(parts)
+`}
+  wrapSuffix={`
+print(wrap(input()))
+`}
+  sourceChecks={[
+    { name: 'walrus get', pattern: ':=\\s*jobs\\.get', must: true, hint: 'while n := jobs.get():' },
+    { name: 'put result', pattern: 'results\\.put', must: true, hint: 'results.put((n, ...))' },
+    { name: 'no mp', pattern: 'multiprocessing', must: false, hint: 'use queue.Queue only' },
+  ]}
+  tests={[
+    { name: 'mix', stdin: '4 7 8', equals: '4:E 7:O 8:E' },
+    { name: 'odds', stdin: '1 3', equals: '1:O 3:O' },
+  ]}
+/>
+
+The exam uses `queue.Queue` in **one** process so the sandbox does not fork. The **control flow** is the `procs.py` worker: get until sentinel, put results.
+
+## The free lunch is over
+
+Herb Sutter (2005): clocks stopped being the easy speedup; cores and hyper-threads only help **concurrent** programs. Python began in the early 1990s, when a GIL was an obvious win: faster single-core eval, simpler C API. An extension that **never** talks about the GIL can still be hundreds of times faster than Python. Releasing the GIL for extra cores is optional complexity — one reason the C-extension world (and thus Python) is huge. Ruby’s MRI made a similar bet. JS has no user threads; it went async-only.
+
+## How Python still scales
+
+**Keep web-scale envy in check** (Thoughtworks): Twitter/Netflix complexity is not a starter kit.
+
+### System administration
+
+Fleets, SDN, cloud CLIs: scripts **wait on remote commands**, not on `is_prime`. Threads, `ThreadPoolExecutor`, or asyncio libraries (Facebook PE on AsyncIO, 2016) fit.
+
+### Data science
+
+The hot loops are C/C++/Fortran/Cython, GPUs, clusters:
+
+- **Jupyter** — notebook/lab, kernels over ZeroMQ (name: Julia / Python / R); Bokeh in the browser  
+- **TensorFlow / PyTorch** — C++, cores/GPUs/clusters; Python is the main UI (Google / Facebook origins)  
+- **Dask** — local processes or supercomputer jobs; NumPy/Pandas/sklearn-shaped APIs; live dashboards  
+
+### Server-side
+
+Google, YouTube, Dropbox, Instagram, Quora, Reddit: **architecture**, not “one thread with a lock.” Kleppmann’s *Designing Data-Intensive Applications*: caches (memcached, Redis, Varnish), Postgres/MySQL, Couch/Mongo, Elasticsearch/Solr, RabbitMQ/Redis queues. Cloud vendors sell the same shapes.
+
+Two Python-specific layers:
+
+**WSGI application servers** sit under HTTP (often NGINX/Apache for static + proxy). They **fork several Python processes** so sequential Django/Flask/Pyramid uses every core. You can ship web apps and never import `threading`. Names: **mod_wsgi** (+ `mod_wsgi-express` for containers), **gunicorn**, **uWSGI** (kitchen sink, painful defaults — read production notes before copying a blog), **NGINX Unit**. uWSGI/Unit are polyglot; gunicorn/mod_wsgi are Python-web-centric.
+
+**ASGI** is the async successor (WebSockets, long poll): aiohttp, Sanic, FastAPI; Django/Flask growing `async`.
+
+**Distributed task queues** (Celery, RQ, or a cloud queue): the HTTP process must answer **fast**. Email, PDFs, retries, cron-like work go to **workers**, often other machines. Vocabulary: **producer** (e.g. a Django view) puts a message; **consumers** pull. Scale by adding consumers. Internally: job queue + result backend — same cartoon as `jobs`/`results` in `procs.py`. Redis is a common broker; Celery also RabbitMQ, SQS, …
+
+<MultipleChoice
+  id="py-int-ch20b-scale"
+  title="Scale without hugging the GIL"
+  questions={[
+    {
+      prompt: 'Typical WSGI deployment for CPU cores',
+      choices: [
+        'one Python thread per core sharing the GIL for Django views',
+        'the app server forks several Python processes running ordinary sequential views',
+        'must rewrite the site in asyncio first',
+        'Dask replaces gunicorn',
+      ],
+      answer: 1,
+      why: 'Horizontal processes. That is why many web devs never study multiprocessing.',
+    },
+    {
+      prompt: 'Celery/RQ vs calling render_pdf() in the request',
+      choices: [
+        'the view produces a job; a worker consumes it later or on another machine',
+        'the GIL is released automatically in Django',
+        'WSGI becomes ASGI',
+        'SimpleQueue is required on the client',
+      ],
+      answer: 0,
+      why: 'Decouple request latency from slow work; add workers when load grows.',
+    },
+  ]}
+/>
+
+## Chapter 20 in one page
+
+Three native models (spinner). GIL: asyncio **must not** hog CPU; two threads can still animate; processes ignore the GIL. A **process pool + queues** beats sequential primes; a **thread** pool does not. The GIL is not the whole industry: ops is I/O; science is native/GPU; web is **WSGI workers + task queues**. Next: `concurrent.futures` (21), then asyncio in earnest (22).
+
+Further reading if you go deeper: `multiprocessing` programming guidelines; Gorelick & Ozsvald *High Performance Python*; Hattingh *Using Asyncio* ch. 2 (“threads unravel”); Beazley on the GIL (empty `while True` is a bad microbench); PEP 554 subinterpreters; Kleppmann; Celery FAQ; Thoughtworks “web scale envy.” Actor-model libraries (Thespian, Pykka) encode **no shared mutable state, one message at a time** — the constraint the soapbox wants that locks do not give you.
+
+<ExerciseSet
+  title="Exercises"
+  description="N sentinels for N workers — even when the worker is a function you call yourself."
+>
+  <CodingExam
+    title="one pill per worker"
+    heading="Exercise: one pill per worker"
+    lang="python"
+    filename="main.py"
+    prompt="load(q, workers, jobs): put every job int, then put 0 once per worker (procs.py). wrap drains q and prints '{zero_count} {total_items}'. No multiprocessing."
+    starter={`from queue import Queue
+
+def load(q, workers, jobs):
+    pass
+
+def wrap(line: str) -> str:
+    parts = [int(x) for x in line.split()]
+    workers = parts[0]
+    jobs = parts[1:]
+    q: Queue = Queue()
+    load(q, workers, jobs)
+    items = []
+    while not q.empty():
+        items.append(q.get())
+    zeros = sum(1 for x in items if x == 0)
+    return f'{zeros} {len(items)}'
+`}
+    wrapSuffix={`
+print(wrap(input()))
+`}
+    sourceChecks={[
+      { name: 'put', pattern: '\\.put\\s*\\(', must: true, hint: 'q.put jobs and q.put(0) per worker' },
+    ]}
+    tests={[
+      { name: 'two workers', stdin: '2 10 20 30', equals: '2 5' },
+      { name: 'one worker', stdin: '1 5', equals: '1 2' },
+    ]}
+  />
+</ExerciseSet>

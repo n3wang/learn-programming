@@ -6,6 +6,7 @@ import EditorToolbar from '@site/src/components/codeWorkspace/EditorToolbar';
 import useCodeDraft from '@site/src/components/codeWorkspace/useCodeDraft';
 import {makeDraftId, registerExam, markExamComplete, slugifyAnchor} from '@site/src/components/codeWorkspace/drafts';
 import defaultSourceFilename from '@site/src/components/codeWorkspace/defaultSourceFilename';
+import SplitPanes from '@site/src/components/codeWorkspace/SplitPanes';
 import chrome from '@site/src/components/codeWorkspace/chrome.module.css';
 
 function executeUrl(api, siteConfig) {
@@ -64,6 +65,29 @@ function passesTest(output, test) {
     }
     const needles = test.includes || [];
     return needles.every((n) => hay.includes(test.exact ? n : normalize(n)));
+}
+
+/**
+ * Piston runs `java Main.java` (source-file mode): main must live on the public
+ * class that matches the file name. Lessons historically appended a separate
+ * `class Runner { public static void main... }`, which compiles but never runs.
+ * Lift Runner's main into Main instead.
+ */
+function buildProgram(lang, code, wrapPrefix, wrapSuffix) {
+    const prefix = wrapPrefix || '';
+    const suffix = wrapSuffix || '';
+    const isJava = String(lang).toLowerCase() === 'java';
+    if (isJava && /class\s+Runner\b/.test(suffix)) {
+        const m = suffix.match(/class\s+Runner\s*\{([\s\S]*)\}\s*$/);
+        if (m) {
+            const mainBody = m[1].replace(/^\n+/, '').replace(/\n+$/, '');
+            const stripped = code.replace(/\}\s*$/, '');
+            if (stripped !== code) {
+                return `${prefix}${stripped}\n${mainBody}\n}\n`;
+            }
+        }
+    }
+    return prefix + code + suffix;
 }
 
 export default function CodingExam({
@@ -129,7 +153,7 @@ export default function CodingExam({
         setResults(null);
         const endpoint = executeUrl(api, siteConfig);
         const next = [];
-        const program = wrapPrefix + code + wrapSuffix;
+        const program = buildProgram(lang, code, wrapPrefix, wrapSuffix);
 
         try {
             let failed = false;
@@ -241,11 +265,11 @@ export default function CodingExam({
                 onReset={handleReset}
             />
 
-            <div className={`${chrome.panes} ${split ? chrome.panesSplit : ''}`}>
+            <SplitPanes split={split}>
                 <div className={chrome.editorPane}>
                     <CodeEditor value={code} onChange={setCode} lang={lang} height={height} />
                 </div>
-                {split && (
+                {split ? (
                     <div className={chrome.side}>
                         <div className={chrome.sideHead}>Tests</div>
                         {results ? (
@@ -275,8 +299,8 @@ export default function CodingExam({
                             </pre>
                         )}
                     </div>
-                )}
-            </div>
+                ) : null}
+            </SplitPanes>
         </div>
     );
 }

@@ -1,0 +1,274 @@
+---
+sidebar_position: 31
+title: "Attribute Descriptors"
+---
+
+> **Source:** Fluent Python, 2nd Edition — Chapter 24 by Luciano Ramalho
+
+Hettinger: descriptors are how you **reuse** get/set logic (Django/SQLAlchemy fields). A descriptor implements some of `__get__`, `__set__`, `__delete__`. `property` implements all three. Partial is fine. Functions, `@classmethod`, `@staticmethod` are descriptors too. 3.6 `__set_name__` retired a pile of class-decorator/metaclass hacks from the first edition.
+
+## Vocabulary (LineItem + `Quantity`)
+
+| Term | Here |
+|---|---|
+| Descriptor class | `Quantity` |
+| Managed class | `LineItem` (declares descriptor **class** attributes) |
+| Descriptor instance | `LineItem.weight`, `LineItem.price` — **two** gizmos from the Quantity mill, ever |
+| Managed instance | one `LineItem` row |
+| Storage attribute | that row’s `weight` / `price` in **its** `__dict__` |
+| Managed attribute | the public name clients use |
+
+Mills & gizmos: classes are factories; instances are the widgets. Descriptors get a magnifying glass (`__get__`) and a claw (`__set__`). **Thousands** of line items, still **two** Quantity objects. Store values on **`instance`**, never on `self` (the descriptor).
+
+## Take #3 — `storage_name` by hand
+
+```python
+class Quantity:
+    def __init__(self, storage_name):
+        self.storage_name = storage_name
+
+    def __set__(self, instance, value):
+        if value > 0:
+            instance.__dict__[self.storage_name] = value
+        else:
+            raise ValueError(f'{self.storage_name} must be > 0')
+
+    def __get__(self, instance, owner):
+        return instance.__dict__[self.storage_name]
+```
+
+`self` = descriptor (`LineItem.weight`); `instance` = the LineItem; `owner` = managed **class**. `setattr(instance, self.storage_name, value)` would re-enter `__set__`. `__get__` is required if public name ≠ storage (`rooms = Quantity('number_of_rooms')`). Access via class: `instance is None` — return `self` for introspection.
+
+`price = Quantity('weight')` after a sloppy paste **clobbers** weight. RHS of `weight = Quantity()` runs **before** the name exists — hence `__set_name__`.
+
+<MultipleChoice
+  id="py-int-ch24-self"
+  title="self vs instance"
+  questions={[
+    {
+      prompt: 'Quantity.__set__ stores on self.__dict__',
+      choices: [
+        'correct; each LineItem needs its own descriptor',
+        'wrong: one descriptor is shared; all carts would share one weight',
+        'required by UML',
+        'only if owner is None',
+      ],
+      answer: 1,
+      why: 'Two Quantity instances on the class. Values live on each LineItem.',
+    },
+    {
+      prompt: 'LineItem.weight when instance is None',
+      choices: [
+        'must raise',
+        'good __get__ returns the descriptor itself',
+        'returns 0',
+        'calls validate',
+      ],
+      answer: 1,
+      why: 'Class-level access for debugging / help().',
+    },
+  ]}
+/>
+
+<CodingExam
+  title="Quantity __set__"
+  heading="Challenge: Quantity __set__"
+  lang="python"
+  filename="main.py"
+  prompt="Quantity(storage_name) as take #3: __set__ writes instance.__dict__ if value > 0 else ValueError; __get__ reads that key. LineItem.weight/price already constructed. wrap: two floats → int(subtotal) or bad."
+  sampleLog={`(input) 2 5
+10`}
+  starter={`class Quantity:
+    def __init__(self, storage_name):
+        self.storage_name = storage_name
+
+    def __set__(self, instance, value):
+        pass
+
+    def __get__(self, instance, owner):
+        return 0
+
+class LineItem:
+    weight = Quantity('weight')
+    price = Quantity('price')
+
+    def __init__(self, description, weight, price):
+        self.description = description
+        self.weight = weight
+        self.price = price
+
+    def subtotal(self):
+        return self.weight * self.price
+
+def wrap(line: str) -> str:
+    w, p = map(float, line.split())
+    try:
+        item = LineItem('x', w, p)
+        return str(int(item.subtotal()))
+    except ValueError:
+        return 'bad'
+`}
+  wrapSuffix={`
+print(wrap(input()))
+`}
+  sourceChecks={[
+    { name: 'instance dict', pattern: 'instance\\.__dict__', must: true, hint: 'instance.__dict__[self.storage_name]' },
+    { name: 'set', pattern: 'def __set__', must: true, hint: 'implement __set__' },
+  ]}
+  tests={[
+    { name: 'ok', stdin: '2 5', equals: '10' },
+    { name: 'zero', stdin: '2 0', equals: 'bad' },
+  ]}
+/>
+
+Starter `__get__` returns 0 → first test fails; `__set__` is `pass` so zero may still “succeed” with subtotal 0 unless you raise.
+
+## Take #4 — `__set_name__(self, owner, name)`
+
+Interpreter calls this on each descriptor in the class body (3.6+). `self.storage_name = name`. Then `weight = Quantity()` — no string. If names match, **`__get__` optional**: `product.price` hits the instance dict after `__set__` filled it. Typical: `Quantity` lives in `model.py`; Django fields look like this.
+
+## Take #5 — Template Method / self-delegation
+
+Blank `description` shipped nothing. `Validated` ABC: `__set_name__` + `__set__` that `value = self.validate(name, value)` then dict write. Subclasses only implement `validate`.
+
+- `Quantity`: `<= 0` → error, else return value  
+- `NonBlank`: `strip()`; empty → error; return stripped string  
+
+`LineItem.description = NonBlank()`.
+
+## Overriding vs not
+
+Python: **read** instance then class; **write** usually creates an instance attr. Descriptors punch holes in that:
+
+**Overriding / data / enforced** — has `__set__`. Assignment goes through it. `property` always has `__set__` (default: `can't set attribute`). Even after `obj.__dict__['over'] = 8`, **`obj.over` still `__get__`s**.
+
+**Overriding, no `__get__`**: read via instance returns the **descriptor object** (from the class). After you stuff `__dict__`, **reads** see the instance value; **writes** still `__set__`.
+
+**Non-overriding / non-data / shadowable** — no `__set__`. `obj.non_over = 7` shadows. `del obj.non_over` restores `__get__`. **Methods** and **`@cached_property`** are this.
+
+**Assigning on the class** (`Managed.over = 1`) kills the descriptor for everyone. `__set__` on `Managed` does **not** intercept `Managed.x = ...`. Controlling class-level sets → descriptor on the **metaclass** (Chapter 25). `type` is not yours to patch.
+
+### Methods
+
+User functions have `__get__`. `obj.spam` → **bound method**; `Managed.spam` → **function**. `obj.spam = 7` shadows **that instance**. `fn.__get__(instance)` ≈ `partial(fn, instance)`. Bound method: `.__self__` is the instance, `.__func__` is the original function; `__call__` does `func(self, ...)`. `Text.reverse` as a function still reverses tuples via `map`. Special methods: `repr(x)` is `type(x).__repr__(x)` — instance `__repr__` does not count.
+
+<MultipleChoice
+  id="py-int-ch24-kinds"
+  title="Descriptor kinds"
+  questions={[
+    {
+      prompt: 'After obj.__dict__[\'over\'] = 8, Overriding has __get__ and __set__',
+      choices: [
+        'obj.over is 8',
+        'obj.over still runs __get__',
+        'AttributeError',
+        'the class attribute is deleted',
+      ],
+      answer: 1,
+      why: 'Data descriptors win on get. Non-overriding would return 8.',
+    },
+    {
+      prompt: 'Read-only descriptor with only __get__',
+      choices: [
+        'enough; assignment fails automatically',
+        'assignment shadows it; add __set__ that raises AttributeError',
+        'must be a property',
+        'only works with __slots__',
+      ],
+      answer: 1,
+      why: 'property is the easy read-only path because it already has __set__.',
+    },
+  ]}
+/>
+
+## Usage tips
+
+- **`property`** for simple / read-only.  
+- Validation: **`__set__` only**, write `__dict__`, let get be a raw dict hit.  
+- Expensive compute: **`__get__` only**, then set the instance attr (cache / `cached_property`).  
+- Dynamic names from JSON can shadow **non-dunder** methods. FrozenJSON/Record stayed on dunders, `staticmethod`, properties.  
+- Descriptor **class** docstring is `help(LineItem.weight)` for **every** Quantity — you cannot say “kilograms” vs “USD” without extra protocol.  
+- `__delete__` exists; rarely written.
+
+<CodingExam
+  title="__set_name__"
+  heading="Challenge: __set_name__"
+  lang="python"
+  filename="main.py"
+  prompt="Quantity with no __init__: __set_name__ stores name as storage_name. __set__ as take #4 (value > 0 into instance.__dict__). No __get__. LineItem uses Quantity(). wrap: two floats → int(subtotal) or bad."
+  sampleLog={`(input) 3 3
+9`}
+  starter={`class Quantity:
+    def __set_name__(self, owner, name):
+        pass
+
+    def __set__(self, instance, value):
+        instance.__dict__[self.storage_name] = value
+
+class LineItem:
+    weight = Quantity()
+    price = Quantity()
+
+    def __init__(self, description, weight, price):
+        self.description = description
+        self.weight = weight
+        self.price = price
+
+    def subtotal(self):
+        return self.weight * self.price
+
+def wrap(line: str) -> str:
+    w, p = map(float, line.split())
+    try:
+        item = LineItem('x', w, p)
+        return str(int(item.subtotal()))
+    except (ValueError, AttributeError):
+        return 'bad'
+`}
+  wrapSuffix={`
+print(wrap(input()))
+`}
+  sourceChecks={[
+    { name: 'set_name body', pattern: 'storage_name\\s*=', must: true, hint: 'self.storage_name = name' },
+    { name: 'positive', pattern: '>\\s*0|<=\\s*0', must: true, hint: 'reject value <= 0' },
+  ]}
+  tests={[
+    { name: 'ok', stdin: '3 3', equals: '9' },
+    { name: 'neg', stdin: '3 -1', equals: 'bad' },
+  ]}
+/>
+
+Starter `__set__` accepts `-1` and `__set_name__` never sets `storage_name` — `ok` can `AttributeError` → `bad`.
+
+<ExerciseSet
+  title="Exercises"
+  description="NonBlank is Validated with strip and a non-empty check."
+>
+  <CodingExam
+    title="NonBlank validate"
+    heading="Exercise: NonBlank validate"
+    lang="python"
+    filename="main.py"
+    prompt="NonBlank.validate(name, value): strip; if empty raise ValueError; else return stripped. wrap: print validate('d', line) or empty."
+    starter={`class NonBlank:
+    def validate(self, name, value):
+        return value
+
+def wrap(line: str) -> str:
+    try:
+        return NonBlank().validate('d', line)
+    except ValueError:
+        return 'empty'
+`}
+    wrapSuffix={`
+print(wrap(input()))
+`}
+    sourceChecks={[
+      { name: 'strip', pattern: '\\.strip\\s*\\(', must: true, hint: 'value.strip()' },
+    ]}
+    tests={[
+      { name: 'ok', stdin: '  hi  ', equals: 'hi' },
+      { name: 'blank', stdin: '   ', equals: 'empty' },
+    ]}
+  />
+</ExerciseSet>

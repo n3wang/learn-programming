@@ -1,0 +1,274 @@
+---
+sidebar_position: 4
+title: "Classes and Interfaces"
+---
+
+> **Source:** Effective Java, 3rd Edition — Chapter 4 by Joshua Bloch (Items 15–20)
+
+Classes and interfaces are Java’s main abstractions. This lesson: hide internals, accessors, immutability, composition over inheritance, design-for-inheritance (or forbid it), and interfaces vs abstract classes.
+
+## Item 15: Minimize accessibility
+
+**Information hiding** decouples components — parallel work, safer changes, reuse. Rule: **lowest access that still works.**
+
+Top-level: `public` or package-private. Prefer package-private so you can delete it later. One-user types → private static nested (Item 24).
+
+Members (increasing access): `private` → package-private (default) → `protected` → `public`. Start private; widen only when needed. `protected` on a public class is forever API + implementation commitment — rare.
+
+You **cannot** narrow an override below the superclass (LSP). Interface methods in a class are `public`.
+
+Testing: package-private for tests is OK; do not export API just for tests.
+
+Public instance fields: almost never (Item 16). `public static final` constants OK if primitive or **immutable** refs. **Never** `public static final Thing[] VALUES` — arrays are mutable. Fix: unmodifiable `List` or defensive `clone()` in `values()`.
+
+Java 9 modules add export-based levels; mostly advisory outside the JDK — skip unless you need them.
+
+## Item 16: Accessors, not public fields
+
+Public `Point { public double x, y; }` cannot change representation or enforce invariants. Public classes need private fields + getters/setters. Package-private / private nested classes may expose fields. Immutable public fields are still questionable. Do not copy AWT `Point` / `Dimension`.
+
+<MultipleChoice
+  id="java-int-ch4-access"
+  title="Accessibility"
+  questions={[
+    {
+      prompt: 'public static final Thing[] VALUES',
+      choices: [
+        'safe if the array reference is final',
+        'clients can mutate contents — use unmodifiable List or clone()',
+        'required by the module system',
+        'same as List.of',
+      ],
+      answer: 1,
+      why: 'final freezes the reference, not the array cells.',
+    },
+    {
+      prompt: 'Public class with public mutable fields',
+      choices: [
+        'fine for DTOs',
+        'loses invariants, representation flexibility, and usually thread safety',
+        'required by Item 17',
+        'only wrong for static fields',
+      ],
+      answer: 1,
+      why: 'Use accessors on exported types.',
+    },
+  ]}
+/>
+
+## Item 17: Minimize mutability
+
+Immutable = no observable state change after construction.
+
+1. No mutators  
+2. Not subclassable (`final`, or private ctors + static factories)  
+3. All fields `final`  
+4. All fields `private`  
+5. Defensive copies of mutable components (never store/return client mutables)
+
+`Complex`: `plus` / `times` return **new** instances (functional style; names as prepositions). Wins: simple state, thread-safe sharing, great map keys, failure atomicity, share internals (`BigInteger.negate`). Cost: many objects — mitigate with multistep primitives or a mutable companion (`StringBuilder`). Cache derived values in nonfinal fields only if the visible state never changes (`String` hash).
+
+If mutable: shrink the state space (`CountDownLatch`). Prefer `private final` by default. Fully initialize in the constructor.
+
+<CodingExam
+  title="immutable Complex plus"
+  heading="Challenge: immutable Complex plus"
+  lang="java"
+  filename="Main.java"
+  prompt="Complex is final with private final re, im. plus(Complex c) returns a new Complex(re+c.re, im+c.im) — do not mutate this. wrap: four doubles a b c d; print (a+c)+(b+d)i style via toString already provided."
+  sampleLog={`(input) 1 2 3 4
+(4.0 + 6.0i)`}
+  starter={`public class Main {
+    public static final class Complex {
+        private final double re;
+        private final double im;
+
+        public Complex(double re, double im) {
+            this.re = re;
+            this.im = im;
+        }
+
+        public Complex plus(Complex c) {
+            return null; // TODO new Complex(...)
+        }
+
+        @Override
+        public String toString() {
+            return "(" + re + " + " + im + "i)";
+        }
+    }
+}
+`}
+  wrapSuffix={`
+class Runner {
+    public static void main(String[] args) {
+        java.util.Scanner sc = new java.util.Scanner(System.in);
+        Main.Complex a = new Main.Complex(sc.nextDouble(), sc.nextDouble());
+        Main.Complex b = new Main.Complex(sc.nextDouble(), sc.nextDouble());
+        System.out.println(a.plus(b));
+    }
+}
+`}
+  sourceChecks={[
+    { name: 'new Complex', pattern: 'new\\s+Complex\\s*\\(', must: true, hint: 'return new Complex(re + c.re, im + c.im)' },
+    { name: 'no field assign', pattern: 'this\\.(re|im)\\s*=', must: false, hint: 'do not assign re/im in plus' },
+  ]}
+  tests={[
+    { name: 'sum', stdin: '1 2 3 4', equals: '(4.0 + 6.0i)' },
+    { name: 'zero', stdin: '0 0 1 1', equals: '(1.0 + 1.0i)' },
+  ]}
+/>
+
+## Item 18: Favor composition over inheritance
+
+Implementation inheritance across packages breaks encapsulation — subclasses depend on undocumented self-use (`InstrumentedHashSet`: `addAll` calls `add` → double count). New superclass methods later can bypass overrides (security). Adding methods risks accidental override.
+
+**Composition + forwarding:** wrap a `Set`, implement `Set`, forward; `InstrumentedSet` only overrides `add` / `addAll`. Works with **any** `Set`. Decorator / wrapper. SELF problem in callbacks. Prefer when “is-a” is false (`Stack`/`Vector`, `Properties`/`Hashtable`).
+
+## Item 19: Design for inheritance or prohibit it
+
+Document self-use of overridable methods (`@implSpec`). Export few protected hooks; **test by writing ~3 subclasses**. Constructors / `clone` / `readObject` must **not** call overridable methods (`Super`/`Sub` prints `null`). `Cloneable`/`Serializable` burden subclasses.
+
+Ordinary concrete classes: make **`final`** or private ctors + factories unless you truly design for extension. Wrappers beat subclassing for instrumentation.
+
+<MultipleChoice
+  id="java-int-ch4-inherit"
+  title="Inheritance vs composition"
+  questions={[
+    {
+      prompt: 'InstrumentedHashSet overrides add and addAll counting size then super.addAll',
+      choices: [
+        'always counts correctly',
+        'double-counts if HashSet.addAll calls add',
+        'required by Set',
+        'fixed by making addCount public',
+      ],
+      answer: 1,
+      why: 'Fragile self-use. Wrap a Set instead.',
+    },
+    {
+      prompt: 'Super constructor calls overrideMe; Sub sets a final Instant in its constructor',
+      choices: [
+        'Instant is always initialized first',
+        'overrideMe may run before Sub init — sees null',
+        'illegal in Java',
+        'only fails if Sub is final',
+      ],
+      answer: 1,
+      why: 'Never invoke overridable methods from constructors.',
+    },
+  ]}
+/>
+
+## Item 20: Prefer interfaces to abstract classes
+
+Interfaces: multiple implementation, retrofit existing classes, **mixins** (`Comparable`), nonhierarchical types (`SingerSongwriter`), wrappers. Default methods help; cannot default `equals`/`hashCode`/`toString`; limited fields.
+
+**Skeletal** `AbstractList` / `AbstractMapEntry`: primitives abstract; rest implemented. Optional to extend — or simulate multiple inheritance with a private skeletal helper. Simple implementations (`SimpleEntry`) are concrete minimal classes.
+
+<CodingExam
+  title="forwarding size"
+  heading="Challenge: forwarding size"
+  lang="java"
+  filename="Main.java"
+  prompt="Counted wraps a java.util.List via composition. size() forwards to the list. add(E) increments adds then list.add. getAdds() returns adds. wrap: tokens into list through Counted; print size and getAdds."
+  sampleLog={`(input) a b c
+3 3`}
+  starter={`import java.util.ArrayList;
+import java.util.List;
+
+public class Main {
+    public static final class Counted<E> {
+        private final List<E> list;
+        private int adds = 0;
+
+        public Counted(List<E> list) {
+            this.list = list;
+        }
+
+        public boolean add(E e) {
+            return false; // TODO count then forward
+        }
+
+        public int size() {
+            return 0; // TODO forward
+        }
+
+        public int getAdds() {
+            return adds;
+        }
+    }
+}
+`}
+  wrapSuffix={`
+class Runner {
+    public static void main(String[] args) {
+        java.util.Scanner sc = new java.util.Scanner(System.in);
+        Main.Counted<String> c = new Main.Counted<>(new java.util.ArrayList<>());
+        while (sc.hasNext()) c.add(sc.next());
+        System.out.println(c.size() + " " + c.getAdds());
+    }
+}
+`}
+  sourceChecks={[
+    { name: 'forward add', pattern: 'list\\.add', must: true, hint: 'list.add(e)' },
+    { name: 'forward size', pattern: 'list\\.size', must: true, hint: 'return list.size()' },
+    { name: 'no extends List', pattern: 'extends\\s+', must: false, hint: 'composition only — do not extend ArrayList' },
+  ]}
+  tests={[
+    { name: 'three', stdin: 'a b c', equals: '3 3' },
+    { name: 'one', stdin: 'z', equals: '1 1' },
+  ]}
+/>
+
+## Items 15–20 map
+
+| Item | Move |
+|---|---|
+| 15 | Least access; no public mutable arrays |
+| 16 | Public types → accessors |
+| 17 | Immutable by default |
+| 18 | Compose/wrap; don’t extend foreign concretes |
+| 19 | Document for inheritance or seal it off |
+| 20 | Interfaces (+ skeletal) over abstract type roots |
+
+Next: [Interfaces and Nested Classes](./lesson-4b-interfaces-and-nested-classes) (Items 21–25).
+
+<ExerciseSet
+  title="Exercises"
+  description="Hide the array — clients get a clone."
+>
+  <CodingExam
+    title="values() clones"
+    heading="Exercise: values() clones"
+    lang="java"
+    filename="Main.java"
+    prompt="PRIVATE holds int data. values() returns a clone of PRIVATE (not the field itself). wrap: print joined values; then prove independence by checking length only (already from clone)."
+    starter={`public class Main {
+    public static final class Things {
+        private static final int[] PRIVATE = { 1, 2, 3 };
+
+        public static int[] values() {
+            return PRIVATE; // TODO return a clone
+        }
+    }
+}
+`}
+    wrapSuffix={`
+class Runner {
+    public static void main(String[] args) {
+        int[] a = Main.Things.values();
+        a[0] = 99;
+        int[] b = Main.Things.values();
+        System.out.println(b[0] + "," + b[1] + "," + b[2]);
+    }
+}
+`}
+    sourceChecks={[
+      { name: 'clone', pattern: '\\.clone\\s*\\(', must: true, hint: 'return PRIVATE.clone()' },
+    ]}
+    tests={[
+      { name: 'safe', stdin: '', equals: '1,2,3' },
+    ]}
+  />
+</ExerciseSet>

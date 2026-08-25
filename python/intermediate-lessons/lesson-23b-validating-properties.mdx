@@ -1,0 +1,267 @@
+---
+sidebar_position: 30
+title: "Validating Properties"
+---
+
+> **Source:** Fluent Python, 2nd Edition — Chapter 23 by Luciano Ramalho (LineItem through attribute APIs / chapter summary)
+
+[23a](./lesson-23a-dynamic-attributes) used properties to **compute** (and cache) linked records. This half: properties as **validation** without changing `item.weight = 12`, a **factory** so `weight` and `price` are not two copy-pasted setters, then `del`, `dir`/`getattr`, and `__getattribute__` vs `__getattr__`. Descriptors proper are Chapter 24.
+
+## LineItem #1 — garbage in
+
+Organic bulk: `description`, `weight`, `price`, `subtotal()`. `raisins.weight = -20` → negative money. Bezos: early Amazon let people order a **negative** quantity of books and credited the card. Java-style getters would work; if production already uses `item.weight`, replace the **data** attribute with a **property** and keep the spelling.
+
+## LineItem #2 — `@weight.setter`
+
+```python
+@property
+def weight(self):
+    return self.__weight
+
+@weight.setter
+def weight(self, value):
+    if value > 0:
+        self.__weight = value
+    else:
+        raise ValueError('value must be > 0')
+```
+
+`__init__` assigns `self.weight = weight` — the **setter** already runs, so `LineItem('walnuts', 0, 10)` dies. Storage is name-mangled `__weight`. The getter, setter, and public name are all `weight`. Same trick for `price` is the repetition Graham hates. Factory now; descriptor class in 24 (`property` **is** a descriptor).
+
+`property` is a **class**: `property(fget=None, fset=None, fdel=None, doc=None)`. Missing piece → that operation is forbidden. Decorators arrived in 2.4; before that:
+
+```python
+weight = property(get_weight, set_weight)
+```
+
+Factories still like this form. Decorators win in a busy class body (no `get_`/`set_` convention required).
+
+<CodingExam
+  title="weight must be > 0"
+  heading="Challenge: weight must be > 0"
+  lang="python"
+  filename="main.py"
+  prompt="LineItem(description, weight, price) with a weight property: store in __weight; setter raises ValueError unless value > 0. __init__ assigns self.weight. subtotal is weight * price. wrap: two floats; print int(subtotal) or the word bad on ValueError."
+  sampleLog={`(input) 10 2
+20`}
+  starter={`class LineItem:
+    def __init__(self, description, weight, price):
+        self.description = description
+        self.weight = weight
+        self.price = price
+
+    def subtotal(self):
+        return 0
+
+def wrap(line: str) -> str:
+    w, p = map(float, line.split())
+    try:
+        item = LineItem('x', w, p)
+        return str(int(item.subtotal()))
+    except ValueError:
+        return 'bad'
+`}
+  wrapSuffix={`
+print(wrap(input()))
+`}
+  sourceChecks={[
+    { name: 'property', pattern: '@property', must: true, hint: '@property getter named weight' },
+    { name: 'setter', pattern: '@weight\\.setter', must: true, hint: '@weight.setter' },
+  ]}
+  tests={[
+    { name: 'ok', stdin: '10 2', equals: '20' },
+    { name: 'zero', stdin: '0 5', equals: 'bad' },
+  ]}
+/>
+
+Starter `#1` accepts `0`. Second test is the Bezos case.
+
+## Properties vs instance attributes
+
+Properties live on the **class** but intercept **instances**. Search for `obj.data` starts at **`obj.__class__`**. If that class (or a base) has an **overriding descriptor** named `data` (a `property` is one), the instance dict is **not** used for that name.
+
+Demo:
+
+- `Class.data = 'the class data attr'` plus `@property def prop`. Empty `vars(obj)`.
+- `obj.data` reads the class string. `obj.data = 'bar'` **creates** an instance attr; `Class.data` unchanged. Data attributes **can** be shadowed.
+- `obj.prop = 'foo'` → `AttributeError: can't set attribute` (no setter).
+- `obj.__dict__['prop'] = 'foo'` succeeds; **`obj.prop` still runs the getter**.
+- Replace `Class.prop` with a plain string: now `obj.prop` is `'foo'`.
+- Replace `Class.data` with a `property`: **`obj.data` suddenly uses the property**, even though `vars(obj)` still has `'bar'`. `del Class.data` restores the instance value.
+
+## Docs
+
+`help()` reads `property.__doc__`. Classic: `property(..., doc='weight in kilograms')`. Decorator: **getter** docstring is the property’s docs.
+
+## `quantity` factory
+
+```python
+class LineItem:
+    weight = quantity('weight')  # name twice: RHS runs before the name exists
+    price = quantity('price')
+```
+
+Fixing the doubled name is a class decorator / metaclass job (25). Closure:
+
+```python
+def quantity(storage_name):
+    def qty_getter(instance):
+        return instance.__dict__[storage_name]
+    def qty_setter(instance, value):
+        if value > 0:
+            instance.__dict__[storage_name] = value
+        else:
+            raise ValueError('value must be > 0')
+    return property(qty_getter, qty_setter)
+```
+
+First arg is `instance`, not `self` — this is not a class body. **Must** hit `__dict__` or the property recurses. `vars(nutmeg)` shows `weight` and `price` sitting next to `description`; reads still go through the property.
+
+Same factory in a util module; later a descriptor hierarchy.
+
+<MultipleChoice
+  id="py-int-ch23b-shadow"
+  title="Where lookup starts"
+  questions={[
+    {
+      prompt: 'obj.prop when Class.prop is a property and obj.__dict__ has prop',
+      choices: [
+        'returns the instance dict value',
+        'still runs the getter (property wins until you destroy Class.prop)',
+        'AttributeError always',
+        'calls __getattr__',
+      ],
+      answer: 1,
+      why: 'Overriding descriptor. Direct __dict__ write does not hide it.',
+    },
+    {
+      prompt: 'quantity getter reads instance.weight',
+      choices: [
+        'correct; properties only wrap assignment',
+        'infinite recursion; use instance.__dict__[storage_name]',
+        'must use object.__getattribute__',
+        'only works with __slots__',
+      ],
+      answer: 1,
+      why: 'The public name is the property.',
+    },
+  ]}
+/>
+
+<CodingExam
+  title="quantity factory"
+  heading="Challenge: quantity factory"
+  lang="python"
+  filename="main.py"
+  prompt="quantity(storage_name) returns a property: get/set instance.__dict__[storage_name]; setter ValueError unless value > 0. LineItem already has weight = quantity('weight') and price = quantity('price'). wrap: two floats → int(subtotal) or bad."
+  sampleLog={`(input) 8 2
+16`}
+  starter={`def quantity(storage_name):
+    return property()
+
+class LineItem:
+    weight = quantity('weight')
+    price = quantity('price')
+
+    def __init__(self, description, weight, price):
+        self.description = description
+        self.weight = weight
+        self.price = price
+
+    def subtotal(self):
+        return self.weight * self.price
+
+def wrap(line: str) -> str:
+    w, p = map(float, line.split())
+    try:
+        item = LineItem('n', w, p)
+        return str(int(item.subtotal()))
+    except (ValueError, AttributeError, KeyError, TypeError):
+        return 'bad'
+`}
+  wrapSuffix={`
+print(wrap(input()))
+`}
+  sourceChecks={[
+    { name: 'dict storage', pattern: '__dict__', must: true, hint: 'instance.__dict__[storage_name]' },
+    { name: 'return property', pattern: 'return property\\s*\\(', must: true, hint: 'return property(getter, setter)' },
+  ]}
+  tests={[
+    { name: 'ok', stdin: '8 2', equals: '16' },
+    { name: 'neg', stdin: '-1 2', equals: 'bad' },
+  ]}
+/>
+
+Empty `property()` cannot set `weight`; `neg` and `ok` both miss until the factory is real. Two fields share one function — do not hardcode only `'weight'`.
+
+## Deletion
+
+`del obj.an_attribute`. Rare. `@member.deleter` or `property(..., fdel=...)`. Black Knight: `phrases` queue; `del knight.member` pops and prints. Without a property: `__delattr__`.
+
+## Cheat sheet
+
+| | |
+|---|---|
+| `__class__` | `type(obj)`. Special methods are found **on the class**, not a same-named instance attr. |
+| `__dict__` | Writable attrs. Missing if `__slots__` without `'__dict__'`. |
+| `__slots__` | Allowed names; optional `'__dict__'` in the tuple. |
+| `dir` | Interactive “interesting” names; not `__dict__` itself but its keys; skips some class guts (`__mro__`). No arg → current scope. Handles slotted instances. |
+| `getattr` / `hasattr` / `setattr` | `hasattr` is getattr + catch `AttributeError`. |
+| `vars(obj)` | `__dict__` only; fails on slotted-without-dict. `vars()` = `locals()`. |
+
+Dot **or** these builtins fire the matching special method. **`obj.__dict__['x'] =` does not.**
+
+- `__delattr__` — every `del obj.attr`
+- `__dir__` — `dir(obj)`
+- `__getattr__` — **after** instance, class, bases fail
+- `__getattribute__` — **every** fetch except some dunders; `__getattr__` only if this raises `AttributeError`. Recursion: `super().__getattribute__(name)`
+- `__setattr__` — every store
+
+Unconditional `__getattribute__` / `__setattr__` are easier to get wrong than `__getattr__` or a property.
+
+<ExerciseSet
+  title="Exercises"
+  description="Classic property() — same validation, no @weight.setter."
+>
+  <CodingExam
+    title="property(get, set)"
+    heading="Exercise: property(get, set)"
+    lang="python"
+    filename="main.py"
+    prompt="LineItem with get_weight/set_weight (value > 0 else ValueError) and weight = property(get_weight, set_weight). No @property decorator. wrap: two floats → int(subtotal) or bad."
+    starter={`class LineItem:
+    def __init__(self, description, weight, price):
+        self.description = description
+        self.weight = weight
+        self.price = price
+
+    def subtotal(self):
+        return 0
+
+    def get_weight(self):
+        return 0
+
+    def set_weight(self, value):
+        pass
+
+def wrap(line: str) -> str:
+    w, p = map(float, line.split())
+    try:
+        item = LineItem('x', w, p)
+        return str(int(item.subtotal()))
+    except ValueError:
+        return 'bad'
+`}
+    wrapSuffix={`
+print(wrap(input()))
+`}
+    sourceChecks={[
+      { name: 'classic property', pattern: 'weight\\s*=\\s*property\\s*\\(', must: true, hint: 'weight = property(get_weight, set_weight)' },
+      { name: 'no decorator', pattern: '@property', must: false, hint: 'do not use @property' },
+    ]}
+    tests={[
+      { name: 'ok', stdin: '3 4', equals: '12' },
+      { name: 'zero', stdin: '0 4', equals: 'bad' },
+    ]}
+  />
+</ExerciseSet>

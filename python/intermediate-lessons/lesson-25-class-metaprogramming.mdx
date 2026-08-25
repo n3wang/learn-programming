@@ -1,0 +1,243 @@
+---
+sidebar_position: 32
+title: "Class Metaprogramming"
+---
+
+> **Source:** Fluent Python, 2nd Edition — Chapter 25 by Luciano Ramalho
+
+3.6+ made first-edition class-builder recipes **redundant**. Prefer `__set_name__`, `__init_subclass__`, insertion-ordered `dict`, decorators — then a **metaclass** only if you must touch `type.__new__` (usually `__slots__`). This is the last Fluent Python chapter in the course.
+
+## Classes are objects
+
+`dir` **omits** most of these. Already seen: `__class__`, `__name__`, `__mro__`. Also:
+
+- `__bases__` — immediate bases  
+- `__qualname__` — PEP 3155; inner `Ox.Meta` is `Meta` for `__name__`  
+- `__subclasses__()` — live **immediate** subclasses (weak refs)  
+- `mro()` — interpreter calls this while building; a metaclass may override it  
+
+`type(obj)` is `obj.__class__`. **`type` is also a class.** Three arguments **build** a class:
+
+```python
+MyClass = type('MyClass', (MySuperClass, MyMixin),
+               {'x': 42, 'x2': lambda self: self.x * 2})
+```
+
+Same as a `class` statement: **name**, **bases** (or `(object,)`), **dict** (callables → methods). Optional kwargs exist; skip them. `type(int)` is `type`; `type(type)` is `type` (magic, with `object`). User classes default to instances of `type`. `Iterable.__class__` is `ABCMeta`; `ABCMeta` **subclasses** `type` — that is what a metaclass **is**.
+
+<CodingExam
+  title="type(name, bases, ns)"
+  heading="Challenge: type(name, bases, ns)"
+  lang="python"
+  filename="main.py"
+  prompt="make(name): return type(name, (object,), {'tag': lambda self: name}). wrap: C = make(line); print C().tag() + '|' + C.__name__."
+  sampleLog={`(input) Dog
+Dog|Dog`}
+  starter={`def make(name: str):
+    class C:
+        def tag(self):
+            return 'x'
+    C.__name__ = name
+    return C
+
+def wrap(line: str) -> str:
+    C = make(line)
+    return f'{C().tag()}|{C.__name__}'
+`}
+  wrapSuffix={`
+print(wrap(input()))
+`}
+  sourceChecks={[
+    { name: 'type call', pattern: 'type\\s*\\(\\s*name', must: true, hint: 'return type(name, (object,), {...})' },
+  ]}
+  tests={[
+    { name: 'Dog', stdin: 'Dog', equals: 'Dog|Dog' },
+    { name: 'Cat', stdin: 'Cat', equals: 'Cat|Cat' },
+  ]}
+/>
+
+Starter fakes `__name__` but `tag` always returns `'x'`. Use the three-arg `type`.
+
+## `record_factory`
+
+Tiny `@dataclass` cousin: `Dog = record_factory('Dog', 'name weight owner')` — nice `repr`, unpackable, **mutable**, MRO just `(Dog, object)`. `type(cls_name, (object,), {__slots__, __init__, __iter__, __repr__})`. Parse fields from a string or iterable; `isidentifier()`. `__slots__` both saves RAM and **freezes the attr set** (else you’d write `__setattr__`). **Not pickleable** — see `namedtuple` guts if you care.
+
+Cannot use `__slots__` from `__init_subclass__` or a decorator: too **late**; slots must be in the namespace **`type.__new__` sees**.
+
+## `__init_subclass__` — `Checked`
+
+Like `NamedTuple`/`@dataclass` from a `class` body, but **runtime** constructors: `title: str`, `year: int`. Keyword-only `__init__`. Missing field → constructor **no args** (`int()` is `0`). `...` (Ellipsis) as `kwargs.pop` default vs real `None`. `Field.__set__`: `callable` constructor, reject `type(None)`; `value is ...` → `constructor()`; else `constructor(value)` catching `TypeError`/`ValueError` (`float(None)` vs `float('A')`). Store `instance.__dict__[name]`. No `__set_name__` — `Checked.__init_subclass__` plants `Field`s.
+
+`__init_subclass__(subclass)` is **not** a normal classmethod: first arg is the **new child**, never `Checked` itself. Still call `super().__init_subclass__()`. Do **not** `@classmethod` it (like `__new__`’s weirdness).
+
+`__setattr__` blocks unknown names and **must** call `descriptor.__set__` by hand — otherwise `__setattr__` swallows the overriding descriptor. `_fields` / `_asdict` leading `_` like `namedtuple`. Mypy cannot check `Checked.__init__(**kwargs)`. `list[float]` is `list` at runtime.
+
+## `@checked` decorator
+
+Same `Field`s, inject `_fields`, `__init__`, `__repr__`, `__setattr__`, … then `return cls`. Prefer this when you **must not** take the only inheritance slot or fight a metaclass. `@dataclass` is 1200+ lines of the same idea.
+
+`__init_subclass__` vs decorator: **after** `type.__new__`. Order in Ramalho’s noisy demo (class that is **both** decorated and a `Builder` subclass — don’t ship that):
+
+1. Import builder module (class **bodies** of `Builder`/`Descriptor` run)  
+2. Start `Klass` body (no class object yet)  
+3. `Descriptor()`  
+4. `type.__new__` then **`__set_name__`**  
+5. **`Builder.__init_subclass__(Klass)`**  
+6. **`@deco`**  
+7. `main()` / instances: `__init__`, injected methods, `__set__`
+
+## Metaclasses 101
+
+Peters: if you wonder, you don’t. Mill that builds mills. `class Klass(Super, metaclass=Meta)` → `Meta.__new__(meta_cls, name, bases, cls_dict)` then `Super.__init_subclass__` then decorator then bind the name.
+
+**`__prepare__(meta_cls, name, bases)`** (classmethod on the metaclass) returns the **namespace mapping** (was `OrderedDict`; 3.6+ dict is enough). `NosyDict` shows `__module__`/`__qualname__` land **before** the body. After the body: `__classcell__`, then `Meta.__new__`. Pass a real `dict` to `type.__new__` (`UserDict.data`).
+
+**MetaBunch:** class attrs become defaults + `__slots__`; unexpected kwargs poke `setattr` to fail fast; `__repr__` omits defaults. Copy dunders unless already injected.
+
+**CheckedMeta + slots:** Field `storage_name = '_' + name` + `__get__`/`setattr` — slots **cannot** share the public name with the descriptor. Skip processing if `'__slots__'` already in `cls_dict` (the empty `Checked` base). Read `__annotations__` from the **dict**, not `get_type_hints` (class doesn’t exist). Drop `__setattr__` — slots refuse `flavor =`.
+
+<MultipleChoice
+  id="py-int-ch25-when"
+  title="When code runs"
+  questions={[
+    {
+      prompt: 'Configure __slots__ for a user subclass',
+      choices: [
+        '__init_subclass__ on Checked',
+        'a class decorator after type.__new__',
+        'metaclass __new__ mutating cls_dict before super().__new__',
+        'Field.__set_name__',
+      ],
+      answer: 2,
+      why: 'Slots are ignored if you assign them on an existing class.',
+    },
+    {
+      prompt: 'After type.__new__ returns Klass (no extra metaclass)',
+      choices: [
+        'decorator, then __set_name__, then __init_subclass__',
+        '__set_name__, then __init_subclass__, then the class decorator',
+        'only __init__',
+        '__prepare__ runs last',
+      ],
+      answer: 1,
+      why: 'evaldemo.py. __prepare__ is metaclass-only and runs first.',
+    },
+  ]}
+/>
+
+<CodingExam
+  title="Field constructor"
+  heading="Challenge: Field constructor"
+  lang="python"
+  filename="main.py"
+  prompt="Field(name, constructor).__set__(instance, value): if value is Ellipsis, constructor(); else constructor(value). On TypeError/ValueError raise TypeError. Store instance.__dict__[name]. wrap: Field('n', int) on a dummy; first token is the raw value or the word missing meaning Ellipsis. Print the stored int or bad."
+  sampleLog={`(input) 08
+8`}
+  starter={`class Field:
+    def __init__(self, name, constructor):
+        self.name = name
+        self.constructor = constructor
+
+    def __set__(self, instance, value):
+        instance.__dict__[self.name] = value
+
+class Box:
+    pass
+
+def wrap(line: str) -> str:
+    b = Box()
+    f = Field('n', int)
+    try:
+        raw = ... if line == 'missing' else line
+        f.__set__(b, raw)
+        return str(b.__dict__['n'])
+    except (TypeError, ValueError):
+        return 'bad'
+`}
+  wrapSuffix={`
+print(wrap(input()))
+`}
+  sourceChecks={[
+    { name: 'constructor call', pattern: 'self\\.constructor\\s*\\(', must: true, hint: 'self.constructor() or self.constructor(value)' },
+    { name: 'ellipsis', pattern: '\\.\\.\\.', must: true, hint: 'value is ... for defaults' },
+  ]}
+  tests={[
+    { name: 'int', stdin: '08', equals: '8' },
+    { name: 'default', stdin: 'missing', equals: '0' },
+  ]}
+/>
+
+Starter stores `'8'` or Ellipsis; `missing` must become `0`.
+
+## Real world
+
+Decorators, `__set_name__`, `__init_subclass__`, ordered dicts **ate** old metaclass jobs. MetaBunch from 2002 still runs. **One** metaclass per class — `ABC` + another meta → conflict; merge metas or drop one (deadline debt). Hide the meta behind a **base class** (`Checked`, `Enum`). Stdlib metas are implementation details.
+
+**AutoConst:** `__prepare__` → `WilyDict` with `__missing__`: first `banana` → 0, increment. Skip `__dunder__` lookups (`KeyError`) or you eat `__name__`. Ideas: `Flavor[2]`, iterate, Enum — `__class_getitem__` (PEP 585) is the **narrow** class-level operator trick so `list[int]` needed no new builtin metaclass.
+
+Uses that actually pay: register subclasses, structural checks, decorate many methods, ORM/persistence, class-level operators, import-time work. Martelli: shiny hammer. DHH: **extract** frameworks, don’t invent them in the app.
+
+<MultipleChoice
+  id="py-int-ch25-meta"
+  title="Metaclass politics"
+  questions={[
+    {
+      prompt: 'class Record(abc.ABC, metaclass=PersistentMeta)',
+      choices: [
+        'always fine',
+        'TypeError unless PersistentMeta subclasses ABCMeta (or you merge / drop a meta)',
+        'ABCMeta is not a metaclass',
+        '__prepare__ fixes it',
+      ],
+      answer: 1,
+      why: 'One metaclass, and it must be compatible with every base’s metaclass.',
+    },
+    {
+      prompt: 'WilyDict AutoConst',
+      choices: [
+        'exec() of the class body',
+        '__missing__ invents increasing ints when the class namespace is filled',
+        'Field descriptors',
+        'pickle',
+      ],
+      answer: 1,
+      why: 'Bare names in the class body are lookups in the prepare mapping.',
+    },
+  ]}
+/>
+
+<ExerciseSet
+  title="Exercises"
+  description="__missing__ must ignore dunder keys or Python’s own lookups steal 0."
+>
+  <CodingExam
+    title="WilyDict"
+    heading="Exercise: WilyDict"
+    lang="python"
+    filename="main.py"
+    prompt="WilyDict: __missing__ raises KeyError for __dunder__ names; else assign next int (0, 1, …), store, return it. wrap: for each token, print d[token] joined by spaces (same dict)."
+    starter={`class WilyDict(dict):
+    def __init__(self, *a, **k):
+        super().__init__(*a, **k)
+        self._n = 0
+
+    def __missing__(self, key):
+        return 0
+
+def wrap(line: str) -> str:
+    d = WilyDict()
+    return ' '.join(str(d[t]) for t in line.split())
+`}
+    wrapSuffix={`
+print(wrap(input()))
+`}
+    sourceChecks={[
+      { name: 'missing', pattern: 'def __missing__', must: true, hint: 'implement __missing__' },
+      { name: 'assign', pattern: 'self\\[key\\]\\s*=', must: true, hint: 'self[key] = value' },
+    ]}
+    tests={[
+      { name: 'seq', stdin: 'banana coconut vanilla', equals: '0 1 2' },
+      { name: 'repeat', stdin: 'a a', equals: '0 0' },
+    ]}
+  />
+</ExerciseSet>

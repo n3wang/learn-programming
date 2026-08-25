@@ -1,0 +1,248 @@
+---
+sidebar_position: 23
+title: "Concurrency Models"
+---
+
+> **Source:** Fluent Python, 2nd Edition — Chapter 20 by Luciano Ramalho (through the GIL and spinner examples)
+
+Pike: **concurrency** is structure — dealing with lots of things at once. **Parallelism** is execution — doing lots of things at once. Parallelism is a special case of concurrency. A 4-core laptop running 200 processes is concurrent, not 200-way parallel. “Concurrency Is Not Parallelism (It’s Better).”
+
+This book chapter is Python’s three **standard-library** models: `threading`, `multiprocessing`, `asyncio`. Web-scale Python (YouTube, Instagram, …) also used queues, app servers, and C extensions — that “big picture” is the next slice. No prior concurrent-programming course assumed.
+
+## Jargon
+
+**Concurrency / multitasking:** many pending tasks; a one-core CPU still counts if the OS interleaves them.
+
+**Parallelism:** overlapping computation (cores, GPU, cluster).
+
+**Process:** a running program with private memory. Talks via bytes (pipes, sockets, mmap), not live Python objects. Can spawn isolated children.
+
+**Thread:** a path inside a process. They **share** objects — easy and dangerous (corruption without locks).
+
+**Contention:** fighting for a lock, disk, or CPU time.
+
+**Lock / mutex:** hold it while you mutate shared structure so other polite threads wait.
+
+## Ten points: processes, threads, GIL
+
+1. One interpreter = one process. More Python processes: `multiprocessing`, `ProcessPoolExecutor`. External programs: `subprocess`.
+2. One main thread + GC. More Python threads: `threading`, `ThreadPoolExecutor`.
+3. **GIL** (global interpreter lock): only one thread runs **Python** bytecode at a time. Not in the language spec — CPython and PyPy have it; Jython 2.7 did not.
+4. The eval loop drops the GIL about every 5 ms so another thread can run.
+5. You cannot toggle the GIL from pure Python. C extensions can drop it for long work.
+6. Stdlib **syscalls** drop it: disk, network, `time.sleep`. So do many NumPy/SciPy and `zlib`/`bz2` bits.
+7. Extensions can start **non-Python** threads (no GIL). They must not mutate Python objects; `array` / NumPy buffers are OK.
+8. Network threads: “great at doing nothing” (Beazley) — they wait on I/O with the GIL released.
+9. Two CPU-heavy Python threads **hurt** vs one sequential loop.
+10. CPU-heavy Python on many cores → **processes**.
+
+`threading` docs: I/O-bound yes; compute → `multiprocessing` / `ProcessPoolExecutor`.
+
+## Concurrent hello world: a spinner
+
+While `slow()` thinks for 3 s, animate `\|/-` on one line (`\r`). Then `Answer: 42`. Three APIs, same story.
+
+### Threads
+
+`spin` loops `itertools.cycle` until `done.wait(0.1)` is true. `slow` is `time.sleep(3)` — **blocks this thread, releases the GIL**. Python has **no** “kill thread”; you **signal** (`Event.set`) and `join`.
+
+`Event`: flag starts false; `wait` blocks until `set` (or timeout → `False`).
+
+`Thread(target=spin, args=(msg, done)).start()` then `slow()` then `done.set(); join()`.
+
+### Processes
+
+`Process` and `multiprocessing.Event` **look** like `Thread` / `threading.Event`. Underneath: a **new interpreter**, own GIL, objects pickled across the boundary. The `Event` is a C semaphore. Type checkers see `Event` as a factory returning `synchronize.Event`.
+
+### asyncio
+
+**One thread**, an **event loop** queues coroutines (same idea as the taxi `Simulator.run`, but for I/O and timers). Any blocking call **stalls everyone**.
+
+- `asyncio.run(supervisor())` — from sync `main`, blocks until done.
+- `asyncio.create_task(spin(...))` — schedule; returns a **Task** already queued; does not await.
+- `await slow()` — transfer until `slow` finishes.
+
+`await asyncio.sleep(.1)` **yields**; `time.sleep(.1)` **freezes the loop**. `Task.cancel()` raises `CancelledError` at the current `await`. You never construct `Task` by hand.
+
+Invoking `coro()` only builds a coroutine object; the loop `.send`s it (Chapter 19).
+
+**Experiment:** replace `await asyncio.sleep(3)` with `time.sleep(3)`. Spinner Task is pending, never runs; hang 3 s; answer. Control never reached `spin`.
+
+### Side by side
+
+| Threads | asyncio |
+|---|---|
+| `Thread` + `start` | `Task` from `create_task` (already scheduled) |
+| call a function | `await` a coroutine |
+| `Event` to stop | `task.cancel()` |
+| preemptive | only at `await` — default “lock” is the single flow |
+
+Cancelling a coroutine is safe because it can only die at `await`; handle `CancelledError` to clean up. A thread can be sliced **mid-statement**.
+
+<MultipleChoice
+  id="py-int-ch20a-gil"
+  title="GIL and sleep"
+  questions={[
+    {
+      prompt: 'time.sleep in a Python thread',
+      choices: [
+        'holds the GIL the whole time',
+        'blocks that thread but releases the GIL',
+        'kills the process',
+        'is illegal',
+      ],
+      answer: 1,
+      why: 'Other Python threads can run. In asyncio, the same call freezes the only thread.',
+    },
+    {
+      prompt: 'CPU-heavy work on all cores in CPython',
+      choices: [
+        'more Thread objects',
+        'more Process objects / ProcessPoolExecutor',
+        'more Event objects',
+        'raising the 5 ms switch interval',
+      ],
+      answer: 1,
+      why: 'Each process has its own GIL.',
+    },
+  ]}
+/>
+
+<CodingExam
+  title="Event handshake"
+  heading="Challenge: Event handshake"
+  lang="python"
+  filename="main.py"
+  prompt="worker(done, box) appends the int from wrap's line onto box then done.set(). wrap: start a Thread, wait on Event, join, print box[0]. Do not compute the answer on the main thread before wait."
+  sampleLog={`(input) 7
+7`}
+  starter={`from threading import Thread, Event
+
+def worker(done, box, n):
+    pass
+
+def wrap(line: str) -> str:
+    n = int(line)
+    done = Event()
+    box = []
+    t = Thread(target=worker, args=(done, box, n))
+    t.start()
+    t.join()
+    return str(box[0] if box else 'empty')
+`}
+  wrapSuffix={`
+print(wrap(input()))
+`}
+  sourceChecks={[
+    { name: 'set', pattern: '\\.set\\s*\\(', must: true, hint: 'done.set()' },
+    { name: 'wait', pattern: '\\.wait\\s*\\(', must: true, hint: 'done.wait() before you read box' },
+  ]}
+  tests={[
+    { name: 'seven', stdin: '7', equals: '7' },
+    { name: 'zero', stdin: '0', equals: '0' },
+  ]}
+/>
+
+`wrap` currently `join`s without `wait`. Join is enough if the worker always finishes, but the exercise is the **Event**: `wait` then `join` (or wait is enough if you join too). Put `n` on `box` **in the worker**.
+
+<CodingExam
+  title="asyncio.sleep not time.sleep"
+  heading="Challenge: asyncio.sleep not time.sleep"
+  lang="python"
+  filename="main.py"
+  prompt="async pause(): await asyncio.sleep(0) then return 42. wrap: print asyncio.run(pause()). No time.sleep."
+  sampleLog={`(input) x
+42`}
+  starter={`import asyncio
+
+async def pause():
+    return 0
+
+def wrap(line: str) -> str:
+    return str(asyncio.run(pause()))
+`}
+  wrapSuffix={`
+print(wrap(input()))
+`}
+  sourceChecks={[
+    { name: 'asyncio.sleep', pattern: 'asyncio\\.sleep', must: true, hint: 'await asyncio.sleep(0)' },
+    { name: 'no time.sleep', pattern: 'time\\.sleep', must: false, hint: 'do not use time.sleep' },
+  ]}
+  tests={[
+    { name: 'forty-two', stdin: 'x', equals: '42' },
+  ]}
+/>
+
+## GIL vs a real CPU hog
+
+`is_prime` (odd trial division up to `isqrt`) on a ~3 s prime:
+
+1. **multiprocessing:** spinner in a **child** → keeps spinning while the parent tests.
+2. **threading:** spinner **does** keep spinning. Surprising if you over-blame the GIL: the hog is interrupted ~every 5 ms; the spinner wakes 10 Hz, `wait`s, gives the GIL back. Two **hungry** threads would still lose to sequential code.
+3. **asyncio:** calling `is_prime` with **no** `await` is like `time.sleep`: spinner Task never runs; freeze; then the answer.
+
+Network I/O in a well-written library drops the GIL (threads) or `await`s (asyncio); the spinner lives. CPU Python does not.
+
+<MultipleChoice
+  id="py-int-ch20a-prime"
+  title="Spinner vs is_prime"
+  questions={[
+    {
+      prompt: 'is_prime(huge) in the asyncio slow coroutine (no await inside is_prime)',
+      choices: [
+        'spinner still animates',
+        'spinner never appears; the loop is stuck in is_prime',
+        'GIL starts a second thread automatically',
+        'ProcessPoolExecutor is required for the spinner Task',
+      ],
+      answer: 1,
+      why: 'One thread, no await, no other coroutine. Same as time.sleep in slow.',
+    },
+    {
+      prompt: 'The same is_prime in spinner_thread.slow',
+      choices: [
+        'always freezes the spinner for 3 s',
+        'spinner can still tick because the GIL is released ~every 5 ms',
+        'is illegal',
+        'requires join on the main thread first',
+      ],
+      answer: 1,
+      why: 'Two threads, one barely needs CPU. Do not generalize to many compute threads.',
+    },
+  ]}
+/>
+
+<ExerciseSet
+  title="Exercises"
+  description="Cancel-shaped thinking: a Task you never await still exists."
+>
+  <CodingExam
+    title="create_task then await"
+    heading="Exercise: create_task then await"
+    lang="python"
+    filename="main.py"
+    prompt="async work(): return the int from wrap. supervisor: create_task(work()), await that task, return its result. wrap: asyncio.run(supervisor(n))."
+    starter={`import asyncio
+
+async def work(n):
+    return 0
+
+async def supervisor(n):
+    return 0
+
+def wrap(line: str) -> str:
+    n = int(line)
+    return str(asyncio.run(supervisor(n)))
+`}
+    wrapSuffix={`
+print(wrap(input()))
+`}
+    sourceChecks={[
+      { name: 'create_task', pattern: 'create_task', must: true, hint: 'asyncio.create_task(work(n))' },
+      { name: 'await', pattern: '\\bawait\\b', must: true, hint: 'await the Task' },
+    ]}
+    tests={[
+      { name: 'n', stdin: '5', equals: '5' },
+    ]}
+  />
+</ExerciseSet>

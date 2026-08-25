@@ -1,0 +1,436 @@
+---
+sidebar_position: 19
+title: "Thread Safety and Lazy Init"
+---
+
+> **Source:** Effective Java, 3rd Edition — Chapter 11 by Joshua Bloch (Items 82–84)
+
+This lesson closes Chapter 11: documenting thread safety, lazy initialization idioms, and why programs must not depend on the thread scheduler.
+
+## Item 82: Document thread safety
+
+Every class should **document** how it behaves under concurrent use. **`synchronized` in source is not documentation** — Javadoc omits it, and thread safety is not all-or-nothing.
+
+| Level | Meaning | Examples |
+|---|---|---|
+| **Immutable** | No sync needed | `String`, `BigInteger` |
+| **Unconditionally thread-safe** | Internal sync covers all use | `AtomicLong`, `ConcurrentHashMap` |
+| **Conditionally thread-safe** | Some sequences need external sync | `Collections.synchronizedMap` iterators |
+| **Not thread-safe** | Client must sync each use | `ArrayList`, `HashMap` |
+| **Thread-hostile** | Broken even with client sync | Unsynchronized static mutation |
+
+Conditionally thread-safe types must say **which sequences** need external sync and **which lock** (often the map itself, not a view).
+
+For **unconditionally thread-safe** classes, prefer a **`private final Object lock`** over **`synchronized` methods** — clients can’t hold your public lock (denial-of-service) and subclasses can’t accidentally share the monitor with you.
+
+<CodingExam
+  title="private lock object"
+  heading="Challenge: private final lock"
+  lang="java"
+  filename="Main.java"
+  prompt="Counter uses a private final Object lock for increment/get — not synchronized methods on this. wrap: increment twice; print count."
+  sampleLog={`2`}
+  starter={`public class Main {
+    public static class Counter {
+        private int count = 0;
+
+        public synchronized void increment() {
+            count++;
+        }
+
+        public synchronized int get() {
+            return count;
+        }
+    }
+}
+`}
+  wrapSuffix={`
+class Runner {
+    public static void main(String[] args) {
+        Main.Counter c = new Main.Counter();
+        c.increment();
+        c.increment();
+        System.out.println(c.get());
+    }
+}
+`}
+  sourceChecks={[
+    { name: 'final lock field', pattern: 'final\\s+Object\\s+\\w+\\s*=\\s*new\\s+Object\\s*\\(', must: true, hint: 'private final Object lock = new Object();' },
+    { name: 'synchronized on lock', pattern: 'synchronized\\s*\\(\\s*lock\\s*\\)', must: true, hint: 'synchronized (lock) { ... } in increment and get' },
+    { name: 'no synchronized methods', pattern: 'public\\s+synchronized\\s+void\\s+increment|public\\s+synchronized\\s+int\\s+get', must: false, hint: 'use synchronized(lock), not synchronized methods' },
+  ]}
+  tests={[
+    { name: 'count 2', stdin: '', equals: '2' },
+  ]}
+/>
+
+<MultipleChoice
+  id="java-int-ch11-document"
+  title="Document thread safety"
+  questions={[
+    {
+      prompt: 'Class Javadoc lists synchronized on each method — thread-safe?',
+      choices: [
+        'yes — synchronized modifier is the contract',
+        'no — document behavior in prose; synchronized is an implementation detail',
+        'only for static methods',
+        'replaced by @Override',
+      ],
+      answer: 1,
+      why: 'Thread safety belongs in documented behavior, not reliance on synchronized appearing in Javadoc.',
+    },
+    {
+      prompt: 'Iterate keySet of Collections.synchronizedMap(m)',
+      choices: [
+        'sync on the keySet view while iterating',
+        'sync on m while iterating — document says synchronize on the map',
+        'no sync — map is thread-safe',
+        'use Thread.yield between keys',
+      ],
+      answer: 1,
+      why: 'Synchronized wrappers are conditionally thread-safe; iteration requires external sync on the map.',
+    },
+  ]}
+/>
+
+<CodingExam
+  title="thread safety javadoc"
+  heading="Challenge: document not thread-safe"
+  lang="java"
+  filename="Main.java"
+  prompt="Add a class-level Javadoc block on MutableTotal stating it is not thread-safe (phrase must include not thread-safe). sum() adds n to total. wrap: add 5; print total."
+  sampleLog={`5`}
+  starter={`public class Main {
+    public static class MutableTotal {
+        private int total = 0;
+
+        public void add(int n) {
+            total += n;
+        }
+
+        public int sum() {
+            return total;
+        }
+    }
+}
+`}
+  wrapSuffix={`
+class Runner {
+    public static void main(String[] args) {
+        Main.MutableTotal t = new Main.MutableTotal();
+        t.add(5);
+        System.out.println(t.sum());
+    }
+}
+`}
+  sourceChecks={[
+    { name: 'class javadoc', pattern: '/\\*\\*[\\s\\S]*?\\*/\\s*public\\s+static\\s+class\\s+MutableTotal', must: true, hint: '/** ... */ immediately above class MutableTotal' },
+    { name: 'not thread safe', pattern: 'not\\s+thread[- ]safe', must: true, hint: 'This class is not thread-safe.' },
+  ]}
+  tests={[
+    { name: 'total 5', stdin: '', equals: '5' },
+  ]}
+/>
+
+## Item 83: Use lazy initialization judiciously
+
+Default: **normal initialization** with **`final`** fields. Lazy init is an optimization (or breaks init cycles) — **measure** before using it.
+
+Thread-safe patterns:
+
+| Case | Idiom |
+|---|---|
+| Break init cycle | **`synchronized` accessor** |
+| Lazy **static** field (performance) | **Initialization-on-holder** |
+| Lazy **instance** field (performance) | **Double-check** with **`volatile`** |
+
+```java
+// Static — holder class
+private static class Holder {
+    static final FieldType field = computeFieldValue();
+}
+static FieldType getField() { return Holder.field; }
+
+// Instance — double-check
+private volatile FieldType field;
+FieldType getField() {
+    FieldType result = field;
+    if (result == null) {
+        synchronized (this) {
+            if (field == null)
+                field = result = computeFieldValue();
+        }
+    }
+    return result;
+}
+```
+
+<CodingExam
+  title="holder class lazy static"
+  heading="Challenge: initialization-on-holder"
+  lang="java"
+  filename="Main.java"
+  prompt="lazyLabel() returns a lazily initialized static String using the holder-class idiom (private static class with static final field). computeLabel() returns CONFIGURED. wrap: print lazyLabel()."
+  sampleLog={`CONFIGURED`}
+  starter={`public class Main {
+    private static String label;
+
+    public static String lazyLabel() {
+        if (label == null) {
+            label = computeLabel();
+        }
+        return label;
+    }
+
+    private static String computeLabel() {
+        return "CONFIGURED";
+    }
+}
+`}
+  wrapSuffix={`
+class Runner {
+    public static void main(String[] args) {
+        System.out.println(Main.lazyLabel());
+    }
+}
+`}
+  sourceChecks={[
+    { name: 'holder class', pattern: 'static\\s+class\\s+\\w+[\\s\\S]*static\\s+final\\s+String', must: true, hint: 'private static class Holder { static final String LABEL = computeLabel(); }' },
+    { name: 'no null check lazy', pattern: 'if\\s*\\(\\s*label\\s*==\\s*null', must: false, hint: 'holder class replaces null-checked static field' },
+  ]}
+  tests={[
+    { name: 'configured', stdin: '', equals: 'CONFIGURED' },
+  ]}
+/>
+
+<CodingExam
+  title="double check volatile"
+  heading="Challenge: double-check idiom"
+  lang="java"
+  filename="Main.java"
+  prompt="Cache holds a lazily created String via getValue(). Use volatile field + double-check locking (local var, sync block, second null check). createValue() returns CACHED. wrap: print getValue()."
+  sampleLog={`CACHED`}
+  starter={`public class Main {
+    public static class Cache {
+        private String value;
+
+        public String getValue() {
+            if (value == null) {
+                value = createValue();
+            }
+            return value;
+        }
+
+        private String createValue() {
+            return "CACHED";
+        }
+    }
+}
+`}
+  wrapSuffix={`
+class Runner {
+    public static void main(String[] args) {
+        System.out.println(new Main.Cache().getValue());
+    }
+}
+`}
+  sourceChecks={[
+    { name: 'volatile field', pattern: 'volatile\\s+String\\s+value', must: true, hint: 'private volatile String value;' },
+    { name: 'synchronized block', pattern: 'synchronized\\s*\\(\\s*this\\s*\\)', must: true, hint: 'synchronized (this) { if (value == null) ... }' },
+    { name: 'double check', pattern: 'if\\s*\\(\\s*value\\s*==\\s*null\\s*\\)[\\s\\S]*synchronized[\\s\\S]*if\\s*\\(\\s*value\\s*==\\s*null', must: true, hint: 'check null outside lock, again inside synchronized' },
+  ]}
+  tests={[
+    { name: 'cached', stdin: '', equals: 'CACHED' },
+  ]}
+/>
+
+<MultipleChoice
+  id="java-int-ch11-lazy"
+  title="Lazy initialization"
+  questions={[
+    {
+      prompt: 'Performance-motivated lazy static field in multithreaded code',
+      choices: [
+        'unsynchronized null check is enough',
+        'initialization-on-holder class idiom — no sync on hot path after init',
+        'Thread.yield in accessor',
+        'double-check without volatile',
+      ],
+      answer: 1,
+      why: 'Holder class leverages class initialization guarantees. Double-check needs volatile for instances.',
+    },
+    {
+      prompt: 'Most fields in a typical class',
+      choices: [
+        'lazy single-check without volatile',
+        'normal final initialization unless profiling shows lazy init helps',
+        'always double-check',
+        'racy single-check for all primitives',
+      ],
+      answer: 1,
+      why: 'Don\'t lazy-init unless you need to (Item 67). Prefer final fields initialized eagerly.',
+    },
+  ]}
+/>
+
+## Item 84: Don’t depend on the thread scheduler
+
+Correctness and portability must not rely on **which thread runs when**. Keep **runnable** threads near the **processor count**; threads should **block** waiting for work, not **busy-wait**.
+
+Don’t “fix” liveness with **`Thread.yield()`** or **thread priorities** — behavior varies by JVM and platform. Size **thread pools** appropriately (Item 80); use **`CountDownLatch`**, **`BlockingQueue`**, etc., instead of spinning.
+
+<CodingExam
+  title="await not spin"
+  heading="Challenge: CountDownLatch.await"
+  lang="java"
+  filename="Main.java"
+  prompt="awaitLatch(latch) waits until latch reaches zero using latch.await() — not a while-loop spinning on getCount(). wrap: CountDownLatch(1), countDown, await; print done."
+  sampleLog={`done`}
+  starter={`import java.util.concurrent.CountDownLatch;
+
+public class Main {
+    public static void awaitLatch(CountDownLatch latch) throws InterruptedException {
+        while (latch.getCount() > 0) {
+            // busy-wait — replace with proper wait
+        }
+    }
+}
+`}
+  wrapSuffix={`
+class Runner {
+    public static void main(String[] args) throws Exception {
+        CountDownLatch latch = new CountDownLatch(1);
+        latch.countDown();
+        Main.awaitLatch(latch);
+        System.out.println("done");
+    }
+}
+`}
+  sourceChecks={[
+    { name: 'await', pattern: '\\.await\\s*\\(', must: true, hint: 'latch.await();' },
+    { name: 'no spin on count', pattern: 'while\\s*\\([^)]*getCount', must: false, hint: 'do not busy-wait on getCount()' },
+  ]}
+  tests={[
+    { name: 'done', stdin: '', equals: 'done' },
+  ]}
+/>
+
+<MultipleChoice
+  id="java-int-ch11-scheduler"
+  title="Thread scheduler"
+  questions={[
+    {
+      prompt: 'Program barely works; adding Thread.yield() fixes it on your laptop',
+      choices: [
+        'ship it — yield is portable',
+        'fix underlying threading (fewer runnable threads, proper waits) — yield is not portable',
+        'raise all thread priorities to MAX',
+        'busy-wait faster than blocking',
+      ],
+      answer: 1,
+      why: 'Yield and priorities are hints with no testable semantics. Restructure instead.',
+    },
+    {
+      prompt: 'SlowCountDownLatch.await spins in while(true) checking count',
+      choices: [
+        'fine on multicore',
+        'wastes CPU and depends on scheduler — use CountDownLatch or wait/notify',
+        'required before Java 5',
+        'same performance as j.u.c.',
+      ],
+      answer: 1,
+      why: 'Busy-waiting increases load and hurts portability. Prefer j.u.c. synchronizers.',
+    },
+  ]}
+/>
+
+## Items 82–84 map
+
+| Item | Move |
+|---|---|
+| 82 | Document thread-safety level; private lock when unconditional |
+| 83 | final eager init; holder (static) or double-check volatile (instance) |
+| 84 | Block, don’t spin; no yield/priority hacks |
+
+Chapter 11 complete. Next: [Serialization](./lesson-12a-serialization) (Chapter 12, Items 85–87).
+
+<ExerciseSet
+  title="Exercises"
+  description="Synchronized accessor for lazy init; normal final field."
+>
+  <CodingExam
+    title="sync lazy accessor"
+    heading="Exercise: synchronized getField"
+    lang="java"
+    filename="Main.java"
+    prompt="LazyField breaks an init cycle: getField() lazily assigns field on first access using a synchronized accessor (not double-check). compute() returns READY. wrap: print getField()."
+    starter={`public class Main {
+    public static class LazyField {
+        private String field;
+
+        public String getField() {
+            if (field == null) {
+                field = compute();
+            }
+            return field;
+        }
+
+        private String compute() {
+            return "READY";
+        }
+    }
+}
+`}
+    wrapSuffix={`
+class Runner {
+    public static void main(String[] args) {
+        System.out.println(new Main.LazyField().getField());
+    }
+}
+`}
+    sourceChecks={[
+      { name: 'synchronized accessor', pattern: 'synchronized\\s+String\\s+getField|getField\\s*\\(\\s*\\)\\s*\\{[\\s\\S]*synchronized', must: true, hint: 'private synchronized String getField() { if (field == null) field = compute(); return field; }' },
+    ]}
+    tests={[
+      { name: 'ready', stdin: '', equals: 'READY' },
+    ]}
+  />
+  <CodingExam
+    title="eager final field"
+    heading="Exercise: prefer normal init"
+    lang="java"
+    filename="Main.java"
+    prompt="Config stores label as a private final field initialized to buildLabel() at construction — not lazy null-check. buildLabel() returns LIVE. wrap: new Config().label()."
+    starter={`public class Main {
+    public static class Config {
+        private String label;
+
+        public String label() {
+            if (label == null) {
+                label = buildLabel();
+            }
+            return label;
+        }
+
+        private static String buildLabel() {
+            return "LIVE";
+        }
+    }
+}
+`}
+    wrapSuffix={`
+class Runner {
+    public static void main(String[] args) {
+        System.out.println(new Main.Config().label());
+    }
+}
+`}
+    sourceChecks={[
+      { name: 'final field init', pattern: 'private\\s+final\\s+String\\s+label\\s*=\\s*buildLabel\\s*\\(', must: true, hint: 'private final String label = buildLabel();' },
+      { name: 'no lazy null check', pattern: 'if\\s*\\(\\s*label\\s*==\\s*null', must: false, hint: 'initialize eagerly in the field declaration' },
+    ]}
+    tests={[
+      { name: 'live', stdin: '', equals: 'LIVE' },
+    ]}
+  />
+</ExerciseSet>

@@ -1,0 +1,420 @@
+---
+sidebar_position: 7
+title: "Wildcards and Type Tokens"
+---
+
+> **Source:** Effective Java, 3rd Edition — Chapter 5 by Joshua Bloch (Items 30–33)
+
+This lesson finishes Chapter 5: generic methods, bounded wildcards (PECS), varargs with generics, and typesafe heterogeneous containers keyed by `Class` tokens.
+
+## Item 30: Favor generic methods
+
+Methods can be generic too. Type parameters go **between modifiers and the return type**:
+
+```java
+public static <E> Set<E> union(Set<E> s1, Set<E> s2) { ... }
+```
+
+Raw `Set union(Set s1, Set s2)` compiles with unchecked warnings and erases safety. A parameterized version compiles cleanly and needs no client casts.
+
+**Generic singleton factory:** one stateless object serves all type parameterizations because of erasure — e.g. `Function.identity()`. A private `UnaryOperator<Object>` plus a generic factory method with narrow `@SuppressWarnings("unchecked")` is the pattern.
+
+**Recursive type bound:** mutual comparability — elements comparable to each other:
+
+```java
+public static <E extends Comparable<E>> E max(Collection<E> c)
+```
+
+Read `<E extends Comparable<E>>` as “E that can be compared to itself.”
+
+<CodingExam
+  title="generic union"
+  heading="Challenge: generic union"
+  lang="java"
+  filename="Main.java"
+  prompt="Write generic method union(Set<E> s1, Set<E> s2): copy s1 into a new HashSet, addAll s2, return it. No raw types. wrap: union {a,b} and {b,c}; print size."
+  sampleLog={`3`}
+  starter={`import java.util.HashSet;
+import java.util.Set;
+
+public class Main {
+    public static Set union(Set s1, Set s2) {
+        Set result = new HashSet(s1);
+        result.addAll(s2);
+        return result;
+    }
+}
+`}
+  wrapSuffix={`
+class Runner {
+    public static void main(String[] args) {
+        java.util.Set<String> a = new java.util.HashSet<>(java.util.Arrays.asList("a", "b"));
+        java.util.Set<String> b = new java.util.HashSet<>(java.util.Arrays.asList("b", "c"));
+        System.out.println(Main.union(a, b).size());
+    }
+}
+`}
+  sourceChecks={[
+    { name: 'generic method', pattern: '<\\s*E\\s*>\\s*Set\\s*<\\s*E\\s*>', must: true, hint: 'public static <E> Set<E> union(Set<E> s1, Set<E> s2)' },
+    { name: 'diamond HashSet', pattern: 'new\\s+HashSet\\s*<>', must: true, hint: 'Set<E> result = new HashSet<>(s1)' },
+    { name: 'no raw Set param', pattern: 'Set\\s+union\\s*\\(\\s*Set\\s+s', must: false, hint: 'parameter types must be Set<E>, not raw Set' },
+  ]}
+  tests={[
+    { name: 'three', stdin: '', equals: '3' },
+  ]}
+/>
+
+<CodingExam
+  title="recursive max"
+  heading="Challenge: recursive type bound max"
+  lang="java"
+  filename="Main.java"
+  prompt="max(Collection<E> c) with E extends Comparable<E> returns the greatest element by compareTo. Throw IllegalArgumentException if c.isEmpty(). wrap: max of b,a,c; print result."
+  sampleLog={`c`}
+  starter={`import java.util.Collection;
+
+public class Main {
+    public static String max(Collection<String> c) {
+        return null; // TODO generic method with Comparable bound
+    }
+}
+`}
+  wrapSuffix={`
+class Runner {
+    public static void main(String[] args) {
+        java.util.List<String> words = java.util.Arrays.asList("b", "a", "c");
+        System.out.println(Main.max(words));
+    }
+}
+`}
+  sourceChecks={[
+    { name: 'generic Comparable', pattern: '<\\s*E\\s+extends\\s+Comparable\\s*<\\s*E\\s*>\\s*>', must: true, hint: '<E extends Comparable<E>> E max(Collection<E> c)' },
+    { name: 'compareTo', pattern: 'compareTo', must: true, hint: 'if (e.compareTo(result) > 0) result = e' },
+    { name: 'empty check', pattern: 'isEmpty\\s*\\(\\s*\\)', must: true, hint: 'if (c.isEmpty()) throw new IllegalArgumentException(...)' },
+  ]}
+  tests={[
+    { name: 'bac', stdin: '', equals: 'c' },
+  ]}
+/>
+
+## Item 31: Use bounded wildcards to increase API flexibility
+
+Generics are **invariant**: `Stack<Number>` cannot accept `Iterable<Integer>` even though `Integer` extends `Number`.
+
+**PECS** — *producer-extends, consumer-super*:
+
+| Role | Wildcard | Example |
+|---|---|---|
+| **Producer** (source of `T`) | `<? extends T>` | `pushAll(Iterable<? extends E> src)` |
+| **Consumer** (sink for `T`) | `<? super T>` | `popAll(Collection<? super E> dst)` |
+| Both producer and consumer | exact type | no wildcard |
+
+Do **not** use wildcards on **return types** — that forces clients to use wildcards too.
+
+Flexible `union`:
+
+```java
+public static <E> Set<E> union(Set<? extends E> s1, Set<? extends E> s2)
+```
+
+Revised `max`:
+
+```java
+public static <T extends Comparable<? super T>> T max(List<? extends T> list)
+```
+
+`Comparable` and `Comparator` are **consumers** — prefer `Comparable<? super T>`.
+
+**Wildcard capture:** public `swap(List<?> list, int i, int j)` delegates to private `<E> void swapHelper(List<E> list, ...)`.
+
+If a type parameter appears **once** in a public method, prefer a wildcard (`List<?>` over `<E> List<E>`) unless you need capture.
+
+<MultipleChoice
+  id="java-int-ch5-pecs"
+  title="PECS and wildcards"
+  questions={[
+    {
+      prompt: 'Stack<Number>.pushAll(Iterable<Integer> ints)',
+      choices: [
+        'works with Iterable<E>',
+        'needs Iterable<? extends E> on pushAll',
+        'needs Iterable<? super E>',
+        'impossible in Java',
+      ],
+      answer: 1,
+      why: 'src produces E instances. Producer-extends: Iterable<? extends E>.',
+    },
+    {
+      prompt: 'popAll destination Collection<Object> for Stack<Number>',
+      choices: [
+        'works with Collection<E>',
+        'needs Collection<? super E>',
+        'needs Collection<? extends E>',
+        'wildcards on return types are required',
+      ],
+      answer: 1,
+      why: 'dst consumes E instances. Consumer-super: Collection<? super E>.',
+    },
+  ]}
+/>
+
+<CodingExam
+  title="pushAll extends"
+  heading="Challenge: pushAll with extends"
+  lang="java"
+  filename="Main.java"
+  prompt="MiniStack<E> has push(E) and size(). Add pushAll(Iterable<? extends E> src): push each element. wrap: pushAll List.of(1,2) into MiniStack<Number>; print size."
+  sampleLog={`2`}
+  starter={`import java.util.ArrayList;
+import java.util.List;
+
+public class Main {
+    public static final class MiniStack<E> {
+        private final List<E> items = new ArrayList<>();
+
+        public void push(E e) {
+            items.add(e);
+        }
+
+        public int size() {
+            return items.size();
+        }
+
+        public void pushAll(Iterable<E> src) {
+            // TODO use Iterable<? extends E> and push each element
+        }
+    }
+}
+`}
+  wrapSuffix={`
+class Runner {
+    public static void main(String[] args) {
+        Main.MiniStack<Number> stack = new Main.MiniStack<>();
+        stack.pushAll(java.util.List.of(1, 2));
+        System.out.println(stack.size());
+    }
+}
+`}
+  sourceChecks={[
+    { name: 'extends wildcard', pattern: 'Iterable\\s*<\\s*\\?\\s+extends\\s+E\\s*>', must: true, hint: 'pushAll(Iterable<? extends E> src)' },
+    { name: 'calls push', pattern: 'push\\s*\\(', must: true, hint: 'for (E e : src) push(e);' },
+  ]}
+  tests={[
+    { name: 'integers into number', stdin: '', equals: '2' },
+  ]}
+/>
+
+## Item 32: Combine generics and varargs judiciously
+
+Varargs builds an **array** at each call — a leaky abstraction. Generic varargs parameters are **non-reifiable**, so the compiler warns about **heap pollution**:
+
+```java
+static void dangerous(List<String>... stringLists) { ... } // warning
+```
+
+Storing into the varargs array or **returning** it (`T[] toArray(T... args) { return args; }`) breaks type safety — `pickTwo` returning `Object[]` assigned to `String[]` fails at runtime with a hidden cast.
+
+**Safe varargs** when the array is only a **pass-through** (read elements, don’t store alien types, don’t escape the array). Annotate with `@SafeVarargs` on `static`, `final`, or (Java 9+) `private` methods — never on overridable methods unless every override is safe.
+
+Library examples: `Arrays.asList`, `Collections.addAll`, `EnumSet.of`, `List.of`.
+
+Alternative: take `List<T>` instead of `T...` — verbose but provably safe (`flatten(List<List<? extends T>> lists)`).
+
+<MultipleChoice
+  id="java-int-ch5-varargs"
+  title="Generics and varargs"
+  questions={[
+    {
+      prompt: 'static <T> T[] toArray(T... args) { return args; }',
+      choices: [
+        'safe — varargs array is never modified',
+        'unsafe — exposes generic array; callers get Object[] at runtime',
+        'requires @SafeVarargs only on instance methods',
+        'same as List.of',
+      ],
+      answer: 1,
+      why: 'Returning the varargs array propagates heap pollution. Use List.of instead.',
+    },
+    {
+      prompt: '@SafeVarargs on flatten(List<? extends T>... lists) that only addAll into a new ArrayList',
+      choices: [
+        'illegal on any method',
+        'appropriate if the varargs array is not stored or leaked',
+        'required on every generic method',
+        'replaces eliminating unchecked warnings',
+      ],
+      answer: 1,
+      why: 'Safe when the array is transmit-only. Annotate so clients are not flooded with warnings.',
+    },
+  ]}
+/>
+
+<CodingExam
+  title="safe flatten"
+  heading="Challenge: safe flatten"
+  lang="java"
+  filename="Main.java"
+  prompt="flatten takes any number of List<? extends T> and returns one ArrayList<T> with all elements in order. Do not return the varargs array — build a new list. wrap: flatten [[a,b],[c]]; print comma-joined."
+  sampleLog={`a,b,c`}
+  starter={`import java.util.ArrayList;
+import java.util.List;
+
+public class Main {
+    public static <T> List<T> flatten(List<? extends T>... lists) {
+        return null; // TODO new ArrayList, addAll each list in order
+    }
+}
+`}
+  wrapSuffix={`
+class Runner {
+    public static void main(String[] args) {
+        java.util.List<String> ab = java.util.Arrays.asList("a", "b");
+        java.util.List<String> c = java.util.Collections.singletonList("c");
+        java.util.List<String> flat = Main.flatten(ab, c);
+        System.out.println(String.join(",", flat));
+    }
+}
+`}
+  sourceChecks={[
+    { name: 'new ArrayList', pattern: 'new\\s+ArrayList', must: true, hint: 'List<T> result = new ArrayList<>();' },
+    { name: 'addAll', pattern: 'addAll', must: true, hint: 'result.addAll(list) for each vararg list' },
+    { name: 'no return args', pattern: 'return\\s+args|return\\s+lists\\b', must: false, hint: 'never return the varargs array itself' },
+  ]}
+  tests={[
+    { name: 'abc', stdin: '', equals: 'a,b,c' },
+  ]}
+/>
+
+## Item 33: Consider typesafe heterogeneous containers
+
+`Set<E>` and `Map<K,V>` fix one or two type parameters per container. Sometimes you need **many** types in one bag — parameterize the **key**, not the whole container.
+
+**Type token:** `Class<T>` — `String.class` has type `Class<String>`. **`Favorites`** API:
+
+```java
+public <T> void putFavorite(Class<T> type, T instance);
+public <T> T getFavorite(Class<T> type);
+```
+
+Backing store: `Map<Class<?>, Object>`. Values are stored as `Object`; **`type.cast(obj)`** on read restores the link — no unchecked cast to `T`.
+
+Runtime safety on put: `favorites.put(type, type.cast(instance))`. Cannot store favorites keyed by non-reifiable types like `List<String>.class` (illegal).
+
+**Bounded type tokens:** `Class<T extends Annotation>` for `getAnnotation`. `Class.asSubclass(Annotation.class)` safely narrows an unbounded `Class<?>`.
+
+<CodingExam
+  title="favorites type token"
+  heading="Challenge: Favorites type token"
+  lang="java"
+  filename="Main.java"
+  prompt="Favorites stores favorites keyed by Class<T>. putFavorite stores instance; getFavorite uses type.cast on the stored Object. wrap: store String Java and Integer 42; print both separated by space."
+  sampleLog={`Java 42`}
+  starter={`import java.util.HashMap;
+import java.util.Map;
+
+public class Main {
+    public static final class Favorites {
+        private final Map<Class<?>, Object> favorites = new HashMap<>();
+
+        public <T> void putFavorite(Class<T> type, T instance) {
+            // TODO favorites.put(type, instance)
+        }
+
+        public <T> T getFavorite(Class<T> type) {
+            return null; // TODO type.cast(favorites.get(type))
+        }
+    }
+}
+`}
+  wrapSuffix={`
+class Runner {
+    public static void main(String[] args) {
+        Main.Favorites f = new Main.Favorites();
+        f.putFavorite(String.class, "Java");
+        f.putFavorite(Integer.class, 42);
+        System.out.println(f.getFavorite(String.class) + " " + f.getFavorite(Integer.class));
+    }
+}
+`}
+  sourceChecks={[
+    { name: 'type cast', pattern: 'type\\.cast', must: true, hint: 'return type.cast(favorites.get(type))' },
+    { name: 'put map', pattern: 'favorites\\.put', must: true, hint: 'favorites.put(type, instance)' },
+    { name: 'Class key', pattern: 'Map\\s*<\\s*Class', must: true, hint: 'keep Map<Class<?>, Object> backing store' },
+  ]}
+  tests={[
+    { name: 'java 42', stdin: '', equals: 'Java 42' },
+  ]}
+/>
+
+## Items 30–33 map
+
+| Item | Move |
+|---|---|
+| 30 | Generic methods; recursive `Comparable<E>` bounds |
+| 31 | PECS: `? extends` producers, `? super` consumers |
+| 32 | Varargs = arrays; `@SafeVarargs` only when transmit-only; prefer `List` |
+| 33 | Heterogeneous container: `Class<T>` keys + `type.cast` |
+
+Chapter 5 complete. Next: [Enums](./lesson-6a-enums) (Chapter 6, Items 34–37).
+
+<ExerciseSet
+  title="Exercises"
+  description="Consumer-super and bounded comparables."
+>
+  <CodingExam
+    title="popAll super"
+    heading="Exercise: popAll with super"
+    lang="java"
+    filename="Main.java"
+    prompt="MiniStack<E> has push, pop, isEmpty. popAll(Collection<? super E> dst) pops everything onto dst until empty. wrap: push x,y; popAll into ArrayList<Object>; print joined."
+    starter={`import java.util.ArrayList;
+import java.util.Collection;
+import java.util.List;
+
+public class Main {
+    public static final class MiniStack<E> {
+        private final List<E> items = new ArrayList<>();
+
+        public void push(E e) {
+            items.add(e);
+        }
+
+        public E pop() {
+            return items.remove(items.size() - 1);
+        }
+
+        public boolean isEmpty() {
+            return items.isEmpty();
+        }
+
+        public void popAll(Collection<E> dst) {
+            // TODO Collection<? super E> — pop until empty, dst.add each
+        }
+    }
+}
+`}
+    wrapSuffix={`
+class Runner {
+    public static void main(String[] args) {
+        Main.MiniStack<Integer> stack = new Main.MiniStack<>();
+        stack.push(1);
+        stack.push(2);
+        java.util.Collection<Object> out = new java.util.ArrayList<>();
+        stack.popAll(out);
+        java.util.List<String> parts = new java.util.ArrayList<>();
+        for (Object o : out) {
+            parts.add(String.valueOf(o));
+        }
+        System.out.println(String.join(",", parts));
+    }
+}
+`}
+    sourceChecks={[
+      { name: 'super wildcard', pattern: 'Collection\\s*<\\s*\\?\\s+super\\s+E\\s*>', must: true, hint: 'popAll(Collection<? super E> dst)' },
+      { name: 'while pop', pattern: 'while\\s*\\(\\s*!\\s*isEmpty|while\\s*\\([^)]*isEmpty', must: true, hint: 'while (!isEmpty()) dst.add(pop());' },
+    ]}
+    tests={[
+      { name: 'lifo popAll', stdin: '', equals: '2,1' },
+    ]}
+  />
+</ExerciseSet>

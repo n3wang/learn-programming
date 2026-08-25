@@ -1,0 +1,343 @@
+---
+sidebar_position: 13
+title: "Varargs, Returns, and Documentation"
+---
+
+> **Source:** Effective Java, 3rd Edition — Chapter 8 by Joshua Bloch (Items 53–56)
+
+This lesson closes Chapter 8: varargs, returning empty containers and optionals, and Javadoc for exported APIs.
+
+## Item 53: Use varargs judiciously
+
+**Varargs** (`int... args`) build an array at each call site. Fine for `printf`, reflection, and variable-arity utilities like `sum(int... args)`.
+
+**Wrong** for “one or more” arguments:
+
+```java
+static int min(int... args) { if (args.length == 0) throw ... } // fails at runtime if empty
+```
+
+**Right:** require at least one ordinary parameter, then varargs for the rest:
+
+```java
+static int min(int firstArg, int... remainingArgs) { ... }
+```
+
+Every varargs call allocates an array — in hot paths, overload `foo()`, `foo(int)`, … `foo(int,int,int,int...)` like `EnumSet` factories (Item 36). Do not overload varargs methods except as in Item 52.
+
+<CodingExam
+  title="min required first arg"
+  heading="Challenge: varargs one-or-more"
+  lang="java"
+  filename="Main.java"
+  prompt="min(int first, int... rest) returns the smallest int. first is always required (compile-time); rest is zero or more extras. wrap: min(3,1,4,1); print result."
+  sampleLog={`1`}
+  starter={`public class Main {
+    public static int min(int... args) {
+        if (args.length == 0) {
+            throw new IllegalArgumentException("need at least one value");
+        }
+        int m = args[0];
+        for (int i = 1; i < args.length; i++) {
+            if (args[i] < m) {
+                m = args[i];
+            }
+        }
+        return m;
+    }
+}
+`}
+  wrapSuffix={`
+class Runner {
+    public static void main(String[] args) {
+        System.out.println(Main.min(3, 1, 4, 1));
+    }
+}
+`}
+  sourceChecks={[
+    { name: 'required first param', pattern: 'min\\s*\\(\\s*int\\s+\\w+\\s*,\\s*int\\.\\.\\.\\s*\\w+\\s*\\)', must: true, hint: 'min(int first, int... rest) — not min(int... args) alone' },
+    { name: 'starts from first', pattern: 'min\\s*=\\s*\\w+|int\\s+\\w+\\s*=\\s*first', must: true, hint: 'int min = first; then loop over rest' },
+    { name: 'no zero-length check', pattern: 'length\\s*==\\s*0', must: false, hint: 'first arg guarantees at least one value' },
+  ]}
+  tests={[
+    { name: '3411', stdin: '', equals: '1' },
+  ]}
+/>
+
+## Item 54: Return empty collections or arrays, not nulls
+
+Returning **`null`** for “no results” forces every caller to null-check — easy to forget, and errors surface far from the bug.
+
+```java
+// Don't
+return cheesesInStock.isEmpty() ? null : new ArrayList<>(cheesesInStock);
+
+// Do
+return new ArrayList<>(cheesesInStock);
+```
+
+If profiling shows empty allocations matter, reuse **`Collections.emptyList()`** / **`emptySet()`** / **`emptyMap()`** (immutable, shareable). For arrays: **`toArray(new Cheese[0])`**, or a shared **`EMPTY_ARRAY`**. Do **not** preallocate `toArray(new T[size])` for performance (counterproductive).
+
+<MultipleChoice
+  id="java-int-ch8-null-collection"
+  title="Empty collections"
+  questions={[
+    {
+      prompt: 'getCheeses returns null when the shop has no cheese',
+      choices: [
+        'good — saves allocation',
+        'forces null checks on every caller; return empty list instead',
+        'required for Optional',
+        'same as Collections.emptyList',
+      ],
+      answer: 1,
+      why: 'Null returns complicate clients and hide bugs. Empty collections are easy to use.',
+    },
+    {
+      prompt: 'toArray(new Cheese[cheesesInStock.size()]) for performance',
+      choices: [
+        'recommended by Item 54',
+        'counterproductive — use new Cheese[0] or shared empty array',
+        'required for generics',
+        'same as clone',
+      ],
+      answer: 1,
+      why: 'Studies show preallocating the toArray buffer hurts performance.',
+    },
+  ]}
+/>
+
+<CodingExam
+  title="never return null list"
+  heading="Challenge: empty list not null"
+  lang="java"
+  filename="Main.java"
+  prompt="copyOf(list) returns a new ArrayList copy, or an empty list when list is empty — never null. wrap: copyOf empty list; print size (expect 0)."
+  sampleLog={`0`}
+  starter={`import java.util.ArrayList;
+import java.util.List;
+
+public class Main {
+    public static List<String> copyOf(List<String> list) {
+        if (list.isEmpty()) {
+            return null; // TODO return empty list, not null
+        }
+        return new ArrayList<>(list);
+    }
+}
+`}
+  wrapSuffix={`
+class Runner {
+    public static void main(String[] args) {
+        java.util.List<String> empty = java.util.Collections.emptyList();
+        System.out.println(Main.copyOf(empty).size());
+    }
+}
+`}
+  sourceChecks={[
+    { name: 'no null return', pattern: 'return\\s+null', must: false, hint: 'return new ArrayList<>() or Collections.emptyList()' },
+    { name: 'empty handling', pattern: 'new\\s+ArrayList|emptyList\\s*\\(|Collections\\.emptyList', must: true, hint: 'return new ArrayList<>() when empty' },
+  ]}
+  tests={[
+    { name: 'empty size', stdin: '', equals: '0' },
+  ]}
+/>
+
+## Item 55: Return optionals judiciously
+
+**`Optional<T>`** (Java 8) models “maybe a value” without **`null`** returns or exceptions for ordinary absence. Use when a method may have **no result** and callers must **explicitly** handle that case.
+
+```java
+public static <E extends Comparable<E>> Optional<E> max(Collection<E> c) {
+    if (c.isEmpty()) return Optional.empty();
+    ...
+    return Optional.of(result);
+}
+```
+
+Never **`return null`** from an `Optional`-returning method. Clients use **`orElse`**, **`orElseThrow`**, **`orElseGet`**, **`map`**, **`flatMap`**. For primitives use **`OptionalInt`** etc., not `Optional<Integer>`.
+
+Do **not** wrap collections/maps in optionals (return empty container, Item 54). Optionals are primarily **return types**, not fields/map values (exceptions like optional getters on rich DTOs exist).
+
+<CodingExam
+  title="optional max"
+  heading="Challenge: Optional max"
+  lang="java"
+  filename="Main.java"
+  prompt="maxOptional(words) returns Optional.empty() for an empty list, else Optional.of the lexicographically greatest String (use compareTo). wrap: max of [b,a,c]; print get() result."
+  sampleLog={`c`}
+  starter={`import java.util.List;
+import java.util.Optional;
+
+public class Main {
+    public static Optional<String> maxOptional(List<String> words) {
+        return Optional.empty(); // TODO empty list -> empty; else greatest by compareTo
+    }
+}
+`}
+  wrapSuffix={`
+class Runner {
+    public static void main(String[] args) {
+        System.out.println(Main.maxOptional(java.util.Arrays.asList("b", "a", "c")).get());
+    }
+}
+`}
+  sourceChecks={[
+    { name: 'Optional return', pattern: 'Optional\\s*<\\s*String\\s*>', must: true, hint: 'return type stays Optional<String>' },
+    { name: 'Optional.empty', pattern: 'Optional\\.empty\\s*\\(', must: true, hint: 'if (words.isEmpty()) return Optional.empty();' },
+    { name: 'Optional.of', pattern: 'Optional\\.of\\s*\\(', must: true, hint: 'return Optional.of(best);' },
+    { name: 'compareTo', pattern: 'compareTo', must: true, hint: 'pick greatest using compareTo' },
+  ]}
+  tests={[
+    { name: 'bac', stdin: '', equals: 'c' },
+  ]}
+/>
+
+## Item 56: Write doc comments for all exposed API elements
+
+Document every **exported** class, interface, constructor, method, and field with **Javadoc** (`/** ... */`). Describe the **contract** (what, not how): preconditions, postconditions, side effects.
+
+Include for methods:
+
+- **`@param`** for each parameter
+- **`@return`** unless `void` (unless redundant by your style guide)
+- **`@throws`** for every thrown exception (`if` clause after the tag)
+
+Use **`{@code ...}`** for inline code, **`{@literal ...}`** for HTML metacharacters, **`{@implSpec}`** for inheritance self-use (Item 19). Summary sentence: **verb phrase** for methods, **noun phrase** for types/fields. Document enum constants, generic **`@param <T>`**, and annotation members.
+
+<MultipleChoice
+  id="java-int-ch8-javadoc"
+  title="Javadoc"
+  questions={[
+    {
+      prompt: 'Exported method with no doc comment',
+      choices: [
+        'fine — bytecode is enough',
+        'Javadoc may only repeat the signature — poor API usability',
+        'required only for public fields',
+        'replaced by @Override',
+      ],
+      answer: 1,
+      why: 'Every exported API element needs documentation. Missing comments frustrate users.',
+    },
+    {
+      prompt: '@throws IndexOutOfBoundsException if the index is out of range',
+      choices: [
+        'documents a postcondition',
+        'documents when the exception is thrown — often encodes preconditions',
+        'replaces @param',
+        'only for checked exceptions',
+      ],
+      answer: 1,
+      why: '@throws text conventionally starts with "if" and describes failure conditions.',
+    },
+  ]}
+/>
+
+<CodingExam
+  title="javadoc contract"
+  heading="Challenge: add Javadoc tags"
+  lang="java"
+  filename="Main.java"
+  prompt="Add a Javadoc block above safeIndex(list, index): @param for list and index, @return describing the element, @throws IndexOutOfBoundsException if index is invalid. Method returns list.get(index) after checking index >= 0 && index < list.size()."
+  sampleLog={`b`}
+  starter={`import java.util.List;
+
+public class Main {
+    public static String safeIndex(List<String> list, int index) {
+        if (index < 0 || index >= list.size()) {
+            throw new IndexOutOfBoundsException("bad index: " + index);
+        }
+        return list.get(index);
+    }
+}
+`}
+  wrapSuffix={`
+class Runner {
+    public static void main(String[] args) {
+        System.out.println(Main.safeIndex(java.util.Arrays.asList("a", "b", "c"), 1));
+    }
+}
+`}
+  sourceChecks={[
+    { name: 'param list', pattern: '@param\\s+list', must: true, hint: '@param list the list to read' },
+    { name: 'param index', pattern: '@param\\s+index', must: true, hint: '@param index position to read' },
+    { name: 'return tag', pattern: '@return', must: true, hint: '@return the element at index' },
+    { name: 'throws tag', pattern: '@throws\\s+IndexOutOfBoundsException', must: true, hint: '@throws IndexOutOfBoundsException if ...' },
+  ]}
+  tests={[
+    { name: 'index 1', stdin: '', equals: 'b' },
+  ]}
+/>
+
+## Items 53–56 map
+
+| Item | Move |
+|---|---|
+| 53 | Varargs for 0+; required param + varargs for 1+ |
+| 54 | Empty collections/arrays, not null |
+| 55 | Optional for absent results; not for containers |
+| 56 | Javadoc every exported API; @param @return @throws |
+
+Chapter 8 complete. Next: [Scope, Loops, and Types](./lesson-9a-scope-loops-types) (Chapter 9, Items 57–62).
+
+<ExerciseSet
+  title="Exercises"
+  description="Optional orElse and varargs sum."
+>
+  <CodingExam
+    title="optional or else"
+    heading="Exercise: orElse default"
+    lang="java"
+    filename="Main.java"
+    prompt={`labelFor(Optional<String> opt) returns opt.orElse("unknown"). wrap: empty optional; print result.`}
+    starter={`import java.util.Optional;
+
+public class Main {
+    public static String labelFor(Optional<String> opt) {
+        return null; // TODO opt.orElse("unknown")
+    }
+}
+`}
+    wrapSuffix={`
+class Runner {
+    public static void main(String[] args) {
+        System.out.println(Main.labelFor(Optional.empty()));
+    }
+}
+`}
+    sourceChecks={[
+      { name: 'orElse', pattern: 'orElse\\s*\\(\\s*"unknown"\\s*\\)', must: true, hint: 'return opt.orElse("unknown");' },
+    ]}
+    tests={[
+      { name: 'unknown', stdin: '', equals: 'unknown' },
+    ]}
+  />
+  <CodingExam
+    title="varargs sum"
+    heading="Exercise: sum varargs"
+    lang="java"
+    filename="Main.java"
+    prompt="sum(int... values) adds all arguments (zero args -> 0). wrap: sum(1,2,3); print result."
+    starter={`public class Main {
+    public static int sum(int... values) {
+        return 0; // TODO loop and add
+    }
+}
+`}
+    wrapSuffix={`
+class Runner {
+    public static void main(String[] args) {
+        System.out.println(Main.sum(1, 2, 3));
+    }
+}
+`}
+    sourceChecks={[
+      { name: 'varargs', pattern: 'int\\.\\.\\.\\s*values', must: true, hint: 'sum(int... values)' },
+      { name: 'loop add', pattern: '\\+=', must: true, hint: 'for (int v : values) total += v;' },
+    ]}
+    tests={[
+      { name: '123', stdin: '', equals: '6' },
+    ]}
+  />
+</ExerciseSet>

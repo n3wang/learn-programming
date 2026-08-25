@@ -140,6 +140,83 @@ class Main{
 
 
 
+### Try it: comparison operators
+
+<PistonRunner
+  lang="java"
+  interactive={false}
+  height="260px"
+  code={`public class Main {
+  public static void main(String[] args) {
+    int a = 8;
+    int b = 12;
+    System.out.println(a == b);
+    System.out.println(a != b);
+    System.out.println(a < b);
+    System.out.println(a >= b);
+  }
+}
+`}
+/>
+
+<MultipleChoice
+  id="java-ch4a-comparisons"
+  title="Comparison operators"
+  questions={[
+    {
+      prompt: 'int x = 5; System.out.println(x = 6); What does this print, and why is it different from ==?',
+      choices: [
+        'true, because x equals 6',
+        '6, because = is assignment (it sets x to 6, then prints that value), while == is comparison',
+        'false',
+        'This will not compile',
+      ],
+      answer: 1,
+      why: 'A single = assigns and evaluates to the assigned value; == compares two values and evaluates to true/false. Mixing them up is a classic bug.',
+    },
+    {
+      prompt: '7 >= 7 evaluates to',
+      choices: ['true', 'false', '0', 'Error'],
+      answer: 0,
+      why: '>= is true when the left side is greater than OR equal to the right side. 7 is equal to 7.',
+    },
+  ]}
+/>
+
+<CodingExam
+  title="compare two ages"
+  heading="Try it: compare two ages"
+  lang="java"
+  filename="Main.java"
+  prompt="Read two ages. Print true if the first is strictly older (greater) than the second, false otherwise."
+  sampleLog={`(input) 21 18
+true`}
+  starter={`public class Main {
+    public static boolean isOlder(int ageA, int ageB) {
+        // TODO: return ageA > ageB
+        return false;
+    }
+}
+`}
+  wrapSuffix={`
+class Runner {
+    public static void main(String[] args) {
+        java.util.Scanner sc = new java.util.Scanner(System.in);
+        int a = sc.nextInt();
+        int b = sc.nextInt();
+        System.out.println(Main.isOlder(a, b));
+    }
+}
+`}
+  tests={[
+    { name: 'a older', stdin: '21 18', equals: 'true' },
+    { name: 'b older', stdin: '15 20', equals: 'false' },
+    { name: 'equal', stdin: '10 10', equals: 'false' },
+  ]}
+/>
+
+---
+
 ## Activity
 
 [👀](https://learn2codelive.com/courses/107/pages/lesson-4-learning-activities-r-practice-activity-1-comparing-ages?module_item_id=9110)
@@ -183,3 +260,150 @@ Write code that takes two values from the user, user’s age and his/her friend�
 
 
 :::
+
+---
+
+## Chapter summary
+
+:::important Key takeaways
+
+1. A boolean expression (`a < b`, `a == b`, ...) evaluates to `true` or `false` — nothing else.
+2. `==` compares two values; a single `=` assigns a value. Mixing them up is a very common bug.
+3. Comparison operators (`==`, `!=`, `>`, `<`, `>=`, `<=`) work the same on numbers whether the values come from literals or variables.
+4. Storing a comparison's result in a `boolean` variable lets you reuse and name a condition instead of repeating it.
+
+:::
+
+## Exercises
+
+<ExerciseSet>
+<Exercise title="Is multiple of" anchor="exercise-is-multiple">
+
+:::tip Activity: Is multiple of
+Read two integers `n` and `d`. Print `true` if `n` is a multiple of `d`, `false` otherwise.
+
+<CodingExam
+  title="Is multiple of"
+  heading="exercise-is-multiple"
+  lang="java"
+  filename="Main.java"
+  prompt="Return n % d == 0."
+  sampleLog={`(input) 15 5
+true`}
+  starter={`public class Main {
+    public static boolean isMultiple(int n, int d) {
+        // TODO
+        return false;
+    }
+}
+`}
+  wrapSuffix={`
+class Runner {
+    public static void main(String[] args) {
+        java.util.Scanner sc = new java.util.Scanner(System.in);
+        int n = sc.nextInt();
+        int d = sc.nextInt();
+        System.out.println(Main.isMultiple(n, d));
+    }
+}
+`}
+  sourceChecks={[
+    { name: 'Uses the modulus operator', pattern: '%', must: true, hint: 'n % d == 0' },
+  ]}
+  tests={[
+    { name: 'multiple', stdin: '15 5', equals: 'true' },
+    { name: 'not multiple', stdin: '14 5', equals: 'false' },
+  ]}
+/>
+
+:::
+
+</Exercise>
+
+<Exercise title="Min of two" anchor="exercise-min-of-two">
+
+:::tip Activity: Min of two
+Read two integers. Print the smaller one, using a comparison (no `Math.min`).
+
+<CodingExam
+  title="Min of two"
+  heading="exercise-min-of-two"
+  lang="java"
+  filename="Main.java"
+  prompt="Use < to compare a and b, return the smaller."
+  sampleLog={`(input) 9 4
+4`}
+  starter={`public class Main {
+    public static int minOf(int a, int b) {
+        // TODO: use a comparison, not Math.min
+        return 0;
+    }
+}
+`}
+  wrapSuffix={`
+class Runner {
+    public static void main(String[] args) {
+        java.util.Scanner sc = new java.util.Scanner(System.in);
+        int a = sc.nextInt();
+        int b = sc.nextInt();
+        System.out.println(Main.minOf(a, b));
+    }
+}
+`}
+  sourceChecks={[
+    { name: 'Uses a comparison operator', pattern: '<|>', must: true, hint: 'a < b ? a : b' },
+    { name: 'Does not use Math.min', pattern: 'Math\\.min', must: false, hint: 'Compare with < or > instead of Math.min.' },
+  ]}
+  tests={[
+    { name: 'a bigger', stdin: '9 4', equals: '4' },
+    { name: 'b bigger', stdin: '2 8', equals: '2' },
+    { name: 'equal', stdin: '5 5', equals: '5' },
+  ]}
+/>
+
+:::
+
+</Exercise>
+
+<Exercise title="In range" anchor="exercise-in-range">
+
+:::tip Activity: In range
+Read three integers: `value`, `low`, `high`. Print `true` if `value` is between `low` and `high` (inclusive), `false` otherwise.
+
+<CodingExam
+  title="In range"
+  heading="exercise-in-range"
+  lang="java"
+  filename="Main.java"
+  prompt="Return value >= low && value <= high."
+  sampleLog={`(input) 5 1 10
+true`}
+  starter={`public class Main {
+    public static boolean inRange(int value, int low, int high) {
+        // TODO
+        return false;
+    }
+}
+`}
+  wrapSuffix={`
+class Runner {
+    public static void main(String[] args) {
+        java.util.Scanner sc = new java.util.Scanner(System.in);
+        int value = sc.nextInt();
+        int low = sc.nextInt();
+        int high = sc.nextInt();
+        System.out.println(Main.inRange(value, low, high));
+    }
+}
+`}
+  tests={[
+    { name: 'inside', stdin: '5 1 10', equals: 'true' },
+    { name: 'outside', stdin: '15 1 10', equals: 'false' },
+    { name: 'boundary', stdin: '10 1 10', equals: 'true' },
+  ]}
+/>
+
+:::
+
+</Exercise>
+</ExerciseSet>

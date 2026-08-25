@@ -1,0 +1,285 @@
+---
+sidebar_position: 21
+title: "Classic Coroutines"
+---
+
+> **Source:** Fluent Python, 2nd Edition — Chapter 19 by Luciano Ramalho (through termination and `throw` / `close`)
+
+Davis and van Rossum: native `async def` (3.5) sits on the **classic** generator coroutine of 2.5/3.3. This lesson is that foundation. Chapter 22 is asyncio.
+
+**To yield** means both *produce* and *give way*. A generator’s caller **pulls** with `next`. A **classic coroutine** is a generator the caller **pushes** with `.send(datum)`. The pending `yield` expression **becomes** that datum. Often nothing useful is produced (`x = yield` yields `None`). Cooperative multitasking is just this: yield to a scheduler.
+
+Three kinds:
+
+| Kind | How you write it | Delegate with |
+|---|---|---|
+| Classic | `yield` in an expression, `.send` | `yield from` |
+| Generator-based (3.5) | `@types.coroutine` | `await` |
+| Native | `async def` | `await` |
+
+Native/generator-based are for async I/O. Classic still does things they cannot, and vice versa. After PEP 380 (3.3) classic coroutines froze; PEP 492 is a different story.
+
+PEP 342 (2.5): `yield` in expressions, `.send`, `.throw`, `.close`. PEP 380: `return` a value from a generator; `yield from`. Those last two wait for part 19b.
+
+## Basic behavior
+
+```python
+def simple_coroutine():
+    print('started')
+    x = yield
+    print('received', x)
+```
+
+Call the function → generator object. **Prime** with `next(coro)` or `coro.send(None)` so it runs to the first `yield`. Then `send(42)` resumes; `x` is 42. Running off the end raises `StopIteration`.
+
+`send` of a non-`None` into `GEN_CREATED` is `TypeError: can't send non-None value to a just-started generator`.
+
+States (`inspect.getgeneratorstate`):
+
+- `GEN_CREATED` — not started  
+- `GEN_RUNNING` — only visible from another thread  
+- `GEN_SUSPENDED` — paused at `yield`  
+- `GEN_CLOSED` — finished  
+
+```python
+b = yield a
+```
+
+The right-hand side runs (yields `a`) and **stops**. `b` is assigned only when the **next** `send` (or `next`) resumes that line. Each phase **ends** at a `yield` and the next **starts on the same line**.
+
+<PistonRunner
+  lang="python"
+  interactive={false}
+  height="260px"
+  code={`from inspect import getgeneratorstate
+
+def simple_coro2(a):
+    print('-> Started: a =', a)
+    b = yield a
+    print('-> Received: b =', b)
+    c = yield a + b
+    print('-> Received: c =', c)
+
+g = simple_coro2(14)
+print(getgeneratorstate(g))
+print(next(g))
+print(getgeneratorstate(g))
+print(g.send(28))
+try:
+    g.send(99)
+except StopIteration:
+    print('done', getgeneratorstate(g))
+`}
+/>
+
+<CodingExam
+  title="Prime then send"
+  heading="Challenge: prime then send"
+  lang="python"
+  filename="main.py"
+  prompt="recv() yields once (None), binds x = yield, then ends. wrap: one int. Prime, send that int, print what recv printed as the received value. Use a list log inside recv if you need to capture prints."
+  sampleLog={`(input) 42
+42`}
+  starter={`def recv():
+    x = 0
+    yield
+    return
+
+def wrap(line: str) -> str:
+    n = int(line)
+    g = recv()
+    return ''
+`}
+  wrapSuffix={`
+print(wrap(input()))
+`}
+  sourceChecks={[
+    { name: 'send', pattern: '\\.send\\s*\\(', must: true, hint: 'g.send(n)' },
+  ]}
+  tests={[
+    { name: 'forty-two', stdin: '42', equals: '42' },
+    { name: 'seven', stdin: '7', equals: '7' },
+  ]}
+/>
+
+`wrap` should `next(g)` then `send`. If `recv` stores `x` on a list the caller can read, or `send`’s return is unused after the last yield — capture `x` before the function ends (e.g. `log.append(x)` after the assignment).
+
+## Running average
+
+`total` and `count` stay **local** — no closure object, no `self`. Infinite `while True: term = yield average`. Terminate later with `.close()` or a sentinel.
+
+<CodingExam
+  title="averager"
+  heading="Challenge: averager"
+  lang="python"
+  filename="main.py"
+  prompt="averager() coroutine: yield the running mean as float (first yield may be None). wrap: numbers; prime; send each; print the last yielded average."
+  sampleLog={`(input) 10 30 5
+15.0`}
+  starter={`def averager():
+    yield None
+
+def wrap(line: str) -> str:
+    nums = list(map(float, line.split()))
+    g = averager()
+    next(g)
+    last = None
+    for n in nums:
+        last = g.send(n)
+    return str(last)
+`}
+  wrapSuffix={`
+print(wrap(input()))
+`}
+  sourceChecks={[
+    { name: 'yield average', pattern: 'yield', must: true, hint: 'term = yield average' },
+  ]}
+  tests={[
+    { name: '10 30 5', stdin: '10 30 5', equals: '15.0' },
+    { name: 'single', stdin: '8', equals: '8.0' },
+  ]}
+/>
+
+## Priming decorator
+
+Easy to forget `next`. A `@coroutine` wrapper calls `func(*args)`, `next(gen)`, returns `gen`. After that, `getgeneratorstate` is already `GEN_SUSPENDED`.
+
+`yield from` (later) **also** primes; do not stack that with this decorator. `asyncio.coroutine` (3.4) did not prime for that reason. Tornado’s `gen` decorator is a different hook.
+
+<CodingExam
+  title="Prime decorator"
+  heading="Challenge: prime decorator"
+  lang="python"
+  filename="main.py"
+  prompt="Write @coroutine that primes. averager as above, decorated. wrap must NOT call next — only send. Print last average."
+  sampleLog={`(input) 10 30
+20.0`}
+  starter={`from functools import wraps
+
+def coroutine(func):
+    return func
+
+@coroutine
+def averager():
+    yield None
+
+def wrap(line: str) -> str:
+    nums = list(map(float, line.split()))
+    g = averager()
+    last = None
+    for n in nums:
+        last = g.send(n)
+    return str(last)
+`}
+  wrapSuffix={`
+print(wrap(input()))
+`}
+  sourceChecks={[
+    { name: 'next in decorator', pattern: 'next\\s*\\(', must: true, hint: 'next(gen) inside the wrapper' },
+    { name: 'wrap does not next', pattern: 'def wrap[\\s\\S]*next\\s*\\(', must: false, hint: 'do not next() in wrap' },
+  ]}
+  tests={[
+    { name: 'two terms', stdin: '10 30', equals: '20.0' },
+  ]}
+/>
+
+The “wrap does not next” check is a regex over the whole file — keep `next` **only** inside `coroutine`, not in `wrap` or `averager`.
+
+## Termination and exceptions
+
+Unhandled error in the body → caller of `send`/`next` sees it; the coroutine is **dead** (`GEN_CLOSED`); another `send` is `StopIteration`.
+
+Sentinel: `None`, `Ellipsis`, or even the `StopIteration` **class** as a value.
+
+`.throw(exc)` raises at the paused `yield`. If handled, execution continues to the next `yield` and that value is the result of `.throw`. If not, it propagates and the generator closes.
+
+`.close()` raises `GeneratorExit` at `yield`. Swallowing it or running to `StopIteration` is quiet. **Do not yield** after `GeneratorExit` (`RuntimeError`). Other exceptions propagate.
+
+Cleanup: `try`/`finally` around the loop. Nested `throw` into subgenerators is why `yield from` exists (19b).
+
+<MultipleChoice
+  id="py-int-ch19a-state"
+  title="Coroutine states"
+  questions={[
+    {
+      prompt: 'Right after g = coro(); before next(g), send(1) raises',
+      choices: [
+        'StopIteration',
+        "TypeError: can't send non-None value to a just-started generator",
+        'GeneratorExit',
+        'nothing — it works',
+      ],
+      answer: 1,
+      why: 'The generator is GEN_CREATED; it is not waiting at a yield yet.',
+    },
+    {
+      prompt: 'close() injects',
+      choices: ['StopIteration', 'KeyboardInterrupt', 'GeneratorExit', 'None'],
+      answer: 2,
+      why: 'The generator must not yield after handling GeneratorExit.',
+    },
+  ]}
+/>
+
+<CodingExam
+  title="throw handled"
+  heading="Challenge: throw handled"
+  lang="python"
+  filename="main.py"
+  prompt="demo() loops: x = yield; except Skip: log skip; else log got:x. wrap: prime; send 1; throw Skip; send 2; print log joined by commas (got:1,skip,got:2)."
+  sampleLog={`(input) x
+got:1,skip,got:2`}
+  starter={`class Skip(Exception):
+    pass
+
+def demo():
+    yield
+
+def wrap(line: str) -> str:
+    log = []
+    g = demo()
+    # TODO: next, send, throw Skip, send
+    return ','.join(log)
+`}
+  wrapSuffix={`
+print(wrap(input()))
+`}
+  sourceChecks={[
+    { name: 'throw', pattern: '\\.throw\\s*\\(', must: true, hint: 'g.throw(Skip)' },
+  ]}
+  tests={[
+    { name: 'continues', stdin: 'x', equals: 'got:1,skip,got:2' },
+  ]}
+/>
+
+`demo` must keep looping after `Skip`. Pass `log` in via a default or closure so the body can append.
+
+<ExerciseSet
+  title="Exercises"
+  description="close and a two-yield handshake."
+>
+  <CodingExam
+    title="close state"
+    heading="Exercise: close state"
+    lang="python"
+    filename="main.py"
+    prompt="spin() is while True: yield. wrap: create, next, close, print getgeneratorstate."
+    starter={`from inspect import getgeneratorstate
+
+def spin():
+    yield
+
+def wrap(line: str) -> str:
+    return ''
+`}
+    wrapSuffix={`
+print(wrap(input()))
+`}
+    sourceChecks={[
+      { name: 'close', pattern: '\\.close\\s*\\(', must: true, hint: 'g.close()' },
+    ]}
+    tests={[
+      { name: 'closed', stdin: 'x', equals: 'GEN_CLOSED' },
+    ]}
+  />
+</ExerciseSet>

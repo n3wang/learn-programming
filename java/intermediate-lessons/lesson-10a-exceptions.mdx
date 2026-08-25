@@ -1,0 +1,413 @@
+---
+sidebar_position: 16
+title: "Exceptions"
+---
+
+> **Source:** Effective Java, 3rd Edition — Chapter 10 by Joshua Bloch (Items 69–73)
+
+Used well, exceptions improve readability and reliability. Used as control flow or leaked implementation details, they do the opposite. This lesson: when to throw, checked vs unchecked, standard types, and exception translation.
+
+## Item 69: Use exceptions only for exceptional conditions
+
+Never loop by catching **`ArrayIndexOutOfBoundsException`** or **`NoSuchElementException`** — it’s obscure, slow, and can swallow unrelated bugs.
+
+```java
+// Don't
+try {
+    int i = 0;
+    while (true)
+        range[i++].climb();
+} catch (ArrayIndexOutOfBoundsException ignored) { }
+
+// Do
+for (Mountain m : range)
+    m.climb();
+```
+
+APIs should offer **state-testing** methods (`Iterator.hasNext`) or **`Optional`** (Item 55) so clients aren’t forced into exception-driven control flow.
+
+<CodingExam
+  title="sum without aioobe"
+  heading="Challenge: loop, not exception control flow"
+  lang="java"
+  filename="Main.java"
+  prompt="sum(values) adds all ints using a normal for or for-each loop — not try/catch on ArrayIndexOutOfBoundsException. wrap: [1,2,3]; print 6."
+  sampleLog={`6`}
+  starter={`public class Main {
+    public static int sum(int[] values) {
+        int total = 0;
+        int i = 0;
+        try {
+            while (true) {
+                total += values[i++];
+            }
+        } catch (ArrayIndexOutOfBoundsException ignored) {
+        }
+        return total;
+    }
+}
+`}
+  wrapSuffix={`
+class Runner {
+    public static void main(String[] args) {
+        System.out.println(Main.sum(new int[] { 1, 2, 3 }));
+    }
+}
+`}
+  sourceChecks={[
+    { name: 'normal loop', pattern: 'for\\s*\\(|for\\s*\\(\\s*int\\s+\\w+\\s*:', must: true, hint: 'for (int v : values) or for (int i = 0; i < values.length; i++)' },
+    { name: 'no aioobe catch', pattern: 'ArrayIndexOutOfBoundsException', must: false, hint: 'do not use exceptions to end the loop' },
+  ]}
+  tests={[
+    { name: '123', stdin: '', equals: '6' },
+  ]}
+/>
+
+<MultipleChoice
+  id="java-int-ch10-exceptional"
+  title="Exceptions vs control flow"
+  questions={[
+    {
+      prompt: 'Iterator lacks hasNext(); clients catch NoSuchElementException to end loops',
+      choices: [
+        'good API design — exceptions are fast',
+        'forces exception-based control flow — add hasNext or Optional',
+        'required by for-each',
+        'only wrong for arrays',
+      ],
+      answer: 1,
+      why: 'State-testing methods let callers use ordinary loops. Exceptions are for failures, not iteration.',
+    },
+    {
+      prompt: 'Concurrent object: test canProceed() then call proceed() separately',
+      choices: [
+        'always safe — two calls are atomic',
+        'state may change between test and action — use Optional or handle in one call',
+        'illegal in Java',
+        'requires checked exceptions only',
+      ],
+      answer: 1,
+      why: 'Between a state test and a state-dependent method, another thread can change state (Item 69).',
+    },
+  ]}
+/>
+
+## Item 70: Use checked exceptions for recoverable conditions and runtime exceptions for programming errors
+
+Three throwable families:
+
+| Kind | When | Caller expectation |
+|---|---|---|
+| **Checked** (`Exception` subclass, not `RuntimeException`) | Recoverable conditions | Handle or declare |
+| **Runtime** (`RuntimeException`) | Programming errors, precondition violations | Usually don’t catch |
+| **Error** | JVM/resource catastrophe | Don’t throw new subclasses |
+
+**`ArrayIndexOutOfBoundsException`** = bad index (client bug). **Insufficient funds on gift card** = checked exception with recovery info (e.g. shortfall amount).
+
+When unsure, prefer **unchecked**. Don’t define throwables outside `Exception` / `RuntimeException` / `Error`. Never parse exception **strings** for data — add accessor methods on checked exceptions.
+
+<MultipleChoice
+  id="java-int-ch10-checked"
+  title="Checked vs unchecked"
+  questions={[
+    {
+      prompt: 'Method rejects null where null is forbidden',
+      choices: [
+        'checked IOException',
+        'NullPointerException — standard for prohibited null',
+        'new Error subclass',
+        'catch and ignore',
+      ],
+      answer: 1,
+      why: 'Precondition violations are programming errors. Convention: NullPointerException for null args.',
+    },
+    {
+      prompt: 'Caller can retry after a transient network failure',
+      choices: [
+        'checked exception — recoverable condition',
+        'AssertionError always',
+        'never throw — return 0',
+        'RuntimeException only for IO',
+      ],
+      answer: 0,
+      why: 'Checked exceptions signal conditions callers can reasonably recover from.',
+    },
+  ]}
+/>
+
+## Item 71: Avoid unnecessary use of checked exceptions
+
+Checked exceptions **force** handling — good when recovery is real, painful when callers only do `printStackTrace()` or `throw new AssertionError()`.
+
+Remedies:
+
+1. Return **`Optional.empty()`** instead of throwing when absence is ordinary (Item 55).
+2. Split into **`actionPermitted`** + **`action`** so the happy path need not sit in `try` (watch concurrency and duplicated work).
+
+Single checked exceptions are especially costly — they block stream usage (Items 45–48).
+
+<CodingExam
+  title="optional first even"
+  heading="Challenge: Optional not exception"
+  lang="java"
+  filename="Main.java"
+  prompt="firstEven(nums) returns Optional.of first even int, or Optional.empty() if none — no exception for 'not found'. wrap: [1,3,5]; print has=false."
+  sampleLog={`has=false`}
+  starter={`import java.util.Optional;
+
+public class Main {
+    public static Optional<Integer> firstEven(int[] nums) {
+        for (int n : nums) {
+            if (n % 2 == 0) {
+                return Optional.of(n);
+            }
+        }
+        return null; // TODO Optional.empty()
+    }
+}
+`}
+  wrapSuffix={`
+class Runner {
+    public static void main(String[] args) {
+        java.util.Optional<Integer> found = Main.firstEven(new int[] { 1, 3, 5 });
+        System.out.println("has=" + found.isPresent());
+    }
+}
+`}
+  sourceChecks={[
+    { name: 'Optional.empty', pattern: 'Optional\\.empty\\s*\\(', must: true, hint: 'return Optional.empty(); when no even value' },
+    { name: 'no throw not found', pattern: 'throw\\s+new\\s+(Exception|RuntimeException)', must: false, hint: 'absence is normal — use empty Optional' },
+  ]}
+  tests={[
+    { name: 'none', stdin: '', equals: 'has=false' },
+  ]}
+/>
+
+## Item 72: Favor the use of standard exceptions
+
+Reuse library exceptions when semantics match:
+
+| Exception | Use when |
+|---|---|
+| `IllegalArgumentException` | Bad non-null argument value |
+| `IllegalStateException` | Object state wrong for this call |
+| `NullPointerException` | Null where prohibited |
+| `IndexOutOfBoundsException` | Bad index into sequence |
+| `ConcurrentModificationException` | Detected unsynchronized mutation |
+| `UnsupportedOperationException` | Optional operation not implemented |
+
+Don’t throw **`Exception`**, **`RuntimeException`**, **`Throwable`**, or **`Error`** directly — too broad to catch meaningfully.
+
+**Deck deal example:** hand size too big because deck is nearly empty → **`IllegalStateException`** if no argument would work; **`IllegalArgumentException`** if a smaller hand size would work.
+
+<CodingExam
+  title="illegal argument positive"
+  heading="Challenge: IllegalArgumentException"
+  lang="java"
+  filename="Main.java"
+  prompt="requirePositive(n) returns n when n > 0; otherwise throw IllegalArgumentException (not generic RuntimeException). wrap: requirePositive(0); catch and print caught."
+  sampleLog={`caught`}
+  starter={`public class Main {
+    public static int requirePositive(int n) {
+        if (n <= 0) {
+            throw new RuntimeException("must be positive");
+        }
+        return n;
+    }
+}
+`}
+  wrapSuffix={`
+class Runner {
+    public static void main(String[] args) {
+        try {
+            Main.requirePositive(0);
+            System.out.println("ok");
+        } catch (IllegalArgumentException e) {
+            System.out.println("caught");
+        }
+    }
+}
+`}
+  sourceChecks={[
+    { name: 'IllegalArgumentException', pattern: 'IllegalArgumentException', must: true, hint: 'throw new IllegalArgumentException(...)' },
+    { name: 'no generic RuntimeException throw', pattern: 'throw\\s+new\\s+RuntimeException', must: false, hint: 'use IllegalArgumentException for bad argument values' },
+  ]}
+  tests={[
+    { name: 'zero', stdin: '', equals: 'caught' },
+  ]}
+/>
+
+<MultipleChoice
+  id="java-int-ch10-standard"
+  title="Standard exceptions"
+  questions={[
+    {
+      prompt: 'Append-only List.remove(index) is invoked',
+      choices: [
+        'IllegalArgumentException',
+        'UnsupportedOperationException — optional op not supported',
+        'IOException',
+        'Error',
+      ],
+      answer: 1,
+      why: 'Classes that omit optional interface operations throw UnsupportedOperationException.',
+    },
+    {
+      prompt: 'dealHand(13) on a deck with only 5 cards left (any hand size > 5 fails)',
+      choices: [
+        'IllegalArgumentException — bad parameter',
+        'IllegalStateException — deck too depleted for any valid deal',
+        'NullPointerException',
+        'Exception',
+      ],
+      answer: 1,
+      why: 'If no argument value works, state is wrong — IllegalStateException (Item 72).',
+    },
+  ]}
+/>
+
+## Item 73: Throw exceptions appropriate to the abstraction
+
+Don’t leak low-level exceptions (`NoSuchElementException` from a `ListIterator`) through high-level APIs. **Translate** to types your abstraction promises:
+
+```java
+public E get(int index) {
+    ListIterator<E> i = listIterator(index);
+    try {
+        return i.next();
+    } catch (NoSuchElementException e) {
+        throw new IndexOutOfBoundsException("Index: " + index);
+    }
+}
+```
+
+Use **exception chaining** (`new HigherLevelException(cause)`) so debuggers still see the root cause via **`getCause()`**. When you can **prevent** lower-level failures (validate parameters) or **recover silently** (log and continue), prefer that over translation.
+
+<CodingExam
+  title="translate to index"
+  heading="Challenge: exception translation"
+  lang="java"
+  filename="Main.java"
+  prompt="getAt(list, index) uses listIterator(index).next() but catches NoSuchElementException and throws IndexOutOfBoundsException with message containing the index. wrap: getAt [a,b] index 9; catch and print IOOBE."
+  sampleLog={`IOOBE`}
+  starter={`import java.util.List;
+import java.util.ListIterator;
+import java.util.NoSuchElementException;
+
+public class Main {
+    public static String getAt(List<String> list, int index) {
+        ListIterator<String> it = list.listIterator(index);
+        return it.next(); // TODO catch NoSuchElementException -> IndexOutOfBoundsException
+    }
+}
+`}
+  wrapSuffix={`
+class Runner {
+    public static void main(String[] args) {
+        try {
+            Main.getAt(java.util.Arrays.asList("a", "b"), 9);
+            System.out.println("ok");
+        } catch (IndexOutOfBoundsException e) {
+            System.out.println("IOOBE");
+        }
+    }
+}
+`}
+  sourceChecks={[
+    { name: 'catch NSEE', pattern: 'catch\\s*\\(\\s*NoSuchElementException', must: true, hint: 'catch (NoSuchElementException e)' },
+    { name: 'throw IOOBE', pattern: 'throw\\s+new\\s+IndexOutOfBoundsException', must: true, hint: 'throw new IndexOutOfBoundsException("Index: " + index)' },
+  ]}
+  tests={[
+    { name: 'bad index', stdin: '', equals: 'IOOBE' },
+  ]}
+/>
+
+## Items 69–73 map
+
+| Item | Move |
+|---|---|
+| 69 | Exceptions for failures, not loops; hasNext / Optional |
+| 70 | Checked = recoverable; runtime = precondition bugs |
+| 71 | Optional or state-test to avoid pointless checked exceptions |
+| 72 | Reuse IllegalArgumentException, IllegalStateException, … |
+| 73 | Translate lower-level exceptions to abstraction-level types |
+
+Next: [Exception Documentation and Handling](./lesson-10b-exception-docs-handling) (Items 74–77).
+
+<ExerciseSet
+  title="Exercises"
+  description="hasNext iteration; NullPointerException for null."
+>
+  <CodingExam
+    title="count with hasNext"
+    heading="Exercise: hasNext not NSEE"
+    lang="java"
+    filename="Main.java"
+    prompt="count(it) returns how many elements remain to be read from it using while (it.hasNext()) — not catch NoSuchElementException. wrap: iterator over [x,y,z]; print 3."
+    starter={`import java.util.Iterator;
+
+public class Main {
+    public static int count(Iterator<String> it) {
+        int n = 0;
+        try {
+            while (true) {
+                it.next();
+                n++;
+            }
+        } catch (java.util.NoSuchElementException ignored) {
+        }
+        return n;
+    }
+}
+`}
+    wrapSuffix={`
+class Runner {
+    public static void main(String[] args) {
+        System.out.println(Main.count(java.util.Arrays.asList("x", "y", "z").iterator()));
+    }
+}
+`}
+    sourceChecks={[
+      { name: 'hasNext loop', pattern: 'hasNext\\s*\\(\\s*\\)', must: true, hint: 'while (it.hasNext()) { it.next(); n++; }' },
+      { name: 'no nsee catch', pattern: 'NoSuchElementException', must: false, hint: 'use hasNext(), not exception control flow' },
+    ]}
+    tests={[
+      { name: 'three', stdin: '', equals: '3' },
+    ]}
+  />
+  <CodingExam
+    title="require non null"
+    heading="Exercise: NullPointerException"
+    lang="java"
+    filename="Main.java"
+    prompt="requireName(name) returns name when non-null; throw NullPointerException when null (not IllegalArgumentException). wrap: null; catch and print NPE."
+    starter={`public class Main {
+    public static String requireName(String name) {
+        if (name == null) {
+            throw new IllegalArgumentException("name is null");
+        }
+        return name;
+    }
+}
+`}
+    wrapSuffix={`
+class Runner {
+    public static void main(String[] args) {
+        try {
+            Main.requireName(null);
+            System.out.println("ok");
+        } catch (NullPointerException e) {
+            System.out.println("NPE");
+        }
+    }
+}
+`}
+    sourceChecks={[
+      { name: 'NullPointerException', pattern: 'NullPointerException', must: true, hint: 'throw new NullPointerException(...)' },
+      { name: 'not IAE for null', pattern: 'IllegalArgumentException', must: false, hint: 'convention: null arg -> NullPointerException' },
+    ]}
+    tests={[
+      { name: 'null', stdin: '', equals: 'NPE' },
+    ]}
+  />
+</ExerciseSet>

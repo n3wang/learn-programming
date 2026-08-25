@@ -7,6 +7,7 @@ import useCodeDraft from '@site/src/components/codeWorkspace/useCodeDraft';
 import {makeDraftId} from '@site/src/components/codeWorkspace/drafts';
 import defaultSourceFilename from '@site/src/components/codeWorkspace/defaultSourceFilename';
 import splitChartOutput from '@site/src/components/codeWorkspace/splitChartOutput';
+import SplitPanes from '@site/src/components/codeWorkspace/SplitPanes';
 import chrome from '@site/src/components/codeWorkspace/chrome.module.css';
 
 function executeUrl(api, siteConfig) {
@@ -272,10 +273,7 @@ export default function PistonRunner({
                 onReset={reset}
             />
 
-            <div
-                className={`${chrome.panes} ${split ? chrome.panesSplit : ''}`}
-                style={{minHeight: height}}
-            >
+            <SplitPanes split={split} minHeight={height}>
                 <div className={chrome.editorPane}>
                     <CodeEditor
                         value={code}
@@ -285,7 +283,7 @@ export default function PistonRunner({
                         readOnly={!editable}
                     />
                 </div>
-                {split && (
+                {split ? (
                     <div className={chrome.side} style={{minHeight: height}}>
                         <div className={chrome.sideHead}>Output</div>
                         <pre
@@ -330,8 +328,8 @@ export default function PistonRunner({
                             />
                         )}
                     </div>
-                )}
-            </div>
+                ) : null}
+            </SplitPanes>
 
             {stdinVisible && (
                 <label className={chrome.stdinLabel}>

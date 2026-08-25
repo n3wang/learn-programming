@@ -1,0 +1,486 @@
+---
+sidebar_position: 12
+title: "A Pythonic Object, part 2"
+---
+
+> **Source:** Fluent Python, 2nd Edition — Chapter 11 by Luciano Ramalho (formatted displays through class attributes)
+
+Part 1 built a vector that can be printed, unpacked, and reconstructed. This half is about **how** it is displayed (`__format__`), **whether** it can live in a `set` (`__hash__` plus immutability), **positional** `match`, name mangling, `__slots__` inheritance, and using a class attribute as a default you can shadow.
+
+`f'{x:0.2f}'`, `format(x, '0.2f')`, and `'{0:0.2f}'.format(x)` all call `__format__(format_spec)`. The specifier is only the text **after the colon**. The name or expression **before** the colon is a different language: field names for `.format()`, or any expression inside an f-string.
+
+```text
+'{0.mass:5.3e}'
+  ^^^^^^  ^^^^
+  field   format spec  (mini-language)
+```
+
+Study `format(obj, spec)` first. Then read formatted string literals and format-string syntax for `{}` fields, including `!s`, `!r`, and `!a`. F-strings do not retire `str.format()`: keep the template in a variable when the layout is not next to the values.
+
+## Built-in presentation codes
+
+Each type interprets `format_spec` itself. Integers understand `b` and `x`. Floats understand `f` and `%`. `datetime` reuses `strftime` codes inside `__format__`.
+
+<details>
+<summary>🧪 format codes and datetime</summary>
+
+<PistonRunner
+  lang="python"
+  interactive={false}
+  height="280px"
+  code={`from datetime import datetime
+
+print(format(42, 'b'))
+print(format(2 / 3, '.1%'))
+now = datetime(2020, 1, 1, 18, 49, 5)
+print(format(now, '%H:%M:%S'))
+print("It's now {:%I:%M %p}".format(now))
+`}
+/>
+
+</details>
+
+If a class never defines `__format__`, `object.__format__` returns `str(obj)` when the spec is empty. A **non-empty** spec raises `TypeError`. A vector that already has `__str__` still needs `__format__` before `format(v, '.3f')` works.
+
+## Format each component
+
+A first `__format__` can treat the user’s spec as “apply this to every float in the vector, then wrap with parentheses.”
+
+```python
+def __format__(self, fmt_spec=''):
+    parts = (format(c, fmt_spec) for c in self)
+    return '({}, {})'.format(*parts)
+```
+
+That yields `format(v, '.2f')` → `(3.00, 4.00)` and `format(v, '.3e')` for scientific notation on each axis.
+
+<MultipleChoice
+  id="py-int-ch11b-spec"
+  title="What is the specifier?"
+  questions={[
+    {
+      prompt: "In f'1 USD = {1 / brl:0.2f} BRL', the format specifier is",
+      choices: [
+        'the whole replacement field including 1 / brl',
+        'only 0.2f — the expression is not part of the spec',
+        'only the f at the end',
+        'the entire f-string',
+      ],
+      answer: 1,
+      why: 'The colon splits the field or expression from the Format Specification Mini-Language.',
+    },
+  ]}
+/>
+
+## A custom code: polar `p`
+
+The mini-language is per-class. Integers already use `bcdoxXn`, floats `eEfFgGn%`, strings `s`. A letter unused by those types is easier for humans: **`p` for polar**.
+
+If the spec **ends with** `p`, strip that letter, format **magnitude** (`abs`) and **angle** (`math.atan2(y, x)`) with the remainder of the spec, and wrap with `<{}, {}>`. Otherwise keep Cartesian `(x, y)`.
+
+```python
+def angle(self):
+    return math.atan2(self.y, self.x)
+
+def __format__(self, fmt_spec=''):
+    if fmt_spec.endswith('p'):
+        fmt_spec = fmt_spec[:-1]
+        coords = (abs(self), self.angle())
+        outer = '<{}, {}>'
+    else:
+        coords = self
+        outer = '({}, {})'
+    parts = (format(c, fmt_spec) for c in coords)
+    return outer.format(*parts)
+```
+
+Reusing a letter another type uses is not a syntax error (each class owns its spec), but it confuses readers. Pick unused letters when you can.
+
+<CodingExam
+  title="Cartesian then polar"
+  heading="Challenge: Cartesian then polar"
+  lang="python"
+  filename="main.py"
+  prompt="Implement Vec.__format__. Cartesian: apply the spec to each component, join as (a, b) with a comma-space. If the spec ends with p, drop p, format abs then atan2(y, x), wrap with angle brackets. Use math.hypot in __abs__ (already written)."
+  sampleLog={`(input) 3 4 .2f
+(3.00, 4.00)`}
+  starter={`import math
+
+class Vec:
+    def __init__(self, x, y):
+        self.x = float(x)
+        self.y = float(y)
+
+    def __iter__(self):
+        yield self.x
+        yield self.y
+
+    def __abs__(self):
+        return math.hypot(self.x, self.y)
+
+    def angle(self):
+        return math.atan2(self.y, self.x)
+
+    def __format__(self, fmt_spec=''):
+        return ''
+`}
+  wrapSuffix={`
+line = input().split()
+x, y = float(line[0]), float(line[1])
+spec = line[2] if len(line) > 2 else ''
+print(format(Vec(x, y), spec))
+`}
+  sourceChecks={[
+    { name: 'Defines __format__', pattern: 'def __format__', must: true, hint: 'def __format__(self, fmt_spec' },
+    { name: 'Looks at p suffix', pattern: "endswith\\(['\\\"]p['\\\"]\\)", must: true, hint: "fmt_spec.endswith('p')" },
+  ]}
+  tests={[
+    { name: 'empty spec', stdin: '3 4', equals: '(3.0, 4.0)' },
+    { name: 'fixed-point', stdin: '3 4 .2f', equals: '(3.00, 4.00)' },
+    { name: 'polar +x', stdin: '1 0 p', equals: '<1.0, 0.0>' },
+    { name: 'precision then p', stdin: '1 0 .1fp', equals: '<1.0, 0.0>' },
+  ]}
+/>
+
+## Hashable vectors need a stable identity
+
+`hash(v)` and `set([v])` fail until `__hash__` exists. Equal objects must share a hash, so mix the same fields `__eq__` uses. XOR of component hashes is the usual small example:
+
+```python
+def __hash__(self):
+    return hash(self.x) ^ hash(self.y)
+```
+
+Hashes are only honest if the value cannot change after it is used as a key. Store `self.__x` / `self.__y`, expose `@property` getters named `x` and `y`, iterate via those properties. Assignment `v.x = 7` then raises `AttributeError`.
+
+You can still hash a type that is technically mutable if you never mutate it. Properties are the teaching device, not a language requirement.
+
+If the type has a natural scalar, you might add `__int__`, `__float__`, or `__complex__`. Mapping a 2-D vector to `complex` is a reasonable extra; this lesson does not require it.
+
+<CodingExam
+  title="Read-only hash mix"
+  heading="Challenge: read-only hash mix"
+  lang="python"
+  filename="main.py"
+  prompt="Vec stores __x and __y. Properties x and y are get-only. __eq__ compares (x, y). __hash__ is hash(x) ^ hash(y). wrap receives a b c d, optional fifth token setx. Print whether the two vectors have equal hashes and equal values. If setx is present, try assigning .x and print yes if AttributeError fired."
+  sampleLog={`(input) 3 4 3 4
+True True`}
+  starter={`class Vec:
+    def __init__(self, x, y):
+        pass
+
+    @property
+    def x(self):
+        return 0.0
+
+    @property
+    def y(self):
+        return 0.0
+
+    def __eq__(self, other):
+        return False
+
+    def __hash__(self):
+        return 0
+
+def wrap(line: str) -> str:
+    p = line.split()
+    a, b, c, d = map(float, p[:4])
+    u, v = Vec(a, b), Vec(c, d)
+    out = f'{hash(u) == hash(v)} {u == v}'
+    if p[4:] == ['setx']:
+        fired = 'no'
+        try:
+            u.x = 9
+        except AttributeError:
+            fired = 'yes'
+        out = out + ' ' + fired
+    return out
+`}
+  wrapSuffix={`
+print(wrap(input()))
+`}
+  sourceChecks={[
+    { name: 'Private storage', pattern: '__x', must: true, hint: 'self.__x = float(x)' },
+    { name: 'XOR hashes', pattern: '\\^', must: true, hint: 'hash(self.x) ^ hash(self.y)' },
+  ]}
+  tests={[
+    { name: 'equal', stdin: '3 4 3 4', equals: 'True True' },
+    { name: 'unequal', stdin: '3 4 3.1 4.2', equals: 'False False' },
+    { name: 'blocked set', stdin: '1 2 1 2 setx', equals: 'True True yes' },
+  ]}
+/>
+
+## Positional `match` needs `__match_args__`
+
+Keyword patterns such as `case Vector2d(x=0, y=0):` already work if those names are public attributes. A positional pattern `case Vector2d(_, 0):` fails with “accepts 0 positional sub-patterns” until the class lists order:
+
+```python
+class Vector2d:
+    __match_args__ = ('x', 'y')
+```
+
+You do not have to list every public field. Required constructor arguments are the usual tuple; optional extras can stay keyword-only in patterns.
+
+<CodingExam
+  title="Match on position"
+  heading="Challenge: match on position"
+  lang="python"
+  filename="main.py"
+  prompt="Give V a __match_args__ of ('x', 'y'). wrap: two floats. match with positional patterns: (0, 0) -> null; x is 0 -> vertical; y is 0 -> horizontal; x==y -> diagonal; else other."
+  sampleLog={`(input) 4 0
+horizontal`}
+  starter={`class V:
+    def __init__(self, x, y):
+        self.x = float(x)
+        self.y = float(y)
+
+def wrap(line: str) -> str:
+    x, y = map(float, line.split())
+    v = V(x, y)
+    return 'other'
+`}
+  wrapSuffix={`
+print(wrap(input()))
+`}
+  sourceChecks={[
+    { name: 'match_args', pattern: '__match_args__', must: true, hint: "__match_args__ = ('x', 'y')" },
+    { name: 'Uses match', pattern: '\\bmatch\\b', must: true, hint: 'match v:' },
+  ]}
+  tests={[
+    { name: 'origin', stdin: '0 0', equals: 'null' },
+    { name: 'vertical', stdin: '0 5', equals: 'vertical' },
+    { name: 'horizontal', stdin: '4 0', equals: 'horizontal' },
+    { name: 'diagonal', stdin: '2 2', equals: 'diagonal' },
+    { name: 'other', stdin: '1 3', equals: 'other' },
+  ]}
+/>
+
+## Private names are mangled, not locked
+
+Python has no Java-style `private`. Two leading underscores (and at most one trailing underscore) trigger **name mangling**: `Dog.__mood` is stored as `_Dog__mood`, `Beagle.__mood` as `_Beagle__mood`. Subclasses do not accidentally overwrite the parent’s internal name.
+
+That is a **safety cover**, not a lock. Anyone can read `v._Vector2d__x` or assign it. Production code that pokes mangled names should not be surprised when the class breaks.
+
+Many Pythonistas prefer a **single** underscore: `self._x`. The interpreter does not mangle it. The community treats it as “do not touch from outside.” Some docs call this “protected”; the word is informal.
+
+`Vector2d` components are “private” and instances are “immutable” only in scare quotes. There is no real privacy and no real freeze.
+
+<MultipleChoice
+  id="py-int-ch11b-mangle"
+  title="Name mangling"
+  questions={[
+    {
+      prompt: 'After Vector2d stores self.__x, v.__dict__ typically contains',
+      choices: ["'__x'", "'_x'", "'_Vector2d__x'", "'x' as the float"],
+      answer: 2,
+      why: 'Mangling prefixes _ClassName. The property x is not the dict key for the float.',
+    },
+    {
+      prompt: 'Double-underscore attributes are',
+      choices: [
+        'encrypted',
+        'a safety device against accidental clobbering in subclasses',
+        'required for @property',
+        'the only way to be hashable',
+      ],
+      answer: 1,
+      why: 'Determined users can still read _Vector2d__x.',
+    },
+  ]}
+/>
+
+## `__slots__`: cheaper storage, inherited halfway
+
+By default each instance has a `__dict__`. A class attribute `__slots__ = ('x', 'y')` (set when the class is **created**) stores those names in a compact layout instead. Effects:
+
+- No `__dict__` unless you put `'__dict__'` in the slot list
+- Setting an unknown name raises `AttributeError`
+- Subclasses **without** their own `__slots__` get a `__dict__` again; slot names from the parent still live in the compact layout, extras go in the dict
+- Empty `__slots__ = ()` on the subclass: no dict, only parent slot names
+- Extra names: declare them in the subclass `__slots__` (remember the comma in `('color',)`)
+- `'__dict__'` in slots allows dynamic attributes and `@cached_property`, and can erase the memory win
+- `'__weakref__'` is needed if you both use slots and need weak references
+
+Millions of numeric records still belong in NumPy, not a slotted Python class. Slots are a tool for when you really have many small objects of one shape.
+
+<details>
+<summary>🧪 slots inheritance</summary>
+
+<PistonRunner
+  lang="python"
+  interactive={false}
+  height="320px"
+  code={`class Pixel:
+    __slots__ = ('x', 'y')
+
+class OpenPixel(Pixel):
+    pass
+
+class ColorPixel(Pixel):
+    __slots__ = ('color',)
+
+p = Pixel()
+print('Pixel dict', hasattr(p, '__dict__'))
+op = OpenPixel()
+op.x = 8
+op.color = 'green'
+print('OpenPixel dict', op.__dict__)
+cp = ColorPixel()
+print('ColorPixel dict', hasattr(cp, '__dict__'))
+`}
+/>
+
+</details>
+
+<CodingExam
+  title="Slots on a subclass"
+  heading="Challenge: slots on a subclass"
+  lang="python"
+  filename="main.py"
+  prompt="ColorPixel subclasses Pixel. It must have no __dict__, and only x, y, and color. wrap: x y color. Set those three, print 0 if no __dict__ else 1, then try flavor and print yes if AttributeError, then print x and color."
+  sampleLog={`(input) 2 3 blue
+0 yes 2 blue`}
+  starter={`class Pixel:
+    __slots__ = ('x', 'y')
+
+class ColorPixel(Pixel):
+    pass
+
+def wrap(line: str) -> str:
+    xs, ys, c = line.split()
+    cp = ColorPixel()
+    cp.x = int(xs)
+    cp.y = int(ys)
+    cp.color = c
+    has_dict = 1 if hasattr(cp, '__dict__') else 0
+    fired = 'no'
+    try:
+        cp.flavor = 'x'
+    except AttributeError:
+        fired = 'yes'
+    return f'{has_dict} {fired} {cp.x} {cp.color}'
+`}
+  wrapSuffix={`
+print(wrap(input()))
+`}
+  sourceChecks={[
+    { name: 'Subclass slots', pattern: "class ColorPixel[\\s\\S]*__slots__", must: true, hint: "__slots__ = ('color',) on ColorPixel" },
+  ]}
+  tests={[
+    { name: 'color pixel', stdin: '2 3 blue', equals: '0 yes 2 blue' },
+  ]}
+/>
+
+## Class attributes as defaults you can shadow
+
+`typecode = 'd'` on the class is the default `self.typecode` because instances do not store that name. Writing `v.typecode = 'f'` **creates** an instance attribute and leaves `Vector2d.typecode` as `'d'`. Byte dumps then use 4-byte `'f'` floats for that one object.
+
+To change the default for a whole family, assign on the class, or — clearer — subclass:
+
+```python
+class ShortVector2d(Vector2d):
+    typecode = 'f'
+```
+
+Django class-based views do this a lot: a tiny subclass whose only job is a different class attribute.
+
+That is why `__repr__` should use `type(self).__name__` instead of a hardcoded `'Vector2d'`. `ShortVector2d` then shows the right constructor name without copying `__repr__`.
+
+<CodingExam
+  title="Subclass only the default"
+  heading="Challenge: subclass only the default"
+  lang="python"
+  filename="main.py"
+  prompt="Box.unit is 'm'. __repr__ must use type(self).__name__. ShortBox only sets unit = 'mm'. wrap two floats: print repr of Box, repr of ShortBox, Box.unit, ShortBox.unit, then after b.unit = 'cm' on a Box instance print Box.unit again (still m)."
+  sampleLog={`(input) 1 2
+Box(1.0, 2.0) ShortBox(1.0, 2.0) m mm m`}
+  starter={`class Box:
+    unit = 'm'
+
+    def __init__(self, x, y):
+        self.x = float(x)
+        self.y = float(y)
+
+    def __repr__(self):
+        return 'Box({!r}, {!r})'.format(self.x, self.y)
+
+class ShortBox(Box):
+    pass
+
+def wrap(line: str) -> str:
+    a, b = map(float, line.split())
+    box = Box(a, b)
+    short = ShortBox(a, b)
+    box.unit = 'cm'
+    return f'{Box(a, b)!r} {short!r} {Box.unit} {ShortBox.unit} {Box.unit}'
+`}
+  wrapSuffix={`
+print(wrap(input()))
+`}
+  sourceChecks={[
+    { name: 'type(self) in repr', pattern: 'type\\(self\\)', must: true, hint: 'type(self).__name__' },
+    { name: 'ShortBox unit', pattern: "class ShortBox[\\s\\S]*unit\\s*=\\s*['\\\"]mm['\\\"]", must: true, hint: "class ShortBox(Box): unit = 'mm'" },
+  ]}
+  tests={[
+    { name: 'names and units', stdin: '1 2', equals: 'Box(1.0, 2.0) ShortBox(1.0, 2.0) m mm m' },
+  ]}
+/>
+
+You only implement these dunders when the application or the library audience needs them. End users of a GUI do not care. Other Python programmers using your types will try `format`, `hash`, `match`, and subclasses.
+
+<ExerciseSet
+  title="Exercises"
+  description="Format specs, hashing, and a polar check."
+>
+  <CodingExam
+    title="Scientific Cartesian"
+    heading="Exercise: scientific Cartesian"
+    lang="python"
+    filename="main.py"
+    prompt="__format__ applies the spec to each component. No polar required. Input: x y spec."
+    starter={`class Vec:
+    def __init__(self, x, y):
+        self.x = float(x)
+        self.y = float(y)
+
+    def __iter__(self):
+        yield self.x
+        yield self.y
+
+    def __format__(self, fmt_spec=''):
+        return ''
+`}
+    wrapSuffix={`
+p = input().split()
+print(format(Vec(p[0], p[1]), p[2] if len(p) > 2 else ''))
+`}
+    sourceChecks={[
+      { name: 'Uses format on components', pattern: 'format\\(', must: true, hint: 'format(c, fmt_spec)' },
+    ]}
+    tests={[
+      { name: '.3e', stdin: '3 4 .3e', equals: '(3.000e+00, 4.000e+00)' },
+    ]}
+  />
+  <CodingExam
+    title="XOR recipe"
+    heading="Exercise: XOR recipe"
+    lang="python"
+    filename="main.py"
+    prompt="wrap two ints: print hash(a) ^ hash(b) — the same mix Vector2d.__hash__ uses on its components."
+    starter={`def wrap(line: str) -> str:
+    a, b = map(int, line.split())
+    return ''
+`}
+    wrapSuffix={`
+print(wrap(input()))
+`}
+    sourceChecks={[
+      { name: 'Uses XOR', pattern: '\\^', must: true, hint: 'hash(a) ^ hash(b)' },
+    ]}
+    tests={[
+      { name: '3 4', stdin: '3 4', equals: '7' },
+      { name: '1 0', stdin: '1 0', equals: '1' },
+    ]}
+  />
+</ExerciseSet>

@@ -1,0 +1,401 @@
+---
+sidebar_position: 8
+title: "Enums"
+---
+
+> **Source:** Effective Java, 3rd Edition — Chapter 6 by Joshua Bloch (Items 34–37)
+
+Java’s **enum types** are full classes — one instance per constant, compile-time type safety, namespaces, and `toString`. This lesson: prefer enums over int/string constants, store associated data in fields (not `ordinal()`), and use `EnumSet` / `EnumMap` instead of bit fields and ordinal indexing.
+
+## Item 34: Use enums instead of int constants
+
+**Int enum pattern** (`public static final int APPLE_FUJI = 0`) lacks type safety, namespaces, stable binary evolution, printable names, and iteration. **String enum pattern** is worse — clients hard-code strings with typo risk.
+
+```java
+public enum Apple  { FUJI, PIPPIN, GRANNY_SMITH }
+public enum Orange { NAVEL, TEMPLE, BLOOD }
+```
+
+Enums are **instance-controlled** (like singletons, Item 3): no public constructors, no extension, fixed constants. They implement `Comparable`, `Serializable`, and solid `Object` methods.
+
+**Rich enums:** attach data via `final` fields + constructor (`Planet` mass/radius → `surfaceWeight`). Override `toString`; pair with `fromString` via static `Map` built after constants exist (not from constructors — static fields aren’t ready).
+
+**Behavior per constant:** prefer **constant-specific method implementations** (abstract method + body per constant) over `switch(this)` — adding a constant without a case silently breaks switch enums.
+
+**Strategy enum pattern** (`PayrollDay` + nested `PayType`) when only some constants share behavior — forces an explicit strategy per constant.
+
+Use `switch` on enums only to **augment types you don’t control** (e.g. `inverse(Operation op)`).
+
+<MultipleChoice
+  id="java-int-ch6-int-enum"
+  title="Enums vs int constants"
+  questions={[
+    {
+      prompt: 'Reordering int enum constants after clients compiled',
+      choices: [
+        'clients recompile automatically',
+        'client behavior can break silently — values are compiled in',
+        'only affects switch statements',
+        'fixed by prefixes like APPLE_',
+      ],
+      answer: 1,
+      why: 'Int constants are compiled into clients. Enum constants are accessed through fields — safer evolution.',
+    },
+    {
+      prompt: 'Operation enum: switch(this) vs constant-specific apply()',
+      choices: [
+        'switch is safer when adding a new constant',
+        'constant-specific apply forces each new constant to implement apply',
+        'they are equivalent at compile time',
+        'switch is required for Serializable',
+      ],
+      answer: 1,
+      why: 'Forgotten switch case compiles but fails at runtime. Abstract apply per constant does not compile until implemented.',
+    },
+  ]}
+/>
+
+<CodingExam
+  title="operation apply"
+  heading="Challenge: constant-specific apply"
+  lang="java"
+  filename="Main.java"
+  prompt="Op enum: PLUS and MINUS each override abstract apply(x,y). wrap: op name and two doubles; print result (one decimal place)."
+  sampleLog={`(input) PLUS 2 3
+5.0`}
+  starter={`public class Main {
+    public enum Op {
+        PLUS {
+            @Override
+            public double apply(double x, double y) {
+                return 0; // TODO
+            }
+        },
+        MINUS {
+            @Override
+            public double apply(double x, double y) {
+                return 0; // TODO
+            }
+        };
+
+        public abstract double apply(double x, double y);
+    }
+}
+`}
+  wrapSuffix={`
+class Runner {
+    public static void main(String[] args) {
+        java.util.Scanner sc = new java.util.Scanner(System.in);
+        Main.Op op = Main.Op.valueOf(sc.next());
+        double x = sc.nextDouble();
+        double y = sc.nextDouble();
+        System.out.printf("%.1f%n", op.apply(x, y));
+    }
+}
+`}
+  sourceChecks={[
+    { name: 'plus add', pattern: 'PLUS[\\s\\S]*x\\s*\\+\\s*y|PLUS[\\s\\S]*\\+\\s*y', must: true, hint: 'PLUS: return x + y' },
+    { name: 'minus subtract', pattern: 'MINUS[\\s\\S]*x\\s*-\\s*y|MINUS[\\s\\S]*-\\s*y', must: true, hint: 'MINUS: return x - y' },
+    { name: 'no switch this', pattern: 'switch\\s*\\(\\s*this', must: false, hint: 'use constant-specific bodies, not switch(this)' },
+  ]}
+  tests={[
+    { name: 'plus', stdin: 'PLUS 2 3', equals: '5.0' },
+    { name: 'minus', stdin: 'MINUS 10 4', equals: '6.0' },
+  ]}
+/>
+
+## Item 35: Use instance fields instead of ordinals
+
+Every enum has **`ordinal()`** — declaration order. Do **not** derive business meaning from it:
+
+```java
+// DON'T
+public int numberOfMusicians() { return ordinal() + 1; }
+```
+
+Reordering constants breaks clients; you cannot reuse numeric values (`OCTET` and `DOUBLE_QUARTET` both 8) or skip values without dummy constants.
+
+**Fix:** store the associated int in a **`final` instance field** set in the constructor:
+
+```java
+TRIO(3), QUARTET(4), OCTET(8), DOUBLE_QUARTET(8), TRIPLE_QUARTET(12);
+private final int numberOfMusicians;
+```
+
+`ordinal()` exists for infrastructure (`EnumSet`, `EnumMap`), not application logic.
+
+<CodingExam
+  title="ensemble size field"
+  heading="Challenge: instance field not ordinal"
+  lang="java"
+  filename="Main.java"
+  prompt="Ensemble stores musician count in a final field (constructor provided). musicians() returns that field — never ordinal(). wrap: enum name; print count."
+  sampleLog={`(input) QUARTET
+4`}
+  starter={`public class Main {
+    public enum Ensemble {
+        SOLO(1),
+        DUET(2),
+        TRIO(3),
+        QUARTET(4);
+
+        private final int musicians;
+
+        Ensemble(int musicians) {
+            this.musicians = musicians;
+        }
+
+        public int musicians() {
+            return 0; // TODO return the field, not ordinal()
+        }
+    }
+}
+`}
+  wrapSuffix={`
+class Runner {
+    public static void main(String[] args) {
+        java.util.Scanner sc = new java.util.Scanner(System.in);
+        Main.Ensemble e = Main.Ensemble.valueOf(sc.next());
+        System.out.println(e.musicians());
+    }
+}
+`}
+  sourceChecks={[
+    { name: 'return field', pattern: 'return\\s+musicians\\b', must: true, hint: 'return musicians;' },
+    { name: 'no ordinal', pattern: 'ordinal\\s*\\(', must: false, hint: 'do not use ordinal() for business values' },
+  ]}
+  tests={[
+    { name: 'quartet', stdin: 'QUARTET', equals: '4' },
+    { name: 'solo', stdin: 'SOLO', equals: '1' },
+  ]}
+/>
+
+## Item 36: Use EnumSet instead of bit fields
+
+Bit fields (`STYLE_BOLD = 1 << 0`, OR together, `applyStyles(int)`) share all int-enum flaws plus opaque printing and fixed width (32/64 bits).
+
+**EnumSet** — `Set` implementation backed by a bit vector; as fast as manual bit twiddling, with enum type safety and rich `Set` API:
+
+```java
+text.applyStyles(EnumSet.of(Style.BOLD, Style.ITALIC));
+```
+
+Accept **`Set<Style>`** in APIs (interface type), not only `EnumSet<Style>` (Item 64).
+
+<MultipleChoice
+  id="java-int-ch6-enumset"
+  title="EnumSet vs bit fields"
+  questions={[
+    {
+      prompt: 'applyStyles(int) with STYLE_BOLD | STYLE_ITALIC',
+      choices: [
+        'type-safe and self-documenting',
+        'opaque int, width limits, int-enum fragility — prefer EnumSet',
+        'faster than EnumSet always',
+        'required for Set interface',
+      ],
+      answer: 1,
+      why: 'EnumSet gives bit-field performance with enum safety and readable debugging.',
+    },
+    {
+      prompt: 'Method parameter type for styles',
+      choices: [
+        'EnumSet<Style> only — never widen',
+        'Set<Style> — EnumSet is the usual implementation',
+        'int bitmask for flexibility',
+        'Style[] for performance',
+      ],
+      answer: 1,
+      why: 'Accept the interface; clients pass EnumSet.of(...).',
+    },
+  ]}
+/>
+
+<CodingExam
+  title="enumset bold check"
+  heading="Challenge: EnumSet membership"
+  lang="java"
+  filename="Main.java"
+  prompt="isBold(Set<Style> styles) returns true iff styles contains BOLD. wrap: build EnumSet from stdin tokens (BOLD, ITALIC, etc.); print yes/no."
+  sampleLog={`(input) BOLD ITALIC
+yes`}
+  starter={`import java.util.Set;
+
+public class Main {
+    public enum Style {
+        BOLD, ITALIC, UNDERLINE
+    }
+
+    public static boolean isBold(Set<Style> styles) {
+        return false; // TODO styles.contains(Style.BOLD)
+    }
+}
+`}
+  wrapSuffix={`
+class Runner {
+    public static void main(String[] args) {
+        java.util.Scanner sc = new java.util.Scanner(System.in);
+        java.util.EnumSet<Main.Style> set = java.util.EnumSet.noneOf(Main.Style.class);
+        while (sc.hasNext()) {
+            set.add(Main.Style.valueOf(sc.next()));
+        }
+        System.out.println(Main.isBold(set) ? "yes" : "no");
+    }
+}
+`}
+  sourceChecks={[
+    { name: 'contains BOLD', pattern: 'contains\\s*\\(\\s*Style\\.BOLD\\s*\\)', must: true, hint: 'return styles.contains(Style.BOLD)' },
+  ]}
+  tests={[
+    { name: 'bold', stdin: 'BOLD ITALIC', equals: 'yes' },
+    { name: 'italic only', stdin: 'ITALIC', equals: 'no' },
+  ]}
+/>
+
+## Item 37: Use EnumMap instead of ordinal indexing
+
+**Don’t** index arrays with `lifeCycle.ordinal()` — unchecked casts, manual labels, silent wrong-slot bugs.
+
+**EnumMap** — map keyed by enum; internally uses an ordinal-backed array but type-safe API; constructor takes **`EnumMap(LifeCycle.class)`** (bounded type token, Item 33).
+
+For pairs of enums, use **`EnumMap<K, EnumMap<K2, V>>`** (e.g. phase transitions) instead of `Transition[][]` indexed by ordinals.
+
+<MultipleChoice
+  id="java-int-ch6-enummap"
+  title="EnumMap vs ordinal arrays"
+  questions={[
+    {
+      prompt: 'Set<Plant>[] buckets = new Set[LifeCycle.values().length]; buckets[p.lifeCycle.ordinal()].add(p)',
+      choices: [
+        'preferred pattern',
+        'unchecked cast, no key labels, fragile indices — use EnumMap',
+        'required because generics forbid maps',
+        'same as EnumSet',
+      ],
+      answer: 1,
+      why: 'Ordinal indexing loses enum type safety. EnumMap is fast and safe.',
+    },
+    {
+      prompt: 'new EnumMap<>(Plant.LifeCycle.class)',
+      choices: [
+        'passes Class token for key type at runtime',
+        'creates an immutable map',
+        'only works with two enum keys',
+        'same as HashMap always',
+      ],
+      answer: 0,
+      why: 'EnumMap needs the key enum Class — bounded type token for performance and safety.',
+    },
+  ]}
+/>
+
+<CodingExam
+  title="enummap lookup"
+  heading="Challenge: EnumMap lookup"
+  lang="java"
+  filename="Main.java"
+  prompt="newLevelMap() returns a new empty EnumMap<Level, Integer>. wrap: put LOW=1 and HIGH=10 via your map, print get(LOW)."
+  sampleLog={`1`}
+  starter={`import java.util.Map;
+
+public class Main {
+    public enum Level {
+        LOW, HIGH
+    }
+
+    public static Map<Level, Integer> newLevelMap() {
+        return null; // TODO new EnumMap<>(Level.class)
+    }
+}
+`}
+  wrapSuffix={`
+class Runner {
+    public static void main(String[] args) {
+        java.util.Map<Main.Level, Integer> map = Main.newLevelMap();
+        map.put(Main.Level.LOW, 1);
+        map.put(Main.Level.HIGH, 10);
+        System.out.println(map.get(Main.Level.LOW));
+    }
+}
+`}
+  sourceChecks={[
+    { name: 'EnumMap', pattern: 'new\\s+EnumMap\\s*<>\\s*\\(\\s*Level\\.class\\s*\\)|new\\s+EnumMap\\s*\\(\\s*Level\\.class\\s*\\)', must: true, hint: 'return new EnumMap<>(Level.class)' },
+    { name: 'not HashMap', pattern: 'new\\s+HashMap', must: false, hint: 'use EnumMap for enum keys' },
+  ]}
+  tests={[
+    { name: 'low', stdin: '', equals: '1' },
+  ]}
+/>
+
+## Items 34–37 map
+
+| Item | Move |
+|---|---|
+| 34 | Enum types over int/string constants; constant-specific methods |
+| 35 | Associated values in fields — never `ordinal()` |
+| 36 | `EnumSet` over bit fields |
+| 37 | `EnumMap` over ordinal-indexed arrays |
+
+Next: [Extensible Enums and Annotations](./lesson-6b-extensible-enums-annotations) (Items 38–41).
+
+<ExerciseSet
+  title="Exercises"
+  description="EnumSet factory and grouping with EnumMap."
+>
+  <CodingExam
+    title="group by lifecycle"
+    heading="Exercise: group plants with EnumMap"
+    lang="java"
+    filename="Main.java"
+    prompt="Plant has name and LifeCycle. groupByLifeCycle(List<Plant> garden) returns EnumMap<LifeCycle, Set<String>>: each plant name in the set for its life cycle. wrap: three plants; print PERENNIAL set size then names sorted joined."
+    starter={`import java.util.List;
+import java.util.Map;
+import java.util.Set;
+
+public class Main {
+    public enum LifeCycle {
+        ANNUAL, PERENNIAL
+    }
+
+    public static final class Plant {
+        public final String name;
+        public final LifeCycle lifeCycle;
+
+        public Plant(String name, LifeCycle lifeCycle) {
+            this.name = name;
+            this.lifeCycle = lifeCycle;
+        }
+    }
+
+    public static Map<LifeCycle, Set<String>> groupByLifeCycle(List<Plant> garden) {
+        return null; // TODO EnumMap, init empty HashSet per LifeCycle, add names
+    }
+}
+`}
+    wrapSuffix={`
+class Runner {
+    public static void main(String[] args) {
+        java.util.List<Main.Plant> garden = java.util.Arrays.asList(
+            new Main.Plant("rose", Main.LifeCycle.PERENNIAL),
+            new Main.Plant("tulip", Main.LifeCycle.ANNUAL),
+            new Main.Plant("iris", Main.LifeCycle.PERENNIAL)
+        );
+        java.util.Map<Main.LifeCycle, java.util.Set<String>> grouped = Main.groupByLifeCycle(garden);
+        java.util.Set<String> perennials = grouped.get(Main.LifeCycle.PERENNIAL);
+        System.out.println(perennials.size());
+        java.util.List<String> sorted = new java.util.ArrayList<>(perennials);
+        java.util.Collections.sort(sorted);
+        System.out.println(String.join(",", sorted));
+    }
+}
+`}
+    sourceChecks={[
+      { name: 'EnumMap', pattern: 'EnumMap', must: true, hint: 'Map<LifeCycle, Set<String>> map = new EnumMap<>(LifeCycle.class)' },
+      { name: 'init sets', pattern: 'new\\s+HashSet|EnumSet', must: true, hint: 'put each LifeCycle -> new HashSet<>(), then add plant names' },
+      { name: 'no ordinal', pattern: 'ordinal\\s*\\(', must: false, hint: 'key by plant.lifeCycle, not ordinal()' },
+    ]}
+    tests={[
+      { name: 'two perennials', stdin: '', equals: '2\niris,rose' },
+    ]}
+  />
+</ExerciseSet>

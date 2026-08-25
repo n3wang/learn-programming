@@ -1,0 +1,241 @@
+---
+sidebar_position: 26
+title: "map, tqdm, and HTTP Errors"
+---
+
+> **Source:** Fluent Python, 2nd Edition — Chapter 21 by Luciano Ramalho (`Executor.map` demo through flags2 / chapter summary)
+
+[21a](./lesson-21a-concurrent-downloads) stopped at `map` preserving input order. This half: **when** that generator blocks, why **`submit` + `as_completed`** is the more general tool, then flags2 — **404 vs other HTTP**, **`tqdm`**, and a **`Future → country` dict**.
+
+No live HTTP or 4-second `sleep` in the sandbox. Do not flood `fluentpython.com`.
+
+## `demo_executor_map.py`
+
+Three workers, `executor.map(loiter, range(5))`. `loiter(n)` prints, `sleep(n)`, returns `n * 10`. `map` **returns a generator immediately** — the `repr` is `<generator object result_iterator ...>`. That call does **not** wait for five sleeps.
+
+Only three jobs start: `loiter(0)`, `(1)`, `(2)`. `loiter(0)` can finish in the same second and free a worker for `loiter(3)` before you even iterate. `loiter(4)` waits for another slot (in the sample, after `loiter(1)` done at +1 s).
+
+`for i, result in enumerate(results):` is where you **block**. Each `next(results)` is `Future.result()` for the **next input slot**, not “whoever just finished.” Slot 0 (`loiter(0)`) is often already done. Slot 1 waits until `loiter(1)`’s 1 s sleep ends. After `result 2: 20` you may wait extra for `loiter(4)` (started late, sleeps 4 s) even if you already conceptually “finished” 3.
+
+Play with `max_workers` and the delay list on your machine. `max_workers=1` makes the generator’s order and the clocks line up like a `for` loop.
+
+### `map` vs `submit` + `as_completed`
+
+`map`: one callable, many arguments, results in **argument order**.
+
+`submit` / `as_completed`: **different** callables, mix **Thread** and **Process** pool Futures in one `as_completed(...)`, consume **finish** order. flags2 needs that so a progress bar can tick **per response**, not per original index.
+
+<MultipleChoice
+  id="py-int-ch21b-map"
+  title="When map blocks"
+  questions={[
+    {
+      prompt: 'executor.map(loiter, range(5)) with three workers',
+      choices: [
+        'blocks until all five loiters return',
+        'returns a generator at once; three tasks start; iterating waits on slot 0, then 1, then 2…',
+        'yields in finish order like as_completed',
+        'starts all five threads regardless of max_workers',
+      ],
+      answer: 1,
+      why: 'The pool caps concurrency. The iterator is strict about submit order.',
+    },
+    {
+      prompt: 'You need results as HTTP responses land, plus a tqdm bar',
+      choices: [
+        'list(executor.map(...)) then tqdm',
+        'as_completed, and pass total= to tqdm because that iterator has no len',
+        'ProcessPoolExecutor only',
+        'Future.result(timeout=0) in a busy loop',
+      ],
+      answer: 1,
+      why: 'tqdm estimates remaining work from length or total=. as_completed is just a generator of done Futures.',
+    },
+  ]}
+/>
+
+<CodingExam
+  title="map yields n * 10 in input order"
+  heading="Challenge: map yields n * 10 in input order"
+  lang="python"
+  filename="main.py"
+  prompt="loiter(n) returns n * 10 (no sleep). wrap: ints from the line; ThreadPoolExecutor(max_workers=3).map(loiter, nums); join the results as decimals in input order. Do not sort. Do not multiply in wrap."
+  sampleLog={`(input) 0 1 2
+0 10 20`}
+  starter={`from concurrent import futures
+
+def loiter(n: int) -> int:
+    return n
+
+def wrap(line: str) -> str:
+    nums = [int(x) for x in line.split()]
+    return ' '.join(str(n) for n in nums)
+`}
+  wrapSuffix={`
+print(wrap(input()))
+`}
+  sourceChecks={[
+    { name: 'map', pattern: '\\.map\\s*\\(', must: true, hint: 'executor.map(loiter, nums)' },
+    { name: 'max_workers 3', pattern: 'max_workers\\s*=\\s*3', must: true, hint: 'ThreadPoolExecutor(max_workers=3)' },
+  ]}
+  tests={[
+    { name: 'range', stdin: '0 1 2', equals: '0 10 20' },
+    { name: 'order', stdin: '4 1', equals: '40 10' },
+  ]}
+/>
+
+The second test fails if you sort or if `loiter` is still identity.
+
+## flags2: progress, servers, CLI
+
+Same job as flags.py, but **676** possible codes, errors, and a **tqdm** bar. Sequential over that set is minutes; thread pool / asyncio (Chapter 22) can finish comparable work in seconds — **only** if you throttle. `python -m http.server` (ThreadingHTTPServer) for LOCAL files. Ramalho’s `slow_server.py`: DELAY (~0.5 s) and ERROR (delay + ~25% HTTP 418). Production-like chaos: Nginx + toxiproxy. REMOTE is his CDN — **do not** `-m 1000` it.
+
+`tqdm(iterable)` wraps any iterable; for ETA it wants `len` or `total=`. That is why flags2 cannot feed tqdm a silent `map` generator and expect a bar that moves when **any** download finishes.
+
+CLI (all flags2 scripts): optional country codes / prefixes (`a b c` → AA–CZ), `-a` all, `-e` AA–ZZ, `-l N` limit, `-m` max concurrent (threadpool default 30, hard cap 1000), `-s LOCAL|REMOTE|DELAY|ERROR`, `-v` line-per-flag instead of the bar.
+
+## Error policy
+
+**`download_one`** (reused by sequential and threadpool):
+
+- `get_flag`: non-200 → `raise_for_status()`.
+- Catch `HTTPError`. If **404**, return `Result(HTTPStatus.not_found, cc)` (and optional verbose print). **Any other HTTPError re-raises.**
+- Success: save GIF, `Result(HTTPStatus.ok, cc)`.
+- Connection failures and leftover HTTP errors belong to **`download_many`** (or the asyncio supervisor): tally `HTTPStatus.error`, keep going. Unknown exceptions can abort `main`.
+
+Sequential `download_many`: `Counter` keyed by those enum values; `tqdm(sorted(cc_list))` if not verbose; `try` around `download_one`.
+
+### Thread pool: `to_do_map`
+
+You iterate **Futures**, not codes. After `as_completed` you still need the cc for `*** Error for {cc}`. Idiom:
+
+```python
+to_do_map = {}
+for cc in sorted(cc_list):
+    future = executor.submit(download_one, cc, base_url, verbose)
+    to_do_map[future] = cc
+done_iter = futures.as_completed(to_do_map)
+if not verbose:
+    done_iter = tqdm.tqdm(done_iter, total=len(cc_list))
+for future in done_iter:
+    try:
+        res = future.result()  # does not block: already done
+    except ...
+        cc = to_do_map[future]
+```
+
+`max_workers=concur_req` — `main` already min’d with list length and `MAX_CONCUR_REQ`. If the pool is much smaller than the list, batches can look alphabetical even though `as_completed` is unordered.
+
+`future.result()` **re-raises** whatever the worker raised — same `except` shape as sequential, plus the dict lookup.
+
+Threads + `concurrent.futures` are the boring-good tool for I/O. `ProcessPoolExecutor` for embarrassingly parallel CPU. That is Chapter 21.
+
+<MultipleChoice
+  id="py-int-ch21b-http"
+  title="404 vs the rest"
+  questions={[
+    {
+      prompt: 'HTTP 404 in flags2',
+      choices: [
+        'aborts download_many',
+        'handled inside download_one as not_found; other HTTPError bubbles out',
+        'converted to 200 by requests',
+        'only asyncio can see it',
+      ],
+      answer: 1,
+      why: 'Missing flags are expected. 500s and TCP errors are counted as error in the supervisor.',
+    },
+    {
+      prompt: 'to_do_map',
+      choices: [
+        'maps country codes to GIFs',
+        'maps each Future to the cc (or other context) because as_completed is out of order',
+        'is required by ThreadPoolExecutor.map',
+        'replaces tqdm',
+      ],
+      answer: 1,
+      why: 'When the Future pops out, you lost the for-loop variable unless you stored it.',
+    },
+  ]}
+/>
+
+<CodingExam
+  title="404 stays in download_one"
+  heading="Challenge: 404 stays in download_one"
+  lang="python"
+  filename="main.py"
+  prompt="get_flag(cc) raises HTTPError with .response.status_code 404 or 500, or returns b'ok'. download_one: on 404 return the string not_found; on success return ok; re-raise any other HTTPError. wrap calls download_one per token and maps leftover HTTPError to error."
+  sampleLog={`(input) BR XX
+ok not_found`}
+  starter={`class HTTPError(Exception):
+    def __init__(self, status_code: int) -> None:
+        self.response = type('R', (), {'status_code': status_code})()
+
+def get_flag(cc: str) -> bytes:
+    if cc == 'XX':
+        raise HTTPError(404)
+    if cc == 'ZZ':
+        raise HTTPError(500)
+    return b'ok'
+
+def download_one(cc: str) -> str:
+    get_flag(cc)
+    return 'ok'
+
+def wrap(line: str) -> str:
+    out = []
+    for cc in line.split():
+        try:
+            out.append(download_one(cc))
+        except HTTPError:
+            out.append('error')
+    return ' '.join(out)
+`}
+  wrapSuffix={`
+print(wrap(input()))
+`}
+  sourceChecks={[
+    { name: '404', pattern: '404', must: true, hint: 'treat status_code == 404 as not_found' },
+    { name: 'raise', pattern: '\\braise\\b', must: true, hint: 're-raise other HTTPError' },
+  ]}
+  tests={[
+    { name: 'missing', stdin: 'BR XX', equals: 'ok not_found' },
+    { name: 'server', stdin: 'ZZ', equals: 'error' },
+  ]}
+/>
+
+Starter never catches 404: `XX` becomes `error` from wrap, so `missing` fails. If you swallow 500 too, `server` fails.
+
+<ExerciseSet
+  title="Exercises"
+  description="Store the Future as a dict key — identity, not the country string."
+>
+  <CodingExam
+    title="Future to cc dict"
+    heading="Exercise: Future to cc dict"
+    lang="python"
+    filename="main.py"
+    prompt="work(cc) returns cc.lower(). wrap: submit each token; map each Future to its cc; as_completed; for each done Future append '{cc}:{result}'. Join those strings sorted (sandbox order). Must index the dict with the Future."
+    starter={`from concurrent import futures
+
+def work(cc: str) -> str:
+    return cc
+
+def wrap(line: str) -> str:
+    codes = line.split()
+    return ' '.join(codes)
+`}
+    wrapSuffix={`
+print(wrap(input()))
+`}
+    sourceChecks={[
+      { name: 'submit', pattern: '\\.submit\\s*\\(', must: true, hint: 'executor.submit(work, cc)' },
+      { name: 'as_completed', pattern: 'as_completed', must: true, hint: 'futures.as_completed(to_do_map)' },
+      { name: 'lower', pattern: '\\.lower\\s*\\(', must: true, hint: 'lower-case inside work' },
+    ]}
+    tests={[
+      { name: 'two', stdin: 'BR CN', equals: 'BR:br CN:cn' },
+      { name: 'one', stdin: 'US', equals: 'US:us' },
+    ]}
+  />
+</ExerciseSet>

@@ -1,0 +1,356 @@
+---
+sidebar_position: 12
+title: "Method Design"
+---
+
+> **Source:** Effective Java, 3rd Edition — Chapter 8 by Joshua Bloch (Items 49–52)
+
+This lesson covers method (and constructor) design: validate parameters, defensive copies, careful signatures, and safe overloading.
+
+## Item 49: Check parameters for validity
+
+Detect bad inputs **early** — at the method entry — with clear exceptions. Silent wrong answers or corrupted object state are worse than a fast failure (failure atomicity, Item 76).
+
+- **`Objects.requireNonNull(x, "msg")`** — null checks (Java 7+); returns `x` for inline assignment.
+- **`Objects.checkIndex` / `checkFromToIndex`** — array/list bounds (Java 9+).
+- Document with **`@throws`** in Javadoc for public/protected APIs.
+- **Private** helpers may use **`assert`** (enabled with `-ea`) when callers are under your control.
+
+Check parameters **stored for later use** even if unused immediately (factory storing an array reference). Copy **before** or **after** validation depending on TOCTOU — for mutable params, **copy first**, then validate copies (Item 50).
+
+Skip explicit checks when validation is **implicit** in the computation (`Collections.sort` → `ClassCastException`), but beware wrong exception types (use exception translation, Item 73).
+
+<CodingExam
+  title="validate divisor"
+  heading="Challenge: parameter validation"
+  lang="java"
+  filename="Main.java"
+  prompt="safeDivide(a, b) returns a/b. If b == 0 throw IllegalArgumentException (message must mention zero). wrap: 10 and 0; catch and print caught."
+  sampleLog={`caught`}
+  starter={`public class Main {
+    public static int safeDivide(int a, int b) {
+        return a / b; // TODO validate b before dividing
+    }
+}
+`}
+  wrapSuffix={`
+class Runner {
+    public static void main(String[] args) {
+        try {
+            Main.safeDivide(10, 0);
+            System.out.println("ok");
+        } catch (IllegalArgumentException e) {
+            System.out.println("caught");
+        }
+    }
+}
+`}
+  sourceChecks={[
+    { name: 'check zero', pattern: 'b\\s*==\\s*0|0\\s*==\\s*b', must: true, hint: 'if (b == 0) throw new IllegalArgumentException(...)' },
+    { name: 'IllegalArgumentException', pattern: 'IllegalArgumentException', must: true, hint: 'throw IllegalArgumentException for invalid b' },
+  ]}
+  tests={[
+    { name: 'zero', stdin: '', equals: 'caught' },
+  ]}
+/>
+
+## Item 50: Make defensive copies when needed
+
+Even in a “safe” language, **mutable** components (`Date`, arrays, collections) let clients break invariants unless you **defensive-copy** on input and often on output.
+
+Broken `Period` with `Date` fields: client mutates `end` after construction. Fix:
+
+1. **Constructor:** `new Date(start.getTime())` — copy **before** validating copies (TOCTOU).
+2. **Accessors:** return new copies, not internal references.
+3. Prefer **`new Date(...)`** over **`clone()`** on nonfinal types (untrusted subclasses).
+
+Prefer **immutable** components (`Instant`, `LocalDateTime`) when possible (Item 17). Arrays are always mutable — clone before return (Item 15). Document when callers may keep aliases (transfer-of-ownership APIs).
+
+<MultipleChoice
+  id="java-int-ch8-defensive"
+  title="Defensive copies"
+  questions={[
+    {
+      prompt: 'Period(Date start, Date end) validates then assigns this.start = start without copying',
+      choices: [
+        'immutable — Date is final',
+        'client can mutate Date after construction and break the invariant',
+        'fixed by @Override',
+        'only a problem with reflection',
+      ],
+      answer: 1,
+      why: 'Date is mutable. Store defensive copies in the constructor and accessors.',
+    },
+    {
+      prompt: 'Defensive copy order for mutable constructor parameters',
+      choices: [
+        'validate originals, then copy',
+        'copy first, validate copies — avoids TOCTOU between check and copy',
+        'copy only in accessors',
+        'never copy arrays',
+      ],
+      answer: 1,
+      why: 'Another thread could mutate between check and assign. Copy, then validate copies.',
+    },
+  ]}
+/>
+
+<CodingExam
+  title="snapshot array copy"
+  heading="Challenge: defensive copy in constructor"
+  lang="java"
+  filename="Main.java"
+  prompt="Snapshot wraps an int[] immutably from the caller's view. Constructor must clone the array (values.clone() or new array copy) — do not store the caller's array reference. wrap: create Snapshot, mutate original array[0]=99; print snapshot.get(0)."
+  sampleLog={`1`}
+  starter={`public class Main {
+    public static final class Snapshot {
+        private final int[] values;
+
+        public Snapshot(int[] values) {
+            this.values = values; // TODO defensive copy
+        }
+
+        public int get(int index) {
+            return values[index];
+        }
+    }
+}
+`}
+  wrapSuffix={`
+class Runner {
+    public static void main(String[] args) {
+        int[] data = { 1, 2, 3 };
+        Main.Snapshot snap = new Main.Snapshot(data);
+        data[0] = 99;
+        System.out.println(snap.get(0));
+    }
+}
+`}
+  sourceChecks={[
+    { name: 'clone or copy', pattern: '\\.clone\\s*\\(|System\\.arraycopy|new\\s+int\\s*\\[', must: true, hint: 'this.values = values.clone();' },
+    { name: 'not direct assign', pattern: 'this\\.values\\s*=\\s*values\\s*;', must: false, hint: 'do not assign the caller array reference directly' },
+  ]}
+  tests={[
+    { name: 'isolated', stdin: '', equals: '1' },
+  ]}
+/>
+
+## Item 51: Design method signatures carefully
+
+Practical API hygiene:
+
+- **Names:** clear, conventional (Item 68); match Java library style.
+- **Convenience methods:** only when they pull their weight — avoid API bloat.
+- **Parameter lists:** aim for **≤4** parameters; split methods, **helper holder classes**, or **builder-style** invokers for long lists.
+- **Parameter types:** prefer **interfaces** over concrete classes (`Map` not `HashMap`, Item 64).
+- **Booleans:** prefer **two-element enums** when meaning isn’t obvious (`TemperatureScale.CELSIUS` vs `true`).
+
+<CodingExam
+  title="map parameter type"
+  heading="Challenge: interface parameter type"
+  lang="java"
+  filename="Main.java"
+  prompt="sumValues must accept any Map implementation — change the parameter type from HashMap to Map. Return the sum of all values. wrap: {a=1,b=2}; print sum."
+  sampleLog={`3`}
+  starter={`import java.util.HashMap;
+
+public class Main {
+    public static int sumValues(HashMap<String, Integer> map) {
+        int total = 0;
+        for (int v : map.values()) {
+            total += v;
+        }
+        return total;
+    }
+}
+`}
+  wrapSuffix={`
+class Runner {
+    public static void main(String[] args) {
+        java.util.Map<String, Integer> m = new java.util.HashMap<>();
+        m.put("a", 1);
+        m.put("b", 2);
+        System.out.println(Main.sumValues(m));
+    }
+}
+`}
+  sourceChecks={[
+    { name: 'Map param', pattern: 'Map\\s*<\\s*String\\s*,\\s*Integer\\s*>', must: true, hint: 'sumValues(Map<String, Integer> map)' },
+    { name: 'not HashMap param', pattern: 'sumValues\\s*\\(\\s*HashMap', must: false, hint: 'accept Map, not only HashMap' },
+  ]}
+  tests={[
+    { name: 'sum', stdin: '', equals: '3' },
+  ]}
+/>
+
+## Item 52: Use overloading judiciously
+
+**Overloading** is resolved at **compile time** from **static parameter types**. **Overriding** is resolved at **runtime** from the object’s type.
+
+`CollectionClassifier` overloads `classify(Set)`, `classify(List)`, `classify(Collection)` — loop variable is `Collection<?>`, so **all three** calls hit `classify(Collection)` → `"Unknown Collection"`.
+
+Fix: one method with **`instanceof`** (or double dispatch):
+
+```java
+return c instanceof Set ? "Set" :
+       c instanceof List ? "List" : "Unknown Collection";
+```
+
+**Autoboxing trap:** `list.remove(i)` with `int i` calls `remove(int index)`, not `remove(Integer)` — `Set.remove` autoboxes to `remove(E)`. Cast to `Integer` when you mean element removal.
+
+Guidelines: avoid multiple overloads with the **same arity** when confusing; don’t overload on different **functional interfaces** in the same position; constructor overloads need **radically different** parameter types when shared arity.
+
+<MultipleChoice
+  id="java-int-ch8-overload"
+  title="Overloading vs overriding"
+  questions={[
+    {
+      prompt: 'for (Collection<?> c : arrays) classify(c) with classify(Set), classify(List), classify(Collection)',
+      choices: [
+        'dispatches by runtime type — Set, List, Unknown',
+        'always classify(Collection) — compile-time type is Collection<?>',
+        'compile error',
+        'uses overriding',
+      ],
+      answer: 1,
+      why: 'Overload resolution uses compile-time parameter types, not runtime classes.',
+    },
+    {
+      prompt: 'List.remove(i) vs Set.remove(i) for int i in a loop removing values 0,1,2',
+      choices: [
+        'both remove by value',
+        'List removes by index; Set removes boxed Integer element',
+        'both remove by index',
+        'Set throws',
+      ],
+      answer: 1,
+      why: 'Autoboxing + overloads: List.remove(int) is index; Set.remove(Integer) is element.',
+    },
+  ]}
+/>
+
+<CodingExam
+  title="classify collection"
+  heading="Challenge: instanceof not overload"
+  lang="java"
+  filename="Main.java"
+  prompt="classify(c) returns Set if c instanceof Set, List if instanceof List, else Unknown. Use one method with instanceof — do not overload classify. wrap: HashSet and ArrayList; print both labels on separate lines."
+  sampleLog={`Set
+List`}
+  starter={`import java.util.Collection;
+
+public class Main {
+    public static String classify(Collection<?> c) {
+        return "Unknown"; // TODO instanceof Set / List
+    }
+}
+`}
+  wrapSuffix={`
+class Runner {
+    public static void main(String[] args) {
+        System.out.println(Main.classify(new java.util.HashSet<>()));
+        System.out.println(Main.classify(new java.util.ArrayList<>()));
+    }
+}
+`}
+  sourceChecks={[
+    { name: 'instanceof Set', pattern: 'instanceof\\s+Set', must: true, hint: 'if (c instanceof Set) return "Set";' },
+    { name: 'instanceof List', pattern: 'instanceof\\s+List', must: true, hint: 'else if (c instanceof List) return "List";' },
+    { name: 'no overloads', pattern: 'classify\\s*\\(\\s*Set|classify\\s*\\(\\s*List', must: false, hint: 'single classify(Collection<?> c) — no overload set' },
+  ]}
+  tests={[
+    { name: 'set list', stdin: '', equals: 'Set\nList' },
+  ]}
+/>
+
+## Items 49–52 map
+
+| Item | Move |
+|---|---|
+| 49 | Validate early; requireNonNull; document @throws |
+| 50 | Defensive-copy mutable params and returns |
+| 51 | Short lists; interface parameter types; enums over booleans |
+| 52 | Overloading ≠ overriding; beware autoboxing overload traps |
+
+Next: [Varargs, Returns, and Documentation](./lesson-8b-varargs-returns-docs) (Items 53–56).
+
+<ExerciseSet
+  title="Exercises"
+  description="requireNonNull and accessor defensive copy."
+>
+  <CodingExam
+    title="require non null label"
+    heading="Exercise: Objects.requireNonNull"
+    lang="java"
+    filename="Main.java"
+    prompt="Label stores a non-null String name via Objects.requireNonNull in the constructor. getName returns it. wrap: construct with hi; print name."
+    starter={`public class Main {
+    public static final class Label {
+        private final String name;
+
+        public Label(String name) {
+            this.name = name; // TODO requireNonNull
+        }
+
+        public String getName() {
+            return name;
+        }
+    }
+}
+`}
+    wrapSuffix={`
+class Runner {
+    public static void main(String[] args) {
+        System.out.println(new Main.Label("hi").getName());
+    }
+}
+`}
+    sourceChecks={[
+      { name: 'requireNonNull', pattern: 'requireNonNull', must: true, hint: 'this.name = Objects.requireNonNull(name);' },
+    ]}
+    tests={[
+      { name: 'hi', stdin: '', equals: 'hi' },
+    ]}
+  />
+  <CodingExam
+    title="snapshot get copy"
+    heading="Exercise: defensive copy on getter"
+    lang="java"
+    filename="Main.java"
+    prompt="Snapshot stores a cloned int[] in the constructor (already done). getValues() returns a clone — not the internal array. wrap: mutate returned array[0]=99; print internal get(0)."
+    starter={`public class Main {
+    public static final class Snapshot {
+        private final int[] values;
+
+        public Snapshot(int[] values) {
+            this.values = values.clone();
+        }
+
+        public int[] getValues() {
+            return values; // TODO return a clone
+        }
+
+        public int get(int index) {
+            return values[index];
+        }
+    }
+}
+`}
+    wrapSuffix={`
+class Runner {
+    public static void main(String[] args) {
+        Main.Snapshot snap = new Main.Snapshot(new int[] { 1, 2 });
+        int[] leaked = snap.getValues();
+        leaked[0] = 99;
+        System.out.println(snap.get(0));
+    }
+}
+`}
+    sourceChecks={[
+      { name: 'getter clone', pattern: 'return\\s+values\\.clone\\s*\\(|return\\s+.*\\.clone\\s*\\(', must: true, hint: 'return values.clone();' },
+    ]}
+    tests={[
+      { name: 'still one', stdin: '', equals: '1' },
+    ]}
+  />
+</ExerciseSet>

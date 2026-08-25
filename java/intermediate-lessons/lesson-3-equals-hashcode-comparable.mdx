@@ -1,0 +1,273 @@
+---
+sidebar_position: 3
+title: "equals, hashCode, and Comparable"
+---
+
+> **Source:** Effective Java, 3rd Edition — Chapter 3 by Joshua Bloch (Items 10–14)
+
+`Object`’s nonfinal methods (`equals`, `hashCode`, `toString`, `clone`, `finalize`) have contracts. Break them and `HashMap` / `HashSet` misbehave. `finalize` was Item 8; here we add **`Comparable.compareTo`**, which has the same flavor.
+
+## Item 10: Obey the equals contract
+
+**Don’t override** when identity is enough: unique entities (`Thread`), no logical equality needed (`Pattern`), a superclass already did it right (`AbstractList`), or the method will never run (optional `throw new AssertionError()`).
+
+**Do override** for value classes (`String`, `Integer`) used as map keys / set elements — unless instance control already makes `==` the same as logical equality (enums).
+
+### Contract (equivalence relation)
+
+| Rule | Meaning |
+|---|---|
+| Reflexive | `x.equals(x)` |
+| Symmetric | `x.equals(y)` iff `y.equals(x)` |
+| Transitive | chain of equals implies first equals last |
+| Consistent | stable if state used by equals is unchanged |
+| Non-null | `x.equals(null)` is `false` (no NPE) |
+
+**Symmetry fail:** `CaseInsensitiveString` treating `String` as equal one way — `cis.equals(s)` true, `s.equals(cis)` false. Drop the one-way interop.
+
+**Transitivity / LSP fail:** subclass adds a value field (`ColorPoint` on `Point`). “Full compare” breaks symmetry; “color-blind mixed compare” breaks transitivity (and can recurse across sibling subclasses). **`getClass()` instead of `instanceof`** breaks Liskov: `CounterPoint` is still a `Point` but fails `unitCircle.contains`. Workaround: **composition** — `ColorPoint` has a `Point` + `asPoint()` view. Abstract superclass + concrete leaves is OK. Don’t emulate `Timestamp`/`Date`.
+
+**Consistency:** immutable equals stay forever equal; never hang equals on DNS (`URL` was a mistake).
+
+**Non-nullity:** `instanceof` is false for `null` — no separate null check needed.
+
+### Recipe
+
+1. `if (o == this) return true;`  
+2. `if (!(o instanceof MyType)) return false;`  
+3. Cast.  
+4. Compare significant fields (`==` for most primitives; `Float`/`Double.compare`; recursive `equals`; `Objects.equals` for nullable refs; `Arrays.equals`).  
+
+Order cheap/likely-to-differ fields first. Skip locks and pure derived fields (unless a cheap summary). Always pair with `hashCode`. Parameter must be `Object` — `equals(MyClass)` **overloads**, not overrides (`@Override` catches this). Prefer AutoValue / IDE generation over hand typos.
+
+<MultipleChoice
+  id="java-int-ch3-equals"
+  title="equals contract"
+  questions={[
+    {
+      prompt: 'CaseInsensitiveString.equals(String) true but String.equals(cis) false',
+      choices: [
+        'fine for collections',
+        'symmetry violation — drop String interop',
+        'required for LSP',
+        'fixed by getClass()',
+      ],
+      answer: 1,
+      why: 'Both sides must agree. list.contains becomes unpredictable.',
+    },
+    {
+      prompt: 'Adding color to Point via extends while keeping equals honest',
+      choices: [
+        'instanceof ColorPoint only',
+        'getClass() equals on Point',
+        'composition: ColorPoint holds a Point',
+        'compare color only when o is ColorPoint, else color-blind',
+      ],
+      answer: 2,
+      why: 'No clean OO equals when a concrete class gains a value field. Compose instead.',
+    },
+  ]}
+/>
+
+<CodingExam
+  title="PhoneNumber equals"
+  heading="Challenge: PhoneNumber equals"
+  lang="java"
+  filename="Main.java"
+  prompt="Override equals: == this; instanceof PhoneNumber; compare areaCode, prefix, lineNum. wrap: two triples; print whether the two PhoneNumbers are equal."
+  sampleLog={`(input) 707 867 5309 707 867 5309
+true`}
+  starter={`public class Main {
+    public static final class PhoneNumber {
+        private final short areaCode, prefix, lineNum;
+
+        public PhoneNumber(int areaCode, int prefix, int lineNum) {
+            this.areaCode = (short) areaCode;
+            this.prefix = (short) prefix;
+            this.lineNum = (short) lineNum;
+        }
+
+        @Override
+        public boolean equals(Object o) {
+            return false; // TODO recipe
+        }
+    }
+}
+`}
+  wrapSuffix={`
+class Runner {
+    public static void main(String[] args) {
+        java.util.Scanner sc = new java.util.Scanner(System.in);
+        Main.PhoneNumber a = new Main.PhoneNumber(sc.nextInt(), sc.nextInt(), sc.nextInt());
+        Main.PhoneNumber b = new Main.PhoneNumber(sc.nextInt(), sc.nextInt(), sc.nextInt());
+        System.out.println(a.equals(b));
+    }
+}
+`}
+  sourceChecks={[
+    { name: 'instanceof', pattern: 'instanceof\\s+PhoneNumber', must: true, hint: 'instanceof PhoneNumber' },
+    { name: 'Object param', pattern: 'equals\\s*\\(\\s*Object\\b', must: true, hint: 'equals(Object o)' },
+  ]}
+  tests={[
+    { name: 'same', stdin: '707 867 5309 707 867 5309', equals: 'true' },
+    { name: 'diff', stdin: '707 867 5309 707 867 5310', equals: 'false' },
+  ]}
+/>
+
+## Item 11: Always override hashCode with equals
+
+Equal objects → **equal hash codes**. Skip `hashCode` and `map.put(new PhoneNumber(...), "Jenny")` then `get(new PhoneNumber(...))` returns `null`.
+
+Never `return 42` — legal but turns the table into one list. Recipe: `result = hash(c1);` then for each field `result = 31 * result + c;` using `Type.hashCode`, recursive `hashCode`, `Arrays.hashCode`, `0` for null. `Objects.hash(...)` is one-liner, slower (varargs/boxing). Cache lazily only if immutable and expensive. Do not drop significant fields for “speed.” Leave the exact formula unspecified when you can.
+
+## Item 12: Always override toString
+
+Default `PhoneNumber@163b91` is useless in logs. Prefer something like `707-867-5309`. Collections print element `toString`s. Document whether the format is a **contract** (then provide parse/`from`) or **unspecified**. Always expose accessors so clients are not forced to parse. Skip on static utilities and most enums; do override on abstract collection-style bases.
+
+<CodingExam
+  title="hashCode with 31"
+  heading="Challenge: hashCode with 31"
+  lang="java"
+  filename="Main.java"
+  prompt="hashCode: Short.hashCode(areaCode), then 31 * result + Short.hashCode(prefix), then lineNum the same way. equals already correct. wrap: print hashCode of one triple."
+  sampleLog={`(input) 1 2 3
+1026`}
+  starter={`public class Main {
+    public static final class PhoneNumber {
+        private final short areaCode, prefix, lineNum;
+
+        public PhoneNumber(int areaCode, int prefix, int lineNum) {
+            this.areaCode = (short) areaCode;
+            this.prefix = (short) prefix;
+            this.lineNum = (short) lineNum;
+        }
+
+        @Override
+        public boolean equals(Object o) {
+            if (o == this) return true;
+            if (!(o instanceof PhoneNumber)) return false;
+            PhoneNumber pn = (PhoneNumber) o;
+            return pn.lineNum == lineNum && pn.prefix == prefix && pn.areaCode == areaCode;
+        }
+
+        @Override
+        public int hashCode() {
+            return 0; // TODO
+        }
+    }
+}
+`}
+  wrapSuffix={`
+class Runner {
+    public static void main(String[] args) {
+        java.util.Scanner sc = new java.util.Scanner(System.in);
+        Main.PhoneNumber p = new Main.PhoneNumber(sc.nextInt(), sc.nextInt(), sc.nextInt());
+        System.out.println(p.hashCode());
+    }
+}
+`}
+  sourceChecks={[
+    { name: '31', pattern: '31\\s*\\*', must: true, hint: 'result = 31 * result + ...' },
+    { name: 'Short.hashCode', pattern: 'Short\\.hashCode', must: true, hint: 'Short.hashCode(field)' },
+  ]}
+  tests={[
+    { name: '123', stdin: '1 2 3', equals: '1026' },
+  ]}
+/>
+
+`1 → 31*1+2=33 → 31*33+3=1026`. Starter `0` fails.
+
+## Item 13: Override clone judiciously
+
+`Cloneable` is a broken mixin: no `clone` method; it only changes `Object.clone` behavior. Prefer **copy constructors / copy factories** (`new TreeSet<>(s)`). If you must: public covariant `clone()`, `super.clone()`, then fix mutable deep structure (array `.clone()`, deep-copy lists **iteratively**). `final` mutable fields fight clone. Never call overridable methods on the half-built clone. Arrays are the one place clone shines.
+
+## Item 14: Consider Comparable
+
+Natural order unlocks `Arrays.sort`, `TreeSet`, etc. Contract: antisymmetry of sign, transitivity, and `compareTo==0` implies same comparisons to `z`. **Consistent with equals** is strongly recommended (`BigDecimal` is not — `HashSet` vs `TreeSet` surprise).
+
+Use `Type.compare` / `Comparator.comparingInt(...).thenComparingInt(...)` — **not** `hashCode() - hashCode()` (overflow). Same “no value field on concrete superclass” issue as equals → compose.
+
+<MultipleChoice
+  id="java-int-ch3-clone-cmp"
+  title="clone and compareTo"
+  questions={[
+    {
+      prompt: 'Copying a HashSet as a TreeSet',
+      choices: [
+        's.clone() as TreeSet',
+        'new TreeSet<>(s)',
+        'Object.clone only',
+        'finalize',
+      ],
+      answer: 1,
+      why: 'Conversion constructor; clone cannot change implementation type.',
+    },
+    {
+      prompt: 'compare using o1.hashCode() - o2.hashCode()',
+      choices: [
+        'recommended',
+        'broken (overflow); use Integer.compare',
+        'required for TreeMap',
+        'same as equals',
+      ],
+      answer: 1,
+      why: 'Subtraction is not a safe ordering.',
+    },
+  ]}
+/>
+
+## Chapter 3 map
+
+| Item | Action |
+|---|---|
+| 10 | equals only for values; keep the five laws; compose don’t extend+field |
+| 11 | hashCode whenever equals |
+| 12 | human toString (+ accessors) |
+| 13 | prefer copy ctor/factory over Cloneable |
+| 14 | Comparable for natural order; consistent with equals if you can |
+
+<ExerciseSet
+  title="Exercises"
+  description="toString as XXX-YYY-ZZZZ with zero padding."
+>
+  <CodingExam
+    title="PhoneNumber toString"
+    heading="Exercise: PhoneNumber toString"
+    lang="java"
+    filename="Main.java"
+    prompt={`toString returns String.format("%03d-%03d-%04d", areaCode, prefix, lineNum). wrap: print toString of one triple.`}
+    starter={`public class Main {
+    public static final class PhoneNumber {
+        private final short areaCode, prefix, lineNum;
+
+        public PhoneNumber(int areaCode, int prefix, int lineNum) {
+            this.areaCode = (short) areaCode;
+            this.prefix = (short) prefix;
+            this.lineNum = (short) lineNum;
+        }
+
+        @Override
+        public String toString() {
+            return ""; // TODO
+        }
+    }
+}
+`}
+    wrapSuffix={`
+class Runner {
+    public static void main(String[] args) {
+        java.util.Scanner sc = new java.util.Scanner(System.in);
+        Main.PhoneNumber p = new Main.PhoneNumber(sc.nextInt(), sc.nextInt(), sc.nextInt());
+        System.out.println(p);
+    }
+}
+`}
+    sourceChecks={[
+      { name: 'format', pattern: 'String\\.format|format\\s*\\(', must: true, hint: 'String.format(\"%03d-%03d-%04d\", ...)' },
+    ]}
+    tests={[
+      { name: 'jenny', stdin: '707 867 5309', equals: '707-867-5309' },
+      { name: 'pad', stdin: '1 2 3', equals: '001-002-0003' },
+    ]}
+  />
+</ExerciseSet>
