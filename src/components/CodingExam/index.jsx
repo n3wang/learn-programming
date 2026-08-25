@@ -1,10 +1,10 @@
-import React, {useCallback, useMemo, useState} from 'react';
+import React, {useCallback, useEffect, useMemo, useState} from 'react';
 import {useLocation} from '@docusaurus/router';
 import useDocusaurusContext from '@docusaurus/useDocusaurusContext';
 import CodeEditor from '@site/src/components/CodeEditor';
 import EditorToolbar from '@site/src/components/codeWorkspace/EditorToolbar';
 import useCodeDraft from '@site/src/components/codeWorkspace/useCodeDraft';
-import {makeDraftId} from '@site/src/components/codeWorkspace/drafts';
+import {makeDraftId, registerExam, markExamComplete, slugifyAnchor} from '@site/src/components/codeWorkspace/drafts';
 import chrome from '@site/src/components/codeWorkspace/chrome.module.css';
 
 function executeUrl(api, siteConfig) {
@@ -80,6 +80,8 @@ export default function CodingExam({
     height = '280px',
     api,
     storageKey,
+    heading,
+    anchor,
 }) {
     const {siteConfig} = useDocusaurusContext();
     const {pathname} = useLocation();
@@ -89,7 +91,28 @@ export default function CodingExam({
             makeDraftId('exam', pathname, [title, filename, starter].join('\0')),
         [storageKey, pathname, title, filename, starter]
     );
+    const hash = useMemo(
+        () => (anchor || slugifyAnchor(heading) || slugifyAnchor(title) || '').replace(/^#/, ''),
+        [anchor, heading, title]
+    );
+
     const {code, setCode, saveLabel, reset} = useCodeDraft(draftId, starter);
+
+    const chapter = typeof document !== 'undefined'
+        ? document.title.replace(/\s*[|\u2013\u2014].*$/, '').trim()
+        : pathname;
+
+    useEffect(() => {
+        registerExam(draftId, {
+            title,
+            pathname,
+            chapter,
+            lang,
+            starter,
+            hash,
+            plannedTotal: sourceChecks.length + tests.length,
+        }).catch(() => {});
+    }, [draftId, title, pathname, chapter, lang, starter, hash, sourceChecks.length, tests.length]);
 
     const [checking, setChecking] = useState(false);
     const [results, setResults] = useState(null);
@@ -171,7 +194,12 @@ export default function CodingExam({
 
         setResults(next);
         setChecking(false);
-    }, [api, siteConfig, tests, sourceChecks, wrapPrefix, wrapSuffix, lang, version, filename, code]);
+        const passedCount = next.filter((r) => r.pass).length;
+        const total = sourceChecks.length + tests.length;
+        if (total > 0 && passedCount === total) {
+            markExamComplete(draftId, {code}).catch(() => {});
+        }
+    }, [api, siteConfig, tests, sourceChecks, wrapPrefix, wrapSuffix, lang, version, filename, code, draftId]);
 
     const plannedTotal = sourceChecks.length + tests.length;
     const passed = results?.filter((r) => r.pass).length ?? 0;

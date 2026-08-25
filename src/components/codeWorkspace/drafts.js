@@ -29,6 +29,15 @@ export function fnv1a(str) {
     return (h >>> 0).toString(16);
 }
 
+export function slugifyAnchor(text) {
+    return String(text || '')
+        .trim()
+        .toLowerCase()
+        .replace(/['’]/g, '')
+        .replace(/[^a-z0-9]+/g, '-')
+        .replace(/^-+|-+$/g, '');
+}
+
 export function makeDraftId(kind, pathname, identity) {
     return `${kind}:${fnv1a(`${pathname}\0${identity}`)}`;
 }
@@ -72,4 +81,118 @@ export async function saveDraft(id, patch) {
     } finally {
         db.close();
     }
+}
+
+export const CODE_PROGRESS_EVENT = 'learn-code-progress';
+
+export function notifyCodeProgress() {
+    if (typeof window !== 'undefined') {
+        window.dispatchEvent(new Event(CODE_PROGRESS_EVENT));
+    }
+}
+
+export async function listDrafts() {
+    const db = await openDb();
+    try {
+        return await new Promise((resolve, reject) => {
+            const tx = db.transaction(STORE, 'readonly');
+            const req = tx.objectStore(STORE).getAll();
+            req.onsuccess = () => resolve(req.result || []);
+            req.onerror = () => reject(req.error);
+        });
+    } finally {
+        db.close();
+    }
+}
+
+export async function registerExam(id, meta) {
+    const existing = await loadDraft(id);
+    const next = existing
+        ? {
+              ...existing,
+              id,
+              kind: 'exam',
+              title: meta.title,
+              pathname: meta.pathname,
+              chapter: meta.chapter,
+              lang: meta.lang,
+              plannedTotal: meta.plannedTotal,
+              starter: existing.starter || meta.starter,
+              hash: meta.hash || existing.hash,
+          }
+        : {
+              id,
+              code: meta.starter || '',
+              stdin: '',
+              kind: 'exam',
+              title: meta.title,
+              pathname: meta.pathname,
+              chapter: meta.chapter,
+              lang: meta.lang,
+              plannedTotal: meta.plannedTotal,
+              starter: meta.starter,
+              hash: meta.hash,
+              completed: false,
+              modified: false,
+              updatedAt: Date.now(),
+          };
+
+    const db = await openDb();
+    try {
+        await new Promise((resolve, reject) => {
+            const tx = db.transaction(STORE, 'readwrite');
+            const req = tx.objectStore(STORE).put(next);
+            req.onsuccess = () => resolve();
+            req.onerror = () => reject(req.error);
+        });
+    } finally {
+        db.close();
+    }
+    if (!existing) {
+        notifyCodeProgress();
+    }
+    return next;
+}
+
+export async function markExamComplete(id, extra = {}) {
+    const existing = await loadDraft(id);
+    if (!existing) {
+        return null;
+    }
+    const already = existing.completed;
+    const next = {
+        ...existing,
+        ...extra,
+        completed: true,
+        completedAt: already ? existing.completedAt : Date.now(),
+        id,
+        updatedAt: Date.now(),
+    };
+    const db = await openDb();
+    try {
+        await new Promise((resolve, reject) => {
+            const tx = db.transaction(STORE, 'readwrite');
+            const req = tx.objectStore(STORE).put(next);
+            req.onsuccess = () => resolve();
+            req.onerror = () => reject(req.error);
+        });
+    } finally {
+        db.close();
+    }
+    notifyCodeProgress();
+    return next;
+}
+
+export async function toggleDraftBookmark(id) {
+    const existing = await loadDraft(id);
+    if (!existing) {
+        return null;
+    }
+    const saved = await saveDraft(id, {
+        bookmarked: !existing.bookmarked,
+        code: existing.code,
+        stdin: existing.stdin,
+    });
+    notifyCodeProgress();
+    return saved;
 }

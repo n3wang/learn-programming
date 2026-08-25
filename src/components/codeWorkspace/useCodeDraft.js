@@ -51,7 +51,13 @@ export default function useCodeDraft(id, starter, initialStdin = '') {
             }
             const write = () => {
                 setSaveLabel('Saving…');
-                saveDraft(id, {code: nextCode, stdin: nextStdin})
+                const starterNow = starterRef.current;
+                saveDraft(id, {
+                    code: nextCode,
+                    stdin: nextStdin,
+                    modified: nextCode !== starterNow,
+                    starter: starterNow,
+                })
                     .then(() => setSaveLabel('Saved'))
                     .catch(() => setSaveLabel('Save failed'));
             };

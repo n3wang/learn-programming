@@ -5,6 +5,8 @@ import JournalAnswer from '@site/src/components/JournalAnswer';
 import YouTubeEmbed from '@site/src/components/YouTubeEmbed';
 import MultipleChoice from '@site/src/components/MultipleChoice';
 
+import ExerciseSet, {Exercise} from '@site/src/components/ExerciseSet';
+
 export default {
     ...MDXComponents,
     PistonRunner,
@@ -12,4 +14,6 @@ export default {
     JournalAnswer,
     YouTubeEmbed,
     MultipleChoice,
+    ExerciseSet,
+    Exercise,
 };
