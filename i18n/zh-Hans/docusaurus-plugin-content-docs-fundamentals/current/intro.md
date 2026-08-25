@@ -23,7 +23,7 @@ title: 基础知识
 
 ## 添加新主题
 
-所有交互式页面共享 `src/components/ce/` 中的三个基础组件：
+所有交互式页面共享 `src/components/interactive/shell/` 中的三个基础组件：
 
 | 组件 | 用途 |
 |------|------|
@@ -34,7 +34,7 @@ title: 基础知识
 ### 操作步骤
 
 1. **复制组件模板**
-   `src/components/ce/_template.js` → `src/components/MyTopicSimulator.js`
+   `src/components/interactive/shell/_template.js` → `src/components/interactive/MyTopicSimulator.js`
    填写数据数组，替换占位可视化内容。
 
 2. **复制页面模板**

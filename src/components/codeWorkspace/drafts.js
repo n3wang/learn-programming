@@ -1,0 +1,75 @@
+const DB_NAME = 'learn-programming-code';
+const DB_VERSION = 1;
+const STORE = 'drafts';
+
+function openDb() {
+    return new Promise((resolve, reject) => {
+        if (typeof indexedDB === 'undefined') {
+            reject(new Error('IndexedDB is not available'));
+            return;
+        }
+        const request = indexedDB.open(DB_NAME, DB_VERSION);
+        request.onupgradeneeded = () => {
+            const db = request.result;
+            if (!db.objectStoreNames.contains(STORE)) {
+                db.createObjectStore(STORE, {keyPath: 'id'});
+            }
+        };
+        request.onsuccess = () => resolve(request.result);
+        request.onerror = () => reject(request.error);
+    });
+}
+
+export function fnv1a(str) {
+    let h = 2166136261;
+    for (let i = 0; i < str.length; i += 1) {
+        h ^= str.charCodeAt(i);
+        h = Math.imul(h, 16777619);
+    }
+    return (h >>> 0).toString(16);
+}
+
+export function makeDraftId(kind, pathname, identity) {
+    return `${kind}:${fnv1a(`${pathname}\0${identity}`)}`;
+}
+
+export async function loadDraft(id) {
+    const db = await openDb();
+    try {
+        return await new Promise((resolve, reject) => {
+            const tx = db.transaction(STORE, 'readonly');
+            const req = tx.objectStore(STORE).get(id);
+            req.onsuccess = () => resolve(req.result || null);
+            req.onerror = () => reject(req.error);
+        });
+    } finally {
+        db.close();
+    }
+}
+
+export async function saveDraft(id, patch) {
+    const db = await openDb();
+    try {
+        const existing = await new Promise((resolve, reject) => {
+            const tx = db.transaction(STORE, 'readonly');
+            const req = tx.objectStore(STORE).get(id);
+            req.onsuccess = () => resolve(req.result || {id});
+            req.onerror = () => reject(req.error);
+        });
+        const next = {
+            ...existing,
+            ...patch,
+            id,
+            updatedAt: Date.now(),
+        };
+        await new Promise((resolve, reject) => {
+            const tx = db.transaction(STORE, 'readwrite');
+            const req = tx.objectStore(STORE).put(next);
+            req.onsuccess = () => resolve();
+            req.onerror = () => reject(req.error);
+        });
+        return next;
+    } finally {
+        db.close();
+    }
+}

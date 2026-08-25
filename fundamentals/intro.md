@@ -17,13 +17,13 @@ Deep dives into the underlying systems that every software engineer should under
 | [Concurrency](./concurrency/intro) | Threads, synchronization, lock-free structures, async models |
 | [Artificial Intelligence](./artificial-intelligence/intro) | ML fundamentals, neural networks, optimization, transformers |
 
-Each section has interactive simulators and worked examples alongside the theory.
+Each section has interactive simulators and worked examples alongside the theory. See [Interactive embeds](./interactive-embeds) for the shared design.
 
 ---
 
 ## Adding a New Topic
 
-All interactive pages share three primitives from `src/components/ce/`:
+All interactive pages share three primitives from `src/components/interactive/shell/`:
 
 | Primitive | Role |
 |-----------|------|
@@ -34,7 +34,7 @@ All interactive pages share three primitives from `src/components/ce/`:
 ### Workflow
 
 1. **Copy the component template**
-   `src/components/ce/_template.js` → `src/components/MyTopicSimulator.js`
+   `src/components/interactive/shell/_template.js` → `src/components/interactive/MyTopicSimulator.js`
    Fill in the data arrays and replace the placeholder visualization.
 
 2. **Copy the page template**

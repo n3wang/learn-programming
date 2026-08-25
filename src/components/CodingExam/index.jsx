@@ -1,6 +1,11 @@
-import React, { useCallback, useState } from 'react';
+import React, {useCallback, useMemo, useState} from 'react';
+import {useLocation} from '@docusaurus/router';
 import useDocusaurusContext from '@docusaurus/useDocusaurusContext';
-import styles from './styles.module.css';
+import CodeEditor from '@site/src/components/CodeEditor';
+import EditorToolbar from '@site/src/components/codeWorkspace/EditorToolbar';
+import useCodeDraft from '@site/src/components/codeWorkspace/useCodeDraft';
+import {makeDraftId} from '@site/src/components/codeWorkspace/drafts';
+import chrome from '@site/src/components/codeWorkspace/chrome.module.css';
 
 function executeUrl(api, siteConfig) {
     if (api) {
@@ -32,6 +37,24 @@ function normalize(s) {
     return s.replace(/\s+/g, ' ').trim().toLowerCase();
 }
 
+function sourceCheck(code, check) {
+    const re = new RegExp(check.pattern, check.flags || '');
+    const hit = re.test(code);
+    const must = check.must !== false;
+    const pass = must ? hit : !hit;
+    return {
+        name: check.name || (must ? 'Required pattern' : 'Forbidden pattern'),
+        pass,
+        detail: pass
+            ? must
+                ? 'Found the required construct in your code.'
+                : 'Did not use the forbidden construct.'
+            : must
+              ? 'Your solution must use: ' + (check.hint || check.pattern)
+              : 'Do not use: ' + (check.hint || check.pattern),
+    };
+}
+
 function passesTest(output, test) {
     const hay = test.exact ? output.text : normalize(output.text);
     if (test.equals) {
@@ -42,10 +65,6 @@ function passesTest(output, test) {
     return needles.every((n) => hay.includes(test.exact ? n : normalize(n)));
 }
 
-/**
- * Split exam widget: expected behaviour + sample log vs student editor.
- * "Check" runs each test case through Piston REST (stdin in, stdout compared).
- */
 export default function CodingExam({
     title = 'Mini exam',
     prompt,
@@ -55,77 +74,92 @@ export default function CodingExam({
     version = '*',
     filename = 'main.cpp',
     tests = [],
+    sourceChecks = [],
+    wrapPrefix = '',
+    wrapSuffix = '',
     height = '280px',
     api,
+    storageKey,
 }) {
-    const { siteConfig } = useDocusaurusContext();
-    const [code, setCode] = useState(starter);
+    const {siteConfig} = useDocusaurusContext();
+    const {pathname} = useLocation();
+    const draftId = useMemo(
+        () =>
+            storageKey ||
+            makeDraftId('exam', pathname, [title, filename, starter].join('\0')),
+        [storageKey, pathname, title, filename, starter]
+    );
+    const {code, setCode, saveLabel, reset} = useCodeDraft(draftId, starter);
+
     const [checking, setChecking] = useState(false);
     const [results, setResults] = useState(null);
-
-    const handleTab = useCallback(
-        (e) => {
-            if (e.key !== 'Tab') return;
-            e.preventDefault();
-            const el = e.target;
-            const s = el.selectionStart;
-            const next = code.slice(0, s) + '    ' + code.slice(el.selectionEnd);
-            setCode(next);
-            requestAnimationFrame(() => {
-                el.selectionStart = el.selectionEnd = s + 4;
-            });
-        },
-        [code]
-    );
+    const [split, setSplit] = useState(false);
 
     const check = useCallback(async () => {
+        setSplit(true);
         setChecking(true);
         setResults(null);
         const endpoint = executeUrl(api, siteConfig);
         const next = [];
+        const program = wrapPrefix + code + wrapSuffix;
 
         try {
-            for (const test of tests) {
-                const res = await fetch(endpoint, {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({
-                        language: lang,
-                        version,
-                        stdin: test.stdin ?? '',
-                        files: [{ name: filename, content: code }],
-                    }),
-                });
+            let failed = false;
+            for (const rule of sourceChecks) {
+                const row = sourceCheck(code, rule);
+                next.push(row);
+                if (!row.pass) {
+                    failed = true;
+                    break;
+                }
+            }
 
-                if (!res.ok) {
-                    const err = await res.json().catch(() => ({}));
+            if (!failed) {
+                for (const test of tests) {
+                    const res = await fetch(endpoint, {
+                        method: 'POST',
+                        headers: {'Content-Type': 'application/json'},
+                        body: JSON.stringify({
+                            language: lang,
+                            version,
+                            stdin: test.stdin ?? '',
+                            files: [{name: filename, content: program}],
+                        }),
+                    });
+
+                    if (!res.ok) {
+                        const err = await res.json().catch(() => ({}));
+                        next.push({
+                            name: test.name || 'Test',
+                            pass: false,
+                            detail: 'API error: ' + (err.message || res.statusText),
+                        });
+                        break;
+                    }
+
+                    const data = await res.json();
+                    const output = collectOutput(data);
+                    if (output.compileFailed) {
+                        next.push({
+                            name: test.name || 'Test',
+                            pass: false,
+                            detail: 'Did not compile:\n' + output.text,
+                        });
+                        break;
+                    }
+
+                    const ok = passesTest(output, test);
                     next.push({
                         name: test.name || 'Test',
-                        pass: false,
-                        detail: 'API error: ' + (err.message || res.statusText),
+                        pass: ok,
+                        detail: ok
+                            ? 'Output matched.\n' + output.text
+                            : 'Output did not match.\nGot:\n' + (output.text || '(no output)'),
                     });
-                    continue;
+                    if (!ok) {
+                        break;
+                    }
                 }
-
-                const data = await res.json();
-                const output = collectOutput(data);
-                if (output.compileFailed) {
-                    next.push({
-                        name: test.name || 'Test',
-                        pass: false,
-                        detail: 'Did not compile:\n' + output.text,
-                    });
-                    continue;
-                }
-
-                const ok = passesTest(output, test);
-                next.push({
-                    name: test.name || 'Test',
-                    pass: ok,
-                    detail: ok
-                        ? 'Output matched.\n' + output.text
-                        : 'Output did not match.\nGot:\n' + (output.text || '(no output)'),
-                });
             }
         } catch (e) {
             next.push({
@@ -137,72 +171,77 @@ export default function CodingExam({
 
         setResults(next);
         setChecking(false);
-    }, [api, siteConfig, tests, lang, version, filename, code]);
+    }, [api, siteConfig, tests, sourceChecks, wrapPrefix, wrapSuffix, lang, version, filename, code]);
 
+    const plannedTotal = sourceChecks.length + tests.length;
     const passed = results?.filter((r) => r.pass).length ?? 0;
-    const total = results?.length ?? 0;
-    const allPass = results && total > 0 && passed === total;
+    const ran = results?.length ?? 0;
+    const allPass = results && plannedTotal > 0 && passed === plannedTotal;
+    const stoppedEarly = results && !allPass && ran < plannedTotal;
+
+    const handleReset = () => {
+        reset();
+        setResults(null);
+        setSplit(false);
+    };
 
     return (
-        <div className={styles.exam}>
-            <div className={styles.header}>
-                <span className={styles.badge}>Exam</span>
-                <h3 className={styles.title}>{title}</h3>
-            </div>
-            {prompt && <p className={styles.prompt}>{prompt}</p>}
-
-            <div className={styles.split}>
-                <div className={styles.spec}>
-                    <h4>Expected behaviour</h4>
-                    <p>
-                        Your program is run with hidden test inputs. Match the sample log (prompts
-                        and the computed result). Extra spaces are ignored.
-                    </p>
-                    <h4>Sample run</h4>
-                    <pre className={styles.log}>{sampleLog}</pre>
+        <div className={chrome.shell}>
+            <div className={chrome.intro}>
+                <div className={chrome.titleRow}>
+                    <span className={`${chrome.badge} ${chrome.badgeExam}`}>Exam</span>
+                    <h3 className={chrome.title}>{title}</h3>
                 </div>
-                <div className={styles.work}>
-                    <div className={styles.workBar}>
-                        <span>{filename}</span>
-                        <button type="button" className={styles.reset} onClick={() => setCode(starter)}>
-                            Reset starter
-                        </button>
+                {prompt && <p className={chrome.prompt}>{prompt}</p>}
+                {sampleLog ? <pre className={chrome.sample}>{sampleLog}</pre> : null}
+            </div>
+
+            <EditorToolbar
+                badge={lang}
+                exam
+                filename={filename}
+                saveLabel={saveLabel}
+                running={checking}
+                onRun={check}
+                onReset={handleReset}
+            />
+
+            <div className={`${chrome.panes} ${split ? chrome.panesSplit : ''}`}>
+                <div className={chrome.editorPane}>
+                    <CodeEditor value={code} onChange={setCode} lang={lang} height={height} />
+                </div>
+                {split && (
+                    <div className={chrome.side}>
+                        <div className={chrome.sideHead}>Tests</div>
+                        {results ? (
+                            <>
+                                <div className={`${chrome.score} ${allPass ? chrome.scorePass : chrome.scoreFail}`}>
+                                    {passed}/{plannedTotal} passed
+                                    {allPass
+                                        ? ' — all tests passed'
+                                        : stoppedEarly
+                                          ? ' — stopped at first failure'
+                                          : ''}
+                                </div>
+                                <ul className={chrome.results}>
+                                    {results.map((r, i) => (
+                                        <li key={i} className={r.pass ? chrome.pass : chrome.fail}>
+                                            <strong>
+                                                {r.pass ? 'Pass' : 'Fail'} — {r.name}
+                                            </strong>
+                                            {!r.pass && <pre>{r.detail}</pre>}
+                                        </li>
+                                    ))}
+                                </ul>
+                            </>
+                        ) : (
+                            <pre className={`${chrome.output} ${chrome.outputEmpty}`}>
+                                Running hidden tests…
+                            </pre>
+                        )}
                     </div>
-                    <textarea
-                        className={styles.editor}
-                        style={{ minHeight: height }}
-                        value={code}
-                        onChange={(e) => setCode(e.target.value)}
-                        onKeyDown={handleTab}
-                        spellCheck={false}
-                        aria-label="Your solution"
-                    />
-                </div>
-            </div>
-
-            <div className={styles.actions}>
-                <button type="button" className={styles.checkBtn} onClick={check} disabled={checking}>
-                    {checking ? 'Checking…' : 'Check my program'}
-                </button>
-                {results && (
-                    <span className={allPass ? styles.scorePass : styles.scoreFail}>
-                        {passed}/{total} tests passed
-                    </span>
                 )}
             </div>
-
-            {results && (
-                <ul className={styles.results}>
-                    {results.map((r, i) => (
-                        <li key={i} className={r.pass ? styles.pass : styles.fail}>
-                            <strong>
-                                {r.pass ? 'Pass' : 'Fail'} — {r.name}
-                            </strong>
-                            <pre>{r.detail}</pre>
-                        </li>
-                    ))}
-                </ul>
-            )}
         </div>
     );
 }

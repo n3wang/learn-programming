@@ -1,6 +1,11 @@
-import React, { useCallback, useEffect, useRef, useState } from 'react';
+import React, {useCallback, useEffect, useMemo, useRef, useState} from 'react';
+import {useLocation} from '@docusaurus/router';
 import useDocusaurusContext from '@docusaurus/useDocusaurusContext';
-import styles from './styles.module.css';
+import CodeEditor from '@site/src/components/CodeEditor';
+import EditorToolbar from '@site/src/components/codeWorkspace/EditorToolbar';
+import useCodeDraft from '@site/src/components/codeWorkspace/useCodeDraft';
+import {makeDraftId} from '@site/src/components/codeWorkspace/drafts';
+import chrome from '@site/src/components/codeWorkspace/chrome.module.css';
 
 const FILE_NAMES = {
     'c++': 'main.cpp',
@@ -40,10 +45,23 @@ export default function PistonRunner({
     editable = true,
     height = '260px',
     api,
+    storageKey,
 }) {
-    const { siteConfig } = useDocusaurusContext();
-    const [code, setCode] = useState(initialCode);
-    const [stdin, setStdin] = useState(initialStdin);
+    const {siteConfig} = useDocusaurusContext();
+    const {pathname} = useLocation();
+    const fileName = filename || FILE_NAMES[lang] || 'main.txt';
+    const draftId = useMemo(
+        () =>
+            storageKey ||
+            makeDraftId('runner', pathname, [lang, fileName, initialCode].join('\0')),
+        [storageKey, pathname, lang, fileName, initialCode]
+    );
+    const {code, setCode, stdin, setStdin, saveLabel, reset} = useCodeDraft(
+        draftId,
+        initialCode,
+        initialStdin
+    );
+
     const [output, setOutput] = useState('');
     const [liveLine, setLiveLine] = useState('');
     const [running, setRunning] = useState(false);
@@ -51,12 +69,12 @@ export default function PistonRunner({
     const [exitCode, setExitCode] = useState(null);
     const [isError, setIsError] = useState(false);
     const [stage, setStage] = useState(null);
+    const [split, setSplit] = useState(false);
 
     const wsRef = useRef(null);
     const t0Ref = useRef(0);
     const outputRef = useRef(null);
 
-    const fileName = filename || FILE_NAMES[lang] || 'main.txt';
     const usesCin = /\bcin\s*>>/.test(code) || /\bgetline\s*\(/.test(code);
     const stdinVisible = !interactive && (showStdin || initialStdin.length > 0 || usesCin);
 
@@ -74,21 +92,6 @@ export default function PistonRunner({
         }
     }, [output, liveLine]);
 
-    const handleTab = useCallback(
-        (e) => {
-            if (e.key !== 'Tab') return;
-            e.preventDefault();
-            const el = e.target;
-            const s = el.selectionStart;
-            const newCode = code.slice(0, s) + '    ' + code.slice(el.selectionEnd);
-            setCode(newCode);
-            requestAnimationFrame(() => {
-                el.selectionStart = el.selectionEnd = s + 4;
-            });
-        },
-        [code]
-    );
-
     const finish = useCallback((codeValue, error) => {
         setElapsed(((Date.now() - t0Ref.current) / 1000).toFixed(2));
         if (codeValue != null) setExitCode(codeValue);
@@ -102,12 +105,12 @@ export default function PistonRunner({
         const exec = executeUrl(api, siteConfig);
         const res = await fetch(exec, {
             method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
+            headers: {'Content-Type': 'application/json'},
             body: JSON.stringify({
                 language: lang,
                 version,
                 stdin,
-                files: [{ name: fileName, content: code }],
+                files: [{name: fileName, content: code}],
             }),
         });
 
@@ -141,6 +144,7 @@ export default function PistonRunner({
             wsRef.current.close();
         }
 
+        setSplit(true);
         setRunning(true);
         setOutput('');
         setLiveLine('');
@@ -182,7 +186,7 @@ export default function PistonRunner({
                     language: lang,
                     version,
                     stdin: '',
-                    files: [{ name: fileName, content: code, encoding: 'utf8' }],
+                    files: [{name: fileName, content: code, encoding: 'utf8'}],
                     run_timeout: 30000,
                     compile_timeout: 10000,
                 })
@@ -243,80 +247,88 @@ export default function PistonRunner({
         const ws = wsRef.current;
         if (!ws || ws.readyState !== WebSocket.OPEN) return;
         const line = liveLine.endsWith('\n') ? liveLine : liveLine + '\n';
-        ws.send(JSON.stringify({ type: 'data', stream: 'stdin', data: line }));
+        ws.send(JSON.stringify({type: 'data', stream: 'stdin', data: line}));
         setOutput((prev) => prev + line);
         setLiveLine('');
     }, [liveLine]);
 
-    return (
-        <div className={styles.runner}>
-            <div className={styles.toolbar}>
-                <span className={styles.badge}>{lang}</span>
-                <span className={styles.fileTab}>{fileName}</span>
-                {stage && running && <span className={styles.meta}>{stage}</span>}
-                {elapsed != null && exitCode !== null && (
-                    <span className={styles.meta}>
-                        exit {exitCode} · {elapsed}s
-                    </span>
-                )}
-                <button className={styles.runBtn} onClick={run} disabled={running} type="button">
-                    {running ? 'Running…' : '▶ Run'}
-                </button>
-            </div>
+    const meta = [
+        stage && running ? stage : null,
+        elapsed != null && exitCode !== null ? `exit ${exitCode} · ${elapsed}s` : null,
+    ]
+        .filter(Boolean)
+        .join(' · ');
 
-            <div className={styles.panes} style={{ minHeight: height }}>
-                <textarea
-                    className={styles.editor}
-                    style={{ minHeight: height }}
-                    value={code}
-                    onChange={(e) => editable && setCode(e.target.value)}
-                    onKeyDown={handleTab}
-                    readOnly={!editable}
-                    spellCheck={false}
-                    aria-label="Source code"
-                />
-                <div className={styles.terminal} style={{ minHeight: height }}>
-                    <pre
-                        ref={outputRef}
-                        className={[
-                            styles.output,
-                            isError ? styles.outputError : '',
-                            !output && !running ? styles.outputEmpty : '',
-                        ].join(' ')}
-                    >
-                        {output ||
-                            (interactive
-                                ? 'Press Run, then type answers here when the program asks (cin).'
-                                : 'Output appears here after you press Run.')}
-                    </pre>
-                    {interactive && (
-                        <input
-                            className={styles.liveInput}
-                            value={liveLine}
-                            disabled={!running || stage === 'compile' || stage === 'connecting'}
-                            onChange={(e) => setLiveLine(e.target.value)}
-                            onKeyDown={(e) => {
-                                if (e.key === 'Enter') {
-                                    e.preventDefault();
-                                    sendLine();
-                                }
-                            }}
-                            placeholder={
-                                running && stage === 'run'
-                                    ? 'Type input for cin, then Enter'
-                                    : 'Input is enabled while the program is running'
-                            }
-                            aria-label="Live program input"
-                        />
-                    )}
+    return (
+        <div className={chrome.shell}>
+            <EditorToolbar
+                badge={lang}
+                filename={fileName}
+                saveLabel={saveLabel}
+                meta={meta}
+                running={running}
+                onRun={run}
+                onReset={reset}
+            />
+
+            <div
+                className={`${chrome.panes} ${split ? chrome.panesSplit : ''}`}
+                style={{minHeight: height}}
+            >
+                <div className={chrome.editorPane}>
+                    <CodeEditor
+                        value={code}
+                        onChange={(next) => editable && setCode(next)}
+                        lang={lang}
+                        height={height}
+                        readOnly={!editable}
+                    />
                 </div>
+                {split && (
+                    <div className={chrome.side} style={{minHeight: height}}>
+                        <div className={chrome.sideHead}>Output</div>
+                        <pre
+                            ref={outputRef}
+                            className={[
+                                chrome.output,
+                                isError ? chrome.outputError : '',
+                                !output && !running ? chrome.outputEmpty : '',
+                            ].join(' ')}
+                        >
+                            {output ||
+                                (interactive
+                                    ? 'Type below when the program waits for input (cin).'
+                                    : 'Output appears here after you press Run.')}
+                        </pre>
+                        {interactive && (
+                            <input
+                                className={chrome.liveInput}
+                                value={liveLine}
+                                disabled={!running || stage === 'compile' || stage === 'connecting'}
+                                onChange={(e) => setLiveLine(e.target.value)}
+                                onKeyDown={(e) => {
+                                    if (e.key === 'Enter') {
+                                        e.preventDefault();
+                                        sendLine();
+                                    }
+                                }}
+                                placeholder={
+                                    running && stage === 'run'
+                                        ? 'Type input, then Enter'
+                                        : 'Input is enabled while the program is running'
+                                }
+                                aria-label="Live program input"
+                            />
+                        )}
+                    </div>
+                )}
             </div>
 
             {stdinVisible && (
-                <label className={styles.stdinLabel}>
+                <label className={chrome.stdinLabel}>
                     Program input (batch)
                     <textarea
-                        className={styles.stdin}
+                        className={chrome.stdin}
                         value={stdin}
                         onChange={(e) => setStdin(e.target.value)}
                         spellCheck={false}

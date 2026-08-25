@@ -7,6 +7,7 @@ import TextField from '@mui/material/TextField';
 import Chip from '@mui/material/Chip';
 import Stack from '@mui/material/Stack';
 import Collapse from '@mui/material/Collapse';
+import Tooltip from '@mui/material/Tooltip';
 import CEBlock from '@site/src/components/interactive/shell/CEBlock';
 
 const LEVELS = [

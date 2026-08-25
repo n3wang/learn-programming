@@ -133,7 +133,7 @@ For multi-value answers (e.g. quadratic roots), `answer` can be a string: `"x=3 
 
 ## Generated Component Structure
 
-Each `.js` file follows `src/components/ce/_template.js` using the three CE primitives.
+Each `.js` file follows `src/components/interactive/shell/_template.js` using the three interactive shell primitives.
 
 ```
 CEBlock

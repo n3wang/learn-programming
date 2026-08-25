@@ -28,7 +28,7 @@ No prior hardware or assembly experience is required. All pages have interactive
 
 ## Adding a New Topic
 
-Each interactive page is built from three reusable primitives in `src/components/ce/`:
+Each interactive page is built from three reusable primitives in `src/components/interactive/shell/`:
 
 | Primitive | What it does |
 |-----------|-------------|
@@ -40,7 +40,7 @@ Each interactive page is built from three reusable primitives in `src/components
 
 1. **Copy the component template**
    ```
-   src/components/ce/_template.js → src/components/MyTopicSimulator.js
+   src/components/interactive/shell/_template.js → src/components/interactive/MyTopicSimulator.js
    ```
    Fill in `ITEMS`, `STEPS`, and replace the placeholder visualization.
 
