@@ -26,7 +26,7 @@ Algorithm design is about choosing the right strategy — not just getting a cor
 - Graphs: adjacency list vs. matrix, BFS/DFS traversal
 
 ### Graph Algorithms
-- Shortest path: Dijkstra, Bellman-Ford, A*
+- Shortest path: [0-1 BFS](./01-bfs), Dijkstra, Bellman-Ford, A*
 - Minimum spanning tree: Kruskal, Prim
 - Topological sort and cycle detection
 

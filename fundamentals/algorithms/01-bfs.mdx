@@ -1,0 +1,213 @@
+---
+sidebar_position: 2
+title: 0-1 BFS
+---
+
+import ZeroOneBfsSimulator from "@site/src/components/ZeroOneBfsSimulator.js";
+
+# 0-1 BFS
+
+On an **unweighted** graph, BFS finds single-source shortest paths in `O(|E|)`: distance is just the fewest edges. You can think of that as every edge having weight `1`.
+
+If weights are arbitrary, you need Dijkstra (`O(|V|^2 + |E|)` or `O(|E| log |V|)`).
+
+If **every weight is only `0` or `1`**, you can still solve SSSP in **`O(|E|)`** with a deque. That is 0-1 BFS.
+
+## Interactive deque
+
+Same idea as the CPU pipeline stepper: **Next** walks one pop or one edge relax. Watch the deque stay sorted (`d[v]` then `d[v]+1`).
+
+<ZeroOneBfsSimulator />
+
+## Why a deque is enough
+
+Look at Dijkstra with a set as the priority queue:
+
+```cpp
+d.assign(n, INF);
+d[s] = 0;
+set<pair<int, int>> q;
+q.insert({0, s});
+while (!q.empty()) {
+    int v = q.begin()->second;
+    q.erase(q.begin());
+
+    for (auto edge : adj[v]) {
+        int u = edge.first;
+        int w = edge.second;
+        if (d[v] + w < d[u]) {
+            q.erase({d[u], u});
+            d[u] = d[v] + w;
+            q.insert({d[u], u});
+        }
+    }
+}
+```
+
+In a 0-1 graph, vertices sitting in the queue never differ by more than **1** in distance from the source. If `v` is the current vertex, every `u` still in the queue satisfies
+
+`d[v] ≤ d[u] ≤ d[v] + 1`
+
+You only ever insert a vertex at the current distance or at current `+ 1`. A vertex with `d[u] - d[v] > 1` would have had to come from some `t` with `d[t] > d[v]`, which Dijkstra would not process before `v`.
+
+So the queue looks like:
+
+```text
+Q =  [ v … u ]   [ m … n ]
+       d[v]        d[v]+1
+```
+
+A balanced tree is overkill. Use a **deque**:
+
+- Weight **0**: new distance equals `d[v]` → `push_front`
+- Weight **1**: new distance equals `d[v] + 1` → `push_back`
+
+The deque stays sorted.
+
+```cpp
+vector<int> d(n, INF);
+d[s] = 0;
+deque<int> q;
+q.push_front(s);
+while (!q.empty()) {
+    int v = q.front();
+    q.pop_front();
+    for (auto edge : adj[v]) {
+        int u = edge.first;
+        int w = edge.second;
+        if (d[v] + w < d[u]) {
+            d[u] = d[v] + w;
+            if (w == 1)
+                q.push_back(u);
+            else
+                q.push_front(u);
+        }
+    }
+}
+```
+
+## Try a tiny graph
+
+Edges: `0 --1--> 1`, `1 --0--> 2`, `0 --0--> 2`. Distances from `0` should be `0, 1, 0`.
+
+<details>
+<summary>🧪 0-1 BFS in C++</summary>
+
+<PistonRunner
+  lang="c++"
+  height="420px"
+  code={`#include <iostream>
+#include <vector>
+#include <deque>
+using namespace std;
+
+const int INF = 1e9;
+
+int main() {
+    int n = 3;
+    vector<vector<pair<int, int>>> adj(n);
+    adj[0].push_back({1, 1});
+    adj[1].push_back({2, 0});
+    adj[0].push_back({2, 0});
+
+    vector<int> d(n, INF);
+    d[0] = 0;
+    deque<int> q;
+    q.push_front(0);
+    while (!q.empty()) {
+        int v = q.front();
+        q.pop_front();
+        for (auto [u, w] : adj[v]) {
+            if (d[v] + w < d[u]) {
+                d[u] = d[v] + w;
+                if (w == 1) q.push_back(u);
+                else q.push_front(u);
+            }
+        }
+    }
+    for (int i = 0; i < n; i++) {
+        cout << "d[" << i << "] = " << d[i] << endl;
+    }
+    return 0;
+}
+`}
+/>
+
+</details>
+
+## Dial’s algorithm
+
+If every edge weight is an integer `≤ k` (not only 0/1), distances of vertices in the “queue” differ from `d[v]` by at most `k`. Keep **`k + 1` buckets**. When the bucket for the smallest distance is empty, rotate to the next distance. That extension is **Dial’s algorithm**.
+
+## When to use it
+
+| Graph | Algorithm |
+|---|---|
+| Unweighted (or all weights `1`) | Normal BFS |
+| Weights only `0` and `1` | 0-1 BFS |
+| Small integer weights `1 … k` | Dial |
+| Arbitrary non-negative weights | Dijkstra |
+
+## Check your understanding
+
+<MultipleChoice
+  id="algo-01-bfs"
+  title="0-1 BFS"
+  questions={[
+    {
+      prompt: '0-1 BFS solves single-source shortest paths when…',
+      choices: [
+        'Every edge weight is 0 or 1',
+        'The graph may have negative cycles',
+        'Weights are arbitrary positive reals',
+        'The graph is a tree of unbounded weights',
+      ],
+      answer: 0,
+      why: 'That constraint keeps queued distances within 1 of each other, so a deque replaces a heap.',
+    },
+    {
+      prompt: 'After relaxing an edge of weight 0, where do you insert the neighbour?',
+      choices: [
+        'push_back (end of the deque)',
+        'push_front (front of the deque)',
+        'A binary heap keyed by vertex id',
+        'You never insert 0-weight neighbours',
+      ],
+      answer: 1,
+      why: 'd[u] stays equal to d[v], so the vertex belongs with the current-distance group at the front.',
+    },
+    {
+      prompt: 'After relaxing an edge of weight 1, where do you insert the neighbour?',
+      choices: [
+        'push_front',
+        'push_back',
+        'A Fibonacci heap only',
+        'Delete it from the graph',
+      ],
+      answer: 1,
+      why: 'd[u] becomes d[v] + 1, so it goes with the next-distance group at the back.',
+    },
+    {
+      prompt: 'Time complexity of 0-1 BFS (adjacency lists) is…',
+      choices: [
+        'O(|E|)',
+        'O(|E| log |V|)',
+        'O(|V|^3)',
+        'O(2^|V|)',
+      ],
+      answer: 0,
+      why: 'Each edge is processed a constant number of times; deque operations are O(1).',
+    },
+    {
+      prompt: 'Dial’s algorithm generalises 0-1 BFS when…',
+      choices: [
+        'Edges may have negative weight',
+        'Every edge weight is an integer at most k, using k+1 buckets',
+        'The graph is disconnected',
+        'You must output the MST',
+      ],
+      answer: 1,
+      why: 'Queued distances then differ by at most k, so buckets replace the two-sided deque.',
+    },
+  ]}
+/>

@@ -161,18 +161,9 @@ const config = {
     [
       '@docusaurus/plugin-content-docs',
       {
-        id: 'scratch-jr',
-        path: 'scratch-jr',
-        routeBasePath: 'scratch-jr',
-        sidebarPath: require.resolve('./sidebars.js'),
-      },
-    ],
-    [
-      '@docusaurus/plugin-content-docs',
-      {
-        id: 'lego',
-        path: 'lego',
-        routeBasePath: 'lego',
+        id: 'robotics',
+        path: 'robotics',
+        routeBasePath: 'robotics',
         sidebarPath: require.resolve('./sidebars.js'),
       },
     ],
@@ -182,15 +173,6 @@ const config = {
         id: 'javascript',
         path: 'javascript',
         routeBasePath: 'javascript',
-        sidebarPath: require.resolve('./sidebars.js'),
-      },
-    ],
-    [
-      '@docusaurus/plugin-content-docs',
-      {
-        id: 'react-native',
-        path: 'react-native',
-        routeBasePath: 'react-native',
         sidebarPath: require.resolve('./sidebars.js'),
       },
     ],
@@ -251,6 +233,33 @@ const config = {
     [
       '@docusaurus/plugin-content-docs',
       {
+        id: 'math-1',
+        path: 'classes/math-1',
+        routeBasePath: 'classes/math-1',
+        sidebarPath: require.resolve('./sidebars.js'),
+      },
+    ],
+    [
+      '@docusaurus/plugin-content-docs',
+      {
+        id: 'math-2',
+        path: 'classes/math-2',
+        routeBasePath: 'classes/math-2',
+        sidebarPath: require.resolve('./sidebars.js'),
+      },
+    ],
+    [
+      '@docusaurus/plugin-content-docs',
+      {
+        id: 'biancheng',
+        path: 'classes/programming',
+        routeBasePath: 'classes/programming',
+        sidebarPath: require.resolve('./sidebars.js'),
+      },
+    ],
+    [
+      '@docusaurus/plugin-content-docs',
+      {
         id: 'fundamentals',
         path: 'fundamentals',
         routeBasePath: 'fundamentals',
@@ -274,41 +283,48 @@ const config = {
         items: [
           {
             type: 'dropdown',
-            label: 'Technology',
+            label: 'Classes',
             position: 'left',
             items: [
-              // {
-              //   to: '/web-design/intro',
-              //   label: 'Web Design',
-              // },
+              {
+                to: '/classes/math-1/intro',
+                label: '数学 初一',
+              },
+              {
+                to: '/classes/math-2/intro',
+                label: '数学 初二',
+              },
+              {
+                to: '/classes/programming/intro',
+                label: '编程',
+              },
+            ],
+          },
+          {
+            type: 'dropdown',
+            label: 'Programming',
+            position: 'left',
+            items: [
+              {
+                type: 'html',
+                value: '<div class="dropdown__link" style="opacity:0.65;font-size:0.75rem;text-transform:uppercase;letter-spacing:0.04em;pointer-events:none">Technology</div>',
+              },
               {
                 to: '/scratch/intro',
                 label: 'Scratch',
               },
               {
-                to: '/scratch-jr/intro',
-                label: 'Scratch Jr',
-              },
-              {
-                to: '/lego/intro',
-                label: 'Lego Mindstorm',
-              },
-              {
-                to: '/react-native/lesson-notes',
-                label: 'React Native',
+                to: '/robotics/intro',
+                label: 'Robotics',
               },
               {
                 to: '/game-dev/intro',
                 label: 'Game Design',
               },
-            ]
-          },
-          {
-            type: 'dropdown',
-            label: 'Languages',
-            position: 'left',
-            items: [
-
+              {
+                type: 'html',
+                value: '<div class="dropdown__link" style="opacity:0.65;font-size:0.75rem;text-transform:uppercase;letter-spacing:0.04em;pointer-events:none">Languages</div>',
+              },
               {
                 to: '/python/lesson-notes',
                 label: 'Python',
@@ -321,12 +337,18 @@ const config = {
                 to: '/cpp/lesson-notes',
                 label: 'C++',
               },
-            ]
+            ],
           },
           {
-            to: '/fundamentals/intro',
-            label: 'Fundamentals',
+            type: 'dropdown',
+            label: 'Engineering',
             position: 'left',
+            items: [
+              {
+                to: '/fundamentals/intro',
+                label: 'CS Fundamentals',
+              },
+            ],
           },
           {
             type: 'dropdown',
