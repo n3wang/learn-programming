@@ -7,7 +7,7 @@ import TextField from '@mui/material/TextField';
 import Chip from '@mui/material/Chip';
 import Stack from '@mui/material/Stack';
 import Collapse from '@mui/material/Collapse';
-import Tooltip from '@mui/material/Tooltip';
+import CEBlock from '@site/src/components/interactive/shell/CEBlock';
 
 const LEVELS = [
   {
@@ -92,13 +92,11 @@ export default function CacheHierarchyVisualizer() {
   const getTraceEntry = (i) => trace.find(t => t.level === i);
 
   return (
-    <Box sx={{ p: 2 }}>
-      <Typography variant="h6" gutterBottom>Cache Hierarchy Visualizer</Typography>
-      <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 2 }}>
-        Click any level for details. Use the simulator below to trace a memory access through the hierarchy.
-      </Typography>
-
-      {/* Pyramid */}
+    <CEBlock
+      title="Cache Hierarchy Visualizer"
+      subtitle="Click any level for details. Access Memory traces a request down the pyramid."
+    >
+      <CEBlock.Section label="Hierarchy" noPaper>
       <Box sx={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '6px', mb: 3 }}>
         {LEVELS.map((level, i) => {
           const entry = getTraceEntry(i);
@@ -158,7 +156,9 @@ export default function CacheHierarchyVisualizer() {
         })}
       </Box>
 
-      {/* Detail panel */}
+      </CEBlock.Section>
+
+      <CEBlock.Section label="Level details" noPaper>
       <Collapse in={selected !== null}>
         {selected !== null && (
           <Paper sx={{ p: 2, mb: 2, borderLeft: `5px solid ${LEVELS[selected].color}` }}>
@@ -176,9 +176,9 @@ export default function CacheHierarchyVisualizer() {
         )}
       </Collapse>
 
-      {/* Simulation */}
-      <Paper sx={{ p: 2 }}>
-        <Typography variant="subtitle2" gutterBottom>Simulate a Memory Access</Typography>
+      </CEBlock.Section>
+
+      <CEBlock.Section label="Simulate a memory access">
         <Stack direction="row" spacing={2} alignItems="center" flexWrap="wrap" useFlexGap>
           <TextField
             size="small"
@@ -224,7 +224,7 @@ export default function CacheHierarchyVisualizer() {
             </Typography>
           </Box>
         )}
-      </Paper>
-    </Box>
+      </CEBlock.Section>
+    </CEBlock>
   );
 }

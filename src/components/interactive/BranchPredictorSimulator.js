@@ -11,6 +11,8 @@ import ToggleButtonGroup from '@mui/material/ToggleButtonGroup';
 import TextField from '@mui/material/TextField';
 import Tooltip from '@mui/material/Tooltip';
 
+import CEBlock from '@site/src/components/interactive/shell/CEBlock';
+
 const STATES_2BIT = {
   SN: { label: 'Strongly\nNot Taken', predict: 'N', color: '#ef5350' },
   WN: { label: 'Weakly\nNot Taken',   predict: 'N', color: '#ff7043' },
@@ -79,12 +81,11 @@ export default function BranchPredictorSimulator() {
   const accuracy = history.length > 0 ? (correct / history.length) * 100 : null;
 
   return (
-    <Box sx={{ p: 2 }}>
-      <Typography variant="h6" gutterBottom>Branch Predictor Simulator</Typography>
-
-      {/* Mode selector */}
-      <Paper sx={{ p: 2, mb: 2 }}>
-        <Typography variant="subtitle2" gutterBottom>Predictor Type</Typography>
+    <CEBlock
+      title="Branch Predictor Simulator"
+      subtitle="Record Taken / Not Taken and watch a 1-bit or 2-bit predictor update."
+    >
+      <CEBlock.Section label="Predictor type">
         <ToggleButtonGroup
           value={mode}
           exclusive
@@ -96,10 +97,10 @@ export default function BranchPredictorSimulator() {
         </ToggleButtonGroup>
       </Paper>
 
-      {/* 2-bit state machine visualization */}
+      </CEBlock.Section>
+
       {mode === '2bit' && (
-        <Paper sx={{ p: 2, mb: 2 }}>
-          <Typography variant="subtitle2" gutterBottom>State Machine — current state is highlighted</Typography>
+        <CEBlock.Section label="2-bit state machine">
           <Stack
             direction="row"
             spacing={0.5}
@@ -141,10 +142,11 @@ export default function BranchPredictorSimulator() {
         </Paper>
       )}
 
-      {/* 1-bit state */}
+        </CEBlock.Section>
+      )}
+
       {mode === '1bit' && (
-        <Paper sx={{ p: 2, mb: 2 }}>
-          <Typography variant="subtitle2">Current 1-bit State</Typography>
+        <CEBlock.Section label="1-bit state">
           <Typography variant="body2" sx={{ mt: 1 }}>
             Predicting: <strong>{last1 === 'T' ? 'Taken' : 'Not Taken'}</strong>
             {' '}(always mirrors the last observed outcome)
@@ -152,9 +154,10 @@ export default function BranchPredictorSimulator() {
         </Paper>
       )}
 
-      {/* Manual input + sequence runner */}
-      <Paper sx={{ p: 2, mb: 2 }}>
-        <Typography variant="subtitle2" gutterBottom>Record Branch Outcomes</Typography>
+        </CEBlock.Section>
+      )}
+
+      <CEBlock.Section label="Record branch outcomes">
         <Stack direction="row" spacing={1} flexWrap="wrap" useFlexGap sx={{ mb: 2 }}>
           <Button variant="contained" color="success" onClick={() => step('T')} size="small">
             Branch Taken (T)
