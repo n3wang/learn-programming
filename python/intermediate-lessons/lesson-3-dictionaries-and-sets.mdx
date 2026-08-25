@@ -1,0 +1,840 @@
+---
+sidebar_position: 3
+title: "Dictionaries and Sets"
+---
+
+> **Source:** Fluent Python, 2nd Edition — Chapter 3 by Luciano Ramalho
+
+Python programs are full of **dicts**, even when you never write `{...}`. Class attributes, instance `__dict__`, module namespaces, and keyword arguments are mappings. Built-ins live in `__builtins__.__dict__`. That is why `dict` is heavily optimized, and why **hash tables** show up again for `set` and `frozenset`.
+
+Sets give you the usual math: union, intersection, difference, subset tests. Used well, they replace nested loops and `if` chains.
+
+This chapter is about **using** mappings and sets. We will cover:
+
+- Dict comprehensions, `**` unpacking, and `|` / `|=` merges (3.9+)
+- Mapping patterns in `match` (3.10+)
+- `get`, `setdefault`, `defaultdict`, and `__missing__`
+- Nearby types: `OrderedDict`, `ChainMap`, `Counter`, views, read-only proxies
+- Sets, set comprehensions, and set ops on `dict.keys()` / `dict.items()`
+
+---
+
+## Why dicts matter
+
+Keys must be **hashable**: a stable `__hash__`, and `__eq__` that agrees with the hash. `str`, numbers, and `frozenset` are hashable. A `tuple` is hashable only if **every** item is. A `list` is never a valid dict key.
+
+Lookups by key are fast even for huge dicts. Since Python 3.7, insertion **order** of keys is part of the language. Dicts still cost extra memory compared to a plain array of pointers. Adding instance attributes *after* `__init__` can make an object’s `__dict__` less compact.
+
+`d.get(k, default)` is for “missing is OK.” `d[k]` is fail-fast (`KeyError`).
+
+<details>
+<summary>🧪 Hashable vs not</summary>
+
+<PistonRunner
+  lang="python"
+  interactive={false}
+  height="260px"
+  code={`print(hash((1, 2, (3, 4))))
+try:
+    hash((1, 2, [3, 4]))
+except TypeError as e:
+    print(type(e).__name__)
+d = {"ok": 1}
+print(d["ok"])
+`}
+/>
+
+</details>
+
+---
+
+## Mini quiz — keys and hashability
+
+<MultipleChoice
+  id="py-int-ch3-hash"
+  title="Hashable keys"
+  questions={[
+    {
+      prompt: 'Which can be a dict key?',
+      choices: ['[1, 2]', '{1, 2}', '(1, 2)', '{"a": 1}'],
+      answer: 2,
+      why: 'A tuple of ints is hashable. list, set, and dict are not.',
+    },
+    {
+      prompt: 'Since 3.7, iterating a dict yields keys',
+      choices: ['in hash order only', 'in insertion order', 'sorted always', 'randomly each time'],
+      answer: 1,
+      why: 'Insertion order is guaranteed. Sets still do not give you a useful order.',
+    },
+  ]}
+/>
+
+---
+
+## Dict comprehensions
+
+A **dictcomp** builds a mapping from `key: value` pairs:
+
+```python
+pairs = [(1, "a"), (2, "b")]
+swapped = {word: n for n, word in pairs}
+# {'a': 1, 'b': 2}
+```
+
+You can filter and transform in the same expression, same idea as listcomps.
+
+<details>
+<summary>🧪 Invert and filter</summary>
+
+<PistonRunner
+  lang="python"
+  interactive={false}
+  height="280px"
+  code={`rows = [(10, "oak"), (3, "elm"), (20, "pine")]
+by_name = {name: n for n, name in rows}
+small = {n: name.upper() for name, n in by_name.items() if n < 15}
+print(by_name)
+print(small)
+`}
+/>
+
+</details>
+
+---
+
+## Mini quiz — dictcomps
+
+<MultipleChoice
+  id="py-int-ch3-dictcomp"
+  title="Dict comprehensions"
+  questions={[
+    {
+      prompt: 'What does this produce?',
+      code: '{c: i for i, c in enumerate("ab")}',
+      codeLang: 'python',
+      choices: ["{'a': 0, 'b': 1}", "{0: 'a', 1: 'b'}", "['a', 'b']", 'Error'],
+      answer: 0,
+      why: 'The key is the character, the value is the index.',
+    },
+    {
+      prompt: '{} is',
+      choices: ['an empty set', 'an empty dict', 'None', 'a frozenset'],
+      answer: 1,
+      why: 'Empty set is set(). {} has always been an empty dict.',
+    },
+  ]}
+/>
+
+---
+
+## Challenge: invert pairs
+
+Each input token is `key=value` (both words). Build a dict with **values as keys** and original keys as values, using a **dict comprehension**. Print `newkey:oldkey` pairs sorted by the new key.
+
+<CodingExam
+  title="invert pairs"
+  heading="Challenge: invert pairs"
+  lang="python"
+  filename="main.py"
+  prompt="Dictcomp that swaps key and value."
+  sampleLog={`(input) a=1 b=2
+1:a 2:b`}
+  starter={`def invert(pairs):
+    # pairs is list of (k, v)
+    # TODO: return a dict
+    return {}
+`}
+  wrapSuffix={`
+pairs = [p.split("=", 1) for p in input().split()]
+inv = invert(pairs)
+print(" ".join(f"{k}:{inv[k]}" for k in sorted(inv)))
+`}
+  sourceChecks={[
+    { name: 'Uses a dict comprehension', pattern: '\\{[^\\}]*for .+ in', must: true, hint: '{v: k for k, v in pairs}' },
+  ]}
+  tests={[
+    { name: 'two pairs', stdin: 'a=1 b=2', equals: '1:a 2:b' },
+    { name: 'one pair', stdin: 'x=z', equals: 'z:x' },
+  ]}
+/>
+
+---
+
+## Unpacking and merging
+
+`**` splats a mapping into a dict literal or into keyword arguments. Later keys **win** in a literal:
+
+```python
+{"a": 0, **{"x": 1}, "y": 2, **{"x": 4}}
+# {'a': 0, 'x': 4, 'y': 2}
+```
+
+Python 3.9+ also has **union** on mappings, same symbols as sets:
+
+```python
+d1 | d2      # new dict; keys from d2 overwrite d1
+d1 |= d2     # update d1 in place
+```
+
+The left operand’s type is usually the result type for `|`.
+
+<details>
+<summary>🧪 ** and |</summary>
+
+<PistonRunner
+  lang="python"
+  interactive={false}
+  height="280px"
+  code={`left = {"a": 1, "b": 3}
+right = {"a": 2, "c": 6}
+print(left | right)
+print({**left, **right})
+merged = dict(left)
+merged |= right
+print(merged)
+`}
+/>
+
+</details>
+
+---
+
+## Mini quiz — merge
+
+<MultipleChoice
+  id="py-int-ch3-merge"
+  title="Merging mappings"
+  questions={[
+    {
+      prompt: 'After d1 | d2, if both have key "a", the value comes from',
+      choices: ['d1', 'd2', 'an error', 'a tuple of both'],
+      answer: 1,
+      why: 'The right mapping overwrites, same as {**d1, **d2}.',
+    },
+    {
+      prompt: 'd1 |= d2',
+      choices: ['always returns a new dict and leaves d1', 'updates d1 in place', 'only works on sets', 'deletes keys in d2'],
+      answer: 1,
+      why: '|= is in-place union, like update but as an operator.',
+    },
+  ]}
+/>
+
+---
+
+## Challenge: prefer the right
+
+Two dicts as `k=v` groups split by `|`. Merge with `|` (right wins). Print `key=value` for keys sorted.
+
+<CodingExam
+  title="prefer the right"
+  heading="Challenge: prefer the right"
+  lang="python"
+  filename="main.py"
+  prompt="Parse two mappings and return left | right."
+  sampleLog={`(input) a=1 b=3 | a=2 c=6
+a=2 b=3 c=6`}
+  starter={`def merge(left, right):
+    # TODO
+    return {}
+`}
+  wrapSuffix={`
+raw = input()
+a, b = raw.split("|")
+
+def parse(s):
+    out = {}
+    for tok in s.split():
+        k, v = tok.split("=", 1)
+        out[k] = v
+    return out
+
+m = merge(parse(a), parse(b))
+print(" ".join(f"{k}={m[k]}" for k in sorted(m)))
+`}
+  sourceChecks={[
+    { name: 'Uses | on mappings', pattern: '\\|', must: true, hint: 'return left | right' },
+  ]}
+  tests={[
+    { name: 'overwrite a', stdin: 'a=1 b=3 | a=2 c=6', equals: 'a=2 b=3 c=6' },
+    { name: 'disjoint', stdin: 'x=1 | y=2', equals: 'x=1 y=2' },
+  ]}
+/>
+
+---
+
+## Mapping patterns
+
+`match` can destructure **mappings**. Extra keys on the subject are OK (partial match). Key order in the pattern does not matter.
+
+```python
+match record:
+    case {"kind": "book", "who": name}:
+        ...
+    case {"kind": "film", "who": name}:
+        ...
+    case {"kind": "book"}:
+        ...  # incomplete book
+    case _:
+        ...
+```
+
+Capture leftovers with `**details` as the last entry in the pattern. Matching uses `get`-style lookup: it does **not** create missing keys (unlike some `defaultdict` tricks).
+
+<details>
+<summary>🧪 match a record</summary>
+
+<PistonRunner
+  lang="python"
+  interactive={false}
+  height="340px"
+  code={`def who(rec):
+    match rec:
+        case {"kind": "book", "who": name}:
+            return name
+        case {"kind": "film", "who": name}:
+            return name
+        case _:
+            return "?"
+
+print(who({"kind": "book", "who": "Ada", "title": "Notes"}))
+print(who({"kind": "film", "who": "Nolan"}))
+print(who({"kind": "book"}))
+`}
+/>
+
+</details>
+
+---
+
+## Mini quiz — mapping match
+
+<MultipleChoice
+  id="py-int-ch3-match"
+  title="Mapping patterns"
+  questions={[
+    {
+      prompt: 'A mapping pattern matches if',
+      choices: [
+        'the dict has exactly those keys, nothing else',
+        'at least the listed keys are present (extras allowed)',
+        'keys appear in the same order as the pattern',
+        'values are all strings',
+      ],
+      answer: 1,
+      why: 'Partial match. Sequence patterns are about length; mapping patterns are about keys.',
+    },
+    {
+      prompt: '**rest in a mapping pattern',
+      choices: ['must be first', 'captures unmatched keys', 'is forbidden', 'only works on lists'],
+      answer: 1,
+      why: 'Put **name last. **_ is not used (it would be pointless).',
+    },
+  ]}
+/>
+
+---
+
+## Challenge: label a record
+
+Tokens: `kind` then `who` then optional extra ignored. Print the `who` if `kind` is `book` or `film`, else `?`. Use `match` on a **dict**.
+
+<CodingExam
+  title="label a record"
+  heading="Challenge: label a record"
+  lang="python"
+  filename="main.py"
+  prompt="Build a dict and match on kind/who."
+  sampleLog={`(input) book Ada extra
+Ada`}
+  starter={`def who(rec):
+    match rec:
+        case _:
+            return "?"
+`}
+  wrapSuffix={`
+parts = input().split()
+rec = {"kind": parts[0]}
+if len(parts) > 1:
+    rec["who"] = parts[1]
+print(who(rec))
+`}
+  sourceChecks={[
+    { name: 'Uses match', pattern: 'match ', must: true, hint: 'match rec:' },
+  ]}
+  tests={[
+    { name: 'book', stdin: 'book Ada extra', equals: 'Ada' },
+    { name: 'film', stdin: 'film Nolan', equals: 'Nolan' },
+    { name: 'other', stdin: 'song X', equals: '?' },
+  ]}
+/>
+
+---
+
+## Missing keys: get, setdefault, defaultdict
+
+Updating a **mutable** value in a dict is a common trap:
+
+```python
+# two lookups (or three if missing)
+xs = d.get(k, [])
+xs.append(v)
+d[k] = xs
+```
+
+`setdefault` does “get or insert” in **one** hash lookup:
+
+```python
+d.setdefault(k, []).append(v)
+```
+
+`collections.defaultdict(list)` makes `d[k].append(v)` work even when `k` is new. The factory runs only for **`d[k]`** (`__getitem__`), not for `.get` or `in`.
+
+If you subclass `dict`, `__missing__` is called from `__getitem__` only. Prefer `collections.UserDict` when you grow a custom mapping: it stores items in `.data` and avoids `dict` shortcuts that force extra overrides.
+
+<details>
+<summary>🧪 setdefault vs defaultdict</summary>
+
+<PistonRunner
+  lang="python"
+  interactive={false}
+  height="300px"
+  code={`from collections import defaultdict
+
+plain = {}
+plain.setdefault("a", []).append(1)
+plain.setdefault("a", []).append(2)
+
+auto = defaultdict(list)
+auto["b"].append(3)
+print(plain, dict(auto))
+print("z" in auto, auto.get("z"))
+`}
+/>
+
+</details>
+
+---
+
+## Mini quiz — missing keys
+
+<MultipleChoice
+  id="py-int-ch3-missing"
+  title="Missing keys"
+  questions={[
+    {
+      prompt: 'defaultdict(list): k in dd when k was never assigned',
+      choices: ['True, and dd[k] is []', 'False until you use dd[k]', 'always KeyError', 'True only for .get'],
+      answer: 1,
+      why: 'in and get do not call the factory. dd[k] does.',
+    },
+    {
+      prompt: 'setdefault(k, []).append(x) is meant to',
+      choices: [
+        'replace get + append + assign with one lookup',
+        'delete k',
+        'sort the dict',
+        'freeze the list',
+      ],
+      answer: 0,
+      why: 'You get the existing list or a new one, then mutate it.',
+    },
+  ]}
+/>
+
+---
+
+## Challenge: group values
+
+Tokens `name score` repeating. Group scores per name with `setdefault`. Print names sorted, each as `name:s1,s2`.
+
+<CodingExam
+  title="group values"
+  heading="Challenge: group values"
+  lang="python"
+  filename="main.py"
+  prompt="Use setdefault to append scores onto lists."
+  sampleLog={`(input) a 1 b 2 a 3
+a:1,3 b:2`}
+  starter={`def group(pairs):
+    d = {}
+    # TODO: setdefault
+    return d
+`}
+  wrapSuffix={`
+toks = input().split()
+pairs = list(zip(toks[0::2], toks[1::2]))
+d = group(pairs)
+print(" ".join(f"{k}:{','.join(d[k])}" for k in sorted(d)))
+`}
+  sourceChecks={[
+    { name: 'Calls setdefault', pattern: 'setdefault', must: true, hint: 'd.setdefault(name, []).append(score)' },
+  ]}
+  tests={[
+    { name: 'two names', stdin: 'a 1 b 2 a 3', equals: 'a:1,3 b:2' },
+    { name: 'one', stdin: 'z 9', equals: 'z:9' },
+  ]}
+/>
+
+---
+
+## Other mapping types
+
+| Type | Role |
+|---|---|
+| `OrderedDict` | Equality **includes order**; `move_to_end`; better when you reorder often (LRU-style). Plain `dict` already keeps insertion order. |
+| `ChainMap` | Search several mappings as one. Writes go to the **first** map. |
+| `Counter` | Integer counts; `+` / `-`; `most_common(n)`. |
+| `types.MappingProxyType` | Read-only **view** of a live dict (updates to the original show through). |
+| `shelve` | Disk-backed mapping of string keys to picklable values (know the pickle caveats). |
+
+`d.keys()`, `.values()`, `.items()` return **views**: cheap, live, not a copied list. `values` is not a set. `keys` always behaves like a set of hashable keys. `items` is a set only if **values** are hashable too.
+
+```python
+d1.keys() & d2.keys()   # set of shared keys
+```
+
+<details>
+<summary>🧪 Counter, ChainMap, views</summary>
+
+<PistonRunner
+  lang="python"
+  interactive={false}
+  height="320px"
+  code={`from collections import Counter, ChainMap
+
+print(Counter("abba").most_common(2))
+front, back = {"a": 1}, {"a": 9, "b": 2}
+print(ChainMap(front, back)["a"], ChainMap(front, back)["b"])
+d = {"x": 1, "y": 2, "z": 3}
+print(d.keys() & {"y", "z", "q"})
+`}
+/>
+
+</details>
+
+---
+
+## Mini quiz — variants and views
+
+<MultipleChoice
+  id="py-int-ch3-variants"
+  title="Variants and views"
+  questions={[
+    {
+      prompt: 'ChainMap(a, b)["k"] if k is in both',
+      choices: ['uses b', 'uses a (the first map)', 'errors', 'sums the values'],
+      answer: 1,
+      why: 'Lookup walks the maps in constructor order and stops at the first hit.',
+    },
+    {
+      prompt: 'd.keys() & e.keys() gives',
+      choices: ['a list of tuples', 'a set of shared keys', 'a new dict', 'only if OrderedDict'],
+      answer: 1,
+      why: 'Key views support set operators.',
+    },
+  ]}
+/>
+
+---
+
+## Challenge: shared keys
+
+Two `k=v` groups split by `|`. Print the **shared keys** sorted, space-separated, using **key views** and `&`. If none, print `-`.
+
+<CodingExam
+  title="shared keys"
+  heading="Challenge: shared keys"
+  lang="python"
+  filename="main.py"
+  prompt="Return sorted(left.keys() & right.keys())"
+  sampleLog={`(input) a=1 b=2 | b=9 c=3
+b`}
+  starter={`def shared(left, right):
+    # TODO
+    return set()
+`}
+  wrapSuffix={`
+def parse(s):
+    out = {}
+    for tok in s.split():
+        k, v = tok.split("=", 1)
+        out[k] = v
+    return out
+
+a, b = input().split("|")
+keys = sorted(shared(parse(a), parse(b)))
+print(" ".join(keys) if keys else "-")
+`}
+  sourceChecks={[
+    { name: 'Set-op on keys', pattern: '\\.keys\\(\\)\\s*&|&\\s*\\w+\\.keys', must: true, hint: 'left.keys() & right.keys()' },
+  ]}
+  tests={[
+    { name: 'one overlap', stdin: 'a=1 b=2 | b=9 c=3', equals: 'b' },
+    { name: 'two', stdin: 'a=1 b=2 | a=0 b=0', equals: 'a b' },
+    { name: 'none', stdin: 'a=1 | z=2', equals: '-' },
+  ]}
+/>
+
+---
+
+## Sets
+
+A **set** holds unique hashable objects. `frozenset` is the immutable (and hashable) sibling, so it can live inside another set or be a dict key.
+
+```python
+{"spam", "eggs"} | {"eggs", "bacon"}   # union
+needles & haystack                     # intersection
+```
+
+Empty set is `set()`, never `{}`. `{1, 2, 3}` is faster than `set([1, 2, 3])`.
+
+**Setcomps:** `{x for x in items if ...}`
+
+Operators like `&` want set operands. Methods such as `.union(it)` accept any iterable of hashable items. Star-unpack: `{*a, *b, *c}`.
+
+Hash tables mean: membership is fast; sets use extra memory; **do not** rely on element order; growing a set can reshuffle existing items.
+
+To drop duplicates but keep **first** seen order, `list(dict.fromkeys(items))` is the usual trick (dict keys are unique and ordered).
+
+<details>
+<summary>🧪 Set ops and setcomp</summary>
+
+<PistonRunner
+  lang="python"
+  interactive={false}
+  height="280px"
+  code={`needles = {"ada", "lin"}
+hay = {"ada", "grace", "lin", "barbara"}
+print(len(needles & hay))
+print({w[0] for w in hay})
+print(list(dict.fromkeys(["a", "b", "a", "c"])))
+`}
+/>
+
+</details>
+
+---
+
+## Mini quiz — sets
+
+<MultipleChoice
+  id="py-int-ch3-sets"
+  title="Sets"
+  questions={[
+    {
+      prompt: 'len(needles & haystack) counts',
+      choices: ['concatenation', 'items in both sets', 'items in either set', 'items only in needles'],
+      answer: 1,
+      why: 'That is intersection size.',
+    },
+    {
+      prompt: 'You can put a set inside a set if',
+      choices: ['never', 'you wrap it in a list', 'you use frozenset for the inner one', 'the outer one is a dict'],
+      answer: 2,
+      why: 'set is unhashable; frozenset is hashable.',
+    },
+  ]}
+/>
+
+---
+
+## Challenge: overlap count
+
+Two word lists split by `|`. Print how many words appear in **both**, using set `&`.
+
+<CodingExam
+  title="overlap count"
+  heading="Challenge: overlap count"
+  lang="python"
+  filename="main.py"
+  prompt="len(set(left) & set(right))"
+  sampleLog={`(input) ada lin | ada grace lin
+2`}
+  starter={`def overlap(left, right):
+    # TODO
+    return 0
+`}
+  wrapSuffix={`
+a, b = input().split("|")
+print(overlap(a.split(), b.split()))
+`}
+  sourceChecks={[
+    { name: 'Uses intersection', pattern: '&|intersection', must: true, hint: 'set(a) & set(b)' },
+  ]}
+  tests={[
+    { name: 'two hits', stdin: 'ada lin | ada grace lin', equals: '2' },
+    { name: 'none', stdin: 'x | y z', equals: '0' },
+    { name: 'dupes in left', stdin: 'a a | a b', equals: '1' },
+  ]}
+/>
+
+---
+
+## Chapter summary
+
+:::important Key takeaways
+
+1. Dicts are everywhere in the language. Keys must be hashable; order is insertion order.
+2. Dictcomps, `**`, and `|` / `|=` are the modern ways to build and merge mappings.
+3. Mapping `match` is a partial match on keys; it will not auto-insert missing keys.
+4. Prefer `setdefault` or `defaultdict` when you grow lists (or other mutables) per key. `__missing__` only hooks `d[k]`.
+5. Views are live; `keys()` (and `items()` when values are hashable) speak set operators.
+6. Sets enforce uniqueness and express algebra (`| & - ^`). Empty set is `set()`.
+
+:::
+
+## Exercises
+
+<ExerciseSet>
+<Exercise title="Set comprehension" anchor="exercise-setcomp">
+
+:::tip Activity: Set comprehension
+Read words. Print a **sorted** unique list of **first letters**, built with a set comprehension, space-separated.
+
+<CodingExam
+  title="Set comprehension"
+  heading="exercise-setcomp"
+  lang="python"
+  filename="main.py"
+  prompt="{w[0] for w in words} then sorted print"
+  sampleLog={`(input) ada lin grace
+a g l`}
+  starter={`def initials(words):
+    # TODO
+    return set()
+`}
+  wrapSuffix={`
+print(" ".join(sorted(initials(input().split()))))
+`}
+  sourceChecks={[
+    { name: 'Set comprehension', pattern: '\\{[^\\[]*for .+ in', must: true, hint: '{w[0] for w in words}' },
+  ]}
+  tests={[
+    { name: 'three', stdin: 'ada lin grace', equals: 'a g l' },
+    { name: 'repeat', stdin: 'amy ada', equals: 'a' },
+  ]}
+/>
+
+:::
+
+</Exercise>
+
+<Exercise title="Most common" anchor="exercise-counter">
+
+:::tip Activity: Most common
+Read a word. Using `Counter`, print the most common letter and its count as `letter count`. Ties: Counter’s `most_common(1)` is enough.
+
+<CodingExam
+  title="Most common"
+  heading="exercise-counter"
+  lang="python"
+  filename="main.py"
+  prompt="Counter(word).most_common(1)"
+  sampleLog={`(input) banana
+a 3`}
+  starter={`from collections import Counter
+
+def top_letter(word):
+    # TODO
+    return "", 0
+`}
+  wrapSuffix={`
+ch, n = top_letter(input().strip())
+print(ch, n)
+`}
+  sourceChecks={[
+    { name: 'Uses Counter', pattern: 'Counter', must: true, hint: 'Counter(word)' },
+  ]}
+  tests={[
+    { name: 'banana', stdin: 'banana', equals: 'a 3' },
+    { name: 'zzz', stdin: 'zzz', equals: 'z 3' },
+  ]}
+/>
+
+:::
+
+</Exercise>
+
+<Exercise title="First map wins" anchor="exercise-chainmap">
+
+:::tip Activity: First map wins
+`k=v` groups split by `|`. Look up key `q` (last token after `?`). Use `ChainMap`. Print the value.
+
+Input shape: `a=1 b=2 | a=9 c=3 ? a`
+
+<CodingExam
+  title="First map wins"
+  heading="exercise-chainmap"
+  lang="python"
+  filename="main.py"
+  prompt="ChainMap(left, right)[key]"
+  sampleLog={`(input) a=1 b=2 | a=9 c=3 ? a
+1`}
+  starter={`from collections import ChainMap
+
+def lookup(left, right, key):
+    # TODO
+    return ""
+`}
+  wrapSuffix={`
+body, key = input().split("?")
+a, b = body.split("|")
+
+def parse(s):
+    out = {}
+    for tok in s.split():
+        k, v = tok.split("=", 1)
+        out[k] = v
+    return out
+
+print(lookup(parse(a), parse(b), key.strip()))
+`}
+  sourceChecks={[
+    { name: 'Uses ChainMap', pattern: 'ChainMap', must: true, hint: 'ChainMap(left, right)[key]' },
+  ]}
+  tests={[
+    { name: 'a from first', stdin: 'a=1 b=2 | a=9 c=3 ? a', equals: '1' },
+    { name: 'c from second', stdin: 'a=1 | a=9 c=3 ? c', equals: '3' },
+  ]}
+/>
+
+:::
+
+</Exercise>
+
+<Exercise title="Frozen inner set" anchor="exercise-frozenset">
+
+:::tip Activity: Frozen inner set
+Two lines are not available — one line of words. Put them in a `frozenset`, then in a set of one element. Print `ok` if `hash(container)` works.
+
+<CodingExam
+  title="Frozen inner set"
+  heading="exercise-frozenset"
+  lang="python"
+  filename="main.py"
+  prompt="s = {frozenset(words)}; hash(s); print ok"
+  sampleLog={`(input) a b a
+ok`}
+  starter={`def nest(words):
+    # TODO: set containing a frozenset
+    return set()
+`}
+  wrapSuffix={`
+s = nest(input().split())
+hash(s)
+print("ok")
+`}
+  sourceChecks={[
+    { name: 'Uses frozenset', pattern: 'frozenset', must: true, hint: '{frozenset(words)}' },
+  ]}
+  tests={[
+    { name: 'words', stdin: 'a b a', equals: 'ok' },
+    { name: 'one', stdin: 'z', equals: 'ok' },
+  ]}
+/>
+
+:::
+
+</Exercise>
+</ExerciseSet>

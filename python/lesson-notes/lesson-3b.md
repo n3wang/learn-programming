@@ -1,4 +1,5 @@
 ---
+sidebar_position: 7
 title: Chapter 3b Logical vs Syntax Errors
 
 ---

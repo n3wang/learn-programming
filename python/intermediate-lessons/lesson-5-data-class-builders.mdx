@@ -1,0 +1,606 @@
+---
+sidebar_position: 5
+title: "Data Class Builders"
+---
+
+> **Source:** Fluent Python, 2nd Edition — Chapter 5 by Luciano Ramalho
+
+A **data class** is a type that is mostly fields: a record with a decent `__repr__` and `__eq__`, not a 20-line `__init__`. Python gives you three shortcuts:
+
+| Builder | Since | Instances | Class syntax |
+|---|---|---|---|
+| `collections.namedtuple` | 2.6 | Immutable (`tuple`) | Factory call |
+| `typing.NamedTuple` | 3.5 / class body 3.6 | Immutable (`tuple`) | Yes, with annotations |
+| `@dataclasses.dataclass` | 3.7 | Mutable by default; `frozen=True` | Decorator, no extra base |
+
+`TypedDict` only annotates mappings; it does not build instantiable classes. Skip it here.
+
+None of these *require* you to inherit a special business base. `namedtuple` / `NamedTuple` produce **tuple subclasses**. `@dataclass` injects methods; your class still subclasses `object` unless you say otherwise.
+
+---
+
+## Why not a hand-written bag of attributes?
+
+A plain class with only `__init__` has a useless `repr` and `==` that compares **identity**, not field values. The builders generate `__init__`, `__repr__`, and `__eq__` (and more, if you ask).
+
+<details>
+<summary>🧪 namedtuple vs homemade</summary>
+
+<PistonRunner
+  lang="python"
+  interactive={false}
+  height="300px"
+  code={`from collections import namedtuple
+
+class Homemade:
+    def __init__(self, x, y):
+        self.x, self.y = x, y
+
+Pt = namedtuple("Pt", "x y")
+a, b = Homemade(1, 2), Homemade(1, 2)
+p, q = Pt(1, 2), Pt(1, 2)
+print(a == b, p == q)
+print(p)
+`}
+/>
+
+</details>
+
+---
+
+## Mini quiz — the three builders
+
+<MultipleChoice
+  id="py-int-ch5-overview"
+  title="Data class builders"
+  questions={[
+    {
+      prompt: 'collections.namedtuple instances are',
+      choices: ['always mutable dicts', 'tuple subclasses (immutable)', 'frozen dataclasses only', 'not comparable'],
+      answer: 1,
+      why: 'Same memory idea as a tuple; names live on the class.',
+    },
+    {
+      prompt: '@dataclass without frozen=True builds',
+      choices: ['tuples', 'mutable objects', 'only mappings', 'abstract classes'],
+      answer: 1,
+      why: 'You can assign fields after init unless frozen=True.',
+    },
+  ]}
+/>
+
+---
+
+## Challenge: named point
+
+Build `Pt = namedtuple("Pt", "x y")`. Read two integers. Print `x+y` using named fields (not `p[0]`).
+
+<CodingExam
+  title="named point"
+  heading="Challenge: named point"
+  lang="python"
+  filename="main.py"
+  prompt="namedtuple with fields x y; return p.x + p.y"
+  sampleLog={`(input) 3 4
+7`}
+  starter={`from collections import namedtuple
+
+# TODO: Pt = namedtuple(...)
+
+def add_xy(a, b):
+    p = Pt(a, b)
+    return 0
+`}
+  wrapSuffix={`
+a, b = [int(x) for x in input().split()]
+print(add_xy(a, b))
+`}
+  sourceChecks={[
+    { name: 'Uses namedtuple', pattern: 'namedtuple', must: true, hint: 'namedtuple("Pt", "x y")' },
+    { name: 'Uses .x or .y', pattern: '\\.x|\\.y', must: true, hint: 'p.x + p.y' },
+  ]}
+  tests={[
+    { name: '3 4', stdin: '3 4', equals: '7' },
+    { name: '0 1', stdin: '0 1', equals: '1' },
+  ]}
+/>
+
+---
+
+## namedtuple extras
+
+You can index as well as use names. `_fields` lists names. `_make(iterable)` is like `Cls(*row)`. `_asdict()` is a regular `dict` (insertion-ordered). `_replace(**kwargs)` returns a **new** instance. `defaults=` fills the rightmost fields.
+
+Injecting a method by assignment (`Cls.f = fn`) works but is a last resort — prefer a `class` body (`NamedTuple` or `@dataclass`).
+
+---
+
+## typing.NamedTuple
+
+Same tuple core, plus annotations:
+
+```python
+from typing import NamedTuple
+
+class Coordinate(NamedTuple):
+    lat: float
+    lon: float
+    reference: str = "WGS84"
+```
+
+`NamedTuple` in the bases list is **not** a real superclass you `issubclass` against; the result **is** a `tuple` subclass. Type hints are **not** checked when the program runs. A checker (Mypy, your IDE) reads them at rest.
+
+A bare `x: int` on a **plain** class only fills `__annotations__`. `NamedTuple` / `@dataclass` turn annotated names into constructor fields. A name **without** an annotation (`c = "spam"`) stays a **class** attribute, not a field.
+
+Prefer `typing.get_type_hints(cls)` over reading `__annotations__` yourself.
+
+<details>
+<summary>🧪 hints are documentation</summary>
+
+<PistonRunner
+  lang="python"
+  interactive={false}
+  height="260px"
+  code={`from typing import NamedTuple
+
+class Pair(NamedTuple):
+    a: int
+    b: int = 0
+
+print(Pair("nope", None))
+print(Pair(1))
+`}
+/>
+
+</details>
+
+---
+
+## Mini quiz — hints and NamedTuple
+
+<MultipleChoice
+  id="py-int-ch5-hints"
+  title="Type hints"
+  questions={[
+    {
+      prompt: 'Pair(a: int) still accepts Pair("x") at runtime',
+      choices: ['False, Python raises TypeError', 'True, the interpreter does not enforce hints', 'Only if frozen', 'Only on Windows'],
+      answer: 1,
+      why: 'Hints are for tools. The constructor still stores whatever you pass.',
+    },
+    {
+      prompt: 'On a NamedTuple, a field with = value is',
+      choices: ['illegal', 'a default for that constructor argument', 'always a class-only attribute', 'JSON'],
+      answer: 1,
+      why: 'Same idea as a default parameter. Fields after the first default also need defaults.',
+    },
+  ]}
+/>
+
+---
+
+## Challenge: as dict
+
+`typing.NamedTuple` with `name: str` and `n: int`. Read `word count`. Print `name=... n=...` from `_asdict()` items in that order.
+
+<CodingExam
+  title="as dict"
+  heading="Challenge: as dict"
+  lang="python"
+  filename="main.py"
+  prompt="NamedTuple then _asdict()"
+  sampleLog={`(input) Ada 3
+name=Ada n=3`}
+  starter={`from typing import NamedTuple
+
+class Item(NamedTuple):
+    name: str
+    n: int
+
+def line(item):
+    # TODO: use item._asdict()
+    return ""
+`}
+  wrapSuffix={`
+w, n = input().split()
+print(line(Item(w, int(n))))
+`}
+  sourceChecks={[
+    { name: 'Calls _asdict', pattern: '_asdict', must: true, hint: 'item._asdict()' },
+  ]}
+  tests={[
+    { name: 'Ada 3', stdin: 'Ada 3', equals: 'name=Ada n=3' },
+    { name: 'z 0', stdin: 'z 0', equals: 'name=z n=0' },
+  ]}
+/>
+
+---
+
+## @dataclass
+
+```python
+from dataclasses import dataclass, field, asdict, replace
+
+@dataclass
+class Player:
+    name: str
+    score: int = 0
+```
+
+Useful decorator flags: `frozen=True` (assign raises `FrozenInstanceError`), `order=True` (sort by fields). `eq` and `frozen` together make instances **hashable**.
+
+**Never** write `guests: list = []`. `@dataclass` rejects `list`/`dict`/`set` literals as defaults. Use:
+
+```python
+tags: list = field(default_factory=list)
+```
+
+`__post_init__` runs at the end of the generated `__init__` (validation, derived fields). `InitVar` is a constructor-only argument; `ClassVar` keeps a name off the instance fields.
+
+`dataclasses.asdict` / `replace` mirror `_asdict` / `_replace`. `fields(cls)` lists `Field` objects.
+
+A long record (Dublin Core-style) is a typical `@dataclass`: many optional fields, `field(default_factory=list)`, maybe a custom `__repr__`.
+
+<details>
+<summary>🧪 default_factory</summary>
+
+<PistonRunner
+  lang="python"
+  interactive={false}
+  height="300px"
+  code={`from dataclasses import dataclass, field
+
+@dataclass
+class Bag:
+    name: str
+    items: list = field(default_factory=list)
+
+a, b = Bag("a"), Bag("b")
+a.items.append("x")
+print(a.items, b.items)
+`}
+/>
+
+</details>
+
+---
+
+## Mini quiz — dataclass
+
+<MultipleChoice
+  id="py-int-ch5-dc"
+  title="@dataclass"
+  questions={[
+    {
+      prompt: 'guests: list = [] on a dataclass',
+      choices: ['is the recommended empty list', 'raises ValueError; use default_factory', 'freezes the class', 'only works with NamedTuple'],
+      answer: 1,
+      why: 'Shared mutable default. field(default_factory=list) gives each instance its own list.',
+    },
+    {
+      prompt: 'frozen=True means',
+      choices: ['fields are encrypted', 'assignment to fields is blocked (best-effort)', 'the class cannot be imported', 'JSON only'],
+      answer: 1,
+      why: 'Generated __setattr__ raises. It is not a deep freeze of nested lists.',
+    },
+  ]}
+/>
+
+---
+
+## Challenge: own list each time
+
+`@dataclass` with `name: str` and `nums: list` via `default_factory`. Read a name, then integers. Append them and print `len` of `.nums`.
+
+<CodingExam
+  title="own list each time"
+  heading="Challenge: own list each time"
+  lang="python"
+  filename="main.py"
+  prompt="field(default_factory=list); append input ints"
+  sampleLog={`(input) bag 1 2 3
+3`}
+  starter={`from dataclasses import dataclass, field
+
+@dataclass
+class Bag:
+    name: str
+    nums: list = field(default_factory=list)
+
+def fill(name, values):
+    b = Bag(name)
+    # TODO: append each value to b.nums
+    return 0
+`}
+  wrapSuffix={`
+parts = input().split()
+print(fill(parts[0], [int(x) for x in parts[1:]]))
+`}
+  sourceChecks={[
+    { name: 'default_factory', pattern: 'default_factory', must: true, hint: 'field(default_factory=list)' },
+  ]}
+  tests={[
+    { name: 'three', stdin: 'bag 1 2 3', equals: '3' },
+    { name: 'empty nums', stdin: 'z', equals: '0' },
+  ]}
+/>
+
+---
+
+## Code smell, then match
+
+A class with only getters for data and **no behavior** can mean the real logic is scattered. That is Fowler’s **data class** smell — not a ban on `namedtuple`. Fine uses: throwaway scripts, **import/export** records you treat as immutable at the boundary, or **scaffolding** you later grow methods onto.
+
+`match` can destructure **any** instance. `case float():` is special for a few builtins. `case float:` (no call) accidentally matches **everything** and binds the name `float`.
+
+Keyword: `case City(continent="Asia", country=cc):`. Positional uses `__match_args__` (the builders fill it): `case City("Asia", _, country):`.
+
+<details>
+<summary>🧪 class pattern</summary>
+
+<PistonRunner
+  lang="python"
+  interactive={false}
+  height="320px"
+  code={`from typing import NamedTuple
+
+class City(NamedTuple):
+    continent: str
+    name: str
+
+def label(city):
+    match city:
+        case City(continent="Asia"):
+            return "asia"
+        case City():
+            return "other"
+
+print(label(City("Asia", "Tokyo")))
+print(label(City("Europe", "Paris")))
+`}
+/>
+
+</details>
+
+---
+
+## Mini quiz — smell and match
+
+<MultipleChoice
+  id="py-int-ch5-match"
+  title="Smell and match"
+  questions={[
+    {
+      prompt: 'case float:  # no parentheses',
+      choices: ['matches only floats', 'is a bug: binds any subject to the name float', 'is required syntax', 'freezes the value'],
+      answer: 1,
+      why: 'Use float() or float(x) for the builtin class pattern.',
+    },
+    {
+      prompt: 'A data-only class is a smell when',
+      choices: [
+        'you used namedtuple once in a script',
+        'other code constantly pokes its fields and the behavior belongs on the object',
+        'you added __repr__',
+        'it is frozen',
+      ],
+      answer: 1,
+      why: 'Move operations next to the data, or keep the type as a DTO at a system edge.',
+    },
+  ]}
+/>
+
+---
+
+## Challenge: match continent
+
+`NamedTuple` City with `continent` and `name`. Read `continent name`. Print `asia` if continent is `Asia`, else `other`. Use `match`.
+
+<CodingExam
+  title="match continent"
+  heading="Challenge: match continent"
+  lang="python"
+  filename="main.py"
+  prompt="match City(continent='Asia') or similar"
+  sampleLog={`(input) Asia Tokyo
+asia`}
+  starter={`from typing import NamedTuple
+
+class City(NamedTuple):
+    continent: str
+    name: str
+
+def label(city):
+    match city:
+        case _:
+            return "other"
+`}
+  wrapSuffix={`
+cont, name = input().split()
+print(label(City(cont, name)))
+`}
+  sourceChecks={[
+    { name: 'Uses match', pattern: 'match ', must: true, hint: 'match city:' },
+    { name: 'Matches City', pattern: 'City\\(', must: true, hint: "case City(continent='Asia'):" },
+  ]}
+  tests={[
+    { name: 'Asia', stdin: 'Asia Tokyo', equals: 'asia' },
+    { name: 'Europe', stdin: 'Europe Paris', equals: 'other' },
+  ]}
+/>
+
+---
+
+## Chapter summary
+
+:::important Key takeaways
+
+1. `namedtuple` / `NamedTuple` / `@dataclass` generate the boring special methods.
+2. Tuple builders are immutable; dataclass is mutable unless `frozen=True`.
+3. Type hints are not runtime checks.
+4. Mutable field defaults need `field(default_factory=...)`.
+5. `_asdict` / `asdict` and `_replace` / `replace` clone with edits.
+6. Data-only types can be a design smell; class patterns use `__match_args__` or keywords.
+
+:::
+
+## Exercises
+
+<ExerciseSet>
+<Exercise title="Replace a field" anchor="exercise-replace">
+
+:::tip Activity: Replace a field
+`namedtuple("Pt", "x y")`. Read `x y nx`. Return `_replace(x=nx)` and print the new `x` and `y`.
+
+<CodingExam
+  title="Replace a field"
+  heading="exercise-replace"
+  lang="python"
+  filename="main.py"
+  prompt="p._replace(x=nx)"
+  sampleLog={`(input) 1 2 9
+9 2`}
+  starter={`from collections import namedtuple
+
+Pt = namedtuple("Pt", "x y")
+
+def moved(x, y, nx):
+    p = Pt(x, y)
+    # TODO
+    return p
+`}
+  wrapSuffix={`
+x, y, nx = [int(n) for n in input().split()]
+q = moved(x, y, nx)
+print(q.x, q.y)
+`}
+  sourceChecks={[
+    { name: 'Uses _replace', pattern: '_replace', must: true, hint: 'p._replace(x=nx)' },
+  ]}
+  tests={[
+    { name: '1 2 9', stdin: '1 2 9', equals: '9 2' },
+    { name: '0 5 3', stdin: '0 5 3', equals: '3 5' },
+  ]}
+/>
+
+:::
+
+</Exercise>
+
+<Exercise title="Frozen score" anchor="exercise-frozen">
+
+:::tip Activity: Frozen score
+`@dataclass(frozen=True)` with `n: int`. Read an int, build the object, print `n`. (If you assign to `.n` after init, it should fail — do not assign.)
+
+<CodingExam
+  title="Frozen score"
+  heading="exercise-frozen"
+  lang="python"
+  filename="main.py"
+  prompt="@dataclass(frozen=True)"
+  sampleLog={`(input) 8
+8`}
+  starter={`from dataclasses import dataclass
+
+# TODO: frozen dataclass Score with field n
+
+def show(k):
+    return Score(k).n
+`}
+  wrapSuffix={`
+print(show(int(input())))
+`}
+  sourceChecks={[
+    { name: 'frozen=True', pattern: 'frozen\\s*=\\s*True', must: true, hint: '@dataclass(frozen=True)' },
+  ]}
+  tests={[
+    { name: '8', stdin: '8', equals: '8' },
+    { name: '0', stdin: '0', equals: '0' },
+  ]}
+/>
+
+:::
+
+</Exercise>
+
+<Exercise title="Post-init handle" anchor="exercise-post-init">
+
+:::tip Activity: Post-init handle
+`@dataclass` with `name: str` and `handle: str = ""`. In `__post_init__`, if handle is empty, set it to the first word of `name`. Read a full name (one line). Print the handle.
+
+<CodingExam
+  title="Post-init handle"
+  heading="exercise-post-init"
+  lang="python"
+  filename="main.py"
+  prompt="__post_init__ default handle from name"
+  sampleLog={`(input) Leo Rochael
+Leo`}
+  starter={`from dataclasses import dataclass
+
+@dataclass
+class Member:
+    name: str
+    handle: str = ""
+
+    def __post_init__(self):
+        # TODO
+        pass
+`}
+  wrapSuffix={`
+print(Member(input().strip()).handle)
+`}
+  sourceChecks={[
+    { name: 'Defines __post_init__', pattern: 'def __post_init__', must: true, hint: 'def __post_init__(self):' },
+  ]}
+  tests={[
+    { name: 'two words', stdin: 'Leo Rochael', equals: 'Leo' },
+    { name: 'one word', stdin: 'Ada', equals: 'Ada' },
+  ]}
+/>
+
+:::
+
+</Exercise>
+
+<Exercise title="asdict helper" anchor="exercise-asdict">
+
+:::tip Activity: asdict helper
+`@dataclass` `Pair` with `a: int` and `b: int`. Read two ints. Print `a+b` using values from `dataclasses.asdict`.
+
+<CodingExam
+  title="asdict helper"
+  heading="exercise-asdict"
+  lang="python"
+  filename="main.py"
+  prompt="asdict(p) then add a and b"
+  sampleLog={`(input) 2 5
+7`}
+  starter={`from dataclasses import dataclass, asdict
+
+@dataclass
+class Pair:
+    a: int
+    b: int
+
+def add(p):
+    # TODO
+    return 0
+`}
+  wrapSuffix={`
+x, y = [int(n) for n in input().split()]
+print(add(Pair(x, y)))
+`}
+  sourceChecks={[
+    { name: 'Calls asdict', pattern: 'asdict', must: true, hint: 'asdict(p)' },
+  ]}
+  tests={[
+    { name: '2 5', stdin: '2 5', equals: '7' },
+    { name: '0 0', stdin: '0 0', equals: '0' },
+  ]}
+/>
+
+:::
+
+</Exercise>
+</ExerciseSet>

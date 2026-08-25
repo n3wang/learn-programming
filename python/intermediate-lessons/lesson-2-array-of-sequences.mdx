@@ -1,0 +1,780 @@
+---
+sidebar_position: 2
+title: "An Array of Sequences"
+---
+
+> **Source:** Fluent Python, 2nd Edition — Chapter 2 by Luciano Ramalho
+
+Strings, lists, byte strings, arrays, and many library types all speak the same **sequence** language: you can iterate, slice, concatenate, and ask for `len`. Python inherited that idea from ABC, the teaching language Guido van Rossum worked on before Python. If you learn the shared interface once, you stop rewriting the same loops for every new type.
+
+This chapter is about **using** sequences that already exist. Building your own sequence class (with `__getitem__` and friends) is a later topic.
+
+We will cover:
+
+- Container sequences vs flat sequences, and mutable vs immutable
+- List comprehensions and generator expressions
+- Tuples as records vs tuples as frozen lists
+- Unpacking and simple sequence patterns (`match`)
+- Reading and writing slices
+- When to reach for `array` or `deque`
+
+---
+
+## Built-in sequences at a glance
+
+Two useful splits:
+
+| Split | Meaning | Examples |
+|---|---|---|
+| **Container** | Stores **references** to Python objects (any types, nesting OK) | `list`, `tuple`, `collections.deque` |
+| **Flat** | Stores **raw values** in one compact block | `str`, `bytes`, `array.array` |
+| **Mutable** | You can change contents in place | `list`, `bytearray`, `array.array`, `deque` |
+| **Immutable** | Contents cannot be replaced in place | `tuple`, `str`, `bytes` |
+
+A `tuple` of three floats is several Python objects (the tuple plus each `float`). An `array.array('d', ...)` of three doubles is one object holding three machine floats. Flat types win on memory; they cannot hold arbitrary objects.
+
+`list` and `tuple` do not subclass `collections.abc.Sequence` in the usual inheritance sense, but they still **pass** `issubclass(..., Sequence)` because they are registered as virtual subclasses. You can treat them as sequences in everyday code.
+
+:::tip
+When you meet a new sequence type, ask: *container or flat? mutable or not?* Then reuse what you already know about `list` / `tuple` / `str`.
+:::
+
+<details>
+<summary>🧪 Container vs compact numbers</summary>
+
+<PistonRunner
+  lang="python"
+  interactive={false}
+  height="280px"
+  code={`from array import array
+
+nums = (1.5, 2.5, 3.5)
+packed = array("d", nums)
+print(type(nums), nums)
+print(type(packed), packed)
+print("tuple holds objects; array holds a C buffer of doubles")
+`}
+/>
+
+</details>
+
+---
+
+## Mini quiz — kinds of sequences
+
+<MultipleChoice
+  id="py-int-ch2-kinds"
+  title="Kinds of sequences"
+  questions={[
+    {
+      prompt: 'Which is a flat sequence?',
+      choices: ['list', 'tuple', 'str', 'deque'],
+      answer: 2,
+      why: 'str stores characters in one object, not a list of one-character objects you created.',
+    },
+    {
+      prompt: 'Which type is immutable?',
+      choices: ['list', 'bytearray', 'deque', 'tuple'],
+      answer: 3,
+      why: 'You cannot assign to a tuple index. list, bytearray, and deque all mutate.',
+    },
+  ]}
+/>
+
+---
+
+## List comprehensions
+
+A **list comprehension** (listcomp) always builds a **new list**. A `for` loop can do anything: print, count, mutate. That is why a listcomp is often clearer when the only goal is “make this list.”
+
+Keep them short. If the expression needs a comment to explain, a loop is usually kinder.
+
+```python
+words = ["red", "green", "blue"]
+lens = [len(w) for w in words]
+# [3, 5, 4]
+```
+
+You can filter with `if`:
+
+```python
+lens = [len(w) for w in words if len(w) > 3]
+# [5, 4]
+```
+
+Line breaks inside `[]` are fine. A trailing comma in a multi-line list literal is allowed and makes diffs easier.
+
+<details>
+<summary>🧪 Listcomp vs loop</summary>
+
+<PistonRunner
+  lang="python"
+  interactive={false}
+  height="320px"
+  code={`text = "Hi!"
+codes_loop = []
+for ch in text:
+    codes_loop.append(ord(ch))
+
+codes_comp = [ord(ch) for ch in text]
+print(codes_loop)
+print(codes_comp)
+`}
+/>
+
+</details>
+
+:::caution
+Do not use a listcomp only for side effects (`print` inside the expression). If you do not need the list, use a `for` loop or a generator.
+:::
+
+---
+
+## Mini quiz — list comprehensions
+
+<MultipleChoice
+  id="py-int-ch2-listcomp"
+  title="List comprehensions"
+  questions={[
+    {
+      prompt: 'What does this produce?',
+      code: '[n * 2 for n in [1, 2, 3]]',
+      codeLang: 'python',
+      choices: ['[1, 2, 3]', '[2, 4, 6]', '6', 'Error'],
+      answer: 1,
+      why: 'Each element is doubled into a new list.',
+    },
+    {
+      prompt: 'A listcomp is the wrong tool when you',
+      choices: [
+        'want a new list of transformed items',
+        'only need to print each item',
+        'want to filter with if',
+        'want a nested product of two loops',
+      ],
+      answer: 1,
+      why: 'If you throw the list away, a for loop (or a genexp consumed by something else) is clearer.',
+    },
+  ]}
+/>
+
+---
+
+## Challenge: even squares
+
+Read integers. Print the **squares of the even** values, space-separated, using a **list comprehension**.
+
+<CodingExam
+  title="even squares"
+  heading="Challenge: even squares"
+  lang="python"
+  filename="main.py"
+  prompt="Use a list comprehension. Print squares of even numbers, space-separated."
+  sampleLog={`(input) 1 2 3 4
+4 16`}
+  starter={`def even_squares(nums):
+    # TODO: return a list of n*n for even n
+    return []
+`}
+  wrapSuffix={`
+nums = [int(x) for x in input().split()]
+out = even_squares(nums)
+print(*out if out else ["-"])
+`}
+  sourceChecks={[
+    { name: 'Uses a list comprehension', pattern: '\\[.*for .+ in', must: true, hint: '[n * n for n in nums if ...]' },
+  ]}
+  tests={[
+    { name: '1 2 3 4', stdin: '1 2 3 4', equals: '4 16' },
+    { name: 'all odd', stdin: '1 3 5', equals: '-' },
+    { name: 'negatives', stdin: '-2 0 1', equals: '4 0' },
+  ]}
+/>
+
+---
+
+## Generator expressions
+
+A **generator expression** (genexp) looks like a listcomp but uses `()`. It does not build the whole list in memory. It yields items as you iterate.
+
+Use a genexp when you will feed another constructor or a reducing function:
+
+```python
+letters = "abc"
+print(tuple(ord(ch) for ch in letters))
+print(sum(n * n for n in range(4)))
+```
+
+If you wrap a genexp in a function call, one pair of parentheses is enough: `sum(n * n for n in range(4))`.
+
+<details>
+<summary>🧪 Genexp into tuple and sum</summary>
+
+<PistonRunner
+  lang="python"
+  interactive={false}
+  height="260px"
+  code={`letters = "xyz"
+print(tuple(ord(ch) for ch in letters))
+print(sum(len(w) for w in ["a", "bb", "ccc"]))
+`}
+/>
+
+</details>
+
+---
+
+## Mini quiz — generator expressions
+
+<MultipleChoice
+  id="py-int-ch2-genexp"
+  title="Generator expressions"
+  questions={[
+    {
+      prompt: 'tuple(x for x in [1, 2]) creates a tuple without first making a full extra list. The expression in the middle is a',
+      choices: ['list comprehension', 'generator expression', 'lambda', 'slice'],
+      answer: 1,
+      why: 'Parentheses (or the implicit ones in a call) mark a genexp.',
+    },
+    {
+      prompt: 'Prefer a genexp when',
+      choices: [
+        'you need to append to the same list twice',
+        'you will only iterate once and the sequence could be huge',
+        'you must sort the result in place',
+        'you need random access by index later',
+      ],
+      answer: 1,
+      why: 'Genexps are lazy. If you need indexes or many passes, materialize a list.',
+    },
+  ]}
+/>
+
+---
+
+## Challenge: codes as a tuple
+
+Read a word. Return a **tuple** of `ord` values using a **generator expression** (not a listcomp).
+
+<CodingExam
+  title="codes as a tuple"
+  heading="Challenge: codes as a tuple"
+  lang="python"
+  filename="main.py"
+  prompt="Return tuple(ord(ch) for ch in word). Do not build a list first."
+  sampleLog={`(input) Hi
+(72, 105)`}
+  starter={`def code_tuple(word):
+    # TODO: tuple of ordinals via a genexp
+    return ()
+`}
+  wrapSuffix={`
+print(code_tuple(input().strip()))
+`}
+  sourceChecks={[
+    { name: 'Calls tuple with a for-comprehension', pattern: 'tuple\\(.*for .+ in', must: true, hint: 'tuple(ord(ch) for ch in word)' },
+    { name: 'Avoids a list comprehension', pattern: '\\[.*for', must: false, hint: 'Use tuple(... for ...) not [...].' },
+  ]}
+  tests={[
+    { name: 'Hi', stdin: 'Hi', equals: '(72, 105)' },
+    { name: 'A', stdin: 'A', equals: '(65,)' },
+  ]}
+/>
+
+---
+
+## Tuples: records or frozen lists?
+
+A tuple can play two roles:
+
+1. **Record** — a fixed number of fields with meaning by position (`lat`, `lon`).
+2. **Immutable sequence** — like a list you promised not to grow or replace.
+
+Unpacking makes the record role obvious:
+
+```python
+city, year, pop = ("Tokyo", 2003, 33_000_000)
+```
+
+`*` can capture a rest:
+
+```python
+head, *body, tail = [1, 2, 3, 4, 5]
+# head=1, body=[2, 3, 4], tail=5
+```
+
+A tuple is immutable **as a container**: you cannot do `t[0] = ...`. If an **element** is a list, that inner list can still change. `t` then looks “the same” as a tuple object, but its nested data moved. `hash(t)` fails if any element is unhashable.
+
+<details>
+<summary>🧪 Unpacking and a nested list</summary>
+
+<PistonRunner
+  lang="python"
+  interactive={false}
+  height="300px"
+  code={`row = ("Ada", 1815, ["math", "code"])
+name, year, tags = row
+tags.append("notes")
+print(name, year, row)
+# The tuple row still has 3 slots; the list in slot 2 grew.
+`}
+/>
+
+</details>
+
+---
+
+## Mini quiz — tuples and unpacking
+
+<MultipleChoice
+  id="py-int-ch2-tuples"
+  title="Tuples and unpacking"
+  questions={[
+    {
+      prompt: 'After a, *rest, b = [10, 20, 30, 40], rest is',
+      code: 'a, *rest, b = [10, 20, 30, 40]',
+      codeLang: 'python',
+      choices: ['[10, 20, 30, 40]', '[20, 30]', '20', '[10]'],
+      answer: 1,
+      why: 'a takes the first, b the last, rest the middle as a list.',
+    },
+    {
+      prompt: 'A tuple that contains a list',
+      choices: [
+        'can never change in any way',
+        'cannot replace t[0], but the list object can still be mutated',
+        'becomes a list automatically',
+        'cannot be unpacked',
+      ],
+      answer: 1,
+      why: 'Immutability is about the tuple’s slots, not deep freeze of nested objects.',
+    },
+  ]}
+/>
+
+---
+
+## Challenge: first and last words
+
+Read words. Print the first word, then the last word (one space). Use unpacking with `*`.
+
+<CodingExam
+  title="first and last words"
+  heading="Challenge: first and last words"
+  lang="python"
+  filename="main.py"
+  prompt="Unpack with first, *middle, last = words and print first and last."
+  sampleLog={`(input) red green blue
+red blue`}
+  starter={`def ends(words):
+    # TODO: unpack first, *_, last
+    return "", ""
+`}
+  wrapSuffix={`
+words = input().split()
+a, b = ends(words)
+print(a, b)
+`}
+  sourceChecks={[
+    { name: 'Uses starred unpacking', pattern: '\\*.+,', must: true, hint: 'first, *rest, last = words' },
+  ]}
+  tests={[
+    { name: 'three words', stdin: 'red green blue', equals: 'red blue' },
+    { name: 'two words', stdin: 'hi bye', equals: 'hi bye' },
+    { name: 'four words', stdin: 'a b c d', equals: 'a d' },
+  ]}
+/>
+
+---
+
+## Sequence patterns (`match`)
+
+Python 3.10+ can match the **shape** of a sequence:
+
+```python
+match parts:
+    case [name, qty]:
+        ...
+    case [name, qty, color]:
+        ...
+    case _:
+        ...
+```
+
+Patterns can nest and bind names. Start with length and a few literals. You do not need every `match` feature on day one.
+
+<details>
+<summary>🧪 match on a command</summary>
+
+<PistonRunner
+  lang="python"
+  interactive={false}
+  height="340px"
+  code={`def run(parts):
+    match parts:
+        case ["add", a, b]:
+            return int(a) + int(b)
+        case ["neg", a]:
+            return -int(a)
+        case _:
+            return "unknown"
+
+print(run("add 2 5".split()))
+print(run("neg 4".split()))
+print(run("oops".split()))
+`}
+/>
+
+</details>
+
+---
+
+## Mini quiz — sequence patterns
+
+<MultipleChoice
+  id="py-int-ch2-match"
+  title="Sequence patterns"
+  questions={[
+    {
+      prompt: 'case [x, y]: matches which input?',
+      choices: ['[]', '["a"]', '["a", "b"]', '["a", "b", "c"]'],
+      answer: 2,
+      why: 'Two slots in the pattern need two items.',
+    },
+    {
+      prompt: 'case _: in a match is',
+      choices: ['a syntax error', 'the default / catch-all', 'only for integers', 'the same as break'],
+      answer: 1,
+      why: '_ matches anything that did not match earlier cases.',
+    },
+  ]}
+/>
+
+---
+
+## Challenge: tiny command
+
+Read a line of tokens. If it is `add a b`, print the integer sum. If it is `neg a`, print the negation. Otherwise print `?`. Use `match`.
+
+<CodingExam
+  title="tiny command"
+  heading="Challenge: tiny command"
+  lang="python"
+  filename="main.py"
+  prompt="Implement run(parts) with match/case on the token list."
+  sampleLog={`(input) add 2 5
+7`}
+  starter={`def run(parts):
+    match parts:
+        case _:
+            return "?"
+`}
+  wrapSuffix={`
+print(run(input().split()))
+`}
+  sourceChecks={[
+    { name: 'Uses match', pattern: 'match ', must: true, hint: 'match parts:' },
+  ]}
+  tests={[
+    { name: 'add', stdin: 'add 2 5', equals: '7' },
+    { name: 'neg', stdin: 'neg 4', equals: '-4' },
+    { name: 'unknown', stdin: 'mul 2 3', equals: '?' },
+  ]}
+/>
+
+---
+
+## Slices: read and write
+
+Slicing uses `start:stop:step`. The `stop` index is **excluded**. Omitting start or stop means “from the beginning” or “through the end.” Negative indexes count from the end.
+
+For **mutable** sequences, a slice can appear on the **left** of assignment. The right-hand side must be an iterable. Lengths do not have to match: you can shrink or grow the middle of a list.
+
+```python
+letters = list("abcde")
+letters[1:4] = ["X"]
+# ['a', 'X', 'e']
+```
+
+Assigning to a slice of a `tuple` or `str` fails: those types are immutable.
+
+<details>
+<summary>🧪 Slice assignment</summary>
+
+<PistonRunner
+  lang="python"
+  interactive={false}
+  height="280px"
+  code={`letters = list("abcde")
+print(letters[1:4])
+letters[1:4] = ["X", "Y"]
+print(letters)
+del letters[::2]
+print(letters)
+`}
+/>
+
+</details>
+
+---
+
+## Mini quiz — slices
+
+<MultipleChoice
+  id="py-int-ch2-slices"
+  title="Slices"
+  questions={[
+    {
+      prompt: 'What is letters[1:3]?',
+      code: 'letters = ["a", "b", "c", "d"]',
+      codeLang: 'python',
+      choices: ['["a", "b"]', '["b", "c"]', '["b", "c", "d"]', '["a", "b", "c"]'],
+      answer: 1,
+      why: 'Start at 1, stop before 3.',
+    },
+    {
+      prompt: 'xs[1:-1] = [] on [1, 2, 3, 4] leaves',
+      choices: ['[]', '[1, 4]', '[1, 2, 3, 4]', '[2, 3]'],
+      answer: 1,
+      why: 'The middle is replaced by nothing; the ends stay.',
+    },
+  ]}
+/>
+
+---
+
+## Challenge: keep the ends
+
+Read integers. Replace the **middle** (everything except first and last) with nothing. Print the two remaining numbers. Use slice assignment. Input always has at least two numbers.
+
+<CodingExam
+  title="keep the ends"
+  heading="Challenge: keep the ends"
+  lang="python"
+  filename="main.py"
+  prompt="xs[1:-1] = [] then print the list as space-separated ints."
+  sampleLog={`(input) 1 2 3 4 5
+1 5`}
+  starter={`def keep_ends(xs):
+    # TODO: clear the middle with a slice assignment
+    return xs
+`}
+  wrapSuffix={`
+xs = [int(x) for x in input().split()]
+print(*keep_ends(xs))
+`}
+  sourceChecks={[
+    { name: 'Assigns to a slice', pattern: '\\[.+\\]\\s*=', must: true, hint: 'xs[1:-1] = []' },
+  ]}
+  tests={[
+    { name: 'five nums', stdin: '1 2 3 4 5', equals: '1 5' },
+    { name: 'two nums', stdin: '8 9', equals: '8 9' },
+    { name: 'three nums', stdin: '0 1 2', equals: '0 2' },
+  ]}
+/>
+
+---
+
+## Specialized sequences
+
+When `list` is the wrong default:
+
+| Type | Use it when |
+|---|---|
+| `array.array` | Many numbers, same machine type, you care about memory |
+| `collections.deque` | Fast appends/pops on **both** ends (queues, sliding windows) |
+
+`deque` is not a full sequence: it does not support slicing. It is still iterable and has `appendleft` / `popleft` in O(1).
+
+```python
+from collections import deque
+
+q = deque([1, 2, 3], maxlen=3)
+q.append(4)  # 1 falls off the left if maxlen is hit
+```
+
+Named tuples belong with dataclasses in a later chapter; skip them here.
+
+---
+
+## Mini quiz — array and deque
+
+<MultipleChoice
+  id="py-int-ch2-special"
+  title="array and deque"
+  questions={[
+    {
+      prompt: 'array.array is a good fit for',
+      choices: [
+        'a mix of strings and dicts',
+        'millions of floats with one type',
+        'a mapping from name to score',
+        'HTML tags',
+      ],
+      answer: 1,
+      why: 'Flat numeric buffers are what array is for.',
+    },
+    {
+      prompt: 'deque shines at',
+      choices: ['slicing q[1:5]', 'O(1) pop from the left', 'hashing as a dict key', 'holding mixed nested objects better than list'],
+      answer: 1,
+      why: 'popleft/appendleft are the reason to pick deque. Slicing is not supported.',
+    },
+  ]}
+/>
+
+---
+
+## Chapter summary
+
+:::important Key takeaways
+
+1. Sequences share iteration, slicing, and `len`. Split them by **container vs flat** and **mutable vs immutable**.
+2. **Listcomps** build lists; **genexps** stay lazy. Do not use a listcomp for side effects.
+3. Tuples are records **or** frozen lists. Nested mutable objects can still change.
+4. Unpacking (`*` included) and `match` on sequences make shape explicit.
+5. Slice **assignment** edits a mutable sequence in the middle without an extra loop.
+6. Reach for `array` or `deque` when `list` is the wrong performance story.
+
+:::
+
+## Exercises
+
+<ExerciseSet>
+<Exercise title="Letter pairs" anchor="exercise-letter-pairs">
+
+:::tip Activity: Letter pairs
+Two words on one line. Print every pair `a+b` for `a` in the first word and `b` in the second, space-separated. Use a **nested** list comprehension.
+
+<CodingExam
+  title="Letter pairs"
+  heading="exercise-letter-pairs"
+  lang="python"
+  filename="main.py"
+  prompt="Nested listcomp: [a + b for a in left for b in right]"
+  sampleLog={`(input) ab 12
+a1 a2 b1 b2`}
+  starter={`def pairs(left, right):
+    # TODO
+    return []
+`}
+  wrapSuffix={`
+left, right = input().split()
+print(*pairs(left, right))
+`}
+  sourceChecks={[
+    { name: 'Nested listcomp', pattern: '\\[.*for .+ in .+ for .+ in', must: true, hint: '[a + b for a in left for b in right]' },
+  ]}
+  tests={[
+    { name: 'ab 12', stdin: 'ab 12', equals: 'a1 a2 b1 b2' },
+    { name: 'x yz', stdin: 'x yz', equals: 'xy xz' },
+  ]}
+/>
+
+:::
+
+</Exercise>
+
+<Exercise title="Drop the middle name" anchor="exercise-drop-middle">
+
+:::tip Activity: Drop the middle name
+Three tokens: first, middle, last. Print `first last` using unpacking (ignore the middle with `_` or `*`).
+
+<CodingExam
+  title="Drop the middle name"
+  heading="exercise-drop-middle"
+  lang="python"
+  filename="main.py"
+  prompt="Unpack three names; print first and last."
+  sampleLog={`(input) Ada Augusta Lovelace
+Ada Lovelace`}
+  starter={`def short_name(parts):
+    # TODO
+    return "", ""
+`}
+  wrapSuffix={`
+a, b = short_name(input().split())
+print(a, b)
+`}
+  tests={[
+    { name: 'three names', stdin: 'Ada Augusta Lovelace', equals: 'Ada Lovelace' },
+    { name: 'other', stdin: 'Lin Yutang Foo', equals: 'Lin Foo' },
+  ]}
+/>
+
+:::
+
+</Exercise>
+
+<Exercise title="Every other" anchor="exercise-every-other">
+
+:::tip Activity: Every other
+Read integers. Print every other value, starting at index 0, using a **slice with a step**.
+
+<CodingExam
+  title="Every other"
+  heading="exercise-every-other"
+  lang="python"
+  filename="main.py"
+  prompt="Return xs[::2]"
+  sampleLog={`(input) 10 20 30 40 50
+10 30 50`}
+  starter={`def every_other(xs):
+    # TODO
+    return xs
+`}
+  wrapSuffix={`
+xs = [int(x) for x in input().split()]
+print(*every_other(xs))
+`}
+  sourceChecks={[
+    { name: 'Slice with step', pattern: '\\[::', must: true, hint: 'xs[::2]' },
+  ]}
+  tests={[
+    { name: 'five', stdin: '10 20 30 40 50', equals: '10 30 50' },
+    { name: 'two', stdin: '1 2', equals: '1' },
+  ]}
+/>
+
+:::
+
+</Exercise>
+
+<Exercise title="Queue left pop" anchor="exercise-deque-left">
+
+:::tip Activity: Queue left pop
+Build a `deque` from the integers, `popleft` once, print what remains (space-separated).
+
+<CodingExam
+  title="Queue left pop"
+  heading="exercise-deque-left"
+  lang="python"
+  filename="main.py"
+  prompt="from collections import deque; popleft; print remaining."
+  sampleLog={`(input) 1 2 3
+2 3`}
+  starter={`from collections import deque
+
+def after_popleft(nums):
+    # TODO
+    return []
+`}
+  wrapSuffix={`
+nums = [int(x) for x in input().split()]
+out = list(after_popleft(nums))
+print(*out if out else ["-"])
+`}
+  sourceChecks={[
+    { name: 'Uses deque', pattern: 'deque', must: true, hint: 'deque(nums)' },
+    { name: 'Calls popleft', pattern: 'popleft', must: true, hint: 'q.popleft()' },
+  ]}
+  tests={[
+    { name: '1 2 3', stdin: '1 2 3', equals: '2 3' },
+    { name: '9 then empty', stdin: '9', equals: '-' },
+  ]}
+/>
+
+:::
+
+</Exercise>
+</ExerciseSet>

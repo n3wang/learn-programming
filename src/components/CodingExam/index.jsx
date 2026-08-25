@@ -5,6 +5,7 @@ import CodeEditor from '@site/src/components/CodeEditor';
 import EditorToolbar from '@site/src/components/codeWorkspace/EditorToolbar';
 import useCodeDraft from '@site/src/components/codeWorkspace/useCodeDraft';
 import {makeDraftId, registerExam, markExamComplete, slugifyAnchor} from '@site/src/components/codeWorkspace/drafts';
+import defaultSourceFilename from '@site/src/components/codeWorkspace/defaultSourceFilename';
 import chrome from '@site/src/components/codeWorkspace/chrome.module.css';
 
 function executeUrl(api, siteConfig) {
@@ -72,7 +73,7 @@ export default function CodingExam({
     starter = '',
     lang = 'c++',
     version = '*',
-    filename = 'main.cpp',
+    filename,
     tests = [],
     sourceChecks = [],
     wrapPrefix = '',
@@ -85,11 +86,15 @@ export default function CodingExam({
 }) {
     const {siteConfig} = useDocusaurusContext();
     const {pathname} = useLocation();
+    const fileName = useMemo(
+        () => defaultSourceFilename(lang, filename),
+        [lang, filename]
+    );
     const draftId = useMemo(
         () =>
             storageKey ||
-            makeDraftId('exam', pathname, [title, filename, starter].join('\0')),
-        [storageKey, pathname, title, filename, starter]
+            makeDraftId('exam', pathname, [title, fileName, starter].join('\0')),
+        [storageKey, pathname, title, fileName, starter]
     );
     const hash = useMemo(
         () => (anchor || slugifyAnchor(heading) || slugifyAnchor(title) || '').replace(/^#/, ''),
@@ -146,7 +151,9 @@ export default function CodingExam({
                             language: lang,
                             version,
                             stdin: test.stdin ?? '',
-                            files: [{name: filename, content: program}],
+                            files: [{name: fileName, content: program}],
+                            run_timeout: 20000,
+                            run_cpu_time: 15000,
                         }),
                     });
 
@@ -199,7 +206,7 @@ export default function CodingExam({
         if (total > 0 && passedCount === total) {
             markExamComplete(draftId, {code}).catch(() => {});
         }
-    }, [api, siteConfig, tests, sourceChecks, wrapPrefix, wrapSuffix, lang, version, filename, code, draftId]);
+    }, [api, siteConfig, tests, sourceChecks, wrapPrefix, wrapSuffix, lang, version, fileName, code, draftId]);
 
     const plannedTotal = sourceChecks.length + tests.length;
     const passed = results?.filter((r) => r.pass).length ?? 0;
@@ -227,7 +234,7 @@ export default function CodingExam({
             <EditorToolbar
                 badge={lang}
                 exam
-                filename={filename}
+                filename={fileName}
                 saveLabel={saveLabel}
                 running={checking}
                 onRun={check}

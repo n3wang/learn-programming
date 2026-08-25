@@ -1,4 +1,5 @@
 import React, {useEffect, useState} from 'react';
+import CodeBlock from '@theme/CodeBlock';
 import styles from './styles.module.css';
 
 function storageKey(id) {
@@ -7,6 +8,79 @@ function storageKey(id) {
 
 function letters(index) {
   return String.fromCharCode(65 + index);
+}
+
+function looksLikeCode(line) {
+  const t = (line || '').trim();
+  return /^(def |class |for |if |while |elif |else:|print\(|import |from |#include|using |int |void |std::|public |private |return )/.test(
+    t
+  );
+}
+
+function guessLang(code) {
+  if (/#include|std::|int main\s*\(/.test(code)) {
+    return 'cpp';
+  }
+  if (/^\s*(def |class |import |print\()/.test(code) || /:\n/.test(code)) {
+    return 'python';
+  }
+  if (/function |const |let |=>/.test(code)) {
+    return 'javascript';
+  }
+  return 'text';
+}
+
+function parsePrompt(q) {
+  const raw = q?.prompt || '';
+  if (q?.code) {
+    return {
+      lead: raw,
+      code: String(q.code).replace(/^\n/, '').replace(/\n$/, ''),
+      lang: q.codeLang || q.lang || guessLang(q.code),
+    };
+  }
+  const fence = raw.match(/^([\s\S]*?)```(\w*)\n([\s\S]*?)\n```\s*$/);
+  if (fence) {
+    return {
+      lead: fence[1].trim(),
+      code: fence[3],
+      lang: fence[2] || guessLang(fence[3]),
+    };
+  }
+  const blankSplit = raw.split(/\n\n/);
+  if (blankSplit.length >= 2 && looksLikeCode(blankSplit[1].split('\n')[0])) {
+    const code = blankSplit.slice(1).join('\n\n');
+    return {
+      lead: blankSplit[0].trim(),
+      code,
+      lang: q.codeLang || q.lang || guessLang(code),
+    };
+  }
+  const lines = raw.split('\n');
+  const idx = lines.findIndex((line, i) => i > 0 && looksLikeCode(line));
+  if (idx > 0) {
+    const code = lines.slice(idx).join('\n');
+    return {
+      lead: lines.slice(0, idx).join('\n').trim(),
+      code,
+      lang: q.codeLang || q.lang || guessLang(code),
+    };
+  }
+  return {lead: raw, code: null, lang: 'text'};
+}
+
+function Prompt({q}) {
+  const {lead, code, lang} = parsePrompt(q);
+  return (
+    <div className={styles.promptBlock}>
+      {lead ? <p className={styles.prompt}>{lead}</p> : null}
+      {code ? (
+        <div className={styles.snippet}>
+          <CodeBlock language={lang}>{code}</CodeBlock>
+        </div>
+      ) : null}
+    </div>
+  );
 }
 
 const emptyState = {
@@ -135,8 +209,8 @@ export default function MultipleChoice({
         </span>
       </header>
       <div className={styles.body}>
-        <p className={styles.prompt}>{q.prompt}</p>
-        <div className={styles.choices} role="radiogroup" aria-label={q.prompt}>
+        <Prompt q={q} />
+        <div className={styles.choices} role="radiogroup" aria-label={parsePrompt(q).lead || title}>
           {(q.choices || []).map((choice, cIndex) => {
             const chosen = state.pick === cIndex;
             const alreadyWrong = qMissed.includes(cIndex);
@@ -156,7 +230,11 @@ export default function MultipleChoice({
                 disabled={state.status !== 'idle' || alreadyWrong}
                 onClick={() => answer(cIndex)}>
                 <span className={styles.letter}>{letters(cIndex)}</span>
-                <span>{choice}</span>
+                {String(choice).includes('\n') ? (
+                  <pre className={styles.choiceCode}>{choice}</pre>
+                ) : (
+                  <span>{choice}</span>
+                )}
               </button>
             );
           })}

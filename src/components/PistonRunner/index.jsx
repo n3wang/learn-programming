@@ -5,16 +5,9 @@ import CodeEditor from '@site/src/components/CodeEditor';
 import EditorToolbar from '@site/src/components/codeWorkspace/EditorToolbar';
 import useCodeDraft from '@site/src/components/codeWorkspace/useCodeDraft';
 import {makeDraftId} from '@site/src/components/codeWorkspace/drafts';
+import defaultSourceFilename from '@site/src/components/codeWorkspace/defaultSourceFilename';
+import splitChartOutput from '@site/src/components/codeWorkspace/splitChartOutput';
 import chrome from '@site/src/components/codeWorkspace/chrome.module.css';
-
-const FILE_NAMES = {
-    'c++': 'main.cpp',
-    cpp: 'main.cpp',
-    c: 'main.c',
-    python: 'main.py',
-    java: 'Main.java',
-    javascript: 'index.js',
-};
 
 function executeUrl(api, siteConfig) {
     if (api) {
@@ -46,10 +39,12 @@ export default function PistonRunner({
     height = '260px',
     api,
     storageKey,
+    runTimeout = 20000,
+    runCpuTime = 15000,
 }) {
     const {siteConfig} = useDocusaurusContext();
     const {pathname} = useLocation();
-    const fileName = filename || FILE_NAMES[lang] || 'main.txt';
+    const fileName = filename || defaultSourceFilename(lang);
     const draftId = useMemo(
         () =>
             storageKey ||
@@ -111,6 +106,9 @@ export default function PistonRunner({
                 version,
                 stdin,
                 files: [{name: fileName, content: code}],
+                run_timeout: runTimeout,
+                run_cpu_time: runCpuTime,
+                compile_timeout: 10000,
             }),
         });
 
@@ -137,7 +135,7 @@ export default function PistonRunner({
         setIsError(compileFailed || (!!runResult.stderr && !runResult.stdout));
         setOutput(text.trimEnd() || '(no output)');
         finish(compileFailed ? compile.code : runResult.code ?? 0, compileFailed);
-    }, [api, siteConfig, lang, version, stdin, fileName, code, finish]);
+    }, [api, siteConfig, lang, version, stdin, fileName, code, finish, runTimeout, runCpuTime]);
 
     const run = useCallback(() => {
         if (wsRef.current) {
@@ -187,7 +185,8 @@ export default function PistonRunner({
                     version,
                     stdin: '',
                     files: [{name: fileName, content: code, encoding: 'utf8'}],
-                    run_timeout: 30000,
+                    run_timeout: runTimeout,
+                    run_cpu_time: runCpuTime,
                     compile_timeout: 10000,
                 })
             );
@@ -241,7 +240,7 @@ export default function PistonRunner({
             if (wsRef.current !== ws && wsRef.current !== null) return;
             finish(null, false);
         };
-    }, [interactive, runRest, api, siteConfig, lang, version, fileName, code, finish]);
+    }, [interactive, runRest, api, siteConfig, lang, version, fileName, code, finish, runTimeout, runCpuTime]);
 
     const sendLine = useCallback(() => {
         const ws = wsRef.current;
@@ -251,6 +250,8 @@ export default function PistonRunner({
         setOutput((prev) => prev + line);
         setLiveLine('');
     }, [liveLine]);
+
+    const chart = splitChartOutput(output);
 
     const meta = [
         stage && running ? stage : null,
@@ -295,11 +296,19 @@ export default function PistonRunner({
                                 !output && !running ? chrome.outputEmpty : '',
                             ].join(' ')}
                         >
-                            {output ||
+                            {chart.text ||
                                 (interactive
                                     ? 'Type below when the program waits for input (cin).'
                                     : 'Output appears here after you press Run.')}
                         </pre>
+                        {chart.images.map((b64, i) => (
+                            <img
+                                key={i}
+                                className={chrome.chart}
+                                alt={`Chart ${i + 1}`}
+                                src={`data:image/png;base64,${b64}`}
+                            />
+                        ))}
                         {interactive && (
                             <input
                                 className={chrome.liveInput}

@@ -1,0 +1,330 @@
+---
+sidebar_position: 16
+title: Chapter 10a - Space Invaders
+---
+
+You will build a **text Space Invaders**: a 2D grid printed each turn. That is the version that runs in this site’s Python sandbox.
+
+## Why not pygame?
+
+Piston runs Python **without a window**. There is no display, mouse, or speaker.
+
+| Approach | Works here? | Notes |
+|---|---|---|
+| `pygame`, `turtle` window, OpenGL | No | Need a real screen / framebuffer |
+| Pillow drawing PNGs | Possible later | Would need extra packages **and** a page that shows images |
+| **ASCII grid + `print`** | Yes | Same idea as arcade: a 2D board, a player, aliens, a game loop |
+
+So the “rendering library” is a handful of functions that fill a list-of-lists and print it. You already have lists and functions from chapters 8 and 9.
+
+---
+
+## A tiny draw library
+
+A **cell** is one character. A **frame** is a rectangle of cells.
+
+```python
+EMPTY = "."
+PLAYER = "A"
+ALIEN = "M"
+SHOT = "|"
+
+def make_board(rows, cols):
+    return [[EMPTY] * cols for _ in range(rows)]
+
+def put(board, row, col, ch):
+    if 0 <= row < len(board) and 0 <= col < len(board[0]):
+        board[row][col] = ch
+
+def draw(board):
+    for row in board:
+        print("".join(row))
+```
+
+<details>
+<summary>🧪 Draw one frame</summary>
+
+<PistonRunner
+  lang="python"
+  height="360px"
+  code={`EMPTY = "."
+PLAYER = "A"
+ALIEN = "M"
+
+def make_board(rows, cols):
+    return [[EMPTY] * cols for _ in range(rows)]
+
+def put(board, row, col, ch):
+    if 0 <= row < len(board) and 0 <= col < len(board[0]):
+        board[row][col] = ch
+
+def draw(board):
+    for row in board:
+        print("".join(row))
+
+board = make_board(6, 11)
+put(board, 0, 2, ALIEN)
+put(board, 0, 5, ALIEN)
+put(board, 0, 8, ALIEN)
+put(board, 5, 5, PLAYER)
+draw(board)
+`}
+/>
+
+</details>
+
+---
+
+## Mini quiz — frames and loops
+
+<MultipleChoice
+  id="py-10a-frames"
+  title="Frames and loops"
+  questions={[
+    {
+      prompt: 'Why can pygame not open a window in this sandbox?',
+      choices: ['Python is too old', 'There is no graphical display', 'Lists are missing', 'print is disabled'],
+      answer: 1,
+      why: 'The judge runs headless: stdout only.',
+    },
+    {
+      prompt: 'In a game loop, what should happen each turn?',
+      choices: ['Only draw once at the end', 'Update positions, then draw a new frame', 'Never change the board', 'Call pygame.display.flip()'],
+      answer: 1,
+      why: 'Arcade games redraw after each state change.',
+    },
+  ]}
+/>
+
+---
+
+## Game loop (one command per frame)
+
+Each line of input is a command: `L` move left, `R` move right, `S` shoot (we will grade movement first).
+
+```text
+.....M.....
+...........
+...........
+.....A.....
+```
+
+Player starts at the bottom, middle.
+
+---
+
+## Challenge: move the player
+
+Given width `11`, player column starts at `5`. Read a line of commands made of `L` and `R`. Print the **final** column (0–10). Ignore moves that would leave the board.
+
+| Commands | Result |
+|---|---|
+| `LL` | `3` |
+| `RRRRRRRRRR` | `10` |
+
+<CodingExam
+  title="move the player"
+  heading="Challenge: move the player"
+  lang="python"
+  prompt="Start at column 5 on a board of width 11. Apply L/R. Print the final column."
+  sampleLog={`(input) LL
+3`}
+  starter={`WIDTH = 11
+START = 5
+
+def move_player(commands):
+    col = START
+    # TODO: for each letter, move but stay in 0 .. WIDTH-1
+    return col
+`}
+  wrapSuffix={`
+print(move_player(input().strip()))
+`}
+  tests={[
+    { name: 'LL → 3', stdin: 'LL', equals: '3' },
+    { name: 'clamp right', stdin: 'RRRRRRRRRR', equals: '10' },
+    { name: 'clamp left', stdin: 'LLLLLL', equals: '0' },
+    { name: 'empty stays 5', stdin: '', equals: '5' },
+  ]}
+/>
+
+---
+
+## Aliens as a list of columns
+
+Store alien columns in a list, e.g. `[2, 5, 8]`. A hit removes that column from the list.
+
+<details>
+<summary>🧪 Hit detection idea</summary>
+
+<PistonRunner
+  lang="python"
+  height="300px"
+  code={`aliens = [2, 5, 8]
+shot_col = 5
+if shot_col in aliens:
+    aliens.remove(shot_col)
+print(aliens)
+`}
+/>
+
+</details>
+
+## Mini quiz — hits
+
+<MultipleChoice
+  id="py-10a-hits"
+  title="Hits"
+  questions={[
+    {
+      prompt: 'After this, what is aliens?',
+      code: `aliens = [2, 5, 8]
+shot_col = 5
+if shot_col in aliens:
+    aliens.remove(shot_col)`,
+      codeLang: 'python',
+      choices: ['[2, 5, 8]', '[2, 8]', '[5]', '[]'],
+      answer: 1,
+      why: 'remove takes out the matching column once.',
+    },
+    {
+      prompt: 'What does this check mean?',
+      code: 'shot_col in aliens',
+      codeLang: 'python',
+      choices: ['Draw a line', 'That column has an alien', 'The player moved', 'Game over'],
+      answer: 1,
+      why: 'in checks membership in the list.',
+    },
+  ]}
+/>
+
+---
+
+## Challenge: did the shot hit?
+
+Read `shot_col` then a line of alien columns. Print `HIT` if the shot column is in that list, otherwise `MISS`.
+
+| Input | Output |
+|---|---|
+| `5` then `2 5 8` | `HIT` |
+| `1` then `2 5 8` | `MISS` |
+
+<CodingExam
+  title="shot hit"
+  heading="Challenge: did the shot hit?"
+  lang="python"
+  prompt="First line: shot column. Second line: alien columns. Print HIT or MISS."
+  sampleLog={`(input)
+5
+2 5 8
+HIT`}
+  starter={`def result(shot_col, aliens):
+    # TODO: return "HIT" or "MISS"
+    return "MISS"
+`}
+  wrapSuffix={`
+shot_col = int(input())
+aliens = [int(x) for x in input().split()]
+print(result(shot_col, aliens))
+`}
+  tests={[
+    { name: 'hit 5', stdin: '5\n2 5 8', equals: 'HIT' },
+    { name: 'miss 1', stdin: '1\n2 5 8', equals: 'MISS' },
+    { name: 'empty aliens', stdin: '0\n', equals: 'MISS' },
+  ]}
+/>
+
+---
+
+## Exercises
+
+<ExerciseSet>
+<Exercise title="Draw the board" anchor="exercise-draw-board">
+
+:::tip Activity: Draw the board
+Write `draw_line(width, player_col)` so it returns a string of length `width`: `.` everywhere except `A` at `player_col`.
+
+Expected for `11 5`:
+```
+.....A.....
+```
+
+<CodingExam
+  title="Draw the board"
+  heading="exercise-draw-board"
+  lang="python"
+  prompt="Return one row with the player character."
+  sampleLog={`(input) 11 5
+.....A.....`}
+  starter={`def draw_line(width, player_col):
+    # TODO: build a list of characters, then "".join(...)
+    return ""
+`}
+  wrapSuffix={`
+width, player_col = [int(x) for x in input().split()]
+print(draw_line(width, player_col))
+`}
+  tests={[
+    { name: '11 5', stdin: '11 5', equals: '.....A.....' },
+    { name: '5 0', stdin: '5 0', equals: 'A....' },
+    { name: '5 4', stdin: '5 4', equals: '....A' },
+  ]}
+/>
+
+:::
+
+</Exercise>
+
+<Exercise title="Clear a row of aliens" anchor="exercise-clear-aliens">
+
+:::tip Activity: Clear a row of aliens
+Write `after_hit(aliens, shot_col)` so it returns a **new** list of remaining alien columns (same order), with `shot_col` removed **once** if present.
+
+Expected for `2 5 8` and shot `5`:
+```
+[2, 8]
+```
+
+<CodingExam
+  title="Clear a row of aliens"
+  heading="exercise-clear-aliens"
+  lang="python"
+  prompt="Return remaining alien columns after one shot."
+  sampleLog={`(input)
+5
+2 5 8
+[2, 8]`}
+  starter={`def after_hit(aliens, shot_col):
+    result = []
+    # TODO: copy every alien except the first matching shot_col
+    return result
+`}
+  wrapSuffix={`
+shot_col = int(input())
+line = input().strip()
+aliens = [int(x) for x in line.split()] if line else []
+print(after_hit(aliens, shot_col))
+`}
+  tests={[
+    { name: 'remove 5', stdin: '5\n2 5 8', equals: '[2, 8]' },
+    { name: 'miss keeps all', stdin: '1\n2 5 8', equals: '[2, 5, 8]' },
+    { name: 'remove first 2 only', stdin: '2\n2 2 8', equals: '[2, 8]' },
+  ]}
+/>
+
+:::
+
+</Exercise>
+</ExerciseSet>
+
+---
+
+## Going further (optional)
+
+If you later want **pixels**, options are:
+
+1. **Keep ASCII** and add colors with ANSI codes in a real terminal (not required here).
+2. **Bake Pillow into the Piston Python image** (`pip install pillow` at **package build** time) and print a base64 PNG — then a small site component could display it.
+3. **Browser game** in JavaScript/canvas, with Python only scoring logic.
+
+For class, stay on the grid: it is the same architecture as the arcade game (state, input, collide, redraw).

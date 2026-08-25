@@ -1,0 +1,183 @@
+---
+sidebar_position: 90
+title: Sandbox — pandas & charts
+---
+
+This page is a **lab**, not a student chapter. It checks three ways to “chart” on Piston:
+
+1. **Pandas tables** (already fast)
+2. **ASCII bars** (testable, no image)
+3. **matplotlib PNG** (needs longer CPU time + a `PISTON_PNG:` line)
+4. **seaborn** (same PNG trick; seaborn sits on matplotlib)
+
+Run with **batch mode** (`interactive` off) so the full PNG arrives in one response.
+
+Print a PNG like this:
+
+```python
+print("PISTON_PNG:" + base64.b64encode(png_bytes).decode("ascii"))
+```
+
+The runner hides that line and shows the image.
+
+---
+
+## 1. Pandas table
+
+<PistonRunner
+  lang="python"
+  interactive={false}
+  height="280px"
+  code={`import pandas as pd
+
+df = pd.DataFrame({
+    "fruit": ["apple", "banana", "cherry"],
+    "sold": [4, 2, 7],
+})
+print(df.to_string(index=False))
+print("mean sold:", df["sold"].mean())
+print("cherry only:")
+print(df[df["fruit"] == "cherry"].to_string(index=False))
+`}
+/>
+
+---
+
+## 2. ASCII bar chart
+
+Graded exams can check this output. No matplotlib.
+
+<PistonRunner
+  lang="python"
+  interactive={false}
+  height="280px"
+  code={`import pandas as pd
+
+df = pd.DataFrame({"name": ["a", "b", "c"], "n": [3, 1, 5]})
+
+def ascii_bars(frame, name_col, n_col):
+    for _, row in frame.iterrows():
+        print(str(row[name_col]), "#" * int(row[n_col]))
+
+ascii_bars(df, "name", "n")
+`}
+/>
+
+<CodingExam
+  title="ASCII bars"
+  heading="Sandbox: ASCII bars"
+  lang="python"
+  filename="main.py"
+  prompt="Print one line per fruit: name, a space, then that many # characters. Input is two columns: name and count."
+  sampleLog={`(input)
+a 3
+b 1
+
+a ###
+b #`}
+  starter={`def bars(names, counts):
+    # TODO: for each i, print names[i], a space, then "#" * counts[i]
+    pass
+`}
+  wrapSuffix={`
+names = []
+counts = []
+try:
+    while True:
+        line = input().strip()
+        if not line:
+            continue
+        name, n = line.split()
+        names.append(name)
+        counts.append(int(n))
+except EOFError:
+    pass
+bars(names, counts)
+`}
+  tests={[
+    { name: 'a 3 / b 1', stdin: 'a 3\nb 1\n', equals: 'a ###\nb #' },
+    { name: 'z 2', stdin: 'z 2\n', equals: 'z ##' },
+  ]}
+/>
+
+---
+
+## 3. matplotlib PNG
+
+Uses Agg (no window). First import is slow; Piston CPU/time was raised for this.
+
+<PistonRunner
+  lang="python"
+  interactive={false}
+  height="360px"
+  runTimeout={20000}
+  runCpuTime={15000}
+  code={`import matplotlib
+matplotlib.use("Agg")
+import matplotlib.pyplot as plt
+import pandas as pd
+import base64
+from io import BytesIO
+
+df = pd.DataFrame({"x": [1, 2, 3, 4], "y": [2, 5, 3, 8]})
+fig, ax = plt.subplots(figsize=(4, 2.5))
+ax.bar(df["x"], df["y"], color="#5b6abf")
+ax.set_title("sales")
+ax.set_xlabel("day")
+ax.set_ylabel("count")
+fig.tight_layout()
+
+buf = BytesIO()
+fig.savefig(buf, format="png", dpi=90)
+plt.close(fig)
+print("rows", len(df))
+print("PISTON_PNG:" + base64.b64encode(buf.getvalue()).decode("ascii"))
+`}
+/>
+
+If this is killed (`Time limit exceeded`), restart Piston after the compose change:
+
+```bash
+cd /Users/nenewang/Documents/GIT/piston
+docker compose up -d api
+```
+
+Limits in `docker-compose.yaml`: `PISTON_RUN_TIMEOUT=20000`, `PISTON_RUN_CPU_TIME=15000`, `PISTON_OUTPUT_MAX_SIZE=250000`.
+
+---
+
+## 4. seaborn PNG
+
+Same Agg backend. `sns.set_theme()` then a barplot.
+
+<PistonRunner
+  lang="python"
+  interactive={false}
+  height="380px"
+  runTimeout={20000}
+  runCpuTime={15000}
+  code={`import matplotlib
+matplotlib.use("Agg")
+import matplotlib.pyplot as plt
+import seaborn as sns
+import pandas as pd
+import base64
+from io import BytesIO
+
+sns.set_theme(style="whitegrid")
+df = pd.DataFrame({
+    "day": ["Mon", "Tue", "Wed", "Thu"],
+    "sold": [4, 7, 3, 8],
+})
+fig, ax = plt.subplots(figsize=(4.2, 2.6))
+sns.barplot(data=df, x="day", y="sold", ax=ax, color="#3d9b8f")
+ax.set_title("seaborn barplot")
+fig.tight_layout()
+
+buf = BytesIO()
+fig.savefig(buf, format="png", dpi=90)
+plt.close(fig)
+print("seaborn", sns.__version__)
+print("PISTON_PNG:" + base64.b64encode(buf.getvalue()).decode("ascii"))
+`}
+/>

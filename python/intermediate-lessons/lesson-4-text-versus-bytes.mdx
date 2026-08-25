@@ -1,0 +1,607 @@
+---
+sidebar_position: 4
+title: "Text versus Bytes"
+---
+
+> **Source:** Fluent Python, 2nd Edition — Chapter 4 by Luciano Ramalho
+
+Humans use **text**. Computers store **bytes**. Python 3 keeps those worlds apart: `str` is Unicode characters; `bytes` / `bytearray` are integers 0–255. You convert with an **encoding**. Implicit mix-ups are how you get mojibake.
+
+This chapter covers:
+
+- Code points vs byte sequences
+- `bytes`, `bytearray`, and why `b[0]` is an `int`
+- Codecs, encode/decode errors, and the Unicode sandwich
+- Normalization (`NFC`) and `casefold`
+- `unicodedata` names and combining marks
+- Dual-mode APIs (`re` on `str` vs `bytes`)
+
+---
+
+## Characters, code points, bytes
+
+A Unicode **character** has a **code point** (`U+0041` is `A`). An **encoding** turns code points into bytes and back. UTF-8 is the usual web default. The same character can be one byte in UTF-8 and two bytes in UTF-16LE.
+
+```python
+s = "caf\u00e9"           # 4 characters
+b = s.encode("utf-8")     # 5 bytes: é is two UTF-8 bytes
+text = b.decode("utf-8")
+```
+
+Memory aid: **decode** bytes → human `str`. **encode** `str` → machine bytes.
+
+You cannot reliably detect an encoding from bytes alone. HTTP/XML headers or an agreed codec must tell you. UTF-8 is strict: junk often raises `UnicodeDecodeError`. Many legacy 8-bit codecs silently turn *any* bytes into the wrong letters.
+
+<details>
+<summary>🧪 str length vs UTF-8 length</summary>
+
+<PistonRunner
+  lang="python"
+  interactive={false}
+  height="260px"
+  code={`s = "caf\u00e9"
+b = s.encode("utf-8")
+print(len(s), s)
+print(len(b), b)
+print(b.decode("utf-8"))
+`}
+/>
+
+</details>
+
+---
+
+## Mini quiz — encode and decode
+
+<MultipleChoice
+  id="py-int-ch4-codec"
+  title="Encode and decode"
+  questions={[
+    {
+      prompt: 's.encode("utf-8") returns',
+      choices: ['str', 'bytes', 'list of str', 'int'],
+      answer: 1,
+      why: 'Encoding produces a binary sequence.',
+    },
+    {
+      prompt: 'For the single character é, len(s) vs len(s.encode("utf-8")) is usually',
+      choices: ['1 and 1', '1 and 2', '2 and 1', 'always equal'],
+      answer: 1,
+      why: 'One code point, two UTF-8 bytes.',
+    },
+  ]}
+/>
+
+---
+
+## Challenge: byte length
+
+Read a word. Print two integers: number of characters, then number of UTF-8 bytes.
+
+<CodingExam
+  title="byte length"
+  heading="Challenge: byte length"
+  lang="python"
+  filename="main.py"
+  prompt="return len(word), len(word.encode('utf-8'))"
+  sampleLog={`(input) Hi
+2 2`}
+  starter={`def sizes(word):
+    # TODO
+    return 0, 0
+`}
+  wrapSuffix={`
+a, b = sizes(input())
+print(a, b)
+`}
+  tests={[
+    { name: 'ascii', stdin: 'Hi', equals: '2 2' },
+    { name: 'e-acute', stdin: 'caf\u00e9', equals: '4 5' },
+  ]}
+/>
+
+---
+
+## Binary sequences
+
+`bytes` is immutable. `bytearray` is mutable. There is no `bytearray` literal; the repr looks like `bytearray(b'...')`.
+
+Each **index** is an `int` 0–255. A **slice**, even of length 1, is still `bytes` / `bytearray`. That differs from `str`, where `s[0] == s[:1]`.
+
+Printable ASCII shows as characters in the repr; other values use `\xNN`. `bytes.fromhex("31 4B")` builds from hex pairs.
+
+Most `str` methods that do not need Unicode data also exist on binary sequences (`replace`, `strip`, `endswith`, …) but they take **bytes** arguments, not `str`.
+
+UTF-16 (and UTF-32) care about endianness. A **BOM** (`b'\\xff\\xfe'` or `b'\\xfe\\xff'`) marks byte order. UTF-8 does not need a BOM; `utf-8-sig` is for files that might start with `ef bb bf`. Prefer writing UTF-8 **without** a BOM for scripts (`#!` must stay `b'#!'`).
+
+<details>
+<summary>🧪 Index vs slice</summary>
+
+<PistonRunner
+  lang="python"
+  interactive={false}
+  height="280px"
+  code={`cafe = bytes("caf\u00e9", encoding="utf-8")
+print(cafe[0], type(cafe[0]))
+print(cafe[:1], type(cafe[:1]))
+print(bytes.fromhex("48 69"))
+`}
+/>
+
+</details>
+
+---
+
+## Mini quiz — bytes
+
+<MultipleChoice
+  id="py-int-ch4-bytes"
+  title="bytes"
+  questions={[
+    {
+      prompt: 'type(b"ab"[0]) is',
+      choices: ['str', 'bytes', 'int', 'bool'],
+      answer: 2,
+      why: 'One index is an integer 0–255.',
+    },
+    {
+      prompt: 'type(b"ab"[:1]) is',
+      choices: ['int', 'bytes', 'str', 'bytearray'],
+      answer: 1,
+      why: 'A slice of bytes is bytes, even if length is 1.',
+    },
+  ]}
+/>
+
+---
+
+## Challenge: first byte
+
+Read ASCII text. Print the integer of the first byte, then the `repr` of a one-byte slice (Python’s `repr`).
+
+<CodingExam
+  title="first byte"
+  heading="Challenge: first byte"
+  lang="python"
+  filename="main.py"
+  prompt="b = word.encode('ascii'); print first int and repr of b[:1]"
+  sampleLog={`(input) Hi
+72 b'H'`}
+  starter={`def first_byte(word):
+    b = word.encode("ascii")
+    # TODO: return (b[0], b[:1])
+    return 0, b""
+`}
+  wrapSuffix={`
+n, sl = first_byte(input().strip())
+print(n, repr(sl))
+`}
+  tests={[
+    { name: 'Hi', stdin: 'Hi', equals: "72 b'H'" },
+    { name: 'A', stdin: 'A', equals: "65 b'A'" },
+  ]}
+/>
+
+---
+
+## Encode/decode errors
+
+- `UnicodeEncodeError` — `str` → bytes, character missing from the codec.
+- `UnicodeDecodeError` — bytes → `str`, invalid sequence for that codec.
+- Source files default to UTF-8. A `# coding: cp1252` header is a last resort; converting the file to UTF-8 is better.
+
+Handlers: `strict` (default), `ignore` (silent loss), `replace` (`?` on encode, `�` on decode), `xmlcharrefreplace` on encode.
+
+`str.isascii()` is True only if every character is ASCII — then almost any codec can encode it.
+
+**Unicode sandwich:** decode to `str` as soon as data enters; keep business logic on `str`; encode as late as possible. Always pass `encoding=` to `open()` for text. Locale defaults differ (Windows vs macOS/Linux) and change when stdout is redirected.
+
+<details>
+<summary>🧪 replace on decode</summary>
+
+<PistonRunner
+  lang="python"
+  interactive={false}
+  height="240px"
+  code={`raw = b"Hi\\xff!"
+print(raw.decode("utf-8", errors="replace"))
+print("A".isascii(), "\u00e9".isascii())
+`}
+/>
+
+</details>
+
+---
+
+## Mini quiz — errors and files
+
+<MultipleChoice
+  id="py-int-ch4-errors"
+  title="Errors and files"
+  questions={[
+    {
+      prompt: 'Opening a UTF-8 file on Windows without encoding= may',
+      choices: [
+        'always work',
+        'decode with a locale codec and garble non-ASCII',
+        'convert to bytes automatically',
+        'raise only on Linux',
+      ],
+      answer: 1,
+      why: 'Text mode uses locale.getpreferredencoding() if you omit encoding.',
+    },
+    {
+      prompt: 'errors="ignore" on encode',
+      choices: ['never loses data', 'drops characters that cannot be encoded', 'adds a BOM', 'only works on bytes'],
+      answer: 1,
+      why: 'Silent deletion. replace at least shows a marker.',
+    },
+  ]}
+/>
+
+---
+
+## Challenge: safe decode
+
+Read a line of space-separated integers 0–255. Build `bytes`, decode as UTF-8 with `errors="replace"`, print the resulting string.
+
+<CodingExam
+  title="safe decode"
+  heading="Challenge: safe decode"
+  lang="python"
+  filename="main.py"
+  prompt="bytes(ints).decode('utf-8', errors='replace')"
+  sampleLog={`(input) 72 105
+Hi`}
+  starter={`def as_text(nums):
+    raw = bytes(nums)
+    # TODO
+    return ""
+`}
+  wrapSuffix={`
+nums = [int(x) for x in input().split()]
+print(as_text(nums))
+`}
+  sourceChecks={[
+    { name: 'Uses replace', pattern: 'replace', must: true, hint: "errors='replace'" },
+  ]}
+  tests={[
+    { name: 'Hi', stdin: '72 105', equals: 'Hi' },
+    { name: 'bad byte', stdin: '65 255', equals: 'A\ufffd' },
+  ]}
+/>
+
+---
+
+## Normalization and case folding
+
+`é` can be one code point or `e` + combining acute. They look the same but `==` is False until you `unicodedata.normalize`.
+
+- **NFC** — compose (shortest usual form; good default).
+- **NFD** — decompose to base + marks.
+- **NFKC / NFKD** — compatibility; can change meaning (`½` → `1⁄2`). Use for search indexes, not archival storage.
+
+```python
+from unicodedata import normalize
+normalize("NFC", a) == normalize("NFC", b)
+```
+
+`str.casefold()` is stronger than `lower()` for case-insensitive match (`ß` → `ss`).
+
+Diacritic stripping (NFD, drop `combining` characters, NFC) is a search hack, not true equality. It can change meaning.
+
+Locale sorting (`locale.strxfrm`) needs a working OS locale. Cross-platform collation is a library (UCA / ICU), not something we install in this sandbox.
+
+<details>
+<summary>🧪 NFC makes café equal</summary>
+
+<PistonRunner
+  lang="python"
+  interactive={false}
+  height="280px"
+  code={`from unicodedata import normalize
+
+a = "caf\u00e9"
+b = "cafe\u0301"
+print(len(a), len(b), a == b)
+print(normalize("NFC", a) == normalize("NFC", b))
+print("\u00df".casefold())
+`}
+/>
+
+</details>
+
+---
+
+## Mini quiz — NFC
+
+<MultipleChoice
+  id="py-int-ch4-nfc"
+  title="Normalization"
+  questions={[
+    {
+      prompt: 'NFC is mainly for',
+      choices: ['compressing files', 'canonical string equality', 'encoding to latin-1', 'adding a BOM'],
+      answer: 1,
+      why: 'Compose so equivalent spellings compare equal.',
+    },
+    {
+      prompt: 'NFKC is risky for stored text because it',
+      choices: ['is slower than UTF-16', 'can rewrite compatibility characters and lose meaning', 'only works on bytes', 'requires Windows'],
+      answer: 1,
+      why: 'Compatibility decompositions are for search, not round-trip fidelity.',
+    },
+  ]}
+/>
+
+---
+
+## Challenge: same word
+
+Two tokens. Print `yes` if they are NFC-equal, else `no`.
+
+<CodingExam
+  title="same word"
+  heading="Challenge: same word"
+  lang="python"
+  filename="main.py"
+  prompt="normalize NFC both sides and compare"
+  sampleLog={`(input) cafe\u00e9 cafe\u0301
+yes`}
+  starter={`from unicodedata import normalize
+
+def same(a, b):
+    # TODO
+    return False
+`}
+  wrapSuffix={`
+a, b = input().split()
+print("yes" if same(a, b) else "no")
+`}
+  sourceChecks={[
+    { name: 'Calls normalize', pattern: 'normalize', must: true, hint: "normalize('NFC', ...)" },
+  ]}
+  tests={[
+    { name: 'composed vs combining', stdin: 'caf\u00e9 cafe\u0301', equals: 'yes' },
+    { name: 'different', stdin: 'ab cd', equals: 'no' },
+  ]}
+/>
+
+---
+
+## Unicode database
+
+`unicodedata.name(ch)` is the official name. `unicodedata.numeric(ch)` knows the human value of many number-like characters. `str.isdecimal` / `isnumeric` / `isalpha` use that database.
+
+A tiny finder: walk `chr(code)`, skip unnamed points, test whether query words are a **subset** of `name.split()`.
+
+`re.compile(r"\\d+")` on **str** matches more than ASCII digits. The same pattern as **bytes** (`rb"\\d+"`) stays ASCII-only. `os` functions accept `str` or `bytes` paths so you can survive invalid filenames on Unix.
+
+<details>
+<summary>🧪 name and combining</summary>
+
+<PistonRunner
+  lang="python"
+  interactive={false}
+  height="280px"
+  code={`import unicodedata as ud
+
+print(ud.name("A"))
+print(ud.combining("\u0301") != 0)
+print(ud.numeric("\u00bd"))
+`}
+/>
+
+</details>
+
+---
+
+## Mini quiz — unicodedata
+
+<MultipleChoice
+  id="py-int-ch4-udata"
+  title="unicodedata"
+  questions={[
+    {
+      prompt: 'unicodedata.combining(c) is nonzero when c is',
+      choices: ['ASCII space', 'a combining mark', 'always', 'only emojis'],
+      answer: 1,
+      why: 'Used when stripping marks after NFD.',
+    },
+    {
+      prompt: 'rb"\\w+" on bytes matches',
+      choices: ['any Unicode letter', 'mostly ASCII word bytes', 'only tabs', 'UTF-16 only'],
+      answer: 1,
+      why: 'Bytes regexes do not get the Unicode letter database.',
+    },
+  ]}
+/>
+
+---
+
+## Challenge: official name
+
+Read one character (the first of the line). Print its Unicode name in uppercase (as `unicodedata.name` already is).
+
+<CodingExam
+  title="official name"
+  heading="Challenge: official name"
+  lang="python"
+  filename="main.py"
+  prompt="print unicodedata.name(ch)"
+  sampleLog={`(input) A
+LATIN CAPITAL LETTER A`}
+  starter={`import unicodedata as ud
+
+def official(ch):
+    # TODO
+    return ""
+`}
+  wrapSuffix={`
+print(official(input()[0]))
+`}
+  sourceChecks={[
+    { name: 'Uses unicodedata.name', pattern: '\\.name\\(', must: true, hint: 'ud.name(ch)' },
+  ]}
+  tests={[
+    { name: 'A', stdin: 'A', equals: 'latin capital letter a' },
+    { name: 'space', stdin: ' !', equals: 'space' },
+  ]}
+/>
+
+---
+
+## Chapter summary
+
+:::important Key takeaways
+
+1. `str` is code points; `bytes` is 0–255. Convert with a named codec.
+2. `b[i]` is `int`; `b[i:i+1]` is `bytes`.
+3. Decode early, encode late, always pass `encoding=` for text files.
+4. NFC (and `casefold` when needed) before comparing user text.
+5. `unicodedata` is the catalog behind names, categories, and numeric values.
+6. `re` / `os` behave differently on `str` vs `bytes`.
+
+:::
+
+## Exercises
+
+<ExerciseSet>
+<Exercise title="ASCII check" anchor="exercise-isascii">
+
+:::tip Activity: ASCII check
+Read a line. Print `ascii` if `str.isascii()` else `unicode`.
+
+<CodingExam
+  title="ASCII check"
+  heading="exercise-isascii"
+  lang="python"
+  filename="main.py"
+  prompt="word.isascii()"
+  sampleLog={`(input) Hello
+ascii`}
+  starter={`def kind(word):
+    # TODO
+    return "unicode"
+`}
+  wrapSuffix={`
+print(kind(input().rstrip("\\n")))
+`}
+  sourceChecks={[
+    { name: 'Uses isascii', pattern: 'isascii', must: true, hint: 'word.isascii()' },
+  ]}
+  tests={[
+    { name: 'Hello', stdin: 'Hello', equals: 'ascii' },
+    { name: 'acute', stdin: 'caf\u00e9', equals: 'unicode' },
+  ]}
+/>
+
+:::
+
+</Exercise>
+
+<Exercise title="Shave marks" anchor="exercise-shave">
+
+:::tip Activity: Shave marks
+NFD the string, drop combining characters, NFC the rest. Print the result (ASCII-looking café → cafe).
+
+<CodingExam
+  title="Shave marks"
+  heading="exercise-shave"
+  lang="python"
+  filename="main.py"
+  prompt="NFD, skip combining, NFC"
+  sampleLog={`(input) caf\u00e9
+cafe`}
+  starter={`import unicodedata as ud
+
+def shave(txt):
+    # TODO
+    return txt
+`}
+  wrapSuffix={`
+print(shave(input().rstrip("\\n")))
+`}
+  sourceChecks={[
+    { name: 'Uses combining', pattern: 'combining', must: true, hint: 'ud.combining(c)' },
+  ]}
+  tests={[
+    { name: 'cafe acute', stdin: 'caf\u00e9', equals: 'cafe' },
+    { name: 'plain', stdin: 'ok', equals: 'ok' },
+  ]}
+/>
+
+:::
+
+</Exercise>
+
+<Exercise title="Name has words" anchor="exercise-name-subset">
+
+:::tip Activity: Name has words
+First token is a character; the rest are query words. Print `yes` if those words (uppercased) are a subset of the character’s official name split on spaces.
+
+<CodingExam
+  title="Name has words"
+  heading="exercise-name-subset"
+  lang="python"
+  filename="main.py"
+  prompt="query.issubset(name.split())"
+  sampleLog={`(input) A LATIN CAPITAL
+yes`}
+  starter={`import unicodedata as ud
+
+def named(ch, words):
+    # TODO
+    return False
+`}
+  wrapSuffix={`
+parts = input().split()
+ch, words = parts[0], parts[1:]
+print("yes" if named(ch, words) else "no")
+`}
+  sourceChecks={[
+    { name: 'Uses issubset or <= on sets', pattern: 'issubset|<=', must: true, hint: 'query.issubset(name.split())' },
+  ]}
+  tests={[
+    { name: 'A LATIN CAPITAL', stdin: 'A LATIN CAPITAL', equals: 'yes' },
+    { name: 'A CAT', stdin: 'A CAT', equals: 'no' },
+  ]}
+/>
+
+:::
+
+</Exercise>
+
+<Exercise title="From hex" anchor="exercise-fromhex">
+
+:::tip Activity: From hex
+Read hex pairs (spaces OK). Print `bytes.fromhex(...).decode("ascii")`.
+
+<CodingExam
+  title="From hex"
+  heading="exercise-fromhex"
+  lang="python"
+  filename="main.py"
+  prompt="bytes.fromhex then decode ascii"
+  sampleLog={`(input) 48 69
+Hi`}
+  starter={`def from_hex(line):
+    # TODO
+    return ""
+`}
+  wrapSuffix={`
+print(from_hex(input()))
+`}
+  sourceChecks={[
+    { name: 'Uses fromhex', pattern: 'fromhex', must: true, hint: 'bytes.fromhex(line)' },
+  ]}
+  tests={[
+    { name: 'Hi', stdin: '48 69', equals: 'Hi' },
+    { name: 'AB', stdin: '41 42', equals: 'AB' },
+  ]}
+/>
+
+:::
+
+</Exercise>
+</ExerciseSet>
