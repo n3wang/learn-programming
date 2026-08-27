@@ -1,0 +1,338 @@
+---
+sidebar_position: 26
+title: Concurrency — An Introduction
+---
+
+> **Source:** *Operating Systems: Three Easy Pieces* (OSTEP) — Chapter 26, Arpaci-Dusseau & Arpaci-Dusseau
+
+import ConcurrencyIntroSimulator from "@site/src/components/interactive/ConcurrencyIntroSimulator.js";
+
+# Concurrency: An Introduction
+
+CPU virtualization gave us multiple virtual CPUs; memory virtualization gave each process a private address space. Now: **threads** — multiple points of execution **inside one process**.
+
+A thread is like a process with one big difference: threads **share an address space** (and can touch the same data). Each thread still has its own **PC**, **registers**, and (usually) **stack**. Switching threads uses a **TCB** (thread control block); unlike a process switch, you typically **do not** switch page tables.
+
+## Address space with threads
+
+Single-threaded: one stack. Multi-threaded: **one stack per thread** (thread-local storage for locals, args, return addresses). Stacks carve into the shared VA layout — less “beautiful,” but usually fine if stacks stay modest.
+
+## Why threads?
+
+1. **Parallelism** — split work across CPUs (e.g. array ops).  
+2. **Overlap I/O** — one thread blocks on disk/network/page fault; others keep running (like multiprogramming, but inside one program).  
+
+Processes work too, but **sharing in-memory data structures** is much easier with threads. Prefer processes when tasks are logically separate and share little.
+
+## Thread creation (pthread sketch)
+
+`pthread_create` starts a routine on a new thread; `pthread_join` waits for it. After create, the new thread may run **immediately**, later, or (on a multiprocessor) **alongside** others — the **scheduler** decides. Creation order does **not** imply run order: “B” can print before “A”.
+
+Think of create as a function call that does **not** wait for the callee: a new execution context runs independently.
+
+## Shared data: the plot thickens
+
+Two threads each do `counter = counter + 1` ten million times. Expected: **20,000,000**. Reality: often less, and **different every run** — **indeterminate**.
+
+### Uncontrolled scheduling
+
+`counter++` is typically three instructions:
+
+```text
+mov  counter, %eax
+add  $1, %eax
+mov  %eax, counter
+```
+
+If T1 loads and adds, then a timer interrupt saves `eax=51` mid-update, T2 runs a full increment (50→51), then T1 stores 51 again — **two increments, one visible update**. That is a **race condition** (data race) on a **critical section**.
+
+We need **mutual exclusion**: only one thread in the critical section at a time (Dijkstra [D65,D68]).
+
+### The wish for atomicity
+
+A single `memory-add` that the hardware runs **all-or-nothing** would fix this case. In general we cannot invent an instruction per data structure. Instead: a few **atomic hardware primitives** + OS help → **synchronization primitives** (locks, etc.) that make short sequences appear atomic.
+
+:::tip Use atomic operations
+“All or nothing” shows up everywhere: concurrency, file systems, databases, distributed systems.
+:::
+
+**Another interaction:** one thread must **wait** for another (I/O done, work produced) — later: condition variables / sleep–wake.
+
+## Why in OS class?
+
+The OS was the first concurrent program. Interrupts mid-`write()` updating bitmaps and inodes are the same class of bug. Kernel structures need synchronization from day one; user threads inherited the problem.
+
+:::info Key terms
+- **Critical section** — code that touches shared state  
+- **Race condition** — concurrent critical-section entry → surprising result  
+- **Indeterminate** — output varies by timing  
+- **Mutual exclusion** — at most one thread in the CS  
+:::
+
+**Crux ahead:** what hardware and OS support do we need to build sync primitives correctly and efficiently?
+
+## Interactive
+
+<ConcurrencyIntroSimulator />
+
+**Try:** address spaces · create/join orderings · lost update on `counter++`.
+
+## Check your understanding
+
+<MultipleChoice
+  id="ce-concurrency-intro"
+  title="Concurrency introduction"
+  questions={[
+    {
+      prompt: 'Compared to a process context switch, a thread switch typically…',
+      choices: [
+        'Always switches page tables',
+        'Saves/restores registers (TCB) but keeps the same address space',
+        'Creates a new PID',
+        'Disables the scheduler forever',
+      ],
+      answer: 1,
+      why: 'Threads share the process address space.',
+    },
+    {
+      prompt: 'Two common reasons to use threads are…',
+      choices: [
+        'Slower I/O and less RAM',
+        'Parallelism on multiple CPUs and overlapping I/O with other work',
+        'Removing the need for a heap',
+        'Guaranteeing deterministic scheduling',
+      ],
+      answer: 1,
+      why: 'Speedup + avoid blocking the whole program on I/O.',
+    },
+    {
+      prompt: 'If thread A is created before thread B, then…',
+      choices: [
+        'A always runs to completion before B starts',
+        'B may still run (and finish) before A',
+        'Join is illegal',
+        'They cannot share globals',
+      ],
+      answer: 1,
+      why: 'Scheduler order is not creation order.',
+    },
+    {
+      prompt: 'A race on counter++ happens because…',
+      choices: [
+        'Addition is illegal in C',
+        'The update is a multi-instruction critical section that can interleave',
+        'Threads never share registers',
+        'Join deletes the counter',
+      ],
+      answer: 1,
+      why: 'Load/add/store can be split across a context switch.',
+    },
+    {
+      prompt: 'Mutual exclusion means…',
+      choices: [
+        'All threads run on one core',
+        'At most one thread executes the critical section at a time',
+        'No thread may ever block',
+        'Stacks are shared',
+      ],
+      answer: 1,
+      why: 'Classic definition for avoiding data races on shared state.',
+    },
+    {
+      prompt: '“Indeterminate” concurrent code means…',
+      choices: [
+        'It never compiles',
+        'Outputs can vary from run to run depending on timing',
+        'It always prints 20000000',
+        'The TLB is disabled',
+      ],
+      answer: 1,
+      why: 'Races make results timing-dependent.',
+    },
+  ]}
+/>
+
+## Coding challenges
+
+<ExerciseSet title="Exercises" description="Expected totals, lost updates, and classifying shared vs thread-local.">
+  <CodeExercise
+    title="expected total"
+    heading="Challenge: expected_counter"
+    lang="python"
+    filename="main.py"
+    prompt={`expected_counter(n_threads, loops_each) returns n_threads * loops_each — the correct final counter if every increment is applied once.
+Chapter: 2 threads × 10_000_000 → 20_000_000.
+wrap: print expected_counter(2, 10_000_000).`}
+    sampleLog={`20000000`}
+    starter={`def expected_counter(n_threads, loops_each):
+    return 0  # TODO
+`}
+    wrapSuffix={`
+print(expected_counter(2, 10_000_000))
+`}
+    hint={`Multiply threads by iterations.`}
+    solution={`def expected_counter(n_threads, loops_each):
+    return n_threads * loops_each
+`}
+    sourceChecks={[
+      { name: 'multiplies', pattern: '\\*', must: true, hint: 'product of threads and loops' },
+    ]}
+    tests={[
+      { name: 'chapter total', stdin: '', equals: '20000000' },
+    ]}
+  />
+  <CodeExercise
+    title="lost updates"
+    heading="Challenge: lost_updates"
+    lang="python"
+    filename="main.py"
+    prompt={`lost_updates(expected, actual) returns expected - actual (how many increments “disappeared”).
+Example: 20000000 and 19345221 → 654779.
+wrap: print lost_updates(20000000, 19345221).`}
+    sampleLog={`654779`}
+    starter={`def lost_updates(expected, actual):
+    return 0  # TODO
+`}
+    wrapSuffix={`
+print(lost_updates(20000000, 19345221))
+`}
+    hint={`Simple subtraction.`}
+    solution={`def lost_updates(expected, actual):
+    return expected - actual
+`}
+    sourceChecks={[
+      { name: 'subtracts', pattern: '-', must: true, hint: 'expected minus actual' },
+    ]}
+    tests={[
+      { name: 'chapter gap', stdin: '', equals: '654779' },
+    ]}
+  />
+  <CodeExercise
+    title="after bad interleaving"
+    heading="Challenge: counter_after_lost_store"
+    lang="python"
+    filename="main.py"
+    prompt={`counter_after_lost_store(start) models Fig 26.7: both threads “increment” once but the first thread’s store is overwritten by timing — final value is start+1 (not start+2).
+wrap: print counter_after_lost_store(50).`}
+    sampleLog={`51`}
+    starter={`def counter_after_lost_store(start):
+    return start  # TODO
+`}
+    wrapSuffix={`
+print(counter_after_lost_store(50))
+`}
+    hint={`One visible update only.`}
+    solution={`def counter_after_lost_store(start):
+    return start + 1
+`}
+    sourceChecks={[
+      { name: 'adds', pattern: '\\+', must: true, hint: 'only one increment sticks' },
+    ]}
+    tests={[
+      { name: '50 → 51', stdin: '', equals: '51' },
+    ]}
+  />
+  <CodeExercise
+    title="shared or local?"
+    heading="Challenge: storage_kind"
+    lang="python"
+    filename="main.py"
+    prompt={`storage_kind(name) returns "shared" or "thread_local".
+Treat these as shared: "heap_object", "global_counter", "code".
+Treat as thread_local: "stack_local", "thread_registers", "pc".
+wrap: print for global_counter, stack_local, pc.`}
+    sampleLog={`shared
+thread_local
+thread_local`}
+    starter={`def storage_kind(name):
+    return "shared"  # TODO
+`}
+    wrapSuffix={`
+print(storage_kind("global_counter"))
+print(storage_kind("stack_local"))
+print(storage_kind("pc"))
+`}
+    hint={`Use a set of shared names or check membership.`}
+    solution={`def storage_kind(name):
+    shared = {"heap_object", "global_counter", "code"}
+    return "shared" if name in shared else "thread_local"
+`}
+    sourceChecks={[
+      { name: 'branches', pattern: 'if|in', must: true, hint: 'classify by name' },
+    ]}
+    tests={[
+      { name: 'three kinds', stdin: '', equals: 'shared\nthread_local\nthread_local' },
+    ]}
+  />
+  <CodeExercise
+    title="needs mutex?"
+    heading="Challenge: needs_mutex"
+    lang="python"
+    filename="main.py"
+    prompt={`needs_mutex(touches_shared, concurrent_threads) is True when touches_shared and concurrent_threads > 1.
+wrap: print needs_mutex(True, 2), needs_mutex(True, 1), needs_mutex(False, 8).`}
+    sampleLog={`True
+False
+False`}
+    starter={`def needs_mutex(touches_shared, concurrent_threads):
+    return False  # TODO
+`}
+    wrapSuffix={`
+print(needs_mutex(True, 2))
+print(needs_mutex(True, 1))
+print(needs_mutex(False, 8))
+`}
+    hint={`Mutual exclusion matters only with shared state and real concurrency.`}
+    solution={`def needs_mutex(touches_shared, concurrent_threads):
+    return bool(touches_shared) and concurrent_threads > 1
+`}
+    sourceChecks={[
+      { name: 'combines', pattern: 'and|>', must: true, hint: 'shared and more than one thread' },
+    ]}
+    tests={[
+      { name: 'three cases', stdin: '', equals: 'True\nFalse\nFalse' },
+    ]}
+  />
+</ExerciseSet>
+
+## Homework lab: `x86.py`
+
+Use the [OSTEP concurrency homework](https://github.com/remzi-arpacidusseau/ostep-homework/tree/master/threads-intro) (`x86.py` and the `.s` traces).
+
+<GuidedLab id="ostep-threads-intro" title="Homework: x86.py thread interleavings">
+  <LabStep title="loop.s one thread">
+    Run `./x86.py -p loop.s -t 1 -i 100 -R dx` then check with `-c`. What is `%dx` over the run?
+  </LabStep>
+  <LabStep title="Two threads">
+    `./x86.py -p loop.s -t 2 -i 100 -a dx=3,dx=3 -R dx` — race or not? Confirm with `-c`.
+  </LabStep>
+  <LabStep title="Random interrupts">
+    Try `-i 3 -r` with different `-s` seeds. Does frequency change outcomes?
+  </LabStep>
+  <LabStep title="looping-race-nolock.s">
+    Single thread with `-M 2000`, then two threads. Where is the critical section? Which `-i` values yield the “correct” final `value`?
+  </LabStep>
+  <LabStep title="wait-for-me.s">
+    Compare `-a ax=1,ax=0` vs `ax=0,ax=1`. Who spins? Is the CPU used efficiently?
+  </LabStep>
+</GuidedLab>
+
+## Summary
+
+| Idea | Takeaway |
+|---|---|
+| **Thread** | PC + regs + stack; shared AS with siblings |
+| **Why** | Parallelism + I/O overlap |
+| **Race** | Interleaved critical sections → wrong / indeterminate results |
+| **Need** | Mutual exclusion / atomicity via sync primitives |
+
+**Previous:** [Complete Virtual Memory Systems](../../virtualization/complete-virtual-memory-systems) (end of VM arc)
+
+**Next:** [Locks](./locks) — mutexes, test-and-set, tickets, and sleeping locks.
+
+## Further Reading
+
+- Remzi & Andrea Arpaci-Dusseau — [*Operating Systems: Three Easy Pieces*](https://pages.cs.wisc.edu/~remzi/OSTEP/) Ch. 26
+- [OSTEP threads-intro PDF](https://pages.cs.wisc.edu/~remzi/OSTEP/threads-intro.pdf)
+- [OSTEP threads-intro homework](https://github.com/remzi-arpacidusseau/ostep-homework/tree/master/threads-intro)
+- Dijkstra [D65], [D68]; Stevens & Rago [SR05]

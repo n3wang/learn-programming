@@ -152,7 +152,7 @@ public class Main {
   ]}
 />
 
-<CodingExam
+<CodeExercise
   title="add two scanned numbers"
   heading="Try it: add two scanned numbers"
   lang="java"
@@ -311,7 +311,7 @@ class Main {
 :::tip Activity: Average of three
 Read three integers with `Scanner`. Print their average as a `double`.
 
-<CodingExam
+<CodeExercise
   title="Average of three"
   heading="exercise-average-three"
   lang="java"
@@ -346,7 +346,7 @@ public class Main {
 :::tip Activity: Name and age sentence
 Read a name (`next()`) and an age (`nextInt()`). Print: `Hello NAME, you are AGE years old.`
 
-<CodingExam
+<CodeExercise
   title="Name and age sentence"
   heading="exercise-name-age"
   lang="java"
@@ -378,7 +378,7 @@ public class Main {
 :::tip Activity: Total cost
 Read the price of one item (`double`) and the quantity bought (`int`). Print the total cost.
 
-<CodingExam
+<CodeExercise
   title="Total cost"
   heading="exercise-total-cost"
   lang="java"

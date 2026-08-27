@@ -1,0 +1,372 @@
+---
+sidebar_position: 5
+title: Process API
+---
+
+> **Source:** *Operating Systems: Three Easy Pieces* (OSTEP) — Chapter 5 (Interlude), Arpaci-Dusseau & Arpaci-Dusseau
+
+import ProcessApiSimulator from "@site/src/components/interactive/ProcessApiSimulator.js";
+
+# Interlude: Process API
+
+:::info Interludes
+Interludes focus on **practical OS APIs** — how real systems let you create and control processes. Skip them only if you dislike useful things (employers usually do not).
+:::
+
+**Crux:** what interfaces should the OS present for process creation and control — powerful, usable, and fast?
+
+UNIX’s answer is an odd but brilliant trio: **`fork()`**, **`exec()`**, and **`wait()`**.
+
+## `fork()` — create a near-copy
+
+`fork()` creates a new process that is an *almost* exact copy of the caller:
+
+- Own address space, registers, PC, …
+- Does **not** restart at `main` — both parent and child return from `fork()`
+- **Parent** return value: child’s **PID**
+- **Child** return value: **0**
+- On failure: negative (check and exit)
+
+```c
+int rc = fork();
+if (rc < 0) { /* fail */ }
+else if (rc == 0) { /* child */ }
+else { /* parent: rc is child pid */ }
+```
+
+Output order of parent vs child is **nondeterministic** — the scheduler decides who runs first.
+
+## `wait()` — parent blocks until child finishes
+
+`wait()` (or `waitpid()`) lets a parent delay until a child exits. Then:
+
+- Child always effectively “prints first” (if parent waits before its own print)
+- `wait()` returns the child’s PID (when it reaps that child)
+
+Without `wait()`, a short-lived parent can exit while the child still runs; with it, the shell can show the next prompt only after the command completes.
+
+## `exec()` — replace the program image
+
+`exec()` (e.g. `execvp`) does **not** create a new process. It **transforms** the current one:
+
+1. Load new code + static data from an executable
+2. Re-init heap / stack / etc.
+3. Jump into the new program with `argv`
+
+A **successful** `exec` **never returns**. Code after `execvp(...)` is only reached if `exec` failed.
+
+## Why separate `fork` and `exec`?
+
+A UNIX **shell** is just a user program: prompt → parse → `fork` → (optional setup) → `exec` → `wait` → prompt again.
+
+The gap **between** `fork` and `exec` is where the shell implements:
+
+| Feature | Trick in the child before `exec` |
+|---|---|
+| `wc file > out.txt` | `close(STDOUT_FILENO); open("out.txt", …)` — next free fd is usually 1 |
+| Pipes `a \| b` | `pipe()`; connect one child’s stdout to the other’s stdin |
+| Env / cwd tweaks | Change environment without changing the target program |
+
+:::tip Lampson’s law (getting it right)
+Many process-creation APIs are possible. Separating **fork** and **exec** is simple and extremely powerful — the UNIX designers got it right.
+:::
+
+## Interactive: fork → wait → exec → redirect
+
+Step through the same story as OSTEP’s `p1`–`p4` examples.
+
+<ProcessApiSimulator />
+
+**Try:**
+- **fork()** — two return values; hello printed once; race on print order
+- **fork + wait** — parent blocks → deterministic child-then-parent
+- **fork + exec** — child becomes `wc`; post-`exec` code is dead
+- **I/O redirect** — rearrange fds so `wc` writes to a file
+
+## Check your understanding
+
+<MultipleChoice
+  id="ce-process-api"
+  title="fork, exec, wait"
+  questions={[
+    {
+      prompt: 'After a successful fork(), the child…',
+      choices: [
+        'Starts again at main()',
+        'Returns from fork() with 0',
+        'Returns from fork() with the parent’s PID',
+        'Always runs before the parent',
+      ],
+      answer: 1,
+      why: 'The child is a copy mid-flight: it returns from fork with 0. Parent gets the child’s PID.',
+    },
+    {
+      prompt: 'A successful exec() call…',
+      choices: [
+        'Creates a second process',
+        'Returns 0 to the caller',
+        'Never returns; the process runs a new program image',
+        'Only works inside the parent',
+      ],
+      answer: 2,
+      why: 'exec replaces the current process image. Success means no return to the old code.',
+    },
+    {
+      prompt: 'Why does wait() in the parent make “child then parent” prints deterministic?',
+      choices: [
+        'It disables the scheduler',
+        'If the parent runs first, wait blocks until the child exits',
+        'It forces the child PID to be smaller',
+        'It merges the two address spaces',
+      ],
+      answer: 1,
+      why: 'Parent either runs second already, or runs first and blocks in wait until the child is done.',
+    },
+    {
+      prompt: 'Shell redirection wc > out works because between fork and exec the child can…',
+      choices: [
+        'Patch wc’s source',
+        'Close stdout and open out so fd 1 points at the file',
+        'Tell the kernel to rename printf',
+        'Call wait on itself',
+      ],
+      answer: 1,
+      why: 'UNIX assigns the lowest free fd; after closing 1, open() typically reuses stdout’s slot.',
+    },
+  ]}
+/>
+
+## Coding challenges
+
+Piston cannot really `fork`/`exec` — these **C** drills classify return values the way your local homework will. Real `unistd.h` calls stay in the lab below.
+
+<ExerciseSet
+  title="Exercises"
+  description="fork return values, independent copies, wait ordering, exec."
+>
+  <CodeExercise
+    title="fork return roles"
+    heading="Challenge: who_am_i"
+    lang="c"
+    filename="main.c"
+    prompt={`const char *who_am_i(int rc) classifies a fork() return value:
+• rc < 0 → "fail"
+• rc == 0 → "child"
+• rc > 0 → "parent"
+Hidden main prints who_am_i(-1), who_am_i(0), who_am_i(42).`}
+    sampleLog={`fail child parent`}
+    starter={`const char *who_am_i(int rc) {
+    return "todo"; /* TODO: fail / child / parent */
+}
+`}
+    wrapPrefix={`#include <stdio.h>
+
+`}
+    wrapSuffix={`
+int main(void) {
+    printf("%s %s %s\\n", who_am_i(-1), who_am_i(0), who_am_i(42));
+    return 0;
+}
+`}
+    hint={`Three branches: negative → "fail", zero → "child", positive → "parent".`}
+    solution={`const char *who_am_i(int rc) {
+    if (rc < 0) return "fail";
+    if (rc == 0) return "child";
+    return "parent";
+}
+`}
+    sourceChecks={[
+      { name: 'checks zero', pattern: '== 0', must: true, hint: 'child is the rc == 0 case' },
+      { name: 'checks negative', pattern: '< 0', must: true, hint: 'failure is rc < 0' },
+    ]}
+    tests={[
+      { name: 'roles', stdin: '', equals: 'fail child parent' },
+    ]}
+  />
+  <CodeExercise
+    title="independent address spaces"
+    heading="Challenge: after_fork_x"
+    lang="c"
+    filename="main.c"
+    prompt={`After fork(), both start with x == start (separate copies), then child += child_delta and parent += parent_delta.
+void after_fork_x(int start, int child_delta, int parent_delta, int *child_x, int *parent_x)
+writes the two results through out-pointers.
+Hidden main prints two cases.`}
+    sampleLog={`101 102
+13 14`}
+    starter={`void after_fork_x(int start, int child_delta, int parent_delta,
+                  int *child_x, int *parent_x) {
+    /* TODO: each process has its own x */
+    *child_x = 0;
+    *parent_x = 0;
+}
+`}
+    wrapPrefix={`#include <stdio.h>
+
+`}
+    wrapSuffix={`
+int main(void) {
+    int a, b;
+    after_fork_x(100, 1, 2, &a, &b);
+    printf("%d %d\\n", a, b);
+    after_fork_x(10, 3, 4, &a, &b);
+    printf("%d %d\\n", a, b);
+    return 0;
+}
+`}
+    hint={`*child_x = start + child_delta; *parent_x = start + parent_delta;`}
+    solution={`void after_fork_x(int start, int child_delta, int parent_delta,
+                  int *child_x, int *parent_x) {
+    *child_x = start + child_delta;
+    *parent_x = start + parent_delta;
+}
+`}
+    sourceChecks={[
+      { name: 'uses start', pattern: 'start', must: true, hint: 'both copies begin at start' },
+    ]}
+    tests={[
+      { name: 'two cases', stdin: '', equals: '101 102\n13 14' },
+    ]}
+  />
+  <CodeExercise
+    title="wait print order"
+    heading="Challenge: ordered_lines"
+    lang="c"
+    filename="main.c"
+    prompt={`Parent prints "goodbye"; child prints "hello". With wait() in the parent before its print, fill first/second in print order.
+void ordered_lines(const char **first, const char **second)
+Hidden main prints them on one line.`}
+    sampleLog={`hello goodbye`}
+    starter={`void ordered_lines(const char **first, const char **second) {
+    /* TODO */
+    *first = "";
+    *second = "";
+}
+`}
+    wrapPrefix={`#include <stdio.h>
+
+`}
+    wrapSuffix={`
+int main(void) {
+    const char *a, *b;
+    ordered_lines(&a, &b);
+    printf("%s %s\\n", a, b);
+    return 0;
+}
+`}
+    hint={`Child finishes before wait returns → "hello" then "goodbye".`}
+    solution={`void ordered_lines(const char **first, const char **second) {
+    *first = "hello";
+    *second = "goodbye";
+}
+`}
+    sourceChecks={[
+      { name: 'hello first', pattern: 'hello', must: true, hint: 'child line comes first' },
+    ]}
+    tests={[
+      { name: 'child then parent', stdin: '', equals: 'hello goodbye' },
+    ]}
+  />
+  <CodeExercise
+    title="exec never returns"
+    heading="Challenge: after_exec"
+    lang="c"
+    filename="main.c"
+    prompt={`int after_exec(int success) — does code after exec() run? (1 = yes, 0 = no)
+success != 0 means exec worked → return 0.
+success == 0 means exec failed → return 1.
+Hidden main prints both cases.`}
+    sampleLog={`0 1`}
+    starter={`int after_exec(int success) {
+    return 1; /* TODO */
+}
+`}
+    wrapPrefix={`#include <stdio.h>
+
+`}
+    wrapSuffix={`
+int main(void) {
+    printf("%d %d\\n", after_exec(1), after_exec(0));
+    return 0;
+}
+`}
+    hint={`Successful exec never returns to the old program.`}
+    solution={`int after_exec(int success) {
+    return success ? 0 : 1;
+}
+`}
+    sourceChecks={[
+      { name: 'uses success', pattern: 'success', must: true, hint: 'branch on whether exec succeeded' },
+    ]}
+    tests={[
+      { name: 'both cases', stdin: '', equals: '0 1' },
+    ]}
+  />
+</ExerciseSet>
+
+## Homework lab: Process API (C on your machine)
+
+Write real programs with `fork` / `exec` / `wait` / `pipe` on a UNIX-like system (Linux, macOS, WSL). Use notes and screenshots below — saved in **this browser** (IndexedDB).
+
+Reference: [OSTEP cpu-api homework](https://github.com/remzi-arpacidusseau/ostep-homework/tree/master/cpu-api).
+
+<GuidedLab id="ostep-process-api" title="Homework: Process API (code)">
+  <LabStep title="fork and variable x">
+    Write a program that calls `fork()`. Before calling `fork()`, have the main process access a variable (e.g., `x`) and set its value to something (e.g., 100). What value is the variable in the child process? What happens to the variable when both the child and parent change the value of `x`?
+  </LabStep>
+  <LabStep title="shared open file">
+    Write a program that opens a file (with the `open()` system call) and then calls `fork()` to create a new process. Can both the child and parent access the file descriptor returned by `open()`? What happens when they are writing to the file concurrently, i.e., at the same time?
+  </LabStep>
+  <LabStep title="hello then goodbye">
+    Write another program using `fork()`. The child process should print `"hello"`; the parent process should print `"goodbye"`. You should try to ensure that the child process always prints first; can you do this **without** calling `wait()` in the parent?
+  </LabStep>
+  <LabStep title="exec variants">
+    Write a program that calls `fork()` and then calls some form of `exec()` to run the program `/bin/ls`. See if you can try all of the variants of `exec()` on Linux: `execl()`, `execle()`, `execlp()`, `execv()`, `execvp()`, and `execvpe()`. Why do you think there are so many variants of the same basic call?
+  </LabStep>
+  <LabStep title="wait return">
+    Now write a program that uses `wait()` to wait for the child process to finish in the parent. What does `wait()` return? What happens if you use `wait()` in the child?
+  </LabStep>
+  <LabStep title="waitpid">
+    Write a slight modification of the previous program, this time using `waitpid()` instead of `wait()`. When would `waitpid()` be useful?
+  </LabStep>
+  <LabStep title="close stdout">
+    Write a program that creates a child process, and then in the child closes standard output (`STDOUT_FILENO`). What happens if the child calls `printf()` to print some output after closing the descriptor?
+  </LabStep>
+  <LabStep title="pipe two children">
+    Write a program that creates two children, and connects the standard output of one to the standard input of the other, using the `pipe()` system call.
+  </LabStep>
+</GuidedLab>
+
+## Process control, users, tools
+
+Beyond create/run/wait:
+
+| Tool / API | Role |
+|---|---|
+| **Signals** (`kill`, Ctrl-C → `SIGINT`, Ctrl-Z → `SIGTSTP`) | Pause, resume, terminate processes |
+| **Users** | Usually you may only signal **your** processes |
+| **Superuser (root)** | Can control any process — use rarely and carefully |
+| **`ps` / `top` / `kill`** | Inspect load; send signals from the shell |
+
+:::note RTFM
+`man 2 fork`, `man 2 execve`, `man 2 wait`, and your shell’s man page beat random blog posts. Colleagues who say “RTFM” mean: read the man pages.
+:::
+
+## Summary
+
+| Term | Meaning |
+|---|---|
+| **PID** | Numeric name of a process |
+| **`fork()`** | Create child ≈ copy of parent; return values differ |
+| **`wait()` / `waitpid()`** | Parent waits to reap a child |
+| **`exec()` family** | Replace current program image |
+| **Shell** | `fork` → setup (redirect/pipe) → `exec` → `wait` |
+| **Signals / users / root** | Who may control which processes |
+
+**Next:** [Limited Direct Execution](./limited-direct-execution) — traps, timers, and context switches.
+
+## Further Reading
+
+- Remzi & Andrea Arpaci-Dusseau — [*Operating Systems: Three Easy Pieces*](https://pages.cs.wisc.edu/~remzi/OSTEP/) Ch. 5
+- W. Richard Stevens & Stephen A. Rago — *Advanced Programming in the UNIX Environment* (process control chapters)
+- OSTEP homework code: [cpu-api](https://github.com/remzi-arpacidusseau/ostep-homework/tree/master/cpu-api)

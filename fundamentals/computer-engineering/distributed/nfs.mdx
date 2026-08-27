@@ -1,0 +1,301 @@
+---
+sidebar_position: 49
+title: Sun’s Network File System
+---
+
+> **Source:** *Operating Systems: Three Easy Pieces* (OSTEP) — Chapter 49, Arpaci-Dusseau & Arpaci-Dusseau
+
+import NfsSimulator from "@site/src/components/interactive/NfsSimulator.js";
+
+# Sun’s Network File System (NFS)
+
+Clients talk to a **file server** that owns the disks. Why not only local disks?
+
+- **Sharing** — same namespace from any client
+- **Central admin** — backup a few servers, not every laptop
+- **Security** — servers in a locked room
+
+**Crux:** how do you build a distributed file system? What goes wrong?
+
+## Architecture
+
+Apps call the normal POSIX API (`open`, `read`, …). The **client-side file system** turns those into protocol messages; the **file server** serves them (disk or server cache). Transparent access: same API, (hopefully) similar behavior, remote data.
+
+Sun published an **open protocol** (message formats) so many vendors could interoperate — a big reason NFS won [S86].
+
+## Goal: fast server crash recovery → statelessness
+
+When the server is down, every client is unhappy. NFSv2’s answer: a **stateless** protocol — the server does not remember open files, cursors, or which clients cache what. Each request carries **all** information needed to complete.
+
+A stateful `open`→fd shared with the server is **distributed state** [O91]: server crash forgets fds; client crash leaves server opens orphaned. Recovery gets messy. Stateless: reboot the server; clients **retry**.
+
+### File handles
+
+`FH = (volume ID, inode #, generation #)`. Generation bumps when an inode is reused so stale handles cannot hit the wrong file.
+
+| Call (sketch) | Client sends | Server returns |
+|---|---|---|
+| **LOOKUP** | dir FH + name | FH + attributes |
+| **READ** | FH + offset + count | data + attributes |
+| **WRITE** | FH + offset + count + data | attributes |
+| **GETATTR** | FH | attributes (incl. mtime) |
+
+`open("/foo")` → LOOKUP; successive `read(fd,…)` use the client’s fd→FH map and **local** offset. `close` is local — no server message.
+
+## Idempotent retry
+
+Timeouts: lost request, server down, or lost reply. NFSv2 treats them the same — **resend**.
+
+**Idempotent** = doing it N times ≡ once. READ/LOOKUP yes; WRITE yes if it includes absolute offset + data. MKDIR is awkward (success + lost reply → retry “fails”). Voltaire’s Law: perfect is the enemy of the good.
+
+## Client caching and consistency
+
+Caching data (and buffering writes) is mandatory for speed — and creates the **cache consistency problem**:
+
+1. **Update visibility** — C2’s dirty `F[v2]` still only in C2’s RAM
+2. **Stale cache** — server has `F[v2]` but C1 still holds `F[v1]`
+
+NFSv2 engineering:
+
+- **Flush-on-close** (close-to-open): close forces dirty pages to the server so a later open elsewhere can see updates
+- **Validate before use**: GETATTR; newer server mtime → invalidate cache
+- **Attribute cache** (~few seconds) stops GETATTR storms — at the cost of fuzzy “which version?” semantics
+
+## Server write buffering
+
+The server **must not** ack WRITE success until data is on **stable storage**. Otherwise a crash after a buffered “success” can leave holes (client thinks `a,b,c` wrote; disk has `a`, old, `c`). Fast NFS appliances use battery-backed memory + write-optimized FS layouts [HLM94].
+
+**VFS/vnode** [K86]: Sun’s pluggable FS interface so NFS could sit beside local FS — still everywhere.
+
+## Interactive
+
+<NfsSimulator />
+
+**Try:** why DFS · stateless FH · idempotent retry · cache consistency · server durable WRITE.
+
+## Check your understanding
+
+<MultipleChoice
+  id="ce-nfs"
+  title="Sun NFS"
+  questions={[
+    {
+      prompt: 'NFSv2’s main protocol design goal emphasized here is…',
+      choices: [
+        'Maximum encryption by default',
+        'Simple and fast server crash recovery via a stateless protocol',
+        'Replacing POSIX with a new API',
+        'Eliminating all client caches',
+      ],
+      answer: 1,
+      why: 'Server downtime hurts every client.',
+    },
+    {
+      prompt: 'A file handle typically includes a generation number so that…',
+      choices: [
+        'TCP sequence numbers work',
+        'Reused inode numbers cannot be accessed via an old handle',
+        'Clients skip LOOKUP forever',
+        'RAID rebuilds faster',
+      ],
+      answer: 1,
+      why: 'Stale FH safety.',
+    },
+    {
+      prompt: 'Clients can unify message loss and server crash handling because…',
+      choices: [
+        'NFS never loses packets',
+        'Most requests are idempotent, so retry is safe',
+        'Servers keep open-file tables forever',
+        'UDP is reliable',
+      ],
+      answer: 1,
+      why: 'Retry until success.',
+    },
+    {
+      prompt: 'Flush-on-close primarily improves…',
+      choices: [
+        'Server CPU frequency',
+        'Update visibility across clients after a writer closes',
+        'Inode generation counters',
+        'Kerberos ticket lifetime',
+      ],
+      answer: 1,
+      why: 'Close-to-open consistency.',
+    },
+    {
+      prompt: 'Why must an NFS server force WRITE to stable storage before success?',
+      choices: [
+        'To disable client caches',
+        'Otherwise a crash can leave file contents clients believe were written',
+        'POSIX forbids server RAM',
+        'LOOKUP requires disk sync',
+      ],
+      answer: 1,
+      why: 'Client retry assumes durable success.',
+    },
+    {
+      prompt: 'The attribute cache exists mainly to…',
+      choices: [
+        'Encrypt GETATTR replies',
+        'Reduce GETATTR load while still (eventually) detecting remote updates',
+        'Replace file handles',
+        'Make MKDIR idempotent',
+      ],
+      answer: 1,
+      why: 'Trade freshness for fewer round trips.',
+    },
+  ]}
+/>
+
+## Coding challenges
+
+<ExerciseSet title="Exercises" description="Handles, idempotency, and consistency.">
+  <CodeExercise
+    title="FH parts"
+    heading="Challenge: fh_ok"
+    lang="python"
+    filename="main.py"
+    prompt={`fh_ok(vol, ino, gen) is True iff all are ints >= 0.
+wrap: print fh_ok(1, 10, 2), fh_ok(1, -1, 2).`}
+    sampleLog={`True
+False`}
+    starter={`def fh_ok(vol, ino, gen):
+    return False  # TODO
+`}
+    wrapSuffix={`
+print(fh_ok(1, 10, 2))
+print(fh_ok(1, -1, 2))
+`}
+    hint={`All nonnegative.`}
+    solution={`def fh_ok(vol, ino, gen):
+    return vol >= 0 and ino >= 0 and gen >= 0
+`}
+    sourceChecks={[
+      { name: 'ge', pattern: '>=', must: true, hint: 'check bounds' },
+    ]}
+    tests={[
+      { name: 'ok/bad', stdin: '', equals: 'True\nFalse' },
+    ]}
+  />
+  <CodeExercise
+    title="idempotent?"
+    heading="Challenge: is_idempotent"
+    lang="python"
+    filename="main.py"
+    prompt={`is_idempotent(op) True for "READ","LOOKUP","WRITE","GETATTR"; False for "MKDIR","REMOVE" in this simplified model.
+wrap: print is_idempotent("WRITE"), is_idempotent("MKDIR").`}
+    sampleLog={`True
+False`}
+    starter={`def is_idempotent(op):
+    return False  # TODO
+`}
+    wrapSuffix={`
+print(is_idempotent("WRITE"))
+print(is_idempotent("MKDIR"))
+`}
+    hint={`WRITE with absolute offset counts as idempotent here.`}
+    solution={`YES = {"READ", "LOOKUP", "WRITE", "GETATTR"}
+
+def is_idempotent(op):
+    return op in YES
+`}
+    sourceChecks={[
+      { name: 'set', pattern: 'READ|WRITE|in', must: true, hint: 'membership check' },
+    ]}
+    tests={[
+      { name: 'write vs mkdir', stdin: '', equals: 'True\nFalse' },
+    ]}
+  />
+  <CodeExercise
+    title="stale cache?"
+    heading="Challenge: cache_stale"
+    lang="python"
+    filename="main.py"
+    prompt={`cache_stale(cached_mtime, server_mtime) True iff server_mtime > cached_mtime.
+wrap: print cache_stale(10, 12), cache_stale(12, 12).`}
+    sampleLog={`True
+False`}
+    starter={`def cache_stale(cached_mtime, server_mtime):
+    return False  # TODO
+`}
+    wrapSuffix={`
+print(cache_stale(10, 12))
+print(cache_stale(12, 12))
+`}
+    hint={`Compare mtimes.`}
+    solution={`def cache_stale(cached_mtime, server_mtime):
+    return server_mtime > cached_mtime
+`}
+    sourceChecks={[
+      { name: 'cmp', pattern: '>', must: true, hint: 'server newer?' },
+    ]}
+    tests={[
+      { name: 'stale/fresh', stdin: '', equals: 'True\nFalse' },
+    ]}
+  />
+  <CodeExercise
+    title="read offset"
+    heading="Challenge: next_offset"
+    lang="python"
+    filename="main.py"
+    prompt={`next_offset(pos, nread) returns pos + nread (client advances file pointer).
+wrap: print next_offset(0, 4096), next_offset(4096, 4096).`}
+    sampleLog={`4096
+8192`}
+    starter={`def next_offset(pos, nread):
+    return 0  # TODO
+`}
+    wrapSuffix={`
+print(next_offset(0, 4096))
+print(next_offset(4096, 4096))
+`}
+    hint={`Add.`}
+    solution={`def next_offset(pos, nread):
+    return pos + nread
+`}
+    sourceChecks={[
+      { name: 'add', pattern: '\\+', must: true, hint: 'advance pointer' },
+    ]}
+    tests={[
+      { name: 'two reads', stdin: '', equals: '4096\n8192' },
+    ]}
+  />
+</ExerciseSet>
+
+## Homework lab: NFS trace analysis
+
+Use the [OSTEP dist-nfs homework](https://github.com/remzi-arpacidusseau/ostep-homework/tree/master/dist-nfs) (Ellard/Seltzer-style traces [ES03]).
+
+<GuidedLab id="ostep-nfs-trace" title="Homework: NFS traces">
+  <LabStep title="Time span">
+    `head -1` / `tail -1` on timestamps — how long is the trace? Which day?
+  </LabStep>
+  <LabStep title="Ops & GETATTR">
+    Count ops by type (sort by frequency). From GETATTR: file-size distribution, distinct users, other fields of interest.
+  </LabStep>
+  <LabStep title="Access & latency">
+    Sequential vs random READ/WRITE? Client traffic matrix? Latency distribution of request/reply pairs? Any retries?
+  </LabStep>
+</GuidedLab>
+
+## Summary
+
+| Idea | Takeaway |
+|---|---|
+| **Stateless** | Fast crash recovery; FH + offsets in every call |
+| **Idempotent retry** | One client strategy for loss and reboot |
+| **Client cache** | Speed vs consistency (close-to-open + attr cache) |
+| **Stable WRITE** | Server durability before success |
+| **VFS** | Pluggable local + NFS side by side |
+
+**Previous:** [Distributed Systems](./distributed-systems)
+
+**Next:** [Andrew File System](./afs) — callbacks, whole-file cache, scale.
+
+## Further Reading
+
+- Remzi & Andrea Arpaci-Dusseau — [*Operating Systems: Three Easy Pieces*](https://pages.cs.wisc.edu/~remzi/OSTEP/) Ch. 49
+- [OSTEP NFS PDF](https://pages.cs.wisc.edu/~remzi/OSTEP/dist-nfs.pdf)
+- [OSTEP dist-nfs homework](https://github.com/remzi-arpacidusseau/ostep-homework/tree/master/dist-nfs)
+- Sandberg NFS [S86]; Callaghan *NFS Illustrated* [C00]; Kleiman VFS [K86]

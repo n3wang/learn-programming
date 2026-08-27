@@ -102,7 +102,7 @@ class Main {
   ]}
 />
 
-<CodingExam
+<CodeExercise
   title="sum 1 to n"
   heading="Try it: sum 1 to n"
   lang="java"
@@ -157,7 +157,7 @@ class Runner {
 :::tip Activity: Print evens
 Read an integer `n`. Print every even number from `2` up to `n` (inclusive), one per line, using a `for` loop.
 
-<CodingExam
+<CodeExercise
   title="Print evens"
   heading="exercise-print-evens"
   lang="java"
@@ -201,7 +201,7 @@ class Runner {
 :::tip Activity: Multiplication table
 Read an integer `n`. Print the multiplication table for `n`, from `n * 1` to `n * 10`, one line per row formatted as `n x i = result`.
 
-<CodingExam
+<CodeExercise
   title="Multiplication table"
   heading="exercise-mult-table"
   lang="java"
@@ -242,7 +242,7 @@ class Runner {
 :::tip Activity: Count vowels
 Read a lowercase word. Loop over its characters with a `for` loop (`word.charAt(i)`) and print how many are vowels (`a`, `e`, `i`, `o`, `u`).
 
-<CodingExam
+<CodeExercise
   title="Count vowels"
   heading="exercise-count-vowels"
   lang="java"

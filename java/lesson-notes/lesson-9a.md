@@ -194,7 +194,7 @@ A parameter only exists **inside** its own method. Changing `n` inside `square` 
 
 Write a method `isEven(int n)` that returns `true` if `n` is even, `false` otherwise. Read one integer and print the result.
 
-<CodingExam
+<CodeExercise
   title="isEven"
   heading="Challenge: isEven"
   lang="java"
@@ -235,7 +235,7 @@ class Runner {
 
 Write a method `maxOf(int a, int b)` that returns the larger of the two. Read two integers and print the result.
 
-<CodingExam
+<CodeExercise
   title="max of two"
   heading="Challenge: max of two"
   lang="java"
@@ -289,7 +289,7 @@ class Runner {
 :::tip Activity: Factorial
 Write a method `factorial(int n)` that returns `n!` (`n * (n-1) * ... * 1`, and `0! = 1`). Read one integer and print the result.
 
-<CodingExam
+<CodeExercise
   title="Factorial"
   heading="exercise-factorial"
   lang="java"
@@ -329,7 +329,7 @@ class Runner {
 :::tip Activity: Sentence builder
 Write a method `intro(String name, int age)` that returns the sentence `"NAME is AGE years old"`. Read a name (one word) and an age, then print the result.
 
-<CodingExam
+<CodeExercise
   title="Sentence builder"
   heading="exercise-sentence"
   lang="java"
@@ -369,7 +369,7 @@ class Runner {
 :::tip Activity: Is prime
 Write a method `isPrime(int n)` that returns `true` if `n` is a prime number (greater than 1, only divisible by 1 and itself), `false` otherwise. Read one integer and print the result.
 
-<CodingExam
+<CodeExercise
   title="Is prime"
   heading="exercise-is-prime"
   lang="java"
@@ -413,7 +413,7 @@ class Runner {
 :::tip Activity: Reverse digits
 Write a method `reverseDigits(int n)` that returns `n` with its digits reversed (`n` is a positive integer). Read one integer and print the result.
 
-<CodingExam
+<CodeExercise
   title="Reverse digits"
   heading="exercise-reverse-digits"
   lang="java"

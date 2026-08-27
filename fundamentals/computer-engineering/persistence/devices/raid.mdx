@@ -1,0 +1,311 @@
+---
+sidebar_position: 38
+title: RAID
+---
+
+> **Source:** *Operating Systems: Three Easy Pieces* (OSTEP) — Chapter 38, Arpaci-Dusseau & Arpaci-Dusseau
+
+import RaidSimulator from "@site/src/components/interactive/RaidSimulator.js";
+
+# Redundant Arrays of Inexpensive Disks (RAID)
+
+A single disk is often too slow, too small, or too fragile. **RAID** [P+88] combines multiple disks into one **transparent** big disk — faster, larger, and (with redundancy) more reliable — without rewriting the host OS.
+
+**Crux:** how to build a large, fast, reliable disk? What are the trade-offs?
+
+:::tip Transparency enables deployment
+Swap a SCSI disk for a SCSI RAID and nothing above changes. Deployability made RAID succeed.
+:::
+
+## Internals & fault model
+
+A RAID presents a linear block array. Each logical I/O becomes one or more physical I/Os (level-dependent). Hardware RAIDs are mini-computers: MCU, DRAM, sometimes NVRAM and parity ASICs.
+
+**Fail-stop** for this chapter: a disk works or is permanently lost, and failure is **detectable**. (Silent corruption / latent sector errors come later.)
+
+Evaluate every design on **capacity**, **reliability**, and **performance** (latency of one request vs steady-state bandwidth under sequential vs random workloads; single-disk rates `S` ≫ `R`).
+
+## RAID-0: Striping
+
+Round-robin chunks across disks (a **stripe** = one row). Mapping (chunk = 1 block): `Disk = A % N`, `Offset = A / N`. Larger **chunk size** trades intra-file parallelism for fewer seeks.
+
+| | RAID-0 |
+|---|---|
+| Capacity | `N · B` |
+| Reliability | **0** failures |
+| Seq / rand throughput | `N · S` / `N · R` |
+
+Upper bound on speed and space — no redundancy.
+
+## RAID-1: Mirroring
+
+Keep **two** copies on different disks (layouts: RAID-10 vs RAID-01). Reads may pick either copy; writes must update **both** (in parallel).
+
+| | RAID-1 (mirror=2) |
+|---|---|
+| Capacity | `(N · B) / 2` |
+| Reliability | **1** for sure (up to `N/2` if lucky) |
+| Seq R/W | ≈ `(N/2) · S` |
+| Random read | `N · R` |
+| Random write | `(N/2) · R` |
+
+:::tip Consistent update
+Crash mid multi-disk write can leave mirrors inconsistent. Log intent (often in **NVRAM**) then apply [DAA05].
+:::
+
+## RAID-4: Fixed parity
+
+One **parity** disk per stripe; `P = XOR` of data blocks. Rebuild a lost disk by XORing the survivors. Capacity `(N−1)·B`; tolerates **1** failure.
+
+- **Full-stripe write:** compute `P`, write all data + `P` in parallel → `(N−1)·S`
+- **Small write (subtractive):** `P_new = (C_old ⊕ C_new) ⊕ P_old` → 2 reads + 2 writes. **Parity disk bottleneck** → ~`R/2` (does not scale with `N`)
+
+## RAID-5: Rotated parity
+
+Same math as RAID-4, but **parity rotates** across disks → small writes can proceed in parallel across stripes → ~`(N/4) · R`. Dominates RAID-4 in the market (except workloads that are only huge writes).
+
+## Comparison (simplified)
+
+| | Cap | Faults | Seq | Rand read | Rand write |
+|---|---|---|---|---|---|
+| **0** | `N·B` | 0 | `N·S` | `N·R` | `N·R` |
+| **1** | `N·B/2` | 1+ | `N/2·S` | `N·R` | `N/2·R` |
+| **4** | `(N−1)·B` | 1 | `(N−1)·S` | `(N−1)·R` | `R/2` |
+| **5** | `(N−1)·B` | 1 | `(N−1)·S` | `N·R` | `N/4·R` |
+
+**Pick:** speed only → 0; random I/O + reliability → 1; capacity + reliability → 5 (pay on small writes).
+
+## Interactive
+
+<RaidSimulator />
+
+**Try:** why RAID · levels 0/1 · parity 4/5 · which to pick.
+
+## Check your understanding
+
+<MultipleChoice
+  id="ce-raid"
+  title="RAID"
+  questions={[
+    {
+      prompt: 'RAID’s transparency means…',
+      choices: [
+        'Hosts must rewrite the file system',
+        'It looks like one big disk to software above',
+        'Parity is never used',
+        'Only USB disks are allowed',
+      ],
+      answer: 1,
+      why: 'Drop-in replacement aided deployment.',
+    },
+    {
+      prompt: 'For RAID-0 with N disks and chunk=1, disk for logical address A is…',
+      choices: ['A / N', 'A % N', 'A + N', 'always 0'],
+      answer: 1,
+      why: 'Round-robin striping.',
+    },
+    {
+      prompt: 'RAID-1 with mirroring level 2 useful capacity is…',
+      choices: ['N·B', '(N·B)/2', '(N−1)·B', 'B'],
+      answer: 1,
+      why: 'Half the raw space holds copies.',
+    },
+    {
+      prompt: 'XOR parity lets you reconstruct…',
+      choices: [
+        'Any number of failed disks',
+        'Exactly one missing block in a stripe (given the others + P)',
+        'Only mirrored pairs',
+        'Only sequential reads',
+      ],
+      answer: 1,
+      why: 'Even-parity invariant / XOR rebuild.',
+    },
+    {
+      prompt: 'RAID-4’s small-write problem is mainly…',
+      choices: [
+        'Too much capacity',
+        'All small writes serialize on the fixed parity disk',
+        'Inability to stripe',
+        'Fail-stop being too strong',
+      ],
+      answer: 1,
+      why: 'Each small write touches parity → bottleneck ~R/2.',
+    },
+    {
+      prompt: 'RAID-5 improves on RAID-4 for random small writes by…',
+      choices: [
+        'Removing parity',
+        'Rotating parity so concurrent writes avoid one hot disk',
+        'Using only one disk',
+        'Disabling XOR',
+      ],
+      answer: 1,
+      why: 'Still ~4 I/Os per write, but parallelizable → ~N/4·R.',
+    },
+  ]}
+/>
+
+## Coding challenges
+
+<ExerciseSet title="Exercises" description="Mapping, XOR, and level metrics.">
+  <CodeExercise
+    title="stripe map"
+    heading="Challenge: raid0_map"
+    lang="python"
+    filename="main.py"
+    prompt={`raid0_map(a, n) returns (disk, offset) for logical block a with chunk size 1:
+disk = a % n, offset = a // n.
+wrap: print raid0_map(14, 4).`}
+    sampleLog={`(2, 3)`}
+    starter={`def raid0_map(a, n):
+    return (0, 0)  # TODO
+`}
+    wrapSuffix={`
+print(raid0_map(14, 4))
+`}
+    hint={`Modulo and integer division.`}
+    solution={`def raid0_map(a, n):
+    return (a % n, a // n)
+`}
+    sourceChecks={[
+      { name: 'mod div', pattern: '%|//', must: true, hint: 'A % N and A // N' },
+    ]}
+    tests={[
+      { name: 'block 14', stdin: '', equals: '(2, 3)' },
+    ]}
+  />
+  <CodeExercise
+    title="parity bit"
+    heading="Challenge: xor_parity"
+    lang="python"
+    filename="main.py"
+    prompt={`xor_parity(bits) returns XOR of all 0/1 values in bits (even parity bit).
+wrap: print xor_parity([0,0,1,1]) and xor_parity([0,1,0,0]).`}
+    sampleLog={`0
+1`}
+    starter={`def xor_parity(bits):
+    return 0  # TODO
+`}
+    wrapSuffix={`
+print(xor_parity([0, 0, 1, 1]))
+print(xor_parity([0, 1, 0, 0]))
+`}
+    hint={`Reduce with ^ or count 1s mod 2.`}
+    solution={`def xor_parity(bits):
+    p = 0
+    for b in bits:
+        p ^= b
+    return p
+`}
+    sourceChecks={[
+      { name: 'xor', pattern: '\\^|%', must: true, hint: 'XOR or mod 2' },
+    ]}
+    tests={[
+      { name: 'two rows', stdin: '', equals: '0\n1' },
+    ]}
+  />
+  <CodeExercise
+    title="rebuild"
+    heading="Challenge: recover_bit"
+    lang="python"
+    filename="main.py"
+    prompt={`recover_bit(known) returns the missing data/parity bit so XOR of known+[answer] is 0
+(even parity). known is the list of remaining bits including old parity if data missing.
+wrap: print recover_bit([0, 0, 1, 0])  # missing was 1 in 0,0,1,1 with P=0`}
+    sampleLog={`1`}
+    starter={`def recover_bit(known):
+    return 0  # TODO
+`}
+    wrapSuffix={`
+print(recover_bit([0, 0, 1, 0]))
+`}
+    hint={`Missing bit equals XOR of the known bits.`}
+    solution={`def recover_bit(known):
+    p = 0
+    for b in known:
+        p ^= b
+    return p
+`}
+    sourceChecks={[
+      { name: 'xor', pattern: '\\^', must: true, hint: 'XOR survivors' },
+    ]}
+    tests={[
+      { name: 'missing 1', stdin: '', equals: '1' },
+    ]}
+  />
+  <CodeExercise
+    title="useful capacity"
+    heading="Challenge: useful_blocks"
+    lang="python"
+    filename="main.py"
+    prompt={`useful_blocks(level, n, b) returns usable block count:
+0 → n*b; 1 → n*b//2; 4 or 5 → (n-1)*b.
+wrap: print useful_blocks(0,4,100), useful_blocks(1,4,100), useful_blocks(5,5,100).`}
+    sampleLog={`400
+200
+400`}
+    starter={`def useful_blocks(level, n, b):
+    return 0  # TODO
+`}
+    wrapSuffix={`
+print(useful_blocks(0, 4, 100))
+print(useful_blocks(1, 4, 100))
+print(useful_blocks(5, 5, 100))
+`}
+    hint={`Branch on level.`}
+    solution={`def useful_blocks(level, n, b):
+    if level == 0:
+        return n * b
+    if level == 1:
+        return (n * b) // 2
+    return (n - 1) * b
+`}
+    sourceChecks={[
+      { name: 'levels', pattern: 'level|==', must: true, hint: 'cases for 0/1/4-5' },
+    ]}
+    tests={[
+      { name: 'three levels', stdin: '', equals: '400\n200\n400' },
+    ]}
+  />
+</ExerciseSet>
+
+## Homework lab: raid.py
+
+Use the [OSTEP raid homework](https://github.com/remzi-arpacidusseau/ostep-homework/tree/master/file-raid) (`raid.py`).
+
+<GuidedLab id="ostep-file-raid" title="Homework: file-raid / raid.py">
+  <LabStep title="Mappings">
+    Levels 0/1/4/5; left-symmetric vs left-asymmetric RAID-5; vary `-C` chunk size.
+  </LabStep>
+  <LabStep title="Request size">
+    Grow `-S` (8k/12k/16k); when do RAID-4/5 become efficient (full stripe)?
+  </LabStep>
+  <LabStep title="Timing reads">
+    `-t` with 100 random reads; scale disk count per level.
+  </LabStep>
+  <LabStep title="Timing writes">
+    `-w 100` random writes; estimate time; then `-W sequential` and find a good write size for 4/5.
+  </LabStep>
+</GuidedLab>
+
+## Summary
+
+| Goal | Lean toward |
+|---|---|
+| Max speed, no redundancy | **RAID-0** |
+| Random I/O + simple reliability | **RAID-1** |
+| Capacity + 1-disk tolerance | **RAID-5** (watch small writes) |
+
+Also exists: RAID-6 / multi-fault codes, hot spares, reconstruction, software RAID, richer fault models [B+08].
+
+**Previous:** [Hard Disk Drives](./hard-disk-drives)
+
+**Next:** [Files and Directories](../files/files-and-directories) — the UNIX FS API.
+
+## Further Reading
+
+- Remzi & Andrea Arpaci-Dusseau — [*Operating Systems: Three Easy Pieces*](https://pages.cs.wisc.edu/~remzi/OSTEP/) Ch. 38
+- [OSTEP file-raid PDF](https://pages.cs.wisc.edu/~remzi/OSTEP/file-raid.pdf)
+- [OSTEP file-raid homework](https://github.com/remzi-arpacidusseau/ostep-homework/tree/master/file-raid)
+- Patterson, Gibson, Katz [P+88]; Denehy et al. consistent update [DAA05]

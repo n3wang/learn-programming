@@ -1,0 +1,404 @@
+---
+sidebar_position: 7
+title: Scheduling Introduction
+---
+
+> **Source:** *Operating Systems: Three Easy Pieces* (OSTEP) — Chapter 7, Arpaci-Dusseau & Arpaci-Dusseau
+
+import SchedulingIntroSimulator from "@site/src/components/interactive/SchedulingIntroSimulator.js";
+
+# Scheduling: Introduction
+
+By now the **low-level mechanisms** — context switching, traps, timers — should be clear. If not, revisit [Limited Direct Execution](./limited-direct-execution).
+
+This chapter is about **high-level policies**: scheduling **disciplines** that decide **which ready process runs next**.
+
+Scheduling predates computers — assembly lines and operations research faced the same efficiency questions. Our version:
+
+**Crux:** how do we develop a basic framework for scheduling policy? What assumptions matter? Which metrics? Which classic approaches?
+
+## Workload assumptions (simplified)
+
+Before comparing policies, OSTEP starts with **unrealistic but useful** assumptions. We relax them as we go toward a “fully operational” discipline.
+
+| # | Assumption |
+|---|---|
+| 1 | Each job runs the **same** amount of time |
+| 2 | All jobs **arrive together** |
+| 3 | Once started, each job runs to **completion** (non-preemptive) |
+| 4 | Jobs use **CPU only** (no I/O) |
+| 5 | The **run time of each job is known** |
+
+Some assumptions are more unrealistic than others — especially **#5** (an omniscient scheduler). We will drop assumptions one by one.
+
+## Metrics
+
+We need something to **compare** policies.
+
+### Turnaround time (this chapter’s main metric)
+
+*T*<sub>turnaround</sub> = *T*<sub>completion</sub> − *T*<sub>arrival</sub>
+
+With all jobs arriving at *t* = 0, turnaround equals completion time.
+
+**Performance** is our focus here. **Fairness** (e.g. Jain’s fairness index) matters too — but performance and fairness often **conflict**.
+
+### Response time (added later)
+
+*T*<sub>response</sub> = *T*<sub>first run</sub> − *T*<sub>arrival</sub>
+
+Critical for **interactive** time-shared systems: how long until the job gets its **first** slice on the CPU?
+
+## First In, First Out (FIFO / FCFS)
+
+Simplest policy: run jobs in **arrival order**.
+
+**Equal-length jobs (Fig 7.1):** A, B, C each 10 s → finish at 10, 20, 30 → **average turnaround = 20**. Works fine under our early assumptions.
+
+**Different lengths (Fig 7.2):** A = 100 s, B = C = 10 s → finish at 100, 110, 120 → **average = 110**.
+
+This is the **convoy effect** [B+79]: short jobs queue behind a heavyweight consumer — like the grocery line with three carts and a checkbook.
+
+:::tip Shortest Job First principle
+SJF is not just for OS schedulers. Any queue that cares about **per-customer wait** uses the idea — e.g. “ten items or less” lanes.
+:::
+
+## Shortest Job First (SJF)
+
+Run the **shortest** job first, then the next shortest (operations research → computer scheduling).
+
+Same example: run **B, C, A** → turnaround 10, 20, 120 → **average = 50** — more than **2×** better than FIFO.
+
+With all jobs arriving together, SJF is **optimal** for average turnaround (we skip the proof — this is a systems class).
+
+### Problem: late arrivals
+
+Relax assumption 2: A arrives at 0 (100 s); B and C at *t* = 10 (10 s each).
+
+**Non-preemptive SJF** already committed to A → B and C still wait → average ≈ **103.3 s** (Fig 7.4). Convoy returns.
+
+## Shortest Time-to-Completion First (STCF / PSJF)
+
+**Preemptive SJF:** whenever a new job arrives, run whoever has the **least time remaining**.
+
+Requires the mechanisms from LDE: **timer interrupts** and **context switches**.
+
+When B and C arrive at *t* = 10, STCF **preempts** A, runs B and C, then resumes A → average turnaround = **50 s** again (Fig 7.5).
+
+:::info Preemptive schedulers
+Batch systems often ran jobs to completion. Modern OS schedulers are **preemptive** — willing to stop one process to run another.
+:::
+
+STCF is great for **turnaround** when job lengths are known — but time-sharing brought a new goal.
+
+## Response time vs turnaround
+
+STCF can be **bad for response time**. If three jobs arrive together, the third may wait for the first two to **finish entirely** before its first run.
+
+**Example (A@0, B&C@10):** response times 0, 0, 10 → average **3.33** — acceptable for batch, painful at a terminal.
+
+## Round Robin (RR)
+
+Instead of running to completion, RR gives each job a **time slice** (quantum), then cycles the **run queue**.
+
+Three jobs, each 5 s, quantum = 1 s:
+
+| Policy | Avg response | Avg turnaround |
+|---|---|---|
+| SJF (run to completion) | 5 s | 5 s (finishes 5, 10, 15) |
+| RR | **1 s** | **14 s** (finishes 13, 14, 15) |
+
+RR **excels at response**; RR **hurts turnaround** — it stretches every job across many slices.
+
+### Quantum length trade-off
+
+- **Shorter quantum** → better response, more **context switches** (amortization matters)
+- **Longer quantum** → fewer switches, worse interactivity
+
+Context-switch cost is not just register save/restore — **cache, TLB, branch predictor** state is flushed [MB91].
+
+:::tip Amortization
+Fixed costs (context switches) hurt less if you incur them **less often**. Longer quanta amortize switching — at the cost of responsiveness.
+:::
+
+**Inherent trade-off:** policies fair on a small time scale (RR) tend to **lose** on turnaround; policies that favor short jobs (SJF/STCF) **win** turnaround but **lose** response.
+
+## Incorporating I/O
+
+Relax assumption 4: real programs **block on I/O**.
+
+When a job issues I/O, the CPU is idle unless the scheduler picks someone else. When I/O completes, the job moves **Blocked → Ready** (maybe run immediately).
+
+**Example:** A needs 50 ms CPU in five 10-ms bursts (+ 10 ms I/O each); B needs 50 ms CPU straight.
+
+- **Naive:** run all of A, then B — CPU idle during A’s I/O (Fig 7.8)
+- **STCF on bursts:** treat each 10-ms CPU burst as a “job” — interleave with B while A waits on disk (Fig 7.9)
+
+**Overlap** improves **utilization** — a recurring systems theme.
+
+## No more oracle
+
+Final assumption to drop: **known job lengths**. General-purpose OSes rarely know them in advance.
+
+How to behave like SJF/STCF **without** an oracle? How to keep RR-like **response**?
+
+**Next chapter:** [Multi-Level Feedback Queue](./mlfq) — learn from the **recent past** to predict the future.
+
+## Interactive: compare policies
+
+<SchedulingIntroSimulator />
+
+**Try:** FIFO equal · FIFO convoy · SJF · late arrivals · STCF · Round Robin · I/O overlap.
+
+## Check your understanding
+
+<MultipleChoice
+  id="ce-scheduling-intro"
+  title="Scheduling introduction"
+  questions={[
+    {
+      prompt: 'Turnaround time is defined as…',
+      choices: [
+        'Time until first scheduled run minus arrival',
+        'Completion time minus arrival time',
+        'CPU time divided by wall-clock time',
+        'Number of context switches per second',
+      ],
+      answer: 1,
+      why: 'T_turnaround = T_completion − T_arrival.',
+    },
+    {
+      prompt: 'The convoy effect in FIFO happens when…',
+      choices: [
+        'All jobs are the same length',
+        'A long job runs first while shorter jobs wait',
+        'Jobs perform I/O frequently',
+        'The scheduler is preemptive',
+      ],
+      answer: 1,
+      why: 'Short jobs queue behind a long one — high average turnaround.',
+    },
+    {
+      prompt: 'STCF differs from non-preemptive SJF because…',
+      choices: [
+        'It never context-switches',
+        'It preempts when a shorter remaining-time job arrives',
+        'It only works for equal-length jobs',
+        'It optimizes response time only',
+      ],
+      answer: 1,
+      why: 'Preemption on new arrivals fixes the late-arrival convoy problem.',
+    },
+    {
+      prompt: 'Round Robin with a short quantum is generally…',
+      choices: [
+        'Best for turnaround, worst for response',
+        'Good for response time, often bad for turnaround',
+        'Optimal for all metrics simultaneously',
+        'Identical to FIFO',
+      ],
+      answer: 1,
+      why: 'Time-slicing improves interactivity but stretches completion times.',
+    },
+    {
+      prompt: 'When a job blocks on I/O, a good scheduler should…',
+      choices: [
+        'Spin until I/O completes',
+        'Run another ready job on the CPU',
+        'Kill the blocked job',
+        'Disable timer interrupts',
+      ],
+      answer: 1,
+      why: 'Overlap CPU work with I/O wait — better utilization.',
+    },
+    {
+      prompt: 'Why can’t a real OS always use STCF?',
+      choices: [
+        'Hardware lacks timer interrupts',
+        'It does not know job lengths in advance',
+        'STCF is illegal on Linux',
+        'STCF requires proportional-share tickets',
+      ],
+      answer: 1,
+      why: 'Assumption 5 (known run time) is unrealistic — leads to MLFQ and friends.',
+    },
+  ]}
+/>
+
+## Coding challenges
+
+**Python** helpers that mirror the metrics and policy reasoning in `scheduler.py`.
+
+<ExerciseSet
+  title="Exercises"
+  description="Turnaround, response, and ordering."
+>
+  <CodeExercise
+    title="turnaround"
+    heading="Challenge: avg_turnaround"
+    lang="python"
+    filename="main.py"
+    prompt={`avg_turnaround(completions, arrivals) returns mean (completion - arrival).
+Assume equal-length lists.
+wrap: print for completions [10,20,30] arrivals [0,0,0].`}
+    sampleLog={`20.0`}
+    starter={`def avg_turnaround(completions, arrivals):
+    return 0.0  # TODO
+`}
+    wrapSuffix={`
+print(avg_turnaround([10, 20, 30], [0, 0, 0]))
+`}
+    hint={`Sum (c - a) for each pair, divide by len.`}
+    solution={`def avg_turnaround(completions, arrivals):
+    total = sum(c - a for c, a in zip(completions, arrivals))
+    return total / len(completions)
+`}
+    sourceChecks={[
+      { name: 'uses zip or index', pattern: 'zip|completions\\[', must: true, hint: 'pair completion with arrival' },
+    ]}
+    tests={[
+      { name: 'fifo equal', stdin: '', equals: '20.0' },
+    ]}
+  />
+  <CodeExercise
+    title="response time"
+    heading="Challenge: avg_response"
+    lang="python"
+    filename="main.py"
+    prompt={`avg_response(first_runs, arrivals) returns mean (first_run - arrival).
+wrap: print for first_runs [0,0,10] arrivals [0,0,0].`}
+    sampleLog={`3.3333333333333335`}
+    starter={`def avg_response(first_runs, arrivals):
+    return 0.0  # TODO
+`}
+    wrapSuffix={`
+print(avg_response([0, 0, 10], [0, 0, 0]))
+`}
+    hint={`Same pattern as turnaround but with first_runs.`}
+    solution={`def avg_response(first_runs, arrivals):
+    total = sum(f - a for f, a in zip(first_runs, arrivals))
+    return total / len(first_runs)
+`}
+    sourceChecks={[
+      { name: 'subtracts arrival', pattern: '- a| - arrivals', must: true, hint: 'first_run minus arrival' },
+    ]}
+    tests={[
+      { name: 'stcf example', stdin: '', equals: '3.3333333333333335' },
+    ]}
+  />
+  <CodeExercise
+    title="SJF order"
+    heading="Challenge: sjf_order"
+    lang="python"
+    filename="main.py"
+    prompt={`jobs is a list of (name, length). sjf_order(jobs) returns names sorted by length (stable tie-break: input order).
+wrap: print for A=100, B=10, C=10.`}
+    sampleLog={`BCA`}
+    starter={`def sjf_order(jobs):
+    return ""  # TODO
+`}
+    wrapSuffix={`
+print("".join(sjf_order([("A", 100), ("B", 10), ("C", 10)])))
+`}
+    hint={`sorted(jobs, key=lambda x: x[1]) then take names.`}
+    solution={`def sjf_order(jobs):
+    ordered = sorted(jobs, key=lambda x: x[1])
+    return [name for name, _ in ordered]
+`}
+    sourceChecks={[
+      { name: 'sorts by length', pattern: 'sorted|sort', must: true, hint: 'order by job length' },
+    ]}
+    tests={[
+      { name: 'short first', stdin: '', equals: 'BCA' },
+    ]}
+  />
+  <CodeExercise
+    title="fifo vs sjf avg"
+    heading="Challenge: compare_fifo_sjf"
+    lang="python"
+    filename="main.py"
+    prompt={`lengths is arrival order. compare_fifo_sjf(lengths) returns (fifo_avg, sjf_avg) assuming all arrive at 0.
+FIFO: run in order; completion = cumulative sum.
+SJF: run shortest first; same cumulative idea.
+wrap: print for [100, 10, 10].`}
+    sampleLog={`110.0 50.0`}
+    starter={`def compare_fifo_sjf(lengths):
+    return (0.0, 0.0)  # TODO
+`}
+    wrapSuffix={`
+print(*compare_fifo_sjf([100, 10, 10]))
+`}
+    hint={`Build completion times for each ordering; avg = mean(completions).`}
+    solution={`def compare_fifo_sjf(lengths):
+    def avg(order):
+        t = 0
+        completions = []
+        for L in order:
+            t += L
+            completions.append(t)
+        return sum(completions) / len(completions)
+
+    fifo = avg(lengths)
+    sjf = avg(sorted(lengths))
+    return (fifo, sjf)
+`}
+    sourceChecks={[
+      { name: 'uses sorted', pattern: 'sorted', must: true, hint: 'SJF order is sorted by length' },
+    ]}
+    tests={[
+      { name: 'convoy example', stdin: '', equals: '110.0 50.0' },
+    ]}
+  />
+</ExerciseSet>
+
+## Homework lab: `scheduler.py`
+
+Use the [OSTEP CPU scheduling homework](https://github.com/remzi-arpacidusseau/ostep-homework/tree/master/cpu-sched) (`scheduler.py`). Predict metrics before `-c`. Notes/screenshots save in this browser.
+
+<GuidedLab id="ostep-scheduler" title="Homework: scheduler.py">
+  <LabStep title="Three jobs × 200">
+    Compute response and turnaround for three jobs of length 200 under SJF and FIFO.
+  </LabStep>
+  <LabStep title="Mixed lengths 100, 200, 300">
+    Repeat with jobs of lengths 100, 200, and 300.
+  </LabStep>
+  <LabStep title="Add RR quantum 1">
+    Same workloads with RR and time-slice 1.
+  </LabStep>
+  <LabStep title="When SJF = FIFO turnaround?">
+    For what workloads does SJF deliver the same turnaround times as FIFO?
+  </LabStep>
+  <LabStep title="When SJF = RR response?">
+    For what workloads and quantum lengths does SJF match RR response times?
+  </LabStep>
+  <LabStep title="SJF response vs job length">
+    What happens to response time with SJF as job lengths increase? Demonstrate with the simulator.
+  </LabStep>
+  <LabStep title="RR worst-case response">
+    As RR quantum grows, what happens to response time? Can you write worst-case response given N jobs?
+  </LabStep>
+</GuidedLab>
+
+## Summary
+
+| Policy | Optimizes | Weak at | Needs preemption? |
+|---|---|---|---|
+| **FIFO** | Simplicity | Convoy with mixed lengths | No |
+| **SJF** | Turnaround (same arrival) | Late arrivals; response | No |
+| **STCF** | Turnaround (any arrival) | Response time | Yes |
+| **RR** | Response time | Turnaround | Yes |
+
+| Trade-off | Lesson |
+|---|---|
+| Turnaround vs response | Cannot maximize both with one policy |
+| Short quantum | Better response, more switch overhead |
+| Fairness vs performance | Often at odds |
+| Known job length | Unrealistic — MLFQ next |
+
+**Next:** [Multi-Level Feedback Queue](./mlfq) — schedule without an oracle.
+
+## Further Reading
+
+- Remzi & Andrea Arpaci-Dusseau — [*Operating Systems: Three Easy Pieces*](https://pages.cs.wisc.edu/~remzi/OSTEP/) Ch. 7
+- [OSTEP scheduler homework](https://github.com/remzi-arpacidusseau/ostep-homework/tree/master/cpu-sched) (`scheduler.py`)
+- Blasgen et al. [B+79] — convoy phenomenon; Kleinrock [K64] — round robin; Coffman & Kleinrock [CK68] — STCF

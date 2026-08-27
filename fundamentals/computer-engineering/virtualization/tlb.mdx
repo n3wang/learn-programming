@@ -1,0 +1,360 @@
+---
+sidebar_position: 19
+title: TLBs
+---
+
+> **Source:** *Operating Systems: Three Easy Pieces* (OSTEP) — Chapter 19, Arpaci-Dusseau & Arpaci-Dusseau
+
+import TlbSimulator from "@site/src/components/interactive/TlbSimulator.js";
+
+# Paging: Faster Translations (TLBs)
+
+Paging needs a mapping for every page — usually in memory — so a naive design does an **extra memory lookup** before every fetch/load/store. That is prohibitively slow.
+
+**Crux:** how speed up address translation and avoid that extra reference? What hardware help? What OS involvement?
+
+## The TLB
+
+A **translation-lookaside buffer (TLB)** is a small, fast **hardware cache of popular VPN→PFN translations** inside the MMU (better name: address-translation cache) [CG68, C95].
+
+On each virtual reference:
+
+1. Extract **VPN**  
+2. **TLB_Lookup(VPN)**  
+3. **Hit** → check protect bits → form PA → AccessMemory  
+4. **Miss** → find PTE (hardware walk or OS trap) → **TLB_Insert** → **retry** the instruction  
+
+Hits are cheap (near the core). Misses re-impose paging’s cost. Goal: **high hit rate**.
+
+## Hardware-managed vs software-managed
+
+| Style | On miss | Example |
+|---|---|---|
+| **Hardware-managed** | MMU walks page table via PTBR, fills TLB, retries | x86 (`CR3`) |
+| **Software-managed** | Raise `TLB_MISS`; OS handler fills TLB with privileged ops; return-from-trap **retries same PC** | MIPS R10k, SPARC v9 |
+
+Software-managed: OS can use **any** page-table structure; hardware stays simple. Watch out for **infinite miss loops** in the handler — keep handlers unmapped/physical or use **wired** TLB slots always resident.
+
+:::info TLB valid ≠ page-table valid
+**PTE invalid** → page not allocated; usually kill the process.  
+**TLB valid** → this cache slot holds a usable translation. Empty at boot; filled as programs run. Clearing valid bits also **flushes** the TLB on a context switch.
+:::
+
+## Example: accessing an array
+
+10× 4-byte ints starting at VA **100**. 8-bit VA space, **16-byte** pages → 4-bit VPN + 4-bit offset.
+
+| Elements | VPN |
+|---|---|
+| a[0]…a[2] | 06 |
+| a[3]…a[6] | 07 |
+| a[7]…a[9] | 08 |
+
+Trace for `sum += a[i]`: **miss, hit, hit, miss, hit, hit, hit, miss, hit, hit** → **70% hit rate** on the first pass — **spatial locality** (dense packing on pages). Larger pages → fewer misses. A second pass can approach **100%** if translations stay cached — **temporal locality**.
+
+:::tip Use caching when possible
+Caches exploit **temporal** (re-access soon) and **spatial** (nearby addresses) locality. Physics limits size: big → slow. Keep TLBs small and fast.
+:::
+
+## What’s in a TLB entry?
+
+Typically **32–128** entries, **fully associative** (any translation anywhere; parallel search):
+
+```
+VPN | PFN | valid | protect | ASID? | dirty? | …
+```
+
+## Context switches
+
+Translations are **per-process**. P1 VPN10→PF100 and P2 VPN10→PF170 cannot both sit unlabeled in one TLB.
+
+| Approach | Idea | Cost |
+|---|---|---|
+| **Flush** | Clear all valid bits on switch | Safe; next process cold-misses |
+| **ASID** | Tag entries with address-space ID | Share TLB across processes; OS sets current ASID |
+
+Shared code pages: different VPNs / ASIDs can map to the **same PFN** (read-execute).
+
+## Replacement policy
+
+On insert, evict someone:
+
+- **LRU** — good with locality  
+- **Random** — simple; avoids LRU’s pathology (loop over *n*+1 pages with TLB size *n* → LRU misses every time)
+
+Exceeding **TLB coverage** (working set of pages &gt; TLB entries) → many misses. Larger pages raise coverage (next chapter).
+
+## A real entry (MIPS R4000)
+
+Software-managed TLB: VPN, PFN, **G** (global — ignore ASID), **ASID**, cache coherency bits, dirty, valid; **wired** slots reserved for the OS. Privileged ops: `TLBP`, `TLBR`, `TLBWI`, `TLBWR`.
+
+:::tip Culler’s Law — RAM isn’t always RAM
+Random access across more pages than the TLB covers can be **much** slower than sequential access within a few pages — even though “it’s all RAM.”
+:::
+
+## Interactive
+
+<TlbSimulator />
+
+**Try:** hit/miss flow · array spatial-locality trace · context switch / ASID · replacement.
+
+## Check your understanding
+
+<MultipleChoice
+  id="ce-tlb"
+  title="TLBs"
+  questions={[
+    {
+      prompt: 'A TLB primarily caches…',
+      choices: [
+        'Entire pages of data',
+        'Popular VPN→PFN translations',
+        'Disk blocks',
+        'Register file snapshots',
+      ],
+      answer: 1,
+      why: 'Address-translation cache in the MMU.',
+    },
+    {
+      prompt: 'On a TLB hit the hardware…',
+      choices: [
+        'Always walks the full page table',
+        'Uses PFN from the TLB entry and skips the page-table memory fetch',
+        'Flushes the cache',
+        'Switches to kernel mode',
+      ],
+      answer: 1,
+      why: 'That is how paging becomes fast enough in practice.',
+    },
+    {
+      prompt: 'The array example’s first-pass ~70% hit rate comes mainly from…',
+      choices: [
+        'Temporal locality only',
+        'Spatial locality — many elements share a page',
+        'Random replacement',
+        'ASIDs',
+      ],
+      answer: 1,
+      why: 'One miss per page, then hits for other elements on that page.',
+    },
+    {
+      prompt: 'Software-managed TLB miss handling…',
+      choices: [
+        'Never involves the OS',
+        'Raises an exception; OS fills the TLB and retries the faulting instruction',
+        'Disables virtual memory',
+        'Only works on x86',
+      ],
+      answer: 1,
+      why: 'Trap → handler → privileged TLB update → retry same PC.',
+    },
+    {
+      prompt: 'ASIDs help on context switches by…',
+      choices: [
+        'Doubling page size',
+        'Tagging TLB entries so multiple processes can share the TLB safely',
+        'Removing the need for page tables',
+        'Making TLBs write-only',
+      ],
+      answer: 1,
+      why: 'VPN alone is ambiguous across processes; ASID disambiguates.',
+    },
+    {
+      prompt: 'TLB valid bit vs page-table valid bit…',
+      choices: [
+        'Are the same meaning',
+        'TLB valid = entry caches a translation; PTE valid = page is allocated/mapped',
+        'PTE valid means the TLB is full',
+        'Neither is ever used',
+      ],
+      answer: 1,
+      why: 'Common confusion — different layers, different meanings.',
+    },
+  ]}
+/>
+
+## Coding challenges
+
+<ExerciseSet title="Exercises" description="Hit rate, lookup, and ASID matching.">
+  <CodeExercise
+    title="hit rate"
+    heading="Challenge: hit_rate"
+    lang="python"
+    filename="main.py"
+    prompt={`hit_rate(results) where results is a list of "hit"|"miss". Return hits/len as a float.
+wrap: print hit_rate for the chapter array trace.`}
+    sampleLog={`0.7`}
+    starter={`def hit_rate(results):
+    return 0.0  # TODO
+`}
+    wrapSuffix={`
+print(hit_rate(["miss","hit","hit","miss","hit","hit","hit","miss","hit","hit"]))
+`}
+    hint={`Count "hit" and divide by len.`}
+    solution={`def hit_rate(results):
+    return results.count("hit") / len(results)
+`}
+    sourceChecks={[
+      { name: 'counts hits', pattern: 'hit', must: true, hint: 'count hit strings' },
+    ]}
+    tests={[
+      { name: '70 percent', stdin: '', equals: '0.7' },
+    ]}
+  />
+  <CodeExercise
+    title="tlb lookup"
+    heading="Challenge: tlb_lookup"
+    lang="python"
+    filename="main.py"
+    prompt={`tlb is list of dicts with keys vpn, pfn, valid, asid (optional).
+tlb_lookup(tlb, vpn, asid=None) returns pfn if a valid entry matches vpn (and asid if provided), else None.
+wrap: print two lookups.`}
+    sampleLog={`100
+None`}
+    starter={`def tlb_lookup(tlb, vpn, asid=None):
+    return None  # TODO
+`}
+    wrapSuffix={`
+tlb = [
+    {"vpn": 10, "pfn": 100, "valid": 1, "asid": 1},
+    {"vpn": 10, "pfn": 170, "valid": 1, "asid": 2},
+]
+print(tlb_lookup(tlb, 10, 1))
+print(tlb_lookup(tlb, 10, 3))
+`}
+    hint={`Match vpn, valid==1, and asid if not None.`}
+    solution={`def tlb_lookup(tlb, vpn, asid=None):
+    for e in tlb:
+        if not e.get("valid"):
+            continue
+        if e["vpn"] != vpn:
+            continue
+        if asid is not None and e.get("asid") != asid:
+            continue
+        return e["pfn"]
+    return None
+`}
+    sourceChecks={[
+      { name: 'checks valid', pattern: 'valid', must: true, hint: 'skip invalid entries' },
+    ]}
+    tests={[
+      { name: 'asid match', stdin: '', equals: '100\nNone' },
+    ]}
+  />
+  <CodeExercise
+    title="array vpn"
+    heading="Challenge: array_vpn"
+    lang="python"
+    filename="main.py"
+    prompt={`array_vpn(base, index, elem_size, page_size) = (base + index*elem_size) // page_size
+wrap: print VPN for a[0], a[3], a[7] with base=100, elem=4, page=16.`}
+    sampleLog={`6
+7
+8`}
+    starter={`def array_vpn(base, index, elem_size, page_size):
+    return 0  # TODO
+`}
+    wrapSuffix={`
+print(array_vpn(100, 0, 4, 16))
+print(array_vpn(100, 3, 4, 16))
+print(array_vpn(100, 7, 4, 16))
+`}
+    hint={`Address then integer divide by page_size.`}
+    solution={`def array_vpn(base, index, elem_size, page_size):
+    return (base + index * elem_size) // page_size
+`}
+    sourceChecks={[
+      { name: 'uses page_size', pattern: 'page_size', must: true, hint: 'divide by page size' },
+    ]}
+    tests={[
+      { name: 'three vpns', stdin: '', equals: '6\n7\n8' },
+    ]}
+  />
+  <CodeExercise
+    title="simulate accesses"
+    heading="Challenge: simulate_tlb"
+    lang="python"
+    filename="main.py"
+    prompt={`simulate_tlb(vpns, capacity) returns list of "hit"|"miss" for sequential VPN accesses.
+Cold TLB; on miss insert VPN (FIFO evict if full). Ignore ASID.
+wrap: print simulate for [6,6,6,7,7,7,7,8,8,8] capacity 3 joined by commas.`}
+    sampleLog={`miss,hit,hit,miss,hit,hit,hit,miss,hit,hit`}
+    starter={`def simulate_tlb(vpns, capacity):
+    return []  # TODO
+`}
+    wrapSuffix={`
+print(",".join(simulate_tlb([6, 6, 6, 7, 7, 7, 7, 8, 8, 8], 3)))
+`}
+    hint={`Keep an ordered list of cached VPNs; membership = hit.`}
+    solution={`def simulate_tlb(vpns, capacity):
+    cache = []
+    out = []
+    for vpn in vpns:
+        if vpn in cache:
+            out.append("hit")
+        else:
+            out.append("miss")
+            if len(cache) >= capacity:
+                cache.pop(0)
+            cache.append(vpn)
+    return out
+`}
+    sourceChecks={[
+      { name: 'tracks cache', pattern: 'cache|tlb', must: true, hint: 'maintain cached VPNs' },
+    ]}
+    tests={[
+      { name: 'chapter-like', stdin: '', equals: 'miss,hit,hit,miss,hit,hit,hit,miss,hit,hit' },
+    ]}
+  />
+</ExerciseSet>
+
+## Homework lab: measure the TLB
+
+Measurement homework (Saavedra-Barrera style [SB92]): time touching *N* pages in a loop and watch cost jumps as you exceed TLB capacity. Run on a real machine — not in the Piston sandbox.
+
+<GuidedLab id="ostep-tlb-measure" title="Homework: measure TLB size & miss cost">
+  <LabStep title="Timer precision">
+    How precise is `gettimeofday()` (or a better clock)? How many loop iterations do you need for a trustworthy average?
+  </LabStep>
+  <LabStep title="Write tlb.c">
+    Inputs: number of pages to touch, number of trials. Stride by `PAGESIZE / sizeof(int)` so you touch one int per page.
+  </LabStep>
+  <LabStep title="Sweep page counts">
+    Script from 1 page up to a few thousand (×2 each time). Gather timing on one or more machines. How many trials for stable numbers?
+  </LabStep>
+  <LabStep title="Graph the jumps">
+    Plot ns/access vs pages. Infer L1 TLB size, whether an L2 TLB exists, and miss cost ratios.
+  </LabStep>
+  <LabStep title="Defeat the optimizer">
+    Ensure the compiler does not remove your loop (volatile, use the sum, `-O0` carefully). Document your approach.
+  </LabStep>
+  <LabStep title="Pin to one CPU">
+    Bind the thread to a single core so the scheduler does not bounce you across CPUs (each with its own TLB). What goes wrong if you don’t?
+  </LabStep>
+  <LabStep title="Initialize first">
+    Touch/zero the array before timing so demand-zero / first-touch costs do not dominate. Re-measure.
+  </LabStep>
+</GuidedLab>
+
+## Summary
+
+| Idea | One line |
+|---|---|
+| **TLB** | On-chip cache of VPN→PFN translations |
+| **Hit / miss** | Hit skips page-table memory; miss walks or traps |
+| **Locality** | Spatial + temporal → high hit rates |
+| **HW vs SW miss** | Walk in hardware vs OS trap handler |
+| **Context switch** | Flush or ASID-tag entries |
+| **Replacement** | LRU vs random; watch TLB coverage |
+| **Culler’s Law** | Random page access can thrash the TLB |
+
+**Previous:** [Paging Introduction](./paging-introduction)
+
+**Next:** [Smaller Page Tables](./smaller-page-tables) — multi-level tables, hybrids, and other space-saving tricks.
+
+## Further Reading
+
+- Remzi & Andrea Arpaci-Dusseau — [*Operating Systems: Three Easy Pieces*](https://pages.cs.wisc.edu/~remzi/OSTEP/) Ch. 19
+- [OSTEP vm-tlbs PDF](https://pages.cs.wisc.edu/~remzi/OSTEP/vm-tlbs.pdf)
+- Saavedra-Barrera [SB92] — measuring cache/TLB hierarchies
+- MIPS R4000 manual [H93]; Couleur TLB history [C95]

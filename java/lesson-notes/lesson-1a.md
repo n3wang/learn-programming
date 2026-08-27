@@ -99,7 +99,7 @@ int age=15;
   ]}
 />
 
-<CodingExam
+<CodeExercise
   title="add two numbers"
   heading="Try it: add two numbers"
   lang="java"
@@ -243,7 +243,7 @@ System.out.println("I have " + books + " books in my study");
   ]}
 />
 
-<CodingExam
+<CodeExercise
   title="greeting sentence"
   heading="Try it: greeting sentence"
   lang="java"
@@ -374,7 +374,7 @@ If Shannon covers twice as much distance as Pete, distance travelled by Shannon 
 :::tip Activity: Temperature converter
 Read a temperature in Celsius as a `double`. Print the Fahrenheit equivalent using `F = C * 9 / 5 + 32`.
 
-<CodingExam
+<CodeExercise
   title="Temperature converter"
   heading="exercise-temp-converter"
   lang="java"
@@ -414,7 +414,7 @@ class Runner {
 :::tip Activity: Rectangle area
 Read a width and a height (integers). Print the area.
 
-<CodingExam
+<CodeExercise
   title="Rectangle area"
   heading="exercise-rectangle-area"
   lang="java"
@@ -454,7 +454,7 @@ class Runner {
 :::tip Activity: Simple interest
 Read a principal, a rate (percent, e.g. `5` means 5%), and time in years — all as `double`. Print the simple interest using `I = P * R * T / 100`.
 
-<CodingExam
+<CodeExercise
   title="Simple interest"
   heading="exercise-simple-interest"
   lang="java"
@@ -495,7 +495,7 @@ class Runner {
 :::tip Activity: Swap with a helper
 Read two integers `a` and `b`. Using a third variable, print them swapped: `b a`.
 
-<CodingExam
+<CodeExercise
   title="Swap with a helper"
   heading="exercise-swap"
   lang="java"

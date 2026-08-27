@@ -105,13 +105,13 @@ export async function listDrafts() {
     }
 }
 
-export async function registerExam(id, meta) {
+export async function registerPractice(id, meta) {
     const existing = await loadDraft(id);
     const next = existing
         ? {
               ...existing,
               id,
-              kind: 'exam',
+              kind: 'practice',
               title: meta.title,
               pathname: meta.pathname,
               chapter: meta.chapter,
@@ -124,7 +124,7 @@ export async function registerExam(id, meta) {
               id,
               code: meta.starter || '',
               stdin: '',
-              kind: 'exam',
+              kind: 'practice',
               title: meta.title,
               pathname: meta.pathname,
               chapter: meta.chapter,
@@ -154,7 +154,10 @@ export async function registerExam(id, meta) {
     return next;
 }
 
-export async function markExamComplete(id, extra = {}) {
+/** @deprecated Use registerPractice */
+export const registerExam = registerPractice;
+
+export async function markPracticeComplete(id, extra = {}) {
     const existing = await loadDraft(id);
     if (!existing) {
         return null;
@@ -163,6 +166,7 @@ export async function markExamComplete(id, extra = {}) {
     const next = {
         ...existing,
         ...extra,
+        kind: existing.kind === 'exam' ? 'practice' : existing.kind || 'practice',
         completed: true,
         completedAt: already ? existing.completedAt : Date.now(),
         id,
@@ -181,6 +185,13 @@ export async function markExamComplete(id, extra = {}) {
     }
     notifyCodeProgress();
     return next;
+}
+
+/** @deprecated Use markPracticeComplete */
+export const markExamComplete = markPracticeComplete;
+
+export function isPracticeDraft(row) {
+    return row?.kind === 'practice' || row?.kind === 'exam';
 }
 
 export async function toggleDraftBookmark(id) {

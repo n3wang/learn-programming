@@ -1,0 +1,377 @@
+---
+sidebar_position: 22
+title: Beyond Physical Memory — Policies
+---
+
+> **Source:** *Operating Systems: Three Easy Pieces* (OSTEP) — Chapter 22, Arpaci-Dusseau & Arpaci-Dusseau
+
+import PageReplacementSimulator from "@site/src/components/interactive/PageReplacementSimulator.js";
+
+# Beyond Physical Memory: Policies
+
+When free memory is plentiful, a page fault is easy: take a frame from the free list. Under **memory pressure**, the OS must **evict** pages to make room. **Which page?** That is the **replacement policy**.
+
+**Crux:** how decide which page(s) to evict? What principles? What corner-case tweaks?
+
+:::note Mechanisms first
+Assumes [swap, present bit, and page faults](./beyond-physical-memory-mechanisms) (Ch. 21). Main memory is a **cache** for pages that may live on disk.
+:::
+
+## Cache management and AMAT
+
+Physical memory caches a subset of all virtual pages. Goal: **minimize misses** (disk fetches) / maximize hits.
+
+Average memory access time:
+
+```
+AMAT = TM + (P_miss · TD)
+```
+
+You always pay memory; on a miss you also pay disk. Example: `TM = 100 ns`, `TD = 10 ms`, `P_miss = 0.1` → AMAT ≈ **1 ms**. At `P_miss = 0.001`, AMAT ≈ **10.1 µs** (~100× faster). Tiny miss rates dominate when disk is slow.
+
+## Optimal (Belady / MIN)
+
+Evict the page that will be used **furthest in the future** [B66]. Fewest misses possible — but needs the future, so **not deployable**. Still invaluable as a **comparison point**.
+
+Trace `0,1,2,0,1,3,0,3,1,2,1`, cache size 3: first three accesses are **compulsory (cold)** misses; on page 3, OPT evicts **2**; later miss on 2 may evict **3**. Hit rate **6/11 ≈ 54.5%** (higher if you ignore compulsory misses).
+
+:::tip Compare against optimal
+An 80% hit rate is meaningless alone; “OPT is 82%” shows you are close — and when to stop optimizing [AD03].
+:::
+
+:::info Three C’s of misses
+**Compulsory** (cold), **capacity** (cache too small), **conflict** (set-associativity limits). OS page caches are **fully associative** — no conflict misses in that sense [H87].
+:::
+
+## FIFO
+
+Pages enter a queue; replace the **first-in**. Simple. On the same trace, FIFO does worse (~**36%** hits): it may evict a hot page just because it arrived earliest.
+
+:::warning Belady’s anomaly
+For FIFO, a **larger** cache can **hurt** hit rate on some streams (e.g. `1,2,3,4,1,2,5,1,2,3,4,5` at size 3 vs 4) [BNS69]. **LRU** has the **stack property** [M+70]: size N+1 contains size N, so hit rate never worsens when the cache grows.
+:::
+
+## Random
+
+Pick a random victim. Easy; quality depends on luck. Over many seeds it sometimes matches OPT and sometimes does poorly.
+
+## Using history: LRU (and LFU)
+
+**Locality** [D70]: recent (or frequent) pages are likely needed again.
+
+- **LRU** — replace least-recently-used
+- **LFU** — replace least-frequently-used
+
+On the cooked chapter trace, **LRU matches OPT**. Opposites **MRU/MFU** usually ignore locality and do poorly.
+
+**Spatial** locality: nearby pages. **Temporal** locality: re-use of recent pages. Not a law — some workloads are random.
+
+### Workloads (intuition)
+
+| Workload | Behavior |
+|---|---|
+| **No locality** | LRU ≈ FIFO ≈ RAND; hit rate ≈ cache / working-set size |
+| **80–20** | Hot pages; **LRU** beats FIFO/RAND; OPT still better |
+| **Looping sequential** | Scan of N pages with cache N−1 → **LRU/FIFO ≈ 0%**; **RAND** less pathological |
+
+## Implementing history (and approximating LRU)
+
+Perfect LRU updates a structure on **every** memory reference — expensive. Hardware can stamp a **time** field per page, but scanning a million pages to find the oldest is too slow.
+
+**Crux:** approximate LRU.
+
+**Use (reference) bit** per page: hardware sets to 1 on access; OS clears. **Clock** [C69]: circular list + hand. If use=1, clear and advance; if use=0, **evict**. Approximates LRU without a full scan.
+
+**Dirty (modified) bit:** prefer evicting **clean** pages (no writeback) over dirty ones — often folded into Clock variants.
+
+## Other VM policies
+
+- **Page selection:** usually **demand paging**; optional **prefetch** (e.g. bring P+1 with P) when the guess is good
+- **Writes:** **cluster/group** dirty pages for efficient disk I/O
+
+## Thrashing
+
+When the aggregate **working set** exceeds RAM, the system **pages constantly** [D70]. Responses: **admission control** (run fewer jobs well), or drastic measures (e.g. Linux **OOM killer**). Often the practical fix: **buy more memory** — disk is so slow that frequent paging is untenable.
+
+Modern policies add tweaks (e.g. **scan resistance** / ARC [MM03]) to avoid LRU’s looping-scan failure mode.
+
+## Interactive
+
+<PageReplacementSimulator />
+
+**Try:** Optimal · FIFO · LRU on the chapter trace · Clock use-bit walk.
+
+## Check your understanding
+
+<MultipleChoice
+  id="ce-paging-policies"
+  title="Page replacement policies"
+  questions={[
+    {
+      prompt: 'AMAT = TM + Pmiss · TD. If disk is ~100,000× slower than memory, a small miss rate…',
+      choices: [
+        'Barely matters',
+        'Can dominate overall AMAT',
+        'Only affects compulsory misses',
+        'Removes the need for a TLB',
+      ],
+      answer: 1,
+      why: 'Even Pmiss = 0.1 can push AMAT into millisecond territory.',
+    },
+    {
+      prompt: 'Belady’s optimal policy evicts the page that…',
+      choices: [
+        'Entered memory first',
+        'Was used least frequently ever',
+        'Will be referenced furthest in the future',
+        'Is dirty',
+      ],
+      answer: 2,
+      why: 'MIN / OPT — fewest misses, but needs the future.',
+    },
+    {
+      prompt: 'Belady’s anomaly shows that with FIFO…',
+      choices: [
+        'Hit rate always rises with cache size',
+        'A larger cache can have a worse hit rate',
+        'Random always beats OPT',
+        'There are no compulsory misses',
+      ],
+      answer: 1,
+      why: 'FIFO lacks the stack property.',
+    },
+    {
+      prompt: 'LRU is motivated by…',
+      choices: [
+        'Ignoring the past',
+        'Temporal locality (recent pages likely again)',
+        'Always evicting dirty pages first',
+        'Hardware floating-point units',
+      ],
+      answer: 1,
+      why: 'History approximates the future when locality holds.',
+    },
+    {
+      prompt: 'The Clock algorithm approximates LRU using…',
+      choices: [
+        'A full timestamp sort every reference',
+        'A use/reference bit and a rotating hand',
+        'Only the dirty bit',
+        'Belady’s future list',
+      ],
+      answer: 1,
+      why: 'Clear use=1 and advance; evict use=0.',
+    },
+    {
+      prompt: 'Thrashing means…',
+      choices: [
+        'The TLB is too large',
+        'Memory is oversubscribed and the system pages constantly',
+        'FIFO equals OPT',
+        'All pages are clean',
+      ],
+      answer: 1,
+      why: 'Working sets do not fit; progress collapses to disk speed.',
+    },
+  ]}
+/>
+
+## Coding challenges
+
+<ExerciseSet title="Exercises" description="Hit rate, AMAT, OPT/FIFO/LRU helpers, and Clock.">
+  <CodeExercise
+    title="hit rate"
+    heading="Challenge: hit_rate_percent"
+    lang="python"
+    filename="main.py"
+    prompt={`hit_rate_percent(hits, misses) returns integer percent hits*100 // (hits+misses).
+Chapter OPT example: 6 hits, 5 misses → 54.
+wrap: print hit_rate_percent(6, 5).`}
+    sampleLog={`54`}
+    starter={`def hit_rate_percent(hits, misses):
+    return 0  # TODO
+`}
+    wrapSuffix={`
+print(hit_rate_percent(6, 5))
+`}
+    hint={`Integer division of 100*hits by total references.`}
+    solution={`def hit_rate_percent(hits, misses):
+    return (hits * 100) // (hits + misses)
+`}
+    sourceChecks={[
+      { name: 'divides', pattern: '//|/', must: true, hint: 'percent from hits and total' },
+    ]}
+    tests={[
+      { name: 'opt 54', stdin: '', equals: '54' },
+    ]}
+  />
+  <CodeExercise
+    title="AMAT"
+    heading="Challenge: amat_ns"
+    lang="python"
+    filename="main.py"
+    prompt={`amat_ns(tm_ns, td_ns, p_miss_permille) returns TM + Pmiss*TD in nanoseconds.
+p_miss_permille is Pmiss*1000 as an int (100 means 0.1). Use integer math:
+tm_ns + (p_miss_permille * td_ns) // 1000.
+Example: 100, 10_000_000, 100 → 1000100.
+wrap: print amat_ns(100, 10_000_000, 100).`}
+    sampleLog={`1000100`}
+    starter={`def amat_ns(tm_ns, td_ns, p_miss_permille):
+    return 0  # TODO
+`}
+    wrapSuffix={`
+print(amat_ns(100, 10_000_000, 100))
+`}
+    hint={`Always pay tm; add miss fraction of td via permille.`}
+    solution={`def amat_ns(tm_ns, td_ns, p_miss_permille):
+    return tm_ns + (p_miss_permille * td_ns) // 1000
+`}
+    sourceChecks={[
+      { name: 'combines', pattern: '\\+|\\*', must: true, hint: 'TM plus miss cost' },
+    ]}
+    tests={[
+      { name: 'chapter amat', stdin: '', equals: '1000100' },
+    ]}
+  />
+  <CodeExercise
+    title="OPT victim"
+    heading="Challenge: opt_evict"
+    lang="python"
+    filename="main.py"
+    prompt={`opt_evict(cache, future) returns which page in cache to evict: the one whose next index in future is largest, or any page that never appears in future (treat as furthest).
+cache and future are lists of ints. Example: cache=[0,1,2], future=[0,1,3,0,3,1,2,1] → 2.
+wrap: print opt_evict([0,1,2], [0,1,3,0,3,1,2,1]).`}
+    sampleLog={`2
+9`}
+    starter={`def opt_evict(cache, future):
+    return cache[0]  # TODO
+`}
+    wrapSuffix={`
+print(opt_evict([0, 1, 2], [0, 1, 3, 0, 3, 1, 2, 1]))
+print(opt_evict([1, 9], [1, 1, 1]))
+`}
+    hint={`For each page, find future.index or treat missing as +inf; pick max distance.`}
+    solution={`def opt_evict(cache, future):
+    best = None
+    best_dist = -1
+    for p in cache:
+        try:
+            d = future.index(p)
+        except ValueError:
+            return p
+        if d > best_dist:
+            best_dist = d
+            best = p
+    return best
+`}
+    sourceChecks={[
+      { name: 'scans future', pattern: 'index|for', must: true, hint: 'look ahead per cached page' },
+    ]}
+    tests={[
+      { name: 'evict 2 then never-used', stdin: '', equals: '2\n9' },
+    ]}
+  />
+  <CodeExercise
+    title="LRU touch"
+    heading="Challenge: lru_touch"
+    lang="python"
+    filename="main.py"
+    prompt={`lru_touch(order, page) — order is LRU→MRU (oldest left). After accessing page, return new order (page at MRU end). If page was present, move it; else append (caller handles capacity).
+Examples: lru_touch([0,1,2], 0) → [1,2,0]; lru_touch([0,1], 7) → [0,1,7].
+wrap: print both.`}
+    sampleLog={`[1, 2, 0]
+[0, 1, 7]`}
+    starter={`def lru_touch(order, page):
+    return order  # TODO
+`}
+    wrapSuffix={`
+print(lru_touch([0, 1, 2], 0))
+print(lru_touch([0, 1], 7))
+`}
+    hint={`Filter page out, then append.`}
+    solution={`def lru_touch(order, page):
+    return [p for p in order if p != page] + [page]
+`}
+    sourceChecks={[
+      { name: 'rebuilds', pattern: 'for|\\+|append|list', must: true, hint: 'new order with page at end' },
+    ]}
+    tests={[
+      { name: 'move and append', stdin: '', equals: '[1, 2, 0]\n[0, 1, 7]' },
+    ]}
+  />
+  <CodeExercise
+    title="Clock victim"
+    heading="Challenge: clock_victim"
+    lang="python"
+    filename="main.py"
+    prompt={`clock_victim(use_bits, start) walks a circular list of use bits (0/1 ints). While use==1, set to 0 and advance; when use==0, return that index.
+Examples: [1,1,0,1] start 0 → 2; [1,1] start 1 → 1 (after clearing all bits once around).
+wrap: print both.`}
+    sampleLog={`2
+1`}
+    starter={`def clock_victim(use_bits, start):
+    return start  # TODO
+`}
+    wrapSuffix={`
+print(clock_victim([1, 1, 0, 1], 0))
+print(clock_victim([1, 1], 1))
+`}
+    hint={`Copy the list so you can clear bits while scanning; wrap with %.`}
+    solution={`def clock_victim(use_bits, start):
+    bits = list(use_bits)
+    i = start
+    n = len(bits)
+    while True:
+        if bits[i] == 0:
+            return i
+        bits[i] = 0
+        i = (i + 1) % n
+`}
+    sourceChecks={[
+      { name: 'clears or scans', pattern: '%|while|for', must: true, hint: 'circular scan clearing 1s' },
+    ]}
+    tests={[
+      { name: 'two cases', stdin: '', equals: '2\n1' },
+    ]}
+  />
+</ExerciseSet>
+
+## Homework lab: `paging-policy.py`
+
+Use the [OSTEP paging-policy homework](https://github.com/remzi-arpacidusseau/ostep-homework/tree/master/vm-beyondphys) (`paging-policy.py`).
+
+<GuidedLab id="ostep-paging-policy" title="Homework: paging-policy.py">
+  <LabStep title="Seeds and policies">
+    Generate addresses with `-s 0 -n 10`, `-s 1 -n 10`, `-s 2 -n 10`. Switch policy FIFO → LRU → OPT. For each access, is it a hit or miss?
+  </LabStep>
+  <LabStep title="Worst-case streams">
+    For cache size 5, invent worst-case reference streams for FIFO, LRU, and MRU (maximize misses). How large must the cache grow to approach OPT?
+  </LabStep>
+  <LabStep title="Random vs locality">
+    Build a random trace, then one with locality. How do LRU, RAND, and CLOCK compare? Try CLOCK with different clock-bit counts.
+  </LabStep>
+  <LabStep title="Optional: real app trace">
+    With valgrind lackey (or similar), turn a program’s refs into VPN stream. How large a cache covers most of the working set?
+  </LabStep>
+</GuidedLab>
+
+## Summary
+
+| Policy | Idea | Watch-out |
+|---|---|---|
+| **OPT** | Furthest future use | Needs oracle |
+| **FIFO** | Oldest arrival | Can evict hot pages; Belady anomaly |
+| **RAND** | Random victim | Variable; sometimes escapes LRU traps |
+| **LRU / LFU** | Recency / frequency | Costly if exact; looping scans hurt LRU |
+| **Clock** | Use bit + hand | Practical LRU approx; prefer clean pages |
+
+**Previous:** [Beyond Physical Memory — Mechanisms](./beyond-physical-memory-mechanisms)
+
+**Next:** [Complete Virtual Memory Systems](./complete-virtual-memory-systems) — VAX/VMS and Linux as full designs.
+
+## Further Reading
+
+- Remzi & Andrea Arpaci-Dusseau — [*Operating Systems: Three Easy Pieces*](https://pages.cs.wisc.edu/~remzi/OSTEP/) Ch. 22
+- [OSTEP vm-beyondphys-policy PDF](https://pages.cs.wisc.edu/~remzi/OSTEP/vm-beyondphys-policy.pdf)
+- [OSTEP beyond-physical homework](https://github.com/remzi-arpacidusseau/ostep-homework/tree/master/vm-beyondphys)
+- Belady [B66]; Corbató Clock [C69]; Denning survey [D70]; ARC [MM03]

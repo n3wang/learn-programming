@@ -99,7 +99,7 @@ System.out.println(s1.compareTo(s4)); //-6 because "h" is 6 times lower than "n"
   ]}
 />
 
-<CodingExam
+<CodeExercise
   title="same word, ignoring case"
   heading="Try it: same word, ignoring case"
   lang="java"
@@ -197,7 +197,7 @@ public static void main (String args[]){
 :::tip Activity: Alphabetical order
 Read two words. Print them in alphabetical order, space-separated, using `.compareTo()`.
 
-<CodingExam
+<CodeExercise
   title="Alphabetical order"
   heading="exercise-alpha-order"
   lang="java"
@@ -240,7 +240,7 @@ class Runner {
 :::tip Activity: Longest word
 Read two words. Print the longer one (use `.length()`). If they are the same length, print the first one.
 
-<CodingExam
+<CodeExercise
   title="Longest word"
   heading="exercise-longest-word"
   lang="java"
@@ -284,7 +284,7 @@ class Runner {
 :::tip Activity: Same word regardless of case
 Read three words. Print how many of the last two match the first one, ignoring case.
 
-<CodingExam
+<CodeExercise
   title="Same word regardless of case"
   heading="exercise-same-word"
   lang="java"

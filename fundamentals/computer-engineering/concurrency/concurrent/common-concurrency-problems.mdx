@@ -1,0 +1,338 @@
+---
+sidebar_position: 32
+title: Common Concurrency Problems
+---
+
+> **Source:** *Operating Systems: Three Easy Pieces* (OSTEP) — Chapter 32, Arpaci-Dusseau & Arpaci-Dusseau
+
+import ConcurrencyBugsSimulator from "@site/src/components/interactive/ConcurrencyBugsSimulator.js";
+
+# Common Concurrency Problems
+
+Researchers have long studied concurrency bugs — early work on **deadlock** [C+71], later work on the everyday bugs that dominate real code bases. Knowing the common patterns is the first step to writing robust concurrent code.
+
+**Crux:** how to recognize and handle common concurrency bugs?
+
+## What types of bugs exist?
+
+Lu et al. [L+08] studied fixed concurrency bugs in MySQL, Apache, Mozilla, and OpenOffice (~105 bugs). Most were **non-deadlock** (74); 31 were deadlock. Mozilla alone contributed nearly 60.
+
+## Non-deadlock bugs
+
+About **97%** of the non-deadlock bugs were **atomicity violations** or **order violations**.
+
+### Atomicity violation
+
+A region that *should* execute atomically does not — e.g. MySQL’s check-then-use of `proc_info`:
+
+```text
+T1: if (thd->proc_info) { fputs(thd->proc_info, ...); }
+T2: thd->proc_info = NULL;
+```
+
+If T2 runs between the check and `fputs`, T1 dereferences NULL.
+
+**Fix:** one lock around check+use *and* around the write that clears the field.
+
+### Order violation
+
+Required order A-before-B is not enforced — e.g. child thread reads `mThread` before `init` finishes assigning it.
+
+**Fix:** condition variable (or semaphore): state flag + `while (!ready) wait` / signal after init.
+
+## Deadlock
+
+Classic: T1 holds L1 waits for L2; T2 holds L2 waits for L1. A **cycle** in the wait-for graph means deadlock. It is timing-dependent — the buggy lock order may run many times before it hangs.
+
+### Why do deadlocks happen?
+
+Large systems (VM ↔ FS) create natural circular dependencies. **Encapsulation** hides locks: Java `v1.AddAll(v2)` vs `v2.AddAll(v1)` can deadlock inside the library [J+08].
+
+### Four Coffman conditions [C+71]
+
+Deadlock needs **all four**:
+
+1. **Mutual exclusion** — exclusive ownership of resources
+2. **Hold-and-wait** — hold one lock while waiting for another
+3. **No preemption** — cannot forcibly take a lock away
+4. **Circular wait** — a cycle in the wait-for graph
+
+Break any one → no deadlock.
+
+## Prevention
+
+| Break | Technique |
+|---|---|
+| **Circular wait** | Total/partial **lock order**; sort by lock **address** when acquiring two mutexes |
+| **Hold-and-wait** | Acquire all locks under a global “prevention” lock (hurts concurrency / encapsulation) |
+| **No preemption** | `trylock`; on failure unlock and retry (watch **livelock** — add random backoff) |
+| **Mutual exclusion** | **Lock-free** / wait-free with CAS [H91,H93] — e.g. atomic increment, lock-free list insert |
+
+:::tip Enforce order by lock address
+If `do_something(m1, m2)` might be called with swapped args, lock in high-to-low (or low-to-high) **address** order so every call acquires in the same global order.
+:::
+
+## Avoidance, detect & recover
+
+**Avoidance** (e.g. Banker’s Algorithm [D64]): schedule threads knowing which locks they need so conflicting pairs never run together — useful mainly in embedded / fully known workloads; often too conservative.
+
+**Detect & recover:** allow rare deadlocks; reboot or abort a DB transaction. Tom West: *not everything worth doing is worth doing well* — if failure is rare and cheap, pragmatic recovery beats perfect prevention.
+
+## Interactive
+
+<ConcurrencyBugsSimulator />
+
+**Try:** bug taxonomy · atomicity · order · deadlock / prevention · lock-free CAS.
+
+## Check your understanding
+
+<MultipleChoice
+  id="ce-concurrency-bugs"
+  title="Common concurrency problems"
+  questions={[
+    {
+      prompt: 'In Lu et al.’s study, most concurrency bugs were…',
+      choices: [
+        'Deadlocks',
+        'Non-deadlock (often atomicity or order)',
+        'Only livelock',
+        'Only banker’s-algorithm failures',
+      ],
+      answer: 1,
+      why: '74 non-deadlock vs 31 deadlock; 97% of non-deadlock were atomicity/order.',
+    },
+    {
+      prompt: 'Check-then-use of a shared pointer without a lock is typically an…',
+      choices: [
+        'Order violation only',
+        'Atomicity violation',
+        'Circular wait',
+        'Banker’s mistake',
+      ],
+      answer: 1,
+      why: 'The check and use needed to be one atomic region.',
+    },
+    {
+      prompt: 'A child reading mThread before init assigns it is an…',
+      choices: [
+        'Atomicity violation only',
+        'Order violation',
+        'Mutual-exclusion break',
+        'Lock-free success',
+      ],
+      answer: 1,
+      why: 'Desired A-before-B order was not enforced — fix with a CV/semaphore.',
+    },
+    {
+      prompt: 'Which is NOT one of the four Coffman deadlock conditions?',
+      choices: [
+        'Hold-and-wait',
+        'Circular wait',
+        'Spurious wakeup',
+        'No preemption',
+      ],
+      answer: 2,
+      why: 'The four are ME, hold-and-wait, no preemption, circular wait.',
+    },
+    {
+      prompt: 'Sorting lock acquisition by mutex address primarily prevents…',
+      choices: [
+        'Atomicity violations',
+        'Circular wait (consistent order)',
+        'Need for CAS',
+        'Order violations on init',
+      ],
+      answer: 1,
+      why: 'Same global order regardless of call-site argument order.',
+    },
+    {
+      prompt: 'pthread_mutex_trylock failure → unlock and retry can still suffer…',
+      choices: [
+        'Only deadlock forever',
+        'Livelock (threads spin without progress)',
+        'Mandatory reboot',
+        'Forced mutual exclusion removal',
+      ],
+      answer: 1,
+      why: 'Backoff / delay reduces repeated interference.',
+    },
+  ]}
+/>
+
+## Coding challenges
+
+<ExerciseSet title="Exercises" description="Classify bugs and Coffman conditions.">
+  <CodeExercise
+    title="classify bug"
+    heading="Challenge: classify_bug"
+    lang="python"
+    filename="main.py"
+    prompt={`classify_bug(kind) maps short tags to labels:
+"check_use" → "atomicity"
+"init_before_read" → "order"
+"L1_then_L2_vs_L2_then_L1" → "deadlock"
+wrap: print each for those three tags.`}
+    sampleLog={`atomicity
+order
+deadlock`}
+    starter={`def classify_bug(kind):
+    return ""  # TODO
+`}
+    wrapSuffix={`
+print(classify_bug("check_use"))
+print(classify_bug("init_before_read"))
+print(classify_bug("L1_then_L2_vs_L2_then_L1"))
+`}
+    hint={`Dict or if/elif on the three tags.`}
+    solution={`def classify_bug(kind):
+    return {
+        "check_use": "atomicity",
+        "init_before_read": "order",
+        "L1_then_L2_vs_L2_then_L1": "deadlock",
+    }[kind]
+`}
+    sourceChecks={[
+      { name: 'maps tags', pattern: 'atomicity|order|deadlock', must: true, hint: 'return the class name' },
+    ]}
+    tests={[
+      { name: 'three classes', stdin: '', equals: 'atomicity\norder\ndeadlock' },
+    ]}
+  />
+  <CodeExercise
+    title="coffman all?"
+    heading="Challenge: deadlock_possible"
+    lang="python"
+    filename="main.py"
+    prompt={`deadlock_possible(mutual_excl, hold_wait, no_preempt, circular) is True iff all four Coffman conditions are True.
+wrap: print deadlock_possible(True,True,True,True) and deadlock_possible(True,True,True,False).`}
+    sampleLog={`True
+False`}
+    starter={`def deadlock_possible(mutual_excl, hold_wait, no_preempt, circular):
+    return False  # TODO
+`}
+    wrapSuffix={`
+print(deadlock_possible(True, True, True, True))
+print(deadlock_possible(True, True, True, False))
+`}
+    hint={`All four must hold.`}
+    solution={`def deadlock_possible(mutual_excl, hold_wait, no_preempt, circular):
+    return mutual_excl and hold_wait and no_preempt and circular
+`}
+    sourceChecks={[
+      { name: 'and', pattern: 'and', must: true, hint: 'combine the four flags' },
+    ]}
+    tests={[
+      { name: 'all vs missing cycle', stdin: '', equals: 'True\nFalse' },
+    ]}
+  />
+  <CodeExercise
+    title="lock address order"
+    heading="Challenge: lock_order"
+    lang="python"
+    filename="main.py"
+    prompt={`lock_order(a, b) returns (first, second) addresses to acquire in high-to-low order (larger address first).
+Assume a != b. wrap: print lock_order(10, 20) and lock_order(20, 10).`}
+    sampleLog={`(20, 10)
+(20, 10)`}
+    starter={`def lock_order(a, b):
+    return (a, b)  # TODO
+`}
+    wrapSuffix={`
+print(lock_order(10, 20))
+print(lock_order(20, 10))
+`}
+    hint={`max then min.`}
+    solution={`def lock_order(a, b):
+    return (max(a, b), min(a, b))
+`}
+    sourceChecks={[
+      { name: 'orders', pattern: 'max|min|if', must: true, hint: 'high address first' },
+    ]}
+    tests={[
+      { name: 'both call shapes', stdin: '', equals: '(20, 10)\n(20, 10)' },
+    ]}
+  />
+  <CodeExercise
+    title="prevention target"
+    heading="Challenge: breaks_condition"
+    lang="python"
+    filename="main.py"
+    prompt={`breaks_condition(technique) returns which Coffman condition the technique targets:
+"lock_order" → "circular_wait"
+"acquire_all_under_global" → "hold_and_wait"
+"trylock_backoff" → "no_preemption"
+"cas_lock_free" → "mutual_exclusion"
+wrap: print those four.`}
+    sampleLog={`circular_wait
+hold_and_wait
+no_preemption
+mutual_exclusion`}
+    starter={`def breaks_condition(technique):
+    return ""  # TODO
+`}
+    wrapSuffix={`
+print(breaks_condition("lock_order"))
+print(breaks_condition("acquire_all_under_global"))
+print(breaks_condition("trylock_backoff"))
+print(breaks_condition("cas_lock_free"))
+`}
+    hint={`Map technique → condition name.`}
+    solution={`def breaks_condition(technique):
+    return {
+        "lock_order": "circular_wait",
+        "acquire_all_under_global": "hold_and_wait",
+        "trylock_backoff": "no_preemption",
+        "cas_lock_free": "mutual_exclusion",
+    }[technique]
+`}
+    sourceChecks={[
+      { name: 'maps', pattern: 'circular_wait|hold_and_wait', must: true, hint: 'return condition names' },
+    ]}
+    tests={[
+      { name: 'four techniques', stdin: '', equals: 'circular_wait\nhold_and_wait\nno_preemption\nmutual_exclusion' },
+    ]}
+  />
+</ExerciseSet>
+
+## Homework lab: vector deadlock variants
+
+Use the [OSTEP threads-bugs homework](https://github.com/remzi-arpacidusseau/ostep-homework/tree/master/threads-bugs) (vector add with deadlock / ordering / trylock / no-lock).
+
+<GuidedLab id="ostep-threads-bugs" title="Homework: threads-bugs">
+  <LabStep title="Baseline deadlock">
+    Run `vector-deadlock` with `-n 2 -l 1 -v`, then raise `-l` and add `-d`. When does it hang?
+  </LabStep>
+  <LabStep title="Global lock order">
+    Study `vector-global-order.c`. Why does address/order avoid deadlock? What about `src == dst`?
+  </LabStep>
+  <LabStep title="Try-wait">
+    `vector-try-wait.c`: is the first trylock needed? Compare retries as `-n` grows.
+  </LabStep>
+  <LabStep title="Avoid hold-and-wait">
+    `vector-avoid-hold-and-wait.c`: main drawback? Compare with/without `-p`.
+  </LabStep>
+  <LabStep title="No lock">
+    `vector-nolock.c`: same semantics? Compare performance same vectors vs `-p`.
+  </LabStep>
+</GuidedLab>
+
+## Summary
+
+| Class | Pattern | Typical fix |
+|---|---|---|
+| **Atomicity** | Check/use not atomic | One lock around the whole region |
+| **Order** | A should precede B | CV / semaphore |
+| **Deadlock** | Cycle + four conditions | Lock order, trylock, lock-free, or detect/recover |
+
+Best practice in the wild: **design a lock acquisition order** and stick to it. Lock-free helps in libraries; new models (MapReduce) avoid locks for whole classes of jobs.
+
+**Previous:** [Semaphores](./semaphores)
+
+**Next:** [Event-based Concurrency](./event-based-concurrency) — servers without threads.
+
+## Further Reading
+
+- Remzi & Andrea Arpaci-Dusseau — [*Operating Systems: Three Easy Pieces*](https://pages.cs.wisc.edu/~remzi/OSTEP/) Ch. 32
+- [OSTEP threads-bugs PDF](https://pages.cs.wisc.edu/~remzi/OSTEP/threads-bugs.pdf)
+- [OSTEP threads-bugs homework](https://github.com/remzi-arpacidusseau/ostep-homework/tree/master/threads-bugs)
+- Lu et al. [L+08]; Coffman et al. [C+71]; Herlihy lock-free [H91,H93]; Jula et al. [J+08]

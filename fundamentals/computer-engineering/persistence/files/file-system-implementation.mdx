@@ -1,0 +1,282 @@
+---
+sidebar_position: 40
+title: File System Implementation
+---
+
+> **Source:** *Operating Systems: Three Easy Pieces* (OSTEP) — Chapter 40, Arpaci-Dusseau & Arpaci-Dusseau
+
+import VsfsSimulator from "@site/src/components/interactive/VsfsSimulator.js";
+
+# File System Implementation
+
+**vsfs** (Very Simple File System) is a teaching UNIX-style FS: on-disk structures, access paths, and policies you’ll meet in real systems (ext*, XFS, ZFS, …).
+
+**Crux:** what must live on disk, and how do `open` / `read` / `write` map onto it?
+
+:::tip Mental model
+(1) **Data structures** — how is data/metadata laid out? (2) **Access methods** — which blocks are read/written on each syscall?
+:::
+
+## Overall organization
+
+Divide the disk into **4 KB blocks**. vsfs regions (tiny 64-block example):
+
+| Region | Role |
+|---|---|
+| **Superblock (S)** | Size, inode/data starts, magic — read on mount |
+| **Inode bitmap (i)** | Which inodes are free |
+| **Data bitmap (d)** | Which data blocks are free |
+| **Inode table (I)** | Array of inodes (e.g. 256 B → 16/block) |
+| **Data region (D)** | File and directory contents |
+
+i-number → byte address: `inodeStart + inumber * sizeof(inode)` (then convert to sector).
+
+## The inode
+
+Holds type, size, links, mode/owner, times, and **where blocks live**.
+
+**Multi-level index** (common): fixed **direct** pointers, then **indirect**, **double**, **triple**. With 4 KB blocks and 4-byte pointers, 12 directs ≈ 48 KB; +indirect ≈ +4 MB; doubles/triples go multi-GB. Imbalanced because **most files are small** [A+07].
+
+**Extents** (ptr + length) are more compact when allocation is contiguous (ext4, XFS). **FAT**-style linked lists store “next block” in a table — weak for random access without the in-memory FAT.
+
+Directories are **special files**: rows of `(inum, name, …)` plus `.` / `..`. Deletes leave holes (often `inum=0`); `reclen` helps reuse space. Fancy FSes use B-trees for large dirs [S+96].
+
+## Free space
+
+Bitmaps (vsfs), free lists, or B-trees of free extents (XFS). Allocation may **preallocate** a run of blocks for sequential layout (ext2/3 heuristic).
+
+## Access paths
+
+**open("/foo/bar")** — start at well-known **root inode (usually 2)**; for each path component read directory inode → directory data → next i-number; finally load file inode, check perms, allocate fd.
+
+**read()** — use inode pointers (and cached offset); may update atime. **Bitmaps are not consulted on pure reads.**
+
+**write()** that allocates ≈ **5 I/Os**: data bitmap R/W, inode R/W, data W. **create()** is worse (inode bitmap, new inode, directory data, directory inode, …).
+
+## Caching and buffering
+
+Path walks thrash without a **block/page cache**. Modern OSes use a **unified page cache** (dynamic share with VM).
+
+Reads can be filtered entirely by cache. Writes must eventually hit disk for durability, but **write buffering** (often 5–30 s) batches, schedules, and sometimes avoids I/O (create-then-delete). Trade-off: crash loses buffered updates — apps that care call **`fsync`** / direct I/O.
+
+## Interactive
+
+<VsfsSimulator />
+
+**Try:** on-disk layout · inode pointers · open/read/write I/O · cache trade-offs.
+
+## Check your understanding
+
+<MultipleChoice
+  id="ce-vsfs"
+  title="File system implementation"
+  questions={[
+    {
+      prompt: 'On mount, the OS typically reads the … first',
+      choices: ['Last data block', 'Superblock', 'Only the root directory data', 'FAT exclusively'],
+      answer: 1,
+      why: 'Parameters and layout live there.',
+    },
+    {
+      prompt: 'Bitmaps are consulted when…',
+      choices: [
+        'Every read of an existing block',
+        'Allocating a new inode or data block',
+        'Only during fsync',
+        'Never — only the superblock matters',
+      ],
+      answer: 1,
+      why: 'Reads follow inode pointers; allocation updates free maps.',
+    },
+    {
+      prompt: 'A multi-level index favors small files by…',
+      choices: [
+        'Having only triple-indirect pointers',
+        'Keeping enough direct pointers for common small sizes',
+        'Deleting directories',
+        'Disabling bitmaps',
+      ],
+      answer: 1,
+      why: 'Workload truth: most files are small.',
+    },
+    {
+      prompt: 'Directory data in vsfs stores…',
+      choices: [
+        'Only RAID parity',
+        'Name → inode number mappings (plus . / ..)',
+        'Process address spaces',
+        'CPU registers',
+      ],
+      answer: 1,
+      why: 'Dirs are typed files with that format.',
+    },
+    {
+      prompt: 'An allocating 4 KB write often needs on the order of…',
+      choices: [
+        'Zero I/Os',
+        'About five I/Os (bitmap + inode + data)',
+        'Exactly one read',
+        'Only a rename',
+      ],
+      answer: 1,
+      why: 'Update free map and inode as well as data.',
+    },
+    {
+      prompt: 'Write buffering improves performance mainly by…',
+      choices: [
+        'Making crashes impossible',
+        'Batching/scheduling/avoiding some disk writes at the cost of durability delay',
+        'Removing the need for inodes',
+        'Turning off the page cache',
+      ],
+      answer: 1,
+      why: 'Classic durability/performance trade-off.',
+    },
+  ]}
+/>
+
+## Coding challenges
+
+<ExerciseSet title="Exercises" description="Layout math and I/O accounting.">
+  <CodeExercise
+    title="inodes per block"
+    heading="Challenge: inodes_per_block"
+    lang="python"
+    filename="main.py"
+    prompt={`inodes_per_block(block_size, inode_size) returns how many inodes fit in one block (integer division).
+wrap: print inodes_per_block(4096, 256).`}
+    sampleLog={`16`}
+    starter={`def inodes_per_block(block_size, inode_size):
+    return 0  # TODO
+`}
+    wrapSuffix={`
+print(inodes_per_block(4096, 256))
+`}
+    hint={`Divide sizes.`}
+    solution={`def inodes_per_block(block_size, inode_size):
+    return block_size // inode_size
+`}
+    sourceChecks={[
+      { name: 'div', pattern: '//|/', must: true, hint: 'integer division' },
+    ]}
+    tests={[
+      { name: '4K / 256', stdin: '', equals: '16' },
+    ]}
+  />
+  <CodeExercise
+    title="inode byte addr"
+    heading="Challenge: inode_addr"
+    lang="python"
+    filename="main.py"
+    prompt={`inode_addr(inode_start, inumber, inode_size) returns byte offset of that inode.
+wrap: print inode_addr(12288, 32, 256).`}
+    sampleLog={`20480`}
+    starter={`def inode_addr(inode_start, inumber, inode_size):
+    return 0  # TODO
+`}
+    wrapSuffix={`
+print(inode_addr(12288, 32, 256))
+`}
+    hint={`start + inumber * size.`}
+    solution={`def inode_addr(inode_start, inumber, inode_size):
+    return inode_start + inumber * inode_size
+`}
+    sourceChecks={[
+      { name: 'mul', pattern: '\\*', must: true, hint: 'scale by inode size' },
+    ]}
+    tests={[
+      { name: 'inum 32', stdin: '', equals: '20480' },
+    ]}
+  />
+  <CodeExercise
+    title="max with directs"
+    heading="Challenge: max_bytes_direct"
+    lang="python"
+    filename="main.py"
+    prompt={`max_bytes_direct(num_direct, block_size) returns num_direct * block_size.
+wrap: print max_bytes_direct(12, 4096).`}
+    sampleLog={`49152`}
+    starter={`def max_bytes_direct(num_direct, block_size):
+    return 0  # TODO
+`}
+    wrapSuffix={`
+print(max_bytes_direct(12, 4096))
+`}
+    hint={`Product.`}
+    solution={`def max_bytes_direct(num_direct, block_size):
+    return num_direct * block_size
+`}
+    sourceChecks={[
+      { name: 'mul', pattern: '\\*', must: true, hint: 'direct count × block size' },
+    ]}
+    tests={[
+      { name: '12×4K', stdin: '', equals: '49152' },
+    ]}
+  />
+  <CodeExercise
+    title="allocating write I/Os"
+    heading="Challenge: alloc_write_ios"
+    lang="python"
+    filename="main.py"
+    prompt={`alloc_write_ios() returns the classic vsfs count of I/Os for one allocating data write
+(data bitmap read+write, inode read+write, data write) → 5.
+wrap: print alloc_write_ios().`}
+    sampleLog={`5`}
+    starter={`def alloc_write_ios():
+    return 0  # TODO
+`}
+    wrapSuffix={`
+print(alloc_write_ios())
+`}
+    hint={`Return five.`}
+    solution={`def alloc_write_ios():
+    return 5
+`}
+    sourceChecks={[
+      { name: 'five', pattern: '5', must: true, hint: 'return 5' },
+    ]}
+    tests={[
+      { name: 'five', stdin: '', equals: '5' },
+    ]}
+  />
+</ExerciseSet>
+
+## Homework lab: vsfs.py
+
+Use the [OSTEP file-implementation homework](https://github.com/remzi-arpacidusseau/ostep-homework/tree/master/file-implementation) (`vsfs.py`).
+
+<GuidedLab id="ostep-vsfs" title="Homework: vsfs.py">
+  <LabStep title="Guess operations">
+    Seeds 17–20: infer which ops caused each state change.
+  </LabStep>
+  <LabStep title="Guess state (-r)">
+    Seeds 21–24 with `-r`: given the op, predict bitmaps/inodes/data. What do allocators prefer?
+  </LabStep>
+  <LabStep title="Tiny data region">
+    ~2 data blocks, ~100 requests: which files/ops survive? What fails?
+  </LabStep>
+  <LabStep title="Tiny inode table">
+    Few inodes: which ops succeed? Likely final FS shape?
+  </LabStep>
+</GuidedLab>
+
+## Summary
+
+| Piece | Role |
+|---|---|
+| **Superblock / bitmaps / inodes / data** | On-disk skeleton |
+| **Multi-level index** | Scalable block map; small-file friendly |
+| **Directories** | Name→inum in data blocks |
+| **Access path** | Walk path; allocate on create/write |
+| **Cache + write buffer** | Cut I/O; trade durability |
+
+**Previous:** [Files and Directories](./files-and-directories)
+
+**Next:** [Fast File System](./fast-file-system) — locality, block groups, allocation policies.
+
+## Further Reading
+
+- Remzi & Andrea Arpaci-Dusseau — [*Operating Systems: Three Easy Pieces*](https://pages.cs.wisc.edu/~remzi/OSTEP/) Ch. 40
+- [OSTEP file-implementation PDF](https://pages.cs.wisc.edu/~remzi/OSTEP/file-implementation.pdf)
+- [OSTEP vsfs homework](https://github.com/remzi-arpacidusseau/ostep-homework/tree/master/file-implementation)
+- Agrawal et al. FS measurements [A+07]; ext2 layout [P09]; XFS [S+96]

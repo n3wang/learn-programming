@@ -162,7 +162,7 @@ Use the index (`for (int i = 0; ...)`) loop when you need to know **where** some
 
 Read an integer `n`, then read `n` integers on the next line. Print their sum.
 
-<CodingExam
+<CodeExercise
   title="sum of an array"
   heading="Challenge: sum of an array"
   lang="java"
@@ -207,7 +207,7 @@ class Runner {
 
 Read an integer `n`, then read `n` integers. Print the largest value.
 
-<CodingExam
+<CodeExercise
   title="find the max"
   heading="Challenge: find the max"
   lang="java"
@@ -267,7 +267,7 @@ class Runner {
 :::tip Activity: Reverse print
 Read an integer `n`, then `n` integers. Print them in reverse order, space-separated.
 
-<CodingExam
+<CodeExercise
   title="Reverse print"
   heading="exercise-reverse-print"
   lang="java"
@@ -310,7 +310,7 @@ class Runner {
 :::tip Activity: Count evens
 Read an integer `n`, then `n` integers. Print how many of them are even.
 
-<CodingExam
+<CodeExercise
   title="Count evens"
   heading="exercise-count-evens"
   lang="java"
@@ -353,7 +353,7 @@ class Runner {
 :::tip Activity: Index of value
 Read `n` integers, then a target value. Print the index of the **first** array slot that equals the target, or `-1` if it is not found.
 
-<CodingExam
+<CodeExercise
   title="Index of value"
   heading="exercise-index-of"
   lang="java"
@@ -398,7 +398,7 @@ class Runner {
 :::tip Activity: Average of array
 Read `n` integers. Print their average as a `double` (e.g. `2.5`).
 
-<CodingExam
+<CodeExercise
   title="Average of array"
   heading="exercise-average"
   lang="java"

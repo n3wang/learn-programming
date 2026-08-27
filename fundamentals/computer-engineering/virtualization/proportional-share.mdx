@@ -1,0 +1,304 @@
+---
+sidebar_position: 9
+title: Proportional Share
+---
+
+> **Source:** *Operating Systems: Three Easy Pieces* (OSTEP) — Chapter 9, Arpaci-Dusseau & Arpaci-Dusseau
+
+import ProportionalShareSimulator from "@site/src/components/interactive/ProportionalShareSimulator.js";
+
+# Scheduling: Proportional Share
+
+Instead of optimizing turnaround or response time, a **proportional-share** (fair-share) scheduler tries to give each job a **target fraction** of the CPU.
+
+**Crux:** how do we share the CPU proportionally — and how well do the mechanisms work?
+
+Classic answers: **lottery** (random), **stride** (deterministic), and Linux **CFS** (vruntime + weights).
+
+## Tickets = your share
+
+If A has 75 tickets and B has 25, A should get ~75% of the CPU.
+
+**Lottery scheduling** (Waldspurger & Weihl): every time slice, draw a winning ticket in `[0, total)`. Whoever holds that ticket runs.
+
+- Probabilistically correct over long runs  
+- Short runs can look unfair  
+- Almost no state beyond ticket counts  
+
+:::tip Use randomness
+Random decisions often avoid pathological corner cases, need little state, and are fast if RNG is cheap.
+:::
+
+### Ticket tricks
+
+| Mechanism | Idea |
+|---|---|
+| **Currency** | User assigns tickets in a private currency; OS converts to global shares |
+| **Transfer** | Hand tickets to a server while it works for you, then take them back |
+| **Inflation** | Temporarily raise your tickets — only safe among **trusting** processes |
+
+### Implementation sketch
+
+Walk a process list, accumulate tickets until `counter > winner`. Sorting high-ticket jobs first is an optimization, not required for correctness.
+
+## Fairness study
+
+Two equal-ticket equal-length jobs: unfairness *U* = *t*<sub>first</sub> / *t*<sub>second</sub> (ideal *U* ≈ 1). For short *R*, lottery can be quite unfair; as jobs run longer, *U* approaches 1.
+
+**Open problem:** how many tickets should each job get? Users/admins often decide — the “ticket assignment problem” remains hard.
+
+## Stride scheduling
+
+Deterministic fair share:
+
+1. `stride ∝ 1 / tickets` (e.g. `10000 / tickets`)  
+2. Each job has a **pass** value (global progress)  
+3. Always run the job with **minimum pass**  
+4. After a quantum: `pass += stride`
+
+Exact proportions over a cycle. Downside vs lottery: **global state** — a new job with `pass = 0` would monopolize; lottery just adds tickets and updates the total.
+
+## Linux Completely Fair Scheduler (CFS)
+
+Widely deployed fair-share scheduler. Goal: divide the CPU evenly (or by weight) with **low overhead** (scheduling alone can be ~5% of datacenter CPU in studies).
+
+### Virtual runtime
+
+- Each runnable job accumulates **vruntime** while it runs  
+- Always pick the job with the **lowest vruntime**  
+- Runnable jobs live in a **red-black tree** keyed by vruntime → \(O(\log n)\)  
+
+### Dynamic slice
+
+- `sched_latency` (e.g. 48 ms) / \(n\) ≈ ideal slice so fairness holds over that window  
+- `min_granularity` (e.g. 6 ms) floors the slice so too many jobs don’t thrash on context switches  
+
+### Nice → weight
+
+`nice` from −20 (more CPU) to +19 (less). Weights scale both the effective slice and how fast vruntime grows (heavier weight → vruntime climbs slower → runs more). Constant nice *differences* preserve the same ratios.
+
+### Sleep / I/O
+
+A job that slept a long time would otherwise wake with tiny vruntime and hog the CPU catching up. CFS sets a waking job’s vruntime near the **current tree minimum** — avoids starvation of others (but short frequent sleepers may get less than “fair”).
+
+## Interactive: lottery · stride · CFS
+
+<ProportionalShareSimulator />
+
+## Check your understanding
+
+<MultipleChoice
+  id="ce-proportional-share"
+  title="Proportional-share scheduling"
+  questions={[
+    {
+      prompt: 'In lottery scheduling, a process with more tickets…',
+      choices: [
+        'Always runs next',
+        'Has a higher probability of winning each lottery',
+        'Gets a longer fixed quantum only',
+        'Cannot be preempted',
+      ],
+      answer: 1,
+      why: 'Each slice draws a ticket; more tickets ⇒ more winning ranges.',
+    },
+    {
+      prompt: 'Stride scheduling picks the job with…',
+      choices: [
+        'The most tickets remaining this second',
+        'The lowest pass value',
+        'The highest vruntime',
+        'The shortest remaining CPU burst',
+      ],
+      answer: 1,
+      why: 'Min pass; then add stride. Deterministic proportions.',
+    },
+    {
+      prompt: 'A practical advantage of lottery over stride when jobs arrive mid-flight is…',
+      choices: [
+        'Lottery needs no random numbers',
+        'No awkward global pass state — just add tickets and update the total',
+        'Lottery guarantees exact shares every quantum',
+        'Stride cannot run on multiprocessors',
+      ],
+      answer: 1,
+      why: 'New stride jobs need a sensible initial pass; lottery has almost no global per-job progress state.',
+    },
+    {
+      prompt: 'CFS roughly chooses the next process by…',
+      choices: [
+        'Highest nice value',
+        'Lowest vruntime among runnable tasks',
+        'Winning lottery ticket',
+        'FIFO among all sleeping tasks',
+      ],
+      answer: 1,
+      why: 'Fairness via virtual runtime; tree finds the minimum quickly.',
+    },
+  ]}
+/>
+
+## Coding challenges
+
+**Python** — same language as `lottery.py`.
+
+<ExerciseSet
+  title="Exercises"
+  description="Lottery winner, stride update, CFS slice, unfairness."
+>
+  <CodeExercise
+    title="lottery winner"
+    heading="Challenge: lottery_winner"
+    lang="python"
+    filename="main.py"
+    prompt={`jobs is a list of (name, tickets). lottery_winner(jobs, winner) accumulates tickets; return first job where counter > winner.
+wrap: winners for 300 and 80.`}
+    sampleLog={`C
+A`}
+    starter={`def lottery_winner(jobs, winner):
+    return None  # TODO
+`}
+    wrapSuffix={`
+print(lottery_winner([("A", 100), ("B", 50), ("C", 250)], 300))
+print(lottery_winner([("A", 100), ("B", 50), ("C", 250)], 80))
+`}
+    hint={`counter = 0; add tickets; if counter > winner return name.`}
+    solution={`def lottery_winner(jobs, winner):
+    counter = 0
+    for name, tickets in jobs:
+        counter += tickets
+        if counter > winner:
+            return name
+    return None
+`}
+    sourceChecks={[
+      { name: 'accumulates', pattern: 'tickets', must: true, hint: 'add each job’s tickets' },
+    ]}
+    tests={[
+      { name: 'two winners', stdin: '', equals: 'C\nA' },
+    ]}
+  />
+  <CodeExercise
+    title="stride next"
+    heading="Challenge: stride_pick"
+    lang="python"
+    filename="main.py"
+    prompt={`stride_pick(passes, strides) returns name with min pass (tie → lexicographically smallest).
+wrap: all 0, then A=100.`}
+    sampleLog={`A
+B`}
+    starter={`def stride_pick(passes, strides):
+    return None  # TODO
+`}
+    wrapSuffix={`
+print(stride_pick({"A": 0, "B": 0, "C": 0}, {"A": 100, "B": 200, "C": 40}))
+print(stride_pick({"A": 100, "B": 0, "C": 0}, {"A": 100, "B": 200, "C": 40}))
+`}
+    hint={`best = min(passes.values()); return min name with that pass.`}
+    solution={`def stride_pick(passes, strides):
+    best = min(passes.values())
+    return min(n for n, p in passes.items() if p == best)
+`}
+    sourceChecks={[
+      { name: 'uses passes', pattern: 'passes', must: true, hint: 'compare pass values' },
+    ]}
+    tests={[
+      { name: 'ties and next', stdin: '', equals: 'A\nB' },
+    ]}
+  />
+  <CodeExercise
+    title="CFS time slice"
+    heading="Challenge: cfs_slice"
+    lang="python"
+    filename="main.py"
+    prompt={`cfs_slice(sched_latency, n, min_granularity) = max(min_granularity, sched_latency // n)
+wrap: print (48,4,6) and (48,10,6).`}
+    sampleLog={`12
+6`}
+    starter={`def cfs_slice(sched_latency, n, min_granularity):
+    return 0  # TODO
+`}
+    wrapSuffix={`
+print(cfs_slice(48, 4, 6))
+print(cfs_slice(48, 10, 6))
+`}
+    hint={`Integer division; floor with min_granularity.`}
+    solution={`def cfs_slice(sched_latency, n, min_granularity):
+    return max(min_granularity, sched_latency // n)
+`}
+    sourceChecks={[
+      { name: 'uses max', pattern: 'max', must: true, hint: 'floor the slice' },
+    ]}
+    tests={[
+      { name: 'four and ten', stdin: '', equals: '12\n6' },
+    ]}
+  />
+  <CodeExercise
+    title="unfairness U"
+    heading="Challenge: unfairness"
+    lang="python"
+    filename="main.py"
+    prompt={`unfairness(t_first, t_second) = t_first / t_second
+wrap: print (10,20) and (20,20).`}
+    sampleLog={`0.5
+1.0`}
+    starter={`def unfairness(t_first, t_second):
+    return 0.0  # TODO
+`}
+    wrapSuffix={`
+print(unfairness(10, 20))
+print(unfairness(20, 20))
+`}
+    hint={`Return the ratio.`}
+    solution={`def unfairness(t_first, t_second):
+    return t_first / t_second
+`}
+    sourceChecks={[
+      { name: 'divides', pattern: '/', must: true, hint: 'ratio of completion times' },
+    ]}
+    tests={[
+      { name: 'half and one', stdin: '', equals: '0.5\n1.0' },
+    ]}
+  />
+</ExerciseSet>
+
+## Homework lab: `lottery.py`
+
+Use the [OSTEP lottery simulator](https://github.com/remzi-arpacidusseau/ostep-homework/tree/master/cpu-sched-lottery). Notes/screenshots stay in this browser.
+
+<GuidedLab id="ostep-lottery" title="Homework: lottery.py">
+  <LabStep title="Seeds 1–3">
+    Compute the solutions for simulations with 3 jobs and random seeds of 1, 2, and 3.
+  </LabStep>
+  <LabStep title="Ticket imbalance">
+    Run with two jobs length 10: job 0 with 1 ticket, job 1 with 100 (`-l 10:1,10:100`). What happens when tickets are so imbalanced? Will job 0 ever run before job 1 completes? How often? What does imbalance do in general?
+  </LabStep>
+  <LabStep title="Unfairness equal tickets">
+    Two jobs length 100, 100 tickets each (`-l 100:100,100:100`). How unfair is the scheduler? Try several seeds; unfairness = how much earlier one finishes than the other.
+  </LabStep>
+  <LabStep title="Larger quantum">
+    How does your answer change as the quantum size (`-q`) gets larger?
+  </LabStep>
+  <LabStep title="Graph & stride">
+    Can you recreate the chapter’s unfairness-vs-job-length graph? What else is worth exploring? How would the graph look with a **stride** scheduler instead?
+  </LabStep>
+</GuidedLab>
+
+## Summary
+
+| Approach | How share is enforced | Tradeoff |
+|---|---|---|
+| **Lottery** | Random ticket draw | Simple; approximate; easy joins |
+| **Stride** | Min pass += stride | Exact; awkward new-job state |
+| **CFS** | Min vruntime + nice weights | Production Linux; RB-tree; I/O edge cases |
+
+Fair-share leaves **ticket/nice assignment** hard and can interact poorly with I/O. Still excellent when shares are clear (e.g. VMs in a cloud).
+
+**Next:** [Multiprocessor Scheduling](./multiprocessor-scheduling) — SQMS, MQMS, affinity, and work stealing.
+
+## Further Reading
+
+- Remzi & Andrea Arpaci-Dusseau — [*Operating Systems: Three Easy Pieces*](https://pages.cs.wisc.edu/~remzi/OSTEP/) Ch. 9
+- [OSTEP lottery homework](https://github.com/remzi-arpacidusseau/ostep-homework/tree/master/cpu-sched-lottery)
+- Waldspurger & Weihl — Lottery Scheduling (OSDI ’94); Waldspurger thesis (stride)
+- Linux CFS — Ingo Molnar; Bouron et al. ATC ’18 (CFS vs ULE)

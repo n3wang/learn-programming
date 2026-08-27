@@ -84,7 +84,7 @@ class Main {
 :::tip Activity: Fix the syntax error
 The starter code below is missing a semicolon. Fix it so it compiles and prints `Ready`.
 
-<CodingExam
+<CodeExercise
   title="Fix the syntax error"
   heading="exercise-fix-syntax"
   lang="java"
@@ -112,7 +112,7 @@ Ready`}
 :::tip Activity: Fix the logical error
 The starter code is meant to print the average of `a` and `b`, but it has a logic bug — it divides by the wrong number. Read two integers and fix it so it prints the correct average as a `double`.
 
-<CodingExam
+<CodeExercise
   title="Fix the logical error"
   heading="exercise-fix-logical"
   lang="java"
@@ -147,7 +147,7 @@ public class Main {
 :::tip Activity: Guard against division by zero
 Read two integers `a` and `b`. If `b` is `0`, print `Cannot divide by zero`. Otherwise print `a / b` as an integer.
 
-<CodingExam
+<CodeExercise
   title="Guard against division by zero"
   heading="exercise-guard-zero"
   lang="java"

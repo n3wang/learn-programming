@@ -1,0 +1,321 @@
+---
+sidebar_position: 10
+title: Multiprocessor Scheduling
+---
+
+> **Source:** *Operating Systems: Three Easy Pieces* (OSTEP) — Chapter 10 (Advanced), Arpaci-Dusseau & Arpaci-Dusseau
+
+import MultiprocessorSchedulingSimulator from "@site/src/components/interactive/MultiprocessorSchedulingSimulator.js";
+
+# Multiprocessor Scheduling (Advanced)
+
+:::info Advanced chapter
+This topic sits with CPU scheduling but makes more sense **after concurrency**. Multicore is everywhere — phones included — because architects hit power walls making one core ever faster.
+:::
+
+A typical C program uses **one** CPU. More cores help only if the app is rewritten to run in parallel (e.g. threads). The OS faces a new question too:
+
+**Crux:** how should the OS schedule jobs on **multiple CPUs**? Do old techniques still work?
+
+## Background: caches and coherence
+
+Single CPU: a **cache** holds popular data from slow main memory. Works because of **locality**:
+
+| Kind | Idea |
+|---|---|
+| **Temporal** | Access `x` → likely access `x` again soon |
+| **Spatial** | Access address `x` → likely nearby addresses too |
+
+Multiple CPUs + shared memory: each core has its own cache. Write `D′` on CPU 0 (maybe write-back), migrate the process to CPU 1, read again — without help you might see old `D`. That is the **cache coherence** problem.
+
+Hardware (e.g. **bus snooping**) invalidates or updates remote copies so shared memory still looks consistent. **Correctness ≠ speed**: migrating still flushes the warm cache/TLB.
+
+## Don’t forget synchronization
+
+Coherence does **not** replace locks. Concurrent updates to a shared queue/list need **mutual exclusion** (or carefully designed lock-free structures). Two threads can both read the same `head` and corrupt the list even on coherent hardware.
+
+As CPU count grows, a **single global lock** around the run queue becomes a scalability bottleneck.
+
+## Cache affinity
+
+A process builds state in a CPU’s cache/TLB. Prefer running it again on the **same** CPU when possible — **cache affinity**. It still runs correctly elsewhere (coherence), just slower while state reloads.
+
+## Single-queue multiprocessor scheduling (SQMS)
+
+One shared ready queue; pick the best *N* jobs for *N* CPUs.
+
+| Pros | Cons |
+|---|---|
+| Simple — reuse uniprocessor policy | Lock contention → poor scalability |
+| Naturally balances load | Jobs bounce → cold caches |
+
+Affinity heuristics help (pin most jobs; migrate a few for balance) but add complexity.
+
+## Multi-queue multiprocessor scheduling (MQMS)
+
+One queue **per CPU**. Place a new job on some queue (random / least loaded). Schedule mostly independently.
+
+| Pros | Cons |
+|---|---|
+| Scales with CPU count | **Load imbalance** (one core idle, another busy) |
+| Intrinsic affinity | Need **migration** / **work stealing** |
+
+**Work stealing:** an underloaded queue occasionally peeks at a busier one and steals jobs. Peek too often → overhead; too rarely → imbalance. Another “voo-doo” threshold.
+
+## Linux landscape
+
+Historically: **O(1)** (priority / MLFQ-like, multi-queue), **CFS** (proportional-share, multi-queue), **BFS** (single queue, EEVDF-style). Both SQMS and MQMS can work — details dominate.
+
+## Interactive: coherence · SQMS · MQMS
+
+<MultiprocessorSchedulingSimulator />
+
+## Check your understanding
+
+<MultipleChoice
+  id="ce-multiprocessor-scheduling"
+  title="Multiprocessor scheduling"
+  questions={[
+    {
+      prompt: 'Cache affinity means the scheduler should…',
+      choices: [
+        'Always migrate every quantum for fairness',
+        'Prefer keeping a process on the same CPU so caches stay warm',
+        'Disable hardware coherence',
+        'Use only one CPU forever',
+      ],
+      answer: 1,
+      why: 'Reusing cached state is faster; correctness elsewhere is handled by coherence.',
+    },
+    {
+      prompt: 'A main scalability flaw of SQMS is…',
+      choices: [
+        'It cannot balance load',
+        'Contention on the single shared queue’s lock',
+        'It never uses more than one CPU',
+        'It forbids round-robin',
+      ],
+      answer: 1,
+      why: 'All CPUs serialize on one queue lock as core counts grow.',
+    },
+    {
+      prompt: 'MQMS’s characteristic new problem is…',
+      choices: [
+        'Load imbalance across per-CPU queues',
+        'Inability to use more than two CPUs',
+        'Mandatory use of lottery tickets',
+        'Lack of any affinity',
+      ],
+      answer: 0,
+      why: 'Independent queues scale and keep affinity but can leave a CPU idle.',
+    },
+    {
+      prompt: 'Work stealing helps MQMS by…',
+      choices: [
+        'Deleting idle CPUs from the system',
+        'Having an underloaded queue take jobs from a busier queue',
+        'Turning off caches',
+        'Forcing all jobs onto one queue again',
+      ],
+      answer: 1,
+      why: 'Occasional steals rebalance without a permanent global queue.',
+    },
+  ]}
+/>
+
+## Coding challenges
+
+**Python** — matches `multi.py` reasoning about affinity and queues.
+
+<ExerciseSet
+  title="Exercises"
+  description="Affinity, SQMS pick, imbalance, work stealing."
+>
+  <CodeExercise
+    title="prefer same CPU"
+    heading="Challenge: prefer_cpu"
+    lang="python"
+    filename="main.py"
+    prompt={`prefer_cpu(last_cpu, n_cpus, soft_affinity) — if soft_affinity and last_cpu in range, return it; else 0.
+wrap: print three cases.`}
+    sampleLog={`2
+0
+0`}
+    starter={`def prefer_cpu(last_cpu, n_cpus, soft_affinity):
+    return 0  # TODO
+`}
+    wrapSuffix={`
+print(prefer_cpu(2, 4, True))
+print(prefer_cpu(2, 4, False))
+print(prefer_cpu(-1, 4, True))
+`}
+    hint={`Reuse last_cpu only when soft_affinity and 0 <= last_cpu < n_cpus.`}
+    solution={`def prefer_cpu(last_cpu, n_cpus, soft_affinity):
+    if soft_affinity and 0 <= last_cpu < n_cpus:
+        return last_cpu
+    return 0
+`}
+    sourceChecks={[
+      { name: 'uses soft_affinity', pattern: 'soft_affinity', must: true, hint: 'gate reuse on the flag' },
+    ]}
+    tests={[
+      { name: 'three cases', stdin: '', equals: '2\n0\n0' },
+    ]}
+  />
+  <CodeExercise
+    title="SQMS next jobs"
+    heading="Challenge: sqms_pick"
+    lang="python"
+    filename="main.py"
+    prompt={`sqms_pick(queue, n_cpus) returns up to n_cpus jobs from the front of the FIFO queue (does not need to mutate).
+wrap: print picks for n=4 and n=2.`}
+    sampleLog={`['A', 'B', 'C', 'D']
+['A', 'B']`}
+    starter={`def sqms_pick(queue, n_cpus):
+    return []  # TODO
+`}
+    wrapSuffix={`
+print(sqms_pick(["A", "B", "C", "D", "E"], 4))
+print(sqms_pick(["A", "B", "C", "D", "E"], 2))
+`}
+    hint={`return queue[:n_cpus]`}
+    solution={`def sqms_pick(queue, n_cpus):
+    return queue[:n_cpus]
+`}
+    sourceChecks={[
+      { name: 'uses n_cpus', pattern: 'n_cpus', must: true, hint: 'limit how many jobs you take' },
+    ]}
+    tests={[
+      { name: 'four and two', stdin: '', equals: "['A', 'B', 'C', 'D']\n['A', 'B']" },
+    ]}
+  />
+  <CodeExercise
+    title="detect idle CPU"
+    heading="Challenge: idle_cpu"
+    lang="python"
+    filename="main.py"
+    prompt={`idle_cpu(queues) returns smallest index with an empty queue, or -1.
+wrap: print two cases.`}
+    sampleLog={`-1
+0`}
+    starter={`def idle_cpu(queues):
+    return -1  # TODO
+`}
+    wrapSuffix={`
+print(idle_cpu([["A"], ["B", "D"]]))
+print(idle_cpu([[], ["B", "D"]]))
+`}
+    hint={`Enumerate queues; return first empty index.`}
+    solution={`def idle_cpu(queues):
+    for i, q in enumerate(queues):
+        if not q:
+            return i
+    return -1
+`}
+    sourceChecks={[
+      { name: 'checks empty', pattern: 'not q|len\\(q\\)|== \\[\\]', must: true, hint: 'look for an empty per-CPU queue' },
+    ]}
+    tests={[
+      { name: 'none then zero', stdin: '', equals: '-1\n0' },
+    ]}
+  />
+  <CodeExercise
+    title="work steal"
+    heading="Challenge: steal_one"
+    lang="python"
+    filename="main.py"
+    prompt={`steal_one(queues, thief) — if thief empty, move last job from fullest other queue onto thief. Return True if stolen.
+Mutate queues in place.
+wrap: start {{}, {"B","D"}}, thief 0; print stolen flag, q[0], q[1].`}
+    sampleLog={`True
+['D']
+['B']`}
+    starter={`def steal_one(queues, thief):
+    return False  # TODO
+`}
+    wrapSuffix={`
+q = [[], ["B", "D"]]
+print(steal_one(q, 0))
+print(q[0])
+print(q[1])
+`}
+    hint={`Find max-len queue ≠ thief; pop(); append to thief.`}
+    solution={`def steal_one(queues, thief):
+    if queues[thief]:
+        return False
+    best = -1
+    best_n = 0
+    for i, q in enumerate(queues):
+        if i == thief:
+            continue
+        if len(q) > best_n:
+            best_n = len(q)
+            best = i
+    if best < 0 or best_n == 0:
+        return False
+    job = queues[best].pop()
+    queues[thief].append(job)
+    return True
+`}
+    sourceChecks={[
+      { name: 'mutates', pattern: 'pop|append', must: true, hint: 'move a job from victim to thief' },
+    ]}
+    tests={[
+      { name: 'steal D to 0', stdin: '', equals: "True\n['D']\n['B']" },
+    ]}
+  />
+</ExerciseSet>
+
+## Homework lab: `multi.py`
+
+Use the [OSTEP multi-processor simulator](https://github.com/remzi-arpacidusseau/ostep-homework/tree/master/cpu-sched-multi). Notes/screenshots stay in this browser.
+
+<GuidedLab id="ostep-multi" title="Homework: multi.py">
+  <LabStep title="One job, one CPU">
+    Run `./multi.py -n 1 -L a:30:200`. How long to complete? Use `-c` for the answer and `-t` for a tick-by-tick trace.
+  </LabStep>
+  <LabStep title="Working set fits">
+    Increase cache so the working set (200) fits: `./multi.py -n 1 -L a:30:200 -M 300`. Predict speed once warm (`-r` warm rate). Check with `-c`.
+  </LabStep>
+  <LabStep title="Time-left tracing">
+    Same simulation with `-T`. What do you notice about how the second column (time left) decreases?
+  </LabStep>
+  <LabStep title="Cache warm tracing">
+    Add `-C`. When does cache become warm for job `a`? What if you change warmup time `-w`?
+  </LabStep>
+  <LabStep title="Three jobs, two CPUs">
+    `./multi.py -n 2 -L a:100:100,b:100:50,c:100:50` with a centralized RR scheduler. Predict length; confirm with `-c`, then `-t` / `-C`. What about cache warmth?
+  </LabStep>
+  <LabStep title="Explicit affinity -A">
+    `./multi.py -n 2 -L a:100:100,b:100:50,c:100:50 -A a:0,b:1,c:1`. Predict runtime. Why better? Do other placements help or hurt?
+  </LabStep>
+  <LabStep title="Super-linear speedup">
+    Jobs `-L a:100:100,b:100:100,c:100:100` with small cache `-M 50` on `-n 1,2,3`, then again with `-M 100`. How does performance scale? When do you see better-than-N speedup?
+  </LabStep>
+  <LabStep title="Per-CPU -p and peek -P">
+    Same three-job config with `-p`. Compare to hand affinity. How does peek interval `-P` change results as CPUs scale?
+  </LabStep>
+  <LabStep title="Random mastery">
+    Generate random workloads; predict performance across CPUs, cache sizes, and scheduling options until the traces feel intuitive.
+  </LabStep>
+</GuidedLab>
+
+## Summary
+
+| Idea | Takeaway |
+|---|---|
+| Coherence | Hardware keeps shared memory consistent across caches |
+| Locks | Still required for shared OS/app structures |
+| Affinity | Prefer same CPU for speed |
+| SQMS | Simple, balanced; locks + bouncing hurt |
+| MQMS | Scales + affinity; needs migration / work stealing |
+
+Building a general multiprocessor scheduler is hard — small changes, large behavior shifts.
+
+**Next:** [CPU Virtualization Summary](./cpu-virtualization-summary) — recap the whole arc before concurrency.
+
+## Further Reading
+
+- Remzi & Andrea Arpaci-Dusseau — [*Operating Systems: Three Easy Pieces*](https://pages.cs.wisc.edu/~remzi/OSTEP/) Ch. 10
+- [OSTEP multi.py homework](https://github.com/remzi-arpacidusseau/ostep-homework/tree/master/cpu-sched-multi)
+- Meehean — *Towards Transparent CPU Scheduling* (Linux O(1) / CFS / BFS overview)

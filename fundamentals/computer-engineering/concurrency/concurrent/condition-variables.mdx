@@ -1,0 +1,333 @@
+---
+sidebar_position: 30
+title: Condition Variables
+---
+
+> **Source:** *Operating Systems: Three Easy Pieces* (OSTEP) — Chapter 30, Arpaci-Dusseau & Arpaci-Dusseau
+
+import ConditionVariablesSimulator from "@site/src/components/interactive/ConditionVariablesSimulator.js";
+
+# Condition Variables
+
+Locks alone are not enough. Often a thread must **wait until some condition is true** (child finished, buffer not empty, enough free memory). Spinning wastes CPU.
+
+**Crux:** how should a thread wait for a condition?
+
+## Condition variables
+
+A **condition variable** is an explicit queue: threads **wait** when state is wrong; another thread that changes state **signals** (or **broadcasts**) to wake waiters. Roots: Dijkstra’s private semaphores [D68]; Hoare’s monitors [H74].
+
+```c
+pthread_cond_wait(&c, &mutex);   // must hold mutex
+pthread_cond_signal(&c);
+```
+
+`wait` **atomically** releases the mutex and sleeps; on wake it **re-acquires** the mutex before returning. That pairing prevents lost wakeups around “check then sleep.”
+
+:::tip Always hold the lock while signaling
+And you **must** hold it when calling `wait`. Hold the lock for both and you stay safe.
+:::
+
+## Example: join
+
+Shared `done`, a mutex, and a CV (Fig 30.3):
+
+- `thr_join`: lock; **while** `done==0` wait; unlock  
+- `thr_exit`: lock; `done=1`; signal; unlock  
+
+Covers both orders: parent waits first, or child finishes before parent joins (signal with empty wait queue is fine — `done` records the fact).
+
+**Broken without `done`:** child signals before parent waits → parent waits forever.  
+**Broken without the lock around check/wait:** parent can miss the signal between checking `done` and waiting.
+
+## Producer / consumer (bounded buffer)
+
+Producers put items; consumers take them. Shared buffer needs a mutex **and** waiting for empty/full [D72]. Web servers, pipes (`grep | wc`), work queues — same pattern.
+
+### Broken: one CV + `if`
+
+With Mesa semantics [LR80], **signal is a hint**, not a promise the condition still holds when you run. Another consumer can sneak in after you were signaled. Fix: **`while` (not `if`)** around the wait. Always.
+
+### Still broken: one CV + `while`
+
+A consumer that empties the buffer may wake **another consumer** instead of the producer → everyone asleep (Fig 30.9).
+
+### Correct: two CVs + `while`
+
+- Producers: `while (full) wait(empty); put; signal(fill)`  
+- Consumers: `while (empty) wait(fill); get; signal(empty)`  
+
+Multi-slot buffer: wait while `count==MAX` / `count==0`; circular `fill_ptr` / `use_ptr` (Figs 30.11–30.12).
+
+:::tip Use while (not if) for conditions
+Also handles **spurious wakeups** in some libraries [L11].
+:::
+
+## Covering conditions
+
+Memory allocator: waiters need different sizes. `signal` may wake the wrong thread. **`broadcast`** wakes all; each rechecks with `while` — a **covering condition** [LR80]. Cost: extra wakeups. If you “need” broadcast but think you shouldn’t, you may have a bug — unless the wake set is truly ambiguous.
+
+## Interactive
+
+<ConditionVariablesSimulator />
+
+**Try:** join · Mesa while≠if · two CVs · broadcast covering.
+
+## Check your understanding
+
+<MultipleChoice
+  id="ce-condition-variables"
+  title="Condition variables"
+  questions={[
+    {
+      prompt: 'pthread_cond_wait assumes…',
+      choices: [
+        'The mutex is unlocked',
+        'The mutex is locked; wait releases it then re-acquires on wake',
+        'No mutex is involved',
+        'Interrupts are disabled',
+      ],
+      answer: 1,
+      why: 'Atomic unlock+sleep, then lock again before return.',
+    },
+    {
+      prompt: 'Why keep a done flag for join instead of only signal/wait?',
+      choices: [
+        'POSIX forbids bare signal',
+        'If the child signals before the parent waits, the wakeup would be lost without state',
+        'Flags are faster than CVs',
+        'Join cannot use mutexes',
+      ],
+      answer: 1,
+      why: 'State records the condition; sleeping is built around it.',
+    },
+    {
+      prompt: 'Mesa semantics means a signal…',
+      choices: [
+        'Guarantees the waiter runs immediately with the condition still true',
+        'Only makes a waiter ready; the condition must be rechecked (use while)',
+        'Disables the scheduler',
+        'Replaces the need for a mutex',
+      ],
+      answer: 1,
+      why: 'Hint, not Hoare-style transfer of control.',
+    },
+    {
+      prompt: 'With multiple consumers, one CV + while can still deadlock because…',
+      choices: [
+        'malloc is unsafe',
+        'A consumer may wake another consumer instead of a waiting producer',
+        'while loops are illegal',
+        'Buffers cannot hold ints',
+      ],
+      answer: 1,
+      why: 'Need directed empty/fill condition variables.',
+    },
+    {
+      prompt: 'Covering conditions use broadcast when…',
+      choices: [
+        'You want maximum performance always',
+        'The signaler cannot know which waiter(s) can proceed',
+        'Locks are forbidden',
+        'There is only one thread',
+      ],
+      answer: 1,
+      why: 'Wake all; each while-filters itself.',
+    },
+    {
+      prompt: 'The safe rule for checking shared conditions is…',
+      choices: [
+        'Always use if before wait',
+        'Always use while before wait',
+        'Never use a mutex with a CV',
+        'Prefer spinning to wait',
+      ],
+      answer: 1,
+      why: 'Correct under Mesa + spurious wakeups.',
+    },
+  ]}
+/>
+
+## Coding challenges
+
+<ExerciseSet title="Exercises" description="Wait predicates, buffer fullness, and join state.">
+  <CodeExercise
+    title="should wait?"
+    heading="Challenge: should_wait_join"
+    lang="python"
+    filename="main.py"
+    prompt={`should_wait_join(done) is True when the parent must wait (done == 0).
+wrap: print should_wait_join(0) and should_wait_join(1).`}
+    sampleLog={`True
+False`}
+    starter={`def should_wait_join(done):
+    return False  # TODO
+`}
+    wrapSuffix={`
+print(should_wait_join(0))
+print(should_wait_join(1))
+`}
+    hint={`Wait while not done.`}
+    solution={`def should_wait_join(done):
+    return done == 0
+`}
+    sourceChecks={[
+      { name: 'compares', pattern: '==|not', must: true, hint: 'check done flag' },
+    ]}
+    tests={[
+      { name: 'done flag', stdin: '', equals: 'True\nFalse' },
+    ]}
+  />
+  <CodeExercise
+    title="producer wait"
+    heading="Challenge: producer_must_wait"
+    lang="python"
+    filename="main.py"
+    prompt={`producer_must_wait(count, max_slots) is True when the buffer is full (count == max_slots).
+wrap: print producer_must_wait(3, 3) and producer_must_wait(2, 3).`}
+    sampleLog={`True
+False`}
+    starter={`def producer_must_wait(count, max_slots):
+    return False  # TODO
+`}
+    wrapSuffix={`
+print(producer_must_wait(3, 3))
+print(producer_must_wait(2, 3))
+`}
+    hint={`Full when count hits MAX.`}
+    solution={`def producer_must_wait(count, max_slots):
+    return count == max_slots
+`}
+    sourceChecks={[
+      { name: 'compares', pattern: '==|>=', must: true, hint: 'count vs capacity' },
+    ]}
+    tests={[
+      { name: 'full check', stdin: '', equals: 'True\nFalse' },
+    ]}
+  />
+  <CodeExercise
+    title="consumer wait"
+    heading="Challenge: consumer_must_wait"
+    lang="python"
+    filename="main.py"
+    prompt={`consumer_must_wait(count) is True when the buffer is empty (count == 0).
+wrap: print consumer_must_wait(0) and consumer_must_wait(2).`}
+    sampleLog={`True
+False`}
+    starter={`def consumer_must_wait(count):
+    return False  # TODO
+`}
+    wrapSuffix={`
+print(consumer_must_wait(0))
+print(consumer_must_wait(2))
+`}
+    hint={`Empty means nothing to get.`}
+    solution={`def consumer_must_wait(count):
+    return count == 0
+`}
+    sourceChecks={[
+      { name: 'compares', pattern: '==', must: true, hint: 'count equals zero' },
+    ]}
+    tests={[
+      { name: 'empty check', stdin: '', equals: 'True\nFalse' },
+    ]}
+  />
+  <CodeExercise
+    title="which CV"
+    heading="Challenge: signal_after"
+    lang="python"
+    filename="main.py"
+    prompt={`signal_after(op) returns which CV to signal after a successful op:
+"put" → "fill"; "get" → "empty".
+wrap: print signal_after("put") and signal_after("get").`}
+    sampleLog={`fill
+empty`}
+    starter={`def signal_after(op):
+    return "fill"  # TODO
+`}
+    wrapSuffix={`
+print(signal_after("put"))
+print(signal_after("get"))
+`}
+    hint={`Producers wake consumers on fill; consumers wake producers on empty.`}
+    solution={`def signal_after(op):
+    return "fill" if op == "put" else "empty"
+`}
+    sourceChecks={[
+      { name: 'branches', pattern: 'if', must: true, hint: 'map put/get to CV name' },
+    ]}
+    tests={[
+      { name: 'two ops', stdin: '', equals: 'fill\nempty' },
+    ]}
+  />
+  <CodeExercise
+    title="ring index"
+    heading="Challenge: next_ptr"
+    lang="python"
+    filename="main.py"
+    prompt={`next_ptr(i, max_slots) returns (i + 1) % max_slots for circular fill/use pointers.
+wrap: print next_ptr(2, 3) and next_ptr(0, 3).`}
+    sampleLog={`0
+1`}
+    starter={`def next_ptr(i, max_slots):
+    return 0  # TODO
+`}
+    wrapSuffix={`
+print(next_ptr(2, 3))
+print(next_ptr(0, 3))
+`}
+    hint={`Modulo wrap.`}
+    solution={`def next_ptr(i, max_slots):
+    return (i + 1) % max_slots
+`}
+    sourceChecks={[
+      { name: 'modulo', pattern: '%', must: true, hint: 'wrap with %' },
+    ]}
+    tests={[
+      { name: 'wrap', stdin: '', equals: '0\n1' },
+    ]}
+  />
+</ExerciseSet>
+
+## Homework lab: producer/consumer variants
+
+Use the [OSTEP CV homework](https://github.com/remzi-arpacidusseau/ostep-homework/tree/master/threads-cv) (`main-two-cvs-while.c` and broken variants).
+
+<GuidedLab id="ostep-threads-cv" title="Homework: threads-cv producer/consumer">
+  <LabStep title="Working solution">
+    Study `main-two-cvs-while.c`. Run 1P/1C; vary buffer size `-m` and produce count `-l`. Predict `num_full`.
+  </LabStep>
+  <LabStep title="Sleep strings">
+    With `-C` consumer sleeps, estimate total time for 1P/3C cases (sleep at c3 vs c6; `-m 1` vs `-m 3`).
+  </LabStep>
+  <LabStep title="One CV">
+    `main-one-cv-while.c` — craft sleeps (1C then 2C) that expose the bug.
+  </LabStep>
+  <LabStep title="If instead of while">
+    `main-two-cvs-if.c` — force Mesa-style failures with one and then many consumers.
+  </LabStep>
+  <LabStep title="Early unlock">
+    `main-two-cvs-while-extra-unlock.c` — what goes wrong if you unlock before put/get?
+  </LabStep>
+</GuidedLab>
+
+## Summary
+
+| Rule | Why |
+|---|---|
+| Hold lock for wait/signal | Avoid lost wakeups |
+| State + CV | Signal alone is not memory |
+| `while` not `if` | Mesa + spurious wakeups |
+| Two CVs for PC | Directed wakeups |
+| Broadcast when unsure | Covering conditions |
+
+**Previous:** [Lock-based Concurrent Data Structures](./lock-based-data-structures)
+
+**Next:** [Semaphores](./semaphores) — locks and waiting in one primitive.
+
+## Further Reading
+
+- Remzi & Andrea Arpaci-Dusseau — [*Operating Systems: Three Easy Pieces*](https://pages.cs.wisc.edu/~remzi/OSTEP/) Ch. 30
+- [OSTEP threads-cv PDF](https://pages.cs.wisc.edu/~remzi/OSTEP/threads-cv.pdf)
+- [OSTEP threads-cv homework](https://github.com/remzi-arpacidusseau/ostep-homework/tree/master/threads-cv)
+- Lampson & Redell Mesa [LR80]; Hoare monitors [H74]; Dijkstra producer/consumer [D72]

@@ -264,6 +264,30 @@ const config = {
         path: 'fundamentals',
         routeBasePath: 'fundamentals',
         sidebarPath: require.resolve('./sidebars.js'),
+        async sidebarItemsGenerator({defaultSidebarItemsGenerator, ...args}) {
+          const items = await defaultSidebarItemsGenerator(args);
+          const byId = new Map(args.docs.map((d) => [d.id, d]));
+
+          const decorate = (list) =>
+            list.map((item) => {
+              if (item.type === 'category' && Array.isArray(item.items)) {
+                return {...item, items: decorate(item.items)};
+              }
+              if (item.type === 'doc' && String(item.id).includes('computer-engineering/')) {
+                const pos = byId.get(item.id)?.sidebarPosition;
+                if (
+                  typeof pos === 'number' &&
+                  item.label &&
+                  !/^\d+\s*-\s*/.test(item.label)
+                ) {
+                  return {...item, label: `${pos} - ${item.label}`};
+                }
+              }
+              return item;
+            });
+
+          return decorate(items);
+        },
       },
     ],
     "docusaurus-plugin-image-zoom"
@@ -345,7 +369,7 @@ const config = {
             position: 'left',
             items: [
               {
-                to: '/fundamentals/intro',
+                to: '/fundamentals/computer-engineering/virtualization/cpu-pipeline',
                 label: 'CS Fundamentals',
               },
             ],

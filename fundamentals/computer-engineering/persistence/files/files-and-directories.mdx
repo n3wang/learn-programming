@@ -1,0 +1,299 @@
+---
+sidebar_position: 39
+title: Files and Directories
+---
+
+> **Source:** *Operating Systems: Three Easy Pieces* (OSTEP) — Chapter 39, Arpaci-Dusseau & Arpaci-Dusseau
+
+import FilesAndDirectoriesSimulator from "@site/src/components/interactive/FilesAndDirectoriesSimulator.js";
+
+# Interlude: Files and Directories
+
+Processes virtualize the CPU; address spaces virtualize memory. Persistence adds the third piece: **durable** storage that survives power loss.
+
+**Crux:** how should the OS manage a persistent device — APIs and key implementation ideas?
+
+## Files and directories
+
+| Abstraction | Meaning |
+|---|---|
+| **File** | Linear array of bytes; low-level name = **inode number** |
+| **Directory** | List of `(user-readable name, inode #)` pairs |
+
+Directories nest into a **tree** rooted at `/`. Absolute path: `/foo/bar.txt`. Extensions (`.c`, `.jpg`) are convention — the FS usually does not enforce type.
+
+:::tip Think carefully about naming
+UNIX routes almost everything through the tree (devices, pipes, `/proc`). Uniform naming simplifies the system [SK09].
+:::
+
+## Creating, reading, writing
+
+- `open(path, O_CREAT|O_WRONLY|O_TRUNC, …)` → **file descriptor** (per-process capability). `creat()` ≈ that flag combo (“I’d spell creat with an e” — Thompson).
+- FDs **0 / 1 / 2** = stdin / stdout / stderr; the next open is often **3**.
+- `read` / `write` / `close`. Trace with **`strace`** (or `dtruss` / `truss`).
+- **Current offset** lives in a system-wide **open file table** entry (`struct file`: `off`, `ip`, `readable`/`writable`, `ref`). `read`/`write` advance it; **`lseek`** sets it — that call does **not** move the disk head by itself.
+
+Two opens of the same file → two OFT entries (independent offsets). **`fork`** and **`dup`/`dup2`** share one OFT entry (`refcnt++`) — useful for shells and cooperating writers.
+
+## Durability and rename
+
+`write()` may only dirty page cache. **`fsync(fd)`** forces that file’s dirty data to disk; for a **new** file you may also need to `fsync` the **parent directory** [P+13,P+14].
+
+**`rename(old, new)`** is typically crash-atomic (ends as old or new name). Editors often: write temp → `fsync` → `rename` over the real path.
+
+## Metadata, directories, deletion
+
+`stat` / `fstat` fill size, inode #, nlink, times, mode, … — kept in on-disk **inodes** (cached when active).
+
+- `mkdir` / `rmdir` (directory must be empty: only `.` and `..`)
+- `opendir` / `readdir` / `closedir` (never write directory bytes directly)
+- Deleting a file is **`unlink(name)`** — not “delete”
+
+## Hard links and symbolic links
+
+**Hard link** (`link` / `ln`): another directory entry → **same inode**; bump **link count**. `unlink` removes one name; free inode+blocks when count hits 0. Limits: no directory hard links (cycles); no cross-FS links (inode #s are per FS).
+
+**Symbolic (soft) link** (`ln -s`): a special file holding a **pathname**. Can **dangle**; can cross mounts and name directories.
+
+## Permissions, mount, TOCTTOU
+
+Classic bits: `rwx` for owner / group / other (`chmod`). Execute on files = run; on directories = traverse/`cd` (with write to create). Richer systems use **ACLs**. Superuser/`root` (or admin groups) can bypass — a trust/security hotspot.
+
+**`mkfs`** writes an empty FS onto a partition; **`mount`** pastes it at a mount point into one unified tree.
+
+:::tip Be wary of TOCTTOU
+Time-of-check to time-of-use races (e.g. `lstat` then `open`) let attackers swap paths under privileged services [BD96]. Reduce root services; `O_NOFOLLOW`; careful privileged code.
+:::
+
+## Interactive
+
+<FilesAndDirectoriesSimulator />
+
+**Try:** abstractions · open/offset · hard vs soft links · permissions/mount.
+
+## Check your understanding
+
+<MultipleChoice
+  id="ce-files-directories"
+  title="Files and directories"
+  questions={[
+    {
+      prompt: 'A directory stores…',
+      choices: [
+        'Only raw disk blocks with no names',
+        'Pairs of (human name, inode number)',
+        'Only process IDs',
+        'Only RAID parity',
+      ],
+      answer: 1,
+      why: 'Name → low-level inode mapping.',
+    },
+    {
+      prompt: 'After stdin/out/err, the next successful open usually returns fd…',
+      choices: ['0', '1', '2', '3'],
+      answer: 3,
+      why: '0–2 are already reserved.',
+    },
+    {
+      prompt: 'lseek() primarily…',
+      choices: [
+        'Always moves the disk actuator immediately',
+        'Updates the current offset in the open file table entry',
+        'Deletes the inode',
+        'Mounts a new file system',
+      ],
+      answer: 1,
+      why: 'No I/O by itself; later read/write may cause seeks.',
+    },
+    {
+      prompt: 'After fork(), parent and child typically…',
+      choices: [
+        'Never share any file state',
+        'Share the same open file table entry (and thus offset) for inherited fds',
+        'Duplicate every inode on disk',
+        'Lose stdin',
+      ],
+      answer: 1,
+      why: 'refcnt increases; one offset.',
+    },
+    {
+      prompt: 'unlink() removes a file’s data blocks…',
+      choices: [
+        'Always immediately',
+        'When the inode’s link count reaches zero (and no open refs remain, in the usual model)',
+        'Only for symbolic links',
+        'Never — use rmdir only',
+      ],
+      answer: 1,
+      why: 'Hard links share an inode; last unlink frees.',
+    },
+    {
+      prompt: 'A dangling symlink occurs when…',
+      choices: [
+        'Two hard links share an inode',
+        'The target pathname no longer exists',
+        'fsync succeeds',
+        'mount is called',
+      ],
+      answer: 1,
+      why: 'Soft links store a path, not an inode hold.',
+    },
+  ]}
+/>
+
+## Coding challenges
+
+<ExerciseSet title="Exercises" description="Paths, offsets, and link counts.">
+  <CodeExercise
+    title="join path"
+    heading="Challenge: join_path"
+    lang="python"
+    filename="main.py"
+    prompt={`join_path(dir_path, name) returns dir_path + "/" + name, but if dir_path is "/" just "/" + name (no double slash).
+wrap: print join_path("/foo", "bar.txt") and join_path("/", "x").`}
+    sampleLog={`/foo/bar.txt
+/x`}
+    starter={`def join_path(dir_path, name):
+    return ""  # TODO
+`}
+    wrapSuffix={`
+print(join_path("/foo", "bar.txt"))
+print(join_path("/", "x"))
+`}
+    hint={`Special-case root.`}
+    solution={`def join_path(dir_path, name):
+    if dir_path == "/":
+        return "/" + name
+    return dir_path + "/" + name
+`}
+    sourceChecks={[
+      { name: 'joins', pattern: '\\+|/', must: true, hint: 'concatenate carefully' },
+    ]}
+    tests={[
+      { name: 'root and sub', stdin: '', equals: '/foo/bar.txt\n/x' },
+    ]}
+  />
+  <CodeExercise
+    title="offset after read"
+    heading="Challenge: next_offset"
+    lang="python"
+    filename="main.py"
+    prompt={`next_offset(off, n_read, file_size) returns the new offset after a read that returned n_read bytes
+starting at off (do not pass EOF: new = min(off + n_read, file_size)).
+wrap: print next_offset(0, 100, 300) and next_offset(250, 100, 300).`}
+    sampleLog={`100
+300`}
+    starter={`def next_offset(off, n_read, file_size):
+    return 0  # TODO
+`}
+    wrapSuffix={`
+print(next_offset(0, 100, 300))
+print(next_offset(250, 100, 300))
+`}
+    hint={`min with file_size.`}
+    solution={`def next_offset(off, n_read, file_size):
+    return min(off + n_read, file_size)
+`}
+    sourceChecks={[
+      { name: 'min', pattern: 'min', must: true, hint: 'clamp at EOF' },
+    ]}
+    tests={[
+      { name: 'mid and eof', stdin: '', equals: '100\n300' },
+    ]}
+  />
+  <CodeExercise
+    title="link count"
+    heading="Challenge: after_unlink"
+    lang="python"
+    filename="main.py"
+    prompt={`after_unlink(nlink) returns the new link count after one successful unlink (nlink - 1), or 0 if it would go negative (shouldn’t).
+wrap: print after_unlink(3) and after_unlink(1).`}
+    sampleLog={`2
+0`}
+    starter={`def after_unlink(nlink):
+    return 0  # TODO
+`}
+    wrapSuffix={`
+print(after_unlink(3))
+print(after_unlink(1))
+`}
+    hint={`Subtract one; floor at 0.`}
+    solution={`def after_unlink(nlink):
+    return max(0, nlink - 1)
+`}
+    sourceChecks={[
+      { name: 'dec', pattern: '-|max', must: true, hint: 'decrement link count' },
+    ]}
+    tests={[
+      { name: '3→2 and 1→0', stdin: '', equals: '2\n0' },
+    ]}
+  />
+  <CodeExercise
+    title="mode string"
+    heading="Challenge: owner_rw"
+    lang="python"
+    filename="main.py"
+    prompt={`owner_rw(mode) is True if the owner-write and owner-read bits are set.
+Treat mode as an int where 0o400=read, 0o200=write (owner).
+wrap: print owner_rw(0o644) and owner_rw(0o400).`}
+    sampleLog={`True
+False`}
+    starter={`def owner_rw(mode):
+    return False  # TODO
+`}
+    wrapSuffix={`
+print(owner_rw(0o644))
+print(owner_rw(0o400))
+`}
+    hint={`Check both bits with &.`}
+    solution={`def owner_rw(mode):
+    return (mode & 0o400) != 0 and (mode & 0o200) != 0
+`}
+    sourceChecks={[
+      { name: 'bits', pattern: '&', must: true, hint: 'mask permission bits' },
+    ]}
+    tests={[
+      { name: '644 vs 400', stdin: '', equals: 'True\nFalse' },
+    ]}
+  />
+</ExerciseSet>
+
+## Homework lab: FS API practice
+
+Write small UNIX utilities from the chapter homework (no OSTEP simulator tarball for Ch. 39).
+
+<GuidedLab id="ostep-file-intro" title="Homework: files API">
+  <LabStep title="mystat">
+    Call `stat()`; print size, blocks, nlink, mode, inode. How does a directory’s link count change as you add entries?
+  </LabStep>
+  <LabStep title="myls">
+    `opendir`/`readdir`; with `-l`, `stat` each entry. Optional path argument; default CWD.
+  </LabStep>
+  <LabStep title="mytail">
+    Efficient tail: `lseek` near EOF, scan backward for `n` lines, then print.
+  </LabStep>
+  <LabStep title="find-like walk">
+    Recursively list the tree from CWD or a given root; add filters à la `find`.
+  </LabStep>
+</GuidedLab>
+
+## Summary
+
+| Piece | Role |
+|---|---|
+| **File / inode** | Persistent byte array + metadata |
+| **Directory** | Name → inode map; `.` / `..` |
+| **fd → OFT → inode** | Offset and access rights |
+| **unlink / link / symlink** | Names vs data lifetime |
+| **fsync / rename** | Durability and atomic replace |
+| **mount** | One namespace from many FSes |
+
+**Previous:** [RAID](../devices/raid)
+
+**Next:** [File System Implementation](./file-system-implementation) — vsfs on-disk structures and access paths.
+
+## Further Reading
+
+- Remzi & Andrea Arpaci-Dusseau — [*Operating Systems: Three Easy Pieces*](https://pages.cs.wisc.edu/~remzi/OSTEP/) Ch. 39
+- [OSTEP file-intro PDF](https://pages.cs.wisc.edu/~remzi/OSTEP/file-intro.pdf)
+- Stevens & Rago [SR05]; Pillai et al. on crash-consistent apps [P+14]; Bishop & Dilger TOCTTOU [BD96]

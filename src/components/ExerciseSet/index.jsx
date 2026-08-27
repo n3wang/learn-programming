@@ -1,5 +1,5 @@
 import React, {useEffect, useMemo, useState} from 'react';
-import {CODE_PROGRESS_EVENT, listDrafts, slugifyAnchor} from '@site/src/components/codeWorkspace/drafts';
+import {CODE_PROGRESS_EVENT, isPracticeDraft, listDrafts, slugifyAnchor} from '@site/src/components/codeWorkspace/drafts';
 import styles from './styles.module.css';
 
 export function Exercise({children}) {
@@ -55,7 +55,7 @@ export default function ExerciseSet({children}) {
                     }
                     const next = {};
                     (rows || []).forEach((row) => {
-                        if (row.kind === 'exam' && row.completed && row.title) {
+                        if (isPracticeDraft(row) && row.completed && row.title) {
                             next[row.title] = true;
                         }
                     });

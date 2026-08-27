@@ -1,0 +1,308 @@
+---
+sidebar_position: 48
+title: Distributed Systems
+---
+
+> **Source:** *Operating Systems: Three Easy Pieces* (OSTEP) — Chapter 48, Arpaci-Dusseau & Arpaci-Dusseau
+
+import DistributedSystemsSimulator from "@site/src/components/interactive/DistributedSystemsSimulator.js";
+
+# Distributed Systems
+
+A browser talking to a web server is a simple **client/server** distributed system. Behind Google or Facebook: thousands of machines cooperating.
+
+**Crux:** how do we build systems that **work when components fail**? (RAID-like idea, harder setting.)
+
+Failure is also opportunity: imperfect parts + redundancy → a service that *appears* rarely to fail. That is why modern web stacks are distributed.
+
+Also care about: **performance** (messages, latency, bandwidth) and **security** (who am I talking to? who is listening?).
+
+## Communication is unreliable
+
+Packets are lost or corrupted: bit flips, severed cables, dead routers — and **full buffers** in switches/hosts even when every link is “up.” Loss is fundamental.
+
+**Tip:** treat communication as inherently unreliable; build reliability on top when needed.
+
+## Unreliable layers: UDP/IP
+
+Some apps handle loss themselves (**end-to-end argument**). **UDP** offers datagrams via the sockets API: send/receive fixed-size messages, checksums for some corruption, **no** delivery guarantee.
+
+A tiny client/server (chapter figures) is enough to start: `UDP_Open`, `UDP_Write`, `UDP_Read`.
+
+## Reliable layers: ack + timeout/retry
+
+| Mechanism | Role |
+|---|---|
+| **Acknowledgment** | Receiver proves it got the message |
+| **Timeout + retry** | No ack → resend a kept copy |
+| **Sequence numbers** | Detect duplicates when the **ack** was what got lost |
+
+Without seq numbers, a lost ack causes a retry the receiver already accepted → **duplicates**. With counters: deliver only when ID matches expected `N`, then bump; duplicates are acked but not passed up → **exactly-once** (no failure) / **at-most-once** (with failure).
+
+Set timeouts carefully: too short → wasteful retries; too long → slow recovery. Many clients + overloaded server → **exponential back-off** (Aloha / Ethernet [A70]).
+
+**TCP** adds congestion control, pipelining, and more [VJ88].
+
+## Abstractions communication
+
+**Distributed shared memory (DSM):** remote pages via page faults — looks like threads on one big address space. Failure (missing pages mid-structure) and performance (some loads are RPCs in disguise) killed practical use for reliable systems.
+
+**Remote procedure call (RPC)** [BN84] won: calling a remote function should feel like a **local** call.
+
+### Stub generator
+
+From an interface, generate **client stubs** (marshal → send → wait → unmarshal) and **server stubs** (unmarshal → call → marshal reply). Handles complex args via known types / annotations. Servers usually use a **thread pool**.
+
+### Run-time library
+
+- **Naming:** hostname + port (DNS, …)
+- **Transport:** TCP is “obviously” reliable but double-acks a request/response; many RPCs sit on **UDP** and implement reliability themselves
+- Long calls: early ack + “still working?” polls
+- Large args: fragmentation / reassembly
+- **Endianness:** e.g. XDR
+- Optional **async RPC**: fire, do other work, later wait for results
+
+## End-to-end argument [SRC84]
+
+Only the **application ends** can truly guarantee some properties (e.g. correct file transfer). Lower-layer reliability helps but cannot catch sender-memory corruption or a bad disk write. Corollary: lower-layer features can still optimize performance — use judgment.
+
+## Interactive
+
+<DistributedSystemsSimulator />
+
+**Try:** why distribute · UDP · reliable messaging · RPC vs DSM · end-to-end.
+
+## Check your understanding
+
+<MultipleChoice
+  id="ce-distributed-systems"
+  title="Distributed systems"
+  questions={[
+    {
+      prompt: 'The central beauty of distributed systems in this chapter is that…',
+      choices: [
+        'Networks never lose packets',
+        'Redundant imperfect machines can yield a service that rarely appears to fail',
+        'DSM always outperforms RPC',
+        'UDP guarantees exactly-once delivery',
+      ],
+      answer: 1,
+      why: 'Failure of parts ≠ failure of the whole.',
+    },
+    {
+      prompt: 'Even with perfect links and hosts, packets can still be lost because…',
+      choices: [
+        'Checksums delete packets',
+        'Routers/hosts drop packets when buffers fill',
+        'Sequence numbers expire instantly',
+        'RPC forbids UDP',
+      ],
+      answer: 1,
+      why: 'Finite memory ⇒ drop under burst.',
+    },
+    {
+      prompt: 'Timeout/retry alone is not enough for exactly-once because…',
+      choices: [
+        'TCP cannot retransmit',
+        'A lost ack causes a resend the receiver already accepted',
+        'UDP has no checksum',
+        'Ports cannot be reused',
+      ],
+      answer: 1,
+      why: 'Need sequence numbers (or equivalent) to drop duplicates.',
+    },
+    {
+      prompt: 'DSM fell out of favor for reliable systems mainly due to…',
+      choices: [
+        'Lack of virtual memory',
+        'Failure exposing holes in a shared address space, plus unpredictable remote page costs',
+        'Inability to use Ethernet',
+        'Mandatory use of TCP',
+      ],
+      answer: 1,
+      why: 'Correctness and performance both hurt.',
+    },
+    {
+      prompt: 'Many RPC systems prefer UDP under the hood to…',
+      choices: [
+        'Disable checksums',
+        'Avoid extra acks when layering request/response on TCP',
+        'Prevent sequence numbers',
+        'Force DSM',
+      ],
+      answer: 1,
+      why: 'Implement reliability once at the RPC layer.',
+    },
+    {
+      prompt: 'The end-to-end argument says that…',
+      choices: [
+        'Only routers can checksum files',
+        'Some correctness checks must live at the application ends, not only in lower layers',
+        'UDP is illegal',
+        'RPC cannot marshal pointers',
+      ],
+      answer: 1,
+      why: 'Saltzer/Reed/Clark — lower layers help but are not sufficient.',
+    },
+  ]}
+/>
+
+## Coding challenges
+
+<ExerciseSet title="Exercises" description="Messaging reliability and RPC roles.">
+  <CodeExercise
+    title="should retry?"
+    heading="Challenge: should_retry"
+    lang="python"
+    filename="main.py"
+    prompt={`should_retry(acked, timed_out) is True iff not acked and timed_out.
+wrap: print should_retry(False, True), should_retry(True, True).`}
+    sampleLog={`True
+False`}
+    starter={`def should_retry(acked, timed_out):
+    return False  # TODO
+`}
+    wrapSuffix={`
+print(should_retry(False, True))
+print(should_retry(True, True))
+`}
+    hint={`Retry only on timeout without ack.`}
+    solution={`def should_retry(acked, timed_out):
+    return (not acked) and timed_out
+`}
+    sourceChecks={[
+      { name: 'logic', pattern: 'not|and', must: true, hint: 'combine flags' },
+    ]}
+    tests={[
+      { name: 'retry cases', stdin: '', equals: 'True\nFalse' },
+    ]}
+  />
+  <CodeExercise
+    title="deliver once"
+    heading="Challenge: should_deliver"
+    lang="python"
+    filename="main.py"
+    prompt={`should_deliver(msg_id, expected) True iff msg_id == expected
+(pass up to app only on first receipt).
+wrap: print should_deliver(5, 5), should_deliver(5, 6).`}
+    sampleLog={`True
+False`}
+    starter={`def should_deliver(msg_id, expected):
+    return False  # TODO
+`}
+    wrapSuffix={`
+print(should_deliver(5, 5))
+print(should_deliver(5, 6))
+`}
+    hint={`Equality with expected seq.`}
+    solution={`def should_deliver(msg_id, expected):
+    return msg_id == expected
+`}
+    sourceChecks={[
+      { name: 'eq', pattern: '==', must: true, hint: 'compare ids' },
+    ]}
+    tests={[
+      { name: 'new vs dup', stdin: '', equals: 'True\nFalse' },
+    ]}
+  />
+  <CodeExercise
+    title="backoff"
+    heading="Challenge: next_timeout"
+    lang="python"
+    filename="main.py"
+    prompt={`next_timeout(t) returns 2 * t (exponential back-off step).
+wrap: print next_timeout(100), next_timeout(200).`}
+    sampleLog={`200
+400`}
+    starter={`def next_timeout(t):
+    return 0  # TODO
+`}
+    wrapSuffix={`
+print(next_timeout(100))
+print(next_timeout(200))
+`}
+    hint={`Double.`}
+    solution={`def next_timeout(t):
+    return 2 * t
+`}
+    sourceChecks={[
+      { name: 'double', pattern: '2\\s*\\*|\\*\\s*2', must: true, hint: 'multiply by 2' },
+    ]}
+    tests={[
+      { name: 'double', stdin: '', equals: '200\n400' },
+    ]}
+  />
+  <CodeExercise
+    title="RPC piece"
+    heading="Challenge: rpc_role"
+    lang="python"
+    filename="main.py"
+    prompt={`rpc_role(name) → "stub" for marshal/unmarshal/client_stub/server_stub,
+"runtime" for timeout/naming/transport, else "unknown".
+wrap: print rpc_role("marshal"), rpc_role("timeout"), rpc_role("dns").`}
+    sampleLog={`stub
+runtime
+unknown`}
+    starter={`def rpc_role(name):
+    return "unknown"  # TODO
+`}
+    wrapSuffix={`
+print(rpc_role("marshal"))
+print(rpc_role("timeout"))
+print(rpc_role("dns"))
+`}
+    hint={`Two sets of names; anything else → unknown.`}
+    solution={`STUB = {"marshal", "unmarshal", "client_stub", "server_stub"}
+RUNTIME = {"timeout", "naming", "transport"}
+
+def rpc_role(name):
+    if name in STUB:
+        return "stub"
+    if name in RUNTIME:
+        return "runtime"
+    return "unknown"
+`}
+    sourceChecks={[
+      { name: 'roles', pattern: 'stub|runtime', must: true, hint: 'classify RPC pieces' },
+    ]}
+    tests={[
+      { name: 'three roles', stdin: '', equals: 'stub\nruntime\nunknown' },
+    ]}
+  />
+</ExerciseSet>
+
+## Homework lab: build a messaging library
+
+No OSTEP simulator for this chapter — implement the chapter’s coding homework.
+
+<GuidedLab id="ostep-dist-comm" title="Homework: UDP → reliable library">
+  <LabStep title="UDP echo">
+    Build client/server with the chapter’s UDP helpers; ack replies; test on one host, then two.
+  </LabStep>
+  <LabStep title="Library + reliability">
+    Wrap send/receive; add timeout/retry with a message copy; sleep until ack/timeout (no busy-spin); unbounded retry; max size = one UDP datagram.
+  </LabStep>
+  <LabStep title="Large + async + measure">
+    Fragment/reassemble large messages; pipeline fragments; async send with in-order receive; measure bandwidth and RTT — do the numbers make sense?
+  </LabStep>
+</GuidedLab>
+
+## Summary
+
+| Idea | Takeaway |
+|---|---|
+| **Failure** | Common; design for it; redundancy helps availability |
+| **UDP** | Unreliable but useful; checksums ≠ delivery |
+| **Reliable messaging** | Ack + timeout/retry + sequence numbers |
+| **RPC** | Best common abstraction; stubs + runtime |
+| **End-to-end** | Ultimate checks belong at the application |
+
+**Previous:** [Persistence Dialogue](../persistence/files/persistence-dialogue)
+
+**Next:** [Sun’s NFS](./nfs) — stateless protocol, caching, crash recovery.
+
+## Further Reading
+
+- Remzi & Andrea Arpaci-Dusseau — [*Operating Systems: Three Easy Pieces*](https://pages.cs.wisc.edu/~remzi/OSTEP/) Ch. 48
+- [OSTEP distributed intro PDF](https://pages.cs.wisc.edu/~remzi/OSTEP/dist-intro.pdf)
+- Birrell & Nelson RPC [BN84]; Saltzer et al. end-to-end [SRC84]; Jacobson congestion control [VJ88]

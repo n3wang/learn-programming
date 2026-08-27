@@ -40,7 +40,7 @@ Here are some other random methods that you can use.
 
 Given a random-looking percent (`0-99`, passed in as if from `rand.nextInt(100)`), print `"low"` for under 33, `"mid"` for 33-65, `"high"` for 66 and up.
 
-<CodingExam
+<CodeExercise
   title="percent to a letter"
   heading="Challenge: percent to a letter"
   lang="java"
@@ -81,7 +81,7 @@ class Runner {
 :::tip Activity: Pick from a list
 Write `letterFor(int index)` that returns `"A"`, `"B"`, `"C"`, or `"D"` for `index` values `0`, `1`, `2`, `3` (as if the index came from `rand.nextInt(4)`).
 
-<CodingExam
+<CodeExercise
   title="Pick from a list"
   heading="exercise-pick-from-list"
   lang="java"
@@ -121,7 +121,7 @@ class Runner {
 :::tip Activity: Scale a fraction
 Given a value from `0.0` to `1.0` (as if from `rand.nextDouble()`), scale it into a percentage `0-100` and print it as an `int` (drop the decimal).
 
-<CodingExam
+<CodeExercise
   title="Scale a fraction"
   heading="exercise-scale-fraction"
   lang="java"

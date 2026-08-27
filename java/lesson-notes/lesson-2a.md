@@ -155,7 +155,7 @@ public class Main {
   ]}
 />
 
-<CodingExam
+<CodeExercise
   title="remainder check"
   heading="Try it: remainder check"
   lang="java"
@@ -269,7 +269,7 @@ class Runner {
   ]}
 />
 
-<CodingExam
+<CodeExercise
   title="apply a discount"
   heading="Try it: apply a discount"
   lang="java"
@@ -473,7 +473,7 @@ Rene has $29.80 in her piggy bank. Rene’s dad has promised to give her $2.50 i
 :::tip Activity: BMI inputs
 Read a weight in kg and a height in meters (both `double`). Print the BMI using `weight / (height * height)`.
 
-<CodingExam
+<CodeExercise
   title="BMI inputs"
   heading="exercise-bmi"
   lang="java"
@@ -513,7 +513,7 @@ class Runner {
 :::tip Activity: Last two digits
 Read a positive integer. Print its last two digits using `%`.
 
-<CodingExam
+<CodeExercise
   title="Last two digits"
   heading="exercise-last-two-digits"
   lang="java"
@@ -555,7 +555,7 @@ class Runner {
 :::tip Activity: Running total
 Read a starting balance, then two more integers to add. Using `+=` twice, print the final balance.
 
-<CodingExam
+<CodeExercise
   title="Running total"
   heading="exercise-running-total"
   lang="java"
@@ -599,7 +599,7 @@ class Runner {
 :::tip Activity: Size in bytes
 Print how many bytes an `int` and a `long` each use, one per line, using `Integer.SIZE` and `Long.SIZE` (both in bits — divide by 8).
 
-<CodingExam
+<CodeExercise
   title="Size in bytes"
   heading="exercise-size-bytes"
   lang="java"

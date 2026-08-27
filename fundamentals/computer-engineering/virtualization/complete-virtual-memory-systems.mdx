@@ -1,0 +1,371 @@
+---
+sidebar_position: 23
+title: Complete Virtual Memory Systems
+---
+
+> **Source:** *Operating Systems: Three Easy Pieces* (OSTEP) — Chapter 23, Arpaci-Dusseau & Arpaci-Dusseau
+
+import CompleteVmSystemsSimulator from "@site/src/components/interactive/CompleteVmSystemsSimulator.js";
+
+# Complete Virtual Memory Systems
+
+Page tables, TLBs, and replacement policies are the core. A **complete** VM system also needs performance tricks, real address-space layout, and security.
+
+**Crux:** what else is needed? How do features improve performance, functionality, or security?
+
+We look at two designs: **VAX/VMS** [LL82] (many ideas still live on) and **Linux** (phones to datacenters — the **curse of generality**).
+
+## VAX/VMS
+
+DEC VAX-11: 32-bit VA, **512-byte** pages (23-bit VPN + 9-bit offset). Top VPN bits select segments — a **paging + segmentation hybrid**.
+
+| Region | Role |
+|---|---|
+| **P0** | User code + heap (grows down) |
+| **P1** | User stack (grows up) |
+| **S** | System / kernel (shared across processes) |
+
+Tiny pages → huge linear tables. Mitigations:
+
+1. **Separate PTs for P0 and P1** — no table for the unused middle  
+2. **User page tables in kernel virtual memory (S)** — can be **swapped** under pressure  
+
+Translation may consult the system page table before the user PTE; the **hardware TLB** usually hides that cost.
+
+### Real address space
+
+- **Page 0 invalid** — null-pointer dereference → invalid PTE → trap (segfault if unhandled)  
+- **Kernel mapped into every process** — switch P0/P1 only; S stays. Easy `copy_from_user`, swap of page-table pages, kernel as a “protected library”  
+- **Privilege in PTE protection bits** — user mode cannot touch kernel pages  
+
+### Page replacement without a reference bit
+
+VAX PTE: valid, protect, modify, OS-reserved, PFN — **no use bit**.
+
+**Segmented FIFO** [RL81]: each process has an **RSS** cap; pages on a per-process FIFO. On overflow, first-in leaves the process and goes to a **global clean** or **dirty** second-chance list. Another process may take from the clean list; if the owner faults first, **salvage** without disk I/O. Larger second-chance lists ≈ closer to LRU.
+
+**Emulating reference bits** [BJ81]: mark pages inaccessible; first access traps → restore real protect; untouched pages look “cold.”
+
+**Clustering:** batch dirty pages to swap for large disk transfers (still standard).
+
+### Lazy tricks
+
+:::tip Be lazy
+Defer work to cut latency — and sometimes **avoid it entirely**.
+:::
+
+- **Demand zeroing:** grow heap with invalid “demand-zero” PTEs; zero + map only on first fault  
+- **Copy-on-write (COW)** [BB+72]: share R/O; copy only on write. Critical for `fork()` then `exec()` (most pages never need a real copy). Shared libraries too  
+
+## Linux (x86 focus)
+
+Same big idea: **user** VA + **kernel** VA; context switch changes user mappings only; user mode cannot touch kernel pages.
+
+Classic 32-bit split at **`0xC0000000`**. Two kernel flavors:
+
+| Type | Allocator | Property |
+|---|---|---|
+| **Kernel logical** | `kmalloc` | Direct map to low physical; contiguous phys → good for **DMA**; not swapped |
+| **Kernel virtual** | `vmalloc` | Virtually contiguous only; easier large allocs; historically helped address &gt; ~1 GB RAM |
+
+### Page tables and huge pages
+
+x86: hardware-managed multi-level PTs. 64-bit uses ~**48** bits of VA today → **4-level** walk (more levels as more bits light up).
+
+**Huge pages** (2 MB / 1 GB): main win is **TLB coverage** for big-memory apps (TLB misses can burn ~10% cycles [B+13]). Linux: first **explicit** huge pages (`mmap`/`shmget`), then **transparent** huge pages. Costs: internal fragmentation, awkward swap, alloc overhead.
+
+:::tip Consider incrementalism
+Ship specialized support, learn, then generalize — Linux huge pages did this.
+:::
+
+### Page cache and 2Q
+
+Unified **page cache**: mmap’d files, file `read`/`write` data, and **anonymous** (heap/stack) pages. Dirty pages flushed by **pdflush**-style threads.
+
+Replacement: modified **2Q** [JS94] — first touch → **inactive**; re-reference → **active**; reclaim from inactive. Resists “scan a huge file once” thrashing the whole cache. Lists approximated (Clock-like), not perfect LRU.
+
+`mmap` is everywhere: executables and shared libs are mapped even if `main` never calls `mmap` (`pmap` shows `[anon]`, stack, `.so` mappings).
+
+### Security
+
+Modern difference vs VMS: **networked attackers**.
+
+- **Buffer overflows** → inject / overwrite; may escalate privilege  
+- **NX / XD** — mark pages non-executable (e.g. stack)  
+- **ROP / return-to-libc** — chain existing **gadgets**; NX alone insufficient  
+- **ASLR / KASLR** — randomize layout so gadget addresses are hard to predict  
+- **Meltdown / Spectre** — speculation leaves microarchitectural traces; **KPTI** isolates most kernel PTEs (security vs page-table switch cost)  
+
+## Interactive
+
+<CompleteVmSystemsSimulator />
+
+**Try:** VAX address space · segmented FIFO · demand-zero/COW · Linux 2Q / security.
+
+## Check your understanding
+
+<MultipleChoice
+  id="ce-complete-vm"
+  title="Complete virtual memory systems"
+  questions={[
+    {
+      prompt: 'VAX/VMS put user page tables in kernel virtual memory mainly to…',
+      choices: [
+        'Disable the TLB',
+        'Allow swapping page-table pages under memory pressure',
+        'Make pages 4 KB',
+        'Remove the need for a stack',
+      ],
+      answer: 1,
+      why: 'PTs in segment S can be paged out; TLB hides most walk cost.',
+    },
+    {
+      prompt: 'Segmented FIFO limits each process with an RSS and uses global clean/dirty lists as…',
+      choices: [
+        'Primary disk partitions',
+        'Second-chance lists before true eviction',
+        'TLB replacement queues',
+        'ASLR entropy pools',
+      ],
+      answer: 1,
+      why: 'Salvage possible if the owner re-faults before reclaim.',
+    },
+    {
+      prompt: 'Copy-on-write after fork() helps because…',
+      choices: [
+        'Children never share any pages',
+        'Pages stay shared R/O until a write; exec often makes full copies unnecessary',
+        'It disables demand paging',
+        'It removes the need for a page table',
+      ],
+      answer: 1,
+      why: 'Lazy copy — classic UNIX fork/exec win.',
+    },
+    {
+      prompt: 'Linux kernel logical addresses are special because they…',
+      choices: [
+        'Are always swapped to disk',
+        'Direct-map low physical memory (contiguous phys for DMA)',
+        'Live only in user mode',
+        'Are identical to ASLR slide values',
+      ],
+      answer: 1,
+      why: 'kmalloc region ↔ physical; good for device I/O.',
+    },
+    {
+      prompt: 'Linux 2Q places a page on the active list when…',
+      choices: [
+        'It is first touched',
+        'It is re-referenced after sitting on the inactive list',
+        'It becomes dirty only',
+        'The TLB misses',
+      ],
+      answer: 1,
+      why: 'First touch → inactive; reuse → promote.',
+    },
+    {
+      prompt: 'ASLR defends against ROP-style attacks primarily by…',
+      choices: [
+        'Making all pages executable',
+        'Randomizing where code/stack/heap are placed so gadget addresses are unpredictable',
+        'Turning off the MMU',
+        'Forcing 512-byte pages',
+      ],
+      answer: 1,
+      why: 'Layout secrecy raises the bar for reliable exploitation.',
+    },
+  ]}
+/>
+
+## Coding challenges
+
+<ExerciseSet title="Exercises" description="RSS caps, COW accounting, Linux split, and 2Q promotion.">
+  <CodeExercise
+    title="RSS overflow"
+    heading="Challenge: rss_overflow"
+    lang="python"
+    filename="main.py"
+    prompt={`rss_overflow(rss_len, rss_limit) is True when a process already at capacity must evict before taking another page (rss_len >= rss_limit).
+wrap: print rss_overflow(3, 3) and rss_overflow(2, 3).`}
+    sampleLog={`True
+False`}
+    starter={`def rss_overflow(rss_len, rss_limit):
+    return False  # TODO
+`}
+    wrapSuffix={`
+print(rss_overflow(3, 3))
+print(rss_overflow(2, 3))
+`}
+    hint={`Compare length to the RSS cap.`}
+    solution={`def rss_overflow(rss_len, rss_limit):
+    return rss_len >= rss_limit
+`}
+    sourceChecks={[
+      { name: 'compares', pattern: '>=|>', must: true, hint: 'at or over limit' },
+    ]}
+    tests={[
+      { name: 'cap check', stdin: '', equals: 'True\nFalse' },
+    ]}
+  />
+  <CodeExercise
+    title="second chance list"
+    heading="Challenge: place_second_chance"
+    lang="python"
+    filename="main.py"
+    prompt={`place_second_chance(dirty) returns "dirty" if dirty else "clean" — which global VMS second-chance list receives the page leaving a process FIFO.
+wrap: print place_second_chance(False) and place_second_chance(True).`}
+    sampleLog={`clean
+dirty`}
+    starter={`def place_second_chance(dirty):
+    return "clean"  # TODO
+`}
+    wrapSuffix={`
+print(place_second_chance(False))
+print(place_second_chance(True))
+`}
+    hint={`Branch on the modify/dirty bit.`}
+    solution={`def place_second_chance(dirty):
+    return "dirty" if dirty else "clean"
+`}
+    sourceChecks={[
+      { name: 'branches', pattern: 'if', must: true, hint: 'dirty vs clean list' },
+    ]}
+    tests={[
+      { name: 'both lists', stdin: '', equals: 'clean\ndirty' },
+    ]}
+  />
+  <CodeExercise
+    title="COW share count"
+    heading="Challenge: cow_after_fork"
+    lang="python"
+    filename="main.py"
+    prompt={`cow_after_fork(pages) — before fork each page has refcount 1. After COW fork, each shared page’s refcount becomes 2. Return a new list of refcounts (same length).
+Examples: [1,1,1] → [2,2,2]; [1,2] → [2,3].
+wrap: print both.`}
+    sampleLog={`[2, 2, 2]
+[2, 3]`}
+    starter={`def cow_after_fork(pages):
+    return pages  # TODO
+`}
+    wrapSuffix={`
+print(cow_after_fork([1, 1, 1]))
+print(cow_after_fork([1, 2]))
+`}
+    hint={`Map each count to count+1 (child shares).`}
+    solution={`def cow_after_fork(pages):
+    return [c + 1 for c in pages]
+`}
+    sourceChecks={[
+      { name: 'builds list', pattern: 'for|\\+|list|map', must: true, hint: 'increment each refcount' },
+    ]}
+    tests={[
+      { name: 'fork bumps refs', stdin: '', equals: '[2, 2, 2]\n[2, 3]' },
+    ]}
+  />
+  <CodeExercise
+    title="kernel split"
+    heading="Challenge: is_kernel_va"
+    lang="python"
+    filename="main.py"
+    prompt={`is_kernel_va(addr) for classic 32-bit Linux: True if addr >= 0xC0000000.
+wrap: print is_kernel_va(0xBFFFFFFF) and is_kernel_va(0xC0000000).`}
+    sampleLog={`False
+True`}
+    starter={`def is_kernel_va(addr):
+    return False  # TODO
+`}
+    wrapSuffix={`
+print(is_kernel_va(0xBFFFFFFF))
+print(is_kernel_va(0xC0000000))
+`}
+    hint={`Compare to the 3/4 split constant.`}
+    solution={`def is_kernel_va(addr):
+    return addr >= 0xC0000000
+`}
+    sourceChecks={[
+      { name: 'compares', pattern: '>=|>|0xC0', must: true, hint: 'use the split address' },
+    ]}
+    tests={[
+      { name: 'split', stdin: '', equals: 'False\nTrue' },
+    ]}
+  />
+  <CodeExercise
+    title="2Q promote"
+    heading="Challenge: twq_on_access"
+    lang="python"
+    filename="main.py"
+    prompt={`twq_on_access(inactive, active, page) models one access.
+If page in active: leave lists unchanged (return same lists as copies).
+If page in inactive: move it to the end of active.
+If page in neither: append to inactive (first touch).
+Return (inactive, active).
+wrap: show twq_on_access(["a"], ["b"], "a") then twq_on_access(["a"], ["b"], "c").`}
+    sampleLog={`([], ['b', 'a'])
+(['a', 'c'], ['b'])`}
+    starter={`def twq_on_access(inactive, active, page):
+    return inactive, active  # TODO
+`}
+    wrapSuffix={`
+print(twq_on_access(["a"], ["b"], "a"))
+print(twq_on_access(["a"], ["b"], "c"))
+`}
+    hint={`Copy lists; remove from inactive when promoting; do not duplicate in active.`}
+    solution={`def twq_on_access(inactive, active, page):
+    ina = list(inactive)
+    act = list(active)
+    if page in act:
+        return ina, act
+    if page in ina:
+        ina.remove(page)
+        act.append(page)
+        return ina, act
+    ina.append(page)
+    return ina, act
+`}
+    sourceChecks={[
+      { name: 'copies or rebuilds', pattern: 'list|append|remove', must: true, hint: 'mutate copies of the queues' },
+    ]}
+    tests={[
+      { name: 'promote and first-touch', stdin: '', equals: "([], ['b', 'a'])\n(['a', 'c'], ['b'])" },
+    ]}
+  />
+</ExerciseSet>
+
+## Homework lab: read Levy & Lipman
+
+There is no OSTEP coding simulator for this chapter. Dig into the primary source and your own machine.
+
+<GuidedLab id="ostep-complete-vm" title="Homework: complete VM systems">
+  <LabStep title="Read LL82">
+    Read [Levy & Lipman on VAX/VMS](https://pages.cs.wisc.edu/~remzi/OSTEP/vm-complete.pdf) (or the IEEE Computer paper). List three ideas you still see in Linux or another modern OS.
+  </LabStep>
+  <LabStep title="pmap your shell">
+    On Linux, run `pmap -x $$` (or `pmap` on a process). Identify executable, `.so` mappings, `[anon]`, and `[stack]`. Which regions are file-backed vs anonymous?
+  </LabStep>
+  <LabStep title="ASLR smoke test">
+    Compile and run a tiny program that prints `&` of a stack local several times. Do addresses change across runs? What if you disable ASLR (`echo 0 | sudo tee /proc/sys/kernel/randomize_va_space` — restore to 2 after)?
+  </LabStep>
+  <LabStep title="Huge pages (optional)">
+    Check `grep -i huge /proc/meminfo`. When would you want explicit vs transparent huge pages?
+  </LabStep>
+</GuidedLab>
+
+## Summary
+
+| Theme | VMS | Linux |
+|---|---|---|
+| Layout | P0 / P1 / S; page 0 guard | User / kernel split; logical vs `vmalloc` |
+| Tables | Hybrid; PTs in kernel VA | x86 multi-level; huge pages |
+| Replace | Segmented FIFO + 2nd chance | Page cache 2Q ≈ Clock |
+| Lazy | Demand zero, COW | Same + mmap everywhere |
+| Security | Privilege in PTEs | NX, ASLR/KASLR, KPTI |
+
+**Previous:** [Beyond Physical Memory — Policies](./beyond-physical-memory-policies)
+
+**Next:** [Concurrency — An Introduction](../concurrency/concurrent/concurrency-introduction) — threads, races, and critical sections.
+
+## Further Reading
+
+- Remzi & Andrea Arpaci-Dusseau — [*Operating Systems: Three Easy Pieces*](https://pages.cs.wisc.edu/~remzi/OSTEP/) Ch. 23
+- [OSTEP vm-complete PDF](https://pages.cs.wisc.edu/~remzi/OSTEP/vm-complete.pdf)
+- Levy & Lipman [LL82]; Gorman Linux VM [G04]; Meltdown/Spectre primers at meltdownattack.com / spectreattack.com

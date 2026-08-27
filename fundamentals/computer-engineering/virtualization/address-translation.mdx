@@ -1,0 +1,382 @@
+---
+sidebar_position: 14
+title: Address Translation
+---
+
+> **Source:** *Operating Systems: Three Easy Pieces* (OSTEP) — Chapter 15, Arpaci-Dusseau & Arpaci-Dusseau
+
+import AddressTranslationSimulator from "@site/src/components/interactive/AddressTranslationSimulator.js";
+
+# Mechanism: Address Translation
+
+CPU virtualization used **limited direct execution (LDE)**: run programs on hardware, but the OS interposes at traps and timer interrupts for control.
+
+Memory virtualization follows the same pattern: **efficiency** (hardware helps on every access) and **control** (only your address space is reachable), plus **flexibility** (programs use virtual layout however they need).
+
+**Crux:** how do we virtualize memory efficiently and flexibly while restricting each application to its own locations?
+
+**Answer:** **hardware-based address translation** — on each fetch/load/store, the MMU turns a **virtual address** into a **physical address**. The OS sets up hardware at key points; the hardware runs fast on the hot path.
+
+:::tip Interposition is powerful
+The MMU **interposes** on every memory access. The same pattern applies to many interfaces — add behavior transparently to clients.
+:::
+
+:::info Book note
+OSTEP’s **Interlude: Memory API** (Ch. 14) covers `malloc`, `brk`, etc. We go straight to the mechanism here; you can read that interlude anytime.
+:::
+
+## Assumptions (for now)
+
+We start simple — almost laughably so:
+
+| Assumption | Meaning |
+|---|---|
+| Contiguous | Each address space sits in one contiguous physical chunk |
+| Fits in RAM | Space size < physical memory |
+| Fixed size | Every process has the same-sized slot |
+
+We relax these later (segmentation, paging, …).
+
+## Example: one line of C
+
+```c
+void func() {
+    int x = 3000;
+    x = x + 3;   // line we trace
+    ...
+}
+```
+
+x86-ish assembly (use `objdump` / `otool` on real binaries):
+
+```asm
+128: movl 0x0(%ebx), %eax   ; load from address in ebx
+132: addl $0x03, %eax
+135: movl %eax, 0x0(%ebx)   ; store back
+```
+
+Layout in a **16 KB** virtual space: code near **128**, variable **x** at **15 KB** on the stack (value 3000).
+
+Memory references from the process’s view:
+
+1. Fetch at **128**
+2. Load from **15 KB**
+3. Fetch at **132**
+4. Fetch at **135**
+5. Store to **15 KB**
+
+The process thinks its space runs **0 … 16 KB**. The OS may place it at **physical 32 KB** instead. **How relocate transparently?**
+
+## Dynamic relocation (base and bounds)
+
+Late 1950s time-sharing: **base and bounds** (also **dynamic relocation**) [SS74].
+
+Two MMU registers per CPU:
+
+| Register | Role |
+|---|---|
+| **Base** | Where the address space lives in physical memory |
+| **Bounds** (limit) | Size of the address space (check *before* add) |
+
+Program linked at **virtual 0**. On run, OS picks a physical slot and sets **base**.
+
+**Translation:**
+
+```
+physical = virtual + base     (if 0 <= virtual < bounds)
+           fault              (otherwise)
+```
+
+Example: base = **32 KB**, fetch at virtual **128** → physical **32896**. Load at virtual **15 KB** → physical **47 KB**.
+
+:::info Static relocation (software only)
+Loaders once **rewrote** addresses in the executable (static relocation). Problems: **no protection**, hard to **move** a running space [M65]. Hardware base/bounds fixes both.
+:::
+
+### Example translations
+
+4 KB space loaded at physical **16 KB** (base = 16384, bounds = 4096):
+
+| Virtual | Physical |
+|---|---|
+| 0 | 16 KB |
+| 1 KB | 17 KB |
+| 3000 | 19384 |
+| 4400 | **Fault** (≥ bounds) |
+
+Negative virtual addresses fault as well.
+
+## Hardware support (summary)
+
+| Requirement | Why |
+|---|---|
+| **User / kernel mode** | Only OS sets base/bounds |
+| **Base & bounds registers** | Per-CPU translation + limit check |
+| **Translate + check circuitry** | MMU on every access |
+| **Privileged setup instructions** | OS configures before run |
+| **Exception handlers** | Out-of-bounds → OS (often kill process) |
+
+If user code could change **base**, it could read/write anywhere — “ghastly nightmares.”
+
+## OS responsibilities
+
+| When | OS action |
+|---|---|
+| **Process create** | Find a free slot (e.g. **free list**); mark used |
+| **Process exit** | Return slot to free list |
+| **Context switch** | Save/restore base/bounds in PCB |
+| **Fault** | Handle illegal access — usually terminate |
+| **Optional move** | While stopped, copy space to new physical location; update saved base |
+
+Still **LDE**: hardware translates on every access; OS runs only at setup, switch, and faults (Figure 15.5).
+
+### Internal fragmentation
+
+In Figure 15.2 the process uses **32–48 KB** but code+stack may use far less — **wasted space inside the slot** is **internal fragmentation**. Fixed-size slots limit how many processes fit even when plenty of RAM is “free.”
+
+**Next mechanism:** **segmentation** — multiple base/bounds pairs per process.
+
+## Interactive: translate addresses
+
+<AddressTranslationSimulator />
+
+**Try:** relocated layout · OSTEP example table · instruction trace · context switch + fault.
+
+## Check your understanding
+
+<MultipleChoice
+  id="ce-address-translation"
+  title="Base and bounds"
+  questions={[
+    {
+      prompt: 'Address translation on each memory access means…',
+      choices: [
+        'The OS software translates every load in a loop',
+        'Hardware adds base (after bounds check) to each virtual address',
+        'Virtual addresses equal physical addresses',
+        'Only instruction fetches are translated',
+      ],
+      answer: 1,
+      why: 'MMU interposes on fetches, loads, and stores.',
+    },
+    {
+      prompt: 'The bounds register primarily provides…',
+      choices: [
+        'Faster addition',
+        'Protection — reject virtual addresses outside the space',
+        'Disk swapping',
+        'Cache coherence',
+      ],
+      answer: 1,
+      why: 'Check 0 <= vaddr < bounds before or after base add (equivalent policies).',
+    },
+    {
+      prompt: 'Dynamic relocation is “dynamic” because…',
+      choices: [
+        'Addresses change every instruction randomly',
+        'Translation happens at runtime; spaces can move after load',
+        'Only interpreted languages benefit',
+        'The base register is zero',
+      ],
+      answer: 1,
+      why: 'Hardware adds base on each access; OS can relocate when process is stopped.',
+    },
+    {
+      prompt: 'On context switch the OS must…',
+      choices: [
+        'Copy all of physical memory to disk',
+        'Save and restore the running process’s base/bounds',
+        'Disable the MMU permanently',
+        'Reset bounds to zero only',
+      ],
+      answer: 1,
+      why: 'One base/bounds pair per CPU — each process has different values.',
+    },
+    {
+      prompt: 'Internal fragmentation refers to…',
+      choices: [
+        'Two processes sharing one page',
+        'Unused bytes inside an allocated fixed-size slot',
+        'Splitting a process across disk and RAM',
+        'TLB misses',
+      ],
+      answer: 1,
+      why: 'Allocated 16 KB slot but small stack/heap → wasted space inside.',
+    },
+    {
+      prompt: 'Compared to static relocation, base/bounds hardware gives…',
+      choices: [
+        'No translation cost',
+        'Protection and easier relocation with hardware checks',
+        'Only useful for batch systems',
+        'Elimination of the MMU',
+      ],
+      answer: 1,
+      why: 'Loader rewriting alone cannot enforce limits or move spaces cleanly.',
+    },
+  ]}
+/>
+
+## Coding challenges
+
+**Python** mirrors `relocation.py` — bounds check, then add base.
+
+<ExerciseSet
+  title="Exercises"
+  description="Translate, validate, and size slots."
+>
+  <CodeExercise
+    title="translate"
+    heading="Challenge: translate"
+    lang="python"
+    filename="main.py"
+    prompt={`translate(vaddr, base, bounds) returns base+vaddr if 0 <= vaddr < bounds, else "fault".
+wrap: print for (0,16384,4096), (3000,16384,4096), (4400,16384,4096).`}
+    sampleLog={`16384
+19384
+fault`}
+    starter={`def translate(vaddr, base, bounds):
+    return "fault"  # TODO
+`}
+    wrapSuffix={`
+print(translate(0, 16384, 4096))
+print(translate(3000, 16384, 4096))
+print(translate(4400, 16384, 4096))
+`}
+    hint={`Check bounds first; return base + vaddr or "fault".`}
+    solution={`def translate(vaddr, base, bounds):
+    if vaddr < 0 or vaddr >= bounds:
+        return "fault"
+    return base + vaddr
+`}
+    sourceChecks={[
+      { name: 'checks bounds', pattern: 'bounds', must: true, hint: 'compare vaddr to bounds' },
+    ]}
+    tests={[
+      { name: 'ostep table', stdin: '', equals: '16384\n19384\nfault' },
+    ]}
+  />
+  <CodeExercise
+    title="min bounds"
+    heading="Challenge: min_bounds"
+    lang="python"
+    filename="main.py"
+    prompt={`min_bounds(vaddrs) returns smallest bounds register so every vaddr >= 0 is valid (max(vaddrs)+1). Empty → 0.
+wrap: print for [100, 200, 50] and [].`}
+    sampleLog={`201
+0`}
+    starter={`def min_bounds(vaddrs):
+    return 0  # TODO
+`}
+    wrapSuffix={`
+print(min_bounds([100, 200, 50]))
+print(min_bounds([]))
+`}
+    hint={`Need bounds > max address; use max + 1.`}
+    solution={`def min_bounds(vaddrs):
+    if not vaddrs:
+        return 0
+    return max(vaddrs) + 1
+`}
+    sourceChecks={[
+      { name: 'uses max', pattern: 'max', must: true, hint: 'largest vaddr plus one' },
+    ]}
+    tests={[
+      { name: 'max plus one', stdin: '', equals: '201\n0' },
+    ]}
+  />
+  <CodeExercise
+    title="max base"
+    heading="Challenge: max_base"
+    lang="python"
+    filename="main.py"
+    prompt={`max_base(phys_size, os_size, space_size) returns largest base so [base, base+space_size) fits in [os_size, phys_size).
+wrap: print for phys=65536 os=16384 space=16384.`}
+    sampleLog={`49152`}
+    starter={`def max_base(phys_size, os_size, space_size):
+    return 0  # TODO
+`}
+    wrapSuffix={`
+print(max_base(65536, 16384, 16384))
+`}
+    hint={`base + space_size <= phys_size; base >= os_size.`}
+    solution={`def max_base(phys_size, os_size, space_size):
+    return phys_size - space_size
+`}
+    sourceChecks={[
+      { name: 'subtracts space', pattern: 'phys_size - space_size|phys_size-space_size', must: true, hint: 'align slot at top of RAM' },
+    ]}
+    tests={[
+      { name: '64k slot', stdin: '', equals: '49152' },
+    ]}
+  />
+  <CodeExercise
+    title="internal waste"
+    heading="Challenge: internal_frag"
+    lang="python"
+    filename="main.py"
+    prompt={`internal_frag(slot_size, used) returns unused bytes inside a fixed slot.
+wrap: print for slot 16384 used 4096.`}
+    sampleLog={`12288`}
+    starter={`def internal_frag(slot_size, used):
+    return 0  # TODO
+`}
+    wrapSuffix={`
+print(internal_frag(16384, 4096))
+`}
+    hint={`slot_size - used, assuming used <= slot_size.`}
+    solution={`def internal_frag(slot_size, used):
+    return slot_size - used
+`}
+    sourceChecks={[
+      { name: 'subtracts', pattern: '-', must: true, hint: 'difference of sizes' },
+    ]}
+    tests={[
+      { name: 'waste', stdin: '', equals: '12288' },
+    ]}
+  />
+</ExerciseSet>
+
+## Homework lab: `relocation.py`
+
+Use the [OSTEP VM mechanism homework](https://github.com/remzi-arpacidusseau/ostep-homework/tree/master/vm-mechanism) (`relocation.py`). Predict in/out-of-bounds and translations before `-c`.
+
+<GuidedLab id="ostep-relocation" title="Homework: relocation.py">
+  <LabStep title="Seeds 1–3">
+    Run seeds 1, 2, and 3. For each virtual address generated, is it in bounds? If so, compute the physical address.
+  </LabStep>
+  <LabStep title="Tight bounds -s 0 -n 10">
+    Run `-s 0 -n 10`. What `-l` (bounds) ensures every generated address is in bounds?
+  </LabStep>
+  <LabStep title="Max base -s 1 -n 10 -l 100">
+    With `-s 1 -n 10 -l 100`, what is the maximum base so the whole address space still fits in physical memory?
+  </LabStep>
+  <LabStep title="Larger -a and -p">
+    Repeat with larger address spaces (`-a`) and physical memories (`-p`).
+  </LabStep>
+  <LabStep title="Valid fraction vs bounds">
+    What fraction of random virtual addresses are valid as a function of bounds? Graph results for several seeds as limit goes from 0 to max address space size.
+  </LabStep>
+</GuidedLab>
+
+## Summary
+
+| Piece | Role |
+|---|---|
+| **Address translation** | Virtual → physical on every access |
+| **Base register** | Relocation offset |
+| **Bounds register** | Limit / protection |
+| **MMU** | Hardware that performs translate + check |
+| **OS** | Free list, setup, context switch, fault handling |
+| **LDE** | Fast common case; OS on faults |
+| **Cost** | Internal fragmentation with fixed slots |
+
+**Previous:** [Address Spaces](./address-spaces)
+
+**Next:** [Segmentation](./segmentation) — multiple base/bounds pairs per process.
+
+## Further Reading
+
+- Remzi & Andrea Arpaci-Dusseau — [*Operating Systems: Three Easy Pieces*](https://pages.cs.wisc.edu/~remzi/OSTEP/) Ch. 15
+- [OSTEP relocation homework](https://github.com/remzi-arpacidusseau/ostep-homework/tree/master/vm-mechanism)
+- McGee [M65] — dynamic relocation; Saltzer & Schroeder [SS74] — base/bounds history

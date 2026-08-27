@@ -1,0 +1,307 @@
+---
+sidebar_position: 36
+title: I/O Devices
+---
+
+> **Source:** *Operating Systems: Three Easy Pieces* (OSTEP) — Chapter 36, Arpaci-Dusseau & Arpaci-Dusseau
+
+import IoDevicesSimulator from "@site/src/components/interactive/IoDevicesSimulator.js";
+
+# I/O Devices
+
+Programs without input always produce the same result; programs without output have no observable purpose. Persistence starts here: how the OS **integrates I/O devices** efficiently.
+
+**Crux:** mechanisms for talking to devices — and how to keep the CPU useful while they work.
+
+## System architecture
+
+Classical hierarchy (physics + cost):
+
+1. **Memory bus** — CPU ↔ DRAM (short, fast, expensive)
+2. **General I/O** (e.g. PCI / PCIe) — graphics, NICs, NVMe
+3. **Peripheral bus** (SATA, USB, …) — disks, keyboards, mice
+
+Faster buses must be shorter; slow devices tolerate longer, cheaper links with many ports. Modern chipsets (e.g. Intel Z270-style) keep graphics/memory close to the CPU, then an I/O hub for eSATA, USB, and PCIe.
+
+## Canonical device
+
+Two parts: **interface** (registers/protocol the OS uses) and **internals** (microcontroller, memory, firmware — e.g. RAID).
+
+Simplified registers: **STATUS**, **COMMAND**, **DATA**.
+
+```text
+while (STATUS == BUSY) ;     // poll
+write data to DATA           // programmed I/O (PIO)
+write command to COMMAND     // starts the device
+while (STATUS == BUSY) ;     // poll until done
+```
+
+Simple — but **polling** burns CPU on slow devices.
+
+## Interrupts
+
+Issue the request, **sleep** the waiter, run something else. Device raises an IRQ → **ISR** finishes the transfer and wakes the process. CPU and device **overlap**.
+
+:::tip Interrupts are not always better
+Fast devices: poll may win (IRQ + context switch cost). Hybrid: poll a bit, then interrupt. Under packet floods, IRQ storms can **livelock** the OS [MR96] — polling restores control. **Coalescing** batches IRQs (latency vs overhead trade-off) [A+11].
+:::
+
+## DMA
+
+PIO makes the CPU copy every word to/from the device. A **DMA engine** is programmed with address, length, and target device; it moves data and interrupts when done so the CPU can run other work.
+
+## Talking to registers
+
+| Method | Idea |
+|---|---|
+| **I/O instructions** | Privileged `in`/`out` (x86) to ports |
+| **Memory-mapped I/O** | Loads/stores to special addresses routed to the device |
+
+Only the OS should talk to devices directly — otherwise any process could own the disk.
+
+## Device drivers
+
+Keep most of the OS **device-neutral**: file system → **generic block layer** → **driver** (SCSI, ATA, …). Apps can also use a **raw** block interface (fsck, defrag).
+
+Downside: rich device errors may collapse to generic `EIO` [G08]. Drivers are a huge fraction of kernel code (~70% in Linux studies [C01]) and a common crash source [S03].
+
+## Case study: IDE (xv6)
+
+Protocol sketch: wait READY/not BUSY → program sector count + LBA → issue READ/WRITE → transfer data on DRQ → handle IRQ → check ERROR.
+
+xv6: `ide_rw` queues and sleeps; `ide_start_request` uses `outb`/`outsl`; `ide_intr` `insl`s data on reads, `wakeup`, starts the next queued request [CK+08].
+
+## Interactive
+
+<IoDevicesSimulator />
+
+**Try:** bus hierarchy · poll protocol · interrupts · DMA · drivers/IDE.
+
+## Check your understanding
+
+<MultipleChoice
+  id="ce-io-devices"
+  title="I/O devices"
+  questions={[
+    {
+      prompt: 'Peripheral buses (USB, SATA) sit farther from the CPU mainly because…',
+      choices: [
+        'They need more voltage',
+        'Faster buses must be short/costly; slow devices can use longer cheaper links',
+        'The CPU cannot address them',
+        'DMA forbids nearby devices',
+      ],
+      answer: 1,
+      why: 'Hierarchy from physics and cost.',
+    },
+    {
+      prompt: 'Spinning on STATUS until the device finishes is…',
+      choices: [
+        'DMA',
+        'Polling',
+        'Memory-mapped I/O only',
+        'Interrupt coalescing',
+      ],
+      answer: 1,
+      why: 'Wastes CPU on slow devices.',
+    },
+    {
+      prompt: 'Interrupts help utilization by…',
+      choices: [
+        'Making the disk faster',
+        'Overlapping other CPU work with device I/O',
+        'Removing the need for drivers',
+        'Disabling DMA',
+      ],
+      answer: 1,
+      why: 'Sleep waiter; run another process until IRQ.',
+    },
+    {
+      prompt: 'DMA’s main win over PIO for large transfers is…',
+      choices: [
+        'Stronger encryption',
+        'The CPU need not copy each word to/from the device',
+        'Eliminating interrupts forever',
+        'Making polling mandatory',
+      ],
+      answer: 1,
+      why: 'Engine orchestrates memory↔device copies.',
+    },
+    {
+      prompt: 'Memory-mapped I/O means device registers are accessed via…',
+      choices: [
+        'Only special in/out instructions',
+        'Ordinary loads/stores to addresses the hardware routes to the device',
+        'User-level printf',
+        'Page faults only',
+      ],
+      answer: 1,
+      why: 'No new ISA ops required.',
+    },
+    {
+      prompt: 'Device drivers exist so that…',
+      choices: [
+        'Apps can always bypass the kernel',
+        'Most of the OS stays device-neutral behind a generic interface',
+        'Polling becomes illegal',
+        'RAID firmware is deleted',
+      ],
+      answer: 1,
+      why: 'Abstraction: FS → block layer → driver.',
+    },
+  ]}
+/>
+
+## Coding challenges
+
+<ExerciseSet title="Exercises" description="Protocol steps and efficiency choices.">
+  <CodeExercise
+    title="protocol steps"
+    heading="Challenge: next_protocol_step"
+    lang="python"
+    filename="main.py"
+    prompt={`next_protocol_step(done_so_far) returns the next step in the canonical poll protocol.
+Order: "wait_ready", "write_data", "write_command", "wait_done".
+done_so_far is how many steps already finished (0..3). wrap: print for 0 and 2.`}
+    sampleLog={`wait_ready
+write_command`}
+    starter={`def next_protocol_step(done_so_far):
+    return ""  # TODO
+`}
+    wrapSuffix={`
+print(next_protocol_step(0))
+print(next_protocol_step(2))
+`}
+    hint={`Index into the ordered list.`}
+    solution={`def next_protocol_step(done_so_far):
+    steps = ["wait_ready", "write_data", "write_command", "wait_done"]
+    return steps[done_so_far]
+`}
+    sourceChecks={[
+      { name: 'list', pattern: 'wait_ready|steps', must: true, hint: 'ordered steps' },
+    ]}
+    tests={[
+      { name: 'first and third', stdin: '', equals: 'wait_ready\nwrite_command' },
+    ]}
+  />
+  <CodeExercise
+    title="poll or interrupt?"
+    heading="Challenge: prefer_interrupt"
+    lang="python"
+    filename="main.py"
+    prompt={`prefer_interrupt(device_us, switch_us) is True when the device is slower than the context-switch+IRQ overhead
+i.e. device_us > switch_us (rough rule from the chapter).
+wrap: print prefer_interrupt(5000, 20) and prefer_interrupt(5, 20).`}
+    sampleLog={`True
+False`}
+    starter={`def prefer_interrupt(device_us, switch_us):
+    return False  # TODO
+`}
+    wrapSuffix={`
+print(prefer_interrupt(5000, 20))
+print(prefer_interrupt(5, 20))
+`}
+    hint={`Compare latencies.`}
+    solution={`def prefer_interrupt(device_us, switch_us):
+    return device_us > switch_us
+`}
+    sourceChecks={[
+      { name: 'compare', pattern: '>', must: true, hint: 'device slower than switch cost' },
+    ]}
+    tests={[
+      { name: 'slow vs fast', stdin: '', equals: 'True\nFalse' },
+    ]}
+  />
+  <CodeExercise
+    title="who copies?"
+    heading="Challenge: data_mover"
+    lang="python"
+    filename="main.py"
+    prompt={`data_mover(mode) returns "cpu" for "pio" and "dma_engine" for "dma".
+wrap: print both.`}
+    sampleLog={`cpu
+dma_engine`}
+    starter={`def data_mover(mode):
+    return ""  # TODO
+`}
+    wrapSuffix={`
+print(data_mover("pio"))
+print(data_mover("dma"))
+`}
+    hint={`Simple map.`}
+    solution={`def data_mover(mode):
+    return "cpu" if mode == "pio" else "dma_engine"
+`}
+    sourceChecks={[
+      { name: 'branches', pattern: 'pio|dma', must: true, hint: 'mode check' },
+    ]}
+    tests={[
+      { name: 'pio and dma', stdin: '', equals: 'cpu\ndma_engine' },
+    ]}
+  />
+  <CodeExercise
+    title="stack layer"
+    heading="Challenge: below_fs"
+    lang="python"
+    filename="main.py"
+    prompt={`below_fs() returns the list of layers under the file system in order toward hardware:
+["generic_block", "device_driver"].
+wrap: print below_fs().`}
+    sampleLog={`['generic_block', 'device_driver']`}
+    starter={`def below_fs():
+    return []  # TODO
+`}
+    wrapSuffix={`
+print(below_fs())
+`}
+    hint={`Two layers as in Fig 36.4.`}
+    solution={`def below_fs():
+    return ["generic_block", "device_driver"]
+`}
+    sourceChecks={[
+      { name: 'layers', pattern: 'generic_block|device_driver', must: true, hint: 'both names' },
+    ]}
+    tests={[
+      { name: 'order', stdin: '', equals: "['generic_block', 'device_driver']" },
+    ]}
+  />
+</ExerciseSet>
+
+## Homework lab: peek at a real driver
+
+OSTEP Ch. 36 has no separate homework tarball — study a real IDE/AHCI path (xv6 `ide.c` or Linux block docs) and map it to the canonical protocol.
+
+<GuidedLab id="ostep-io-devices" title="Lab: device interface">
+  <LabStep title="Registers">
+    List STATUS / COMMAND / DATA (or IDE ports) and what each is for.
+  </LabStep>
+  <LabStep title="Poll vs IRQ">
+    Where does the driver wait? Where does the ISR run? When would you poll instead?
+  </LabStep>
+  <LabStep title="PIO vs DMA">
+    Who moves the bytes for a multi-sector transfer in the driver you read?
+  </LabStep>
+  <LabStep title="Queueing">
+    How are concurrent requests queued (cf. xv6 `ide_queue`)?
+  </LabStep>
+</GuidedLab>
+
+## Summary
+
+| Technique | Role |
+|---|---|
+| **Polling** | Simple status check — costly if device is slow |
+| **Interrupts** | Overlap CPU with I/O; watch livelock / coalescing |
+| **DMA** | Offload bulk data movement |
+| **MMIO / port I/O** | Reach device registers |
+| **Drivers** | Hide device quirks behind a generic block API |
+
+**Previous:** [Event-based Concurrency](../../concurrency/concurrent/event-based-concurrency)
+
+**Next:** [Hard Disk Drives](./hard-disk-drives) — geometry, seek/rotate/transfer, scheduling.
+
+## Further Reading
+
+- Remzi & Andrea Arpaci-Dusseau — [*Operating Systems: Three Easy Pieces*](https://pages.cs.wisc.edu/~remzi/OSTEP/) Ch. 36
+- [OSTEP file-devices PDF](https://pages.cs.wisc.edu/~remzi/OSTEP/file-devices.pdf)
+- xv6 `ide.c` [CK+08]; Mogul & Ramakrishnan livelock [MR96]; Chou et al. OS bugs [C01]; Smotherman interrupt history [S08]

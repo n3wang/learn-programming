@@ -1,0 +1,324 @@
+---
+sidebar_position: 8
+title: Multi-Level Feedback Queue
+---
+
+> **Source:** *Operating Systems: Three Easy Pieces* (OSTEP) — Chapter 8, Arpaci-Dusseau & Arpaci-Dusseau
+
+import MlfqSimulator from "@site/src/components/interactive/MlfqSimulator.js";
+
+# Scheduling: The Multi-Level Feedback Queue
+
+**MLFQ** (Corbató et al., CTSS, 1962) is one of the classic schedulers. Many modern systems still use a relative of it.
+
+**Goals (without knowing job length up front):**
+
+| Goal | Classic approach | Problem |
+|---|---|---|
+| Good **turnaround** | SJF / STCF (short jobs first) | OS rarely knows length — see [Scheduling Introduction](./scheduling-introduction) |
+| Good **response** time | Round robin | Terrible turnaround for long jobs |
+
+**Crux:** how to schedule **without perfect knowledge** — learn from how jobs behave?
+
+:::tip Learn from history
+MLFQ predicts the future from the past (like caches and branch predictors). Works when jobs have phases — and can be wrong when they don’t.
+:::
+
+## Basic structure
+
+Many **queues**, each a **priority**. A ready job sits on exactly one queue.
+
+- **Rule 1:** Higher priority runs; lower does not.  
+- **Rule 2:** Same priority → **round-robin** with that queue’s time slice.
+
+Priority is **not** fixed: MLFQ **raises/lowers** it from observed behavior (interactive vs CPU hog).
+
+## Attempt #1: how priority changes
+
+Workload mix: short/interactive + long CPU-bound.
+
+- **Rule 3:** New job → **top** queue (assume it might be short).  
+- **Rule 4a (old):** Uses full time slice → **demote** one level.  
+- **Rule 4b (old):** Gives up CPU early → **stay** at same level.
+
+**Effects:**
+
+1. **Long job** — enters top, burns slices, sinks to bottom, stays there.  
+2. **Short job arrives** — starts high, finishes before sinking far → approximates **SJF**.  
+3. **I/O-heavy interactive** — often yields early → stays high → good **response** time.
+
+### Flaws
+
+| Problem | Why |
+|---|---|
+| **Starvation** | Too many interactive jobs → long jobs never run |
+| **Gaming** | Fake I/O just before slice ends → stay high forever |
+| **Phase change** | CPU-bound job becomes interactive but is stuck low |
+
+Scheduling policy is also a **security** concern in shared systems.
+
+## Attempt #2: priority boost
+
+- **Rule 5:** Every period **S**, move **all** jobs to the topmost queue.
+
+Fixes starvation and gives reformed interactive jobs a second chance. **S** is a classic “voo-doo constant” (Ousterhout): too large → starve; too small → interactive share suffers.
+
+## Attempt #3: better accounting
+
+Replace 4a/4b with:
+
+- **Rule 4:** Once a job uses up its **CPU allotment** at a level (one burst or many), **demote** — I/O games don’t reset the meter.
+
+## Tuning
+
+Typical extras:
+
+- **Shorter quanta** at high priority; **longer** at low (batch efficiency)  
+- Solaris TS: configurable tables (~60 queues, boost ~1 s)  
+- Some systems: decay-usage formulas (BSD), reserve top for OS, user **advice** (`nice`)
+
+:::tip Avoid voo-doo constants
+Hard in practice — defaults + admin knobs are common. Prefer learning parameters when you can.
+:::
+
+## Refined MLFQ rules
+
+1. Higher priority runs.  
+2. Same priority → RR with that queue’s quantum.  
+3. New jobs start at the top.  
+4. Exhaust allotment at a level → demote (cumulative CPU).  
+5. Periodically boost everyone to the top.
+
+**Result:** learn job type online → short/interactive get good service; long jobs still make progress.
+
+## Interactive: watch the queues
+
+<MlfqSimulator />
+
+**Try:** long demotion · short arrival (SJF-like) · I/O interactive · priority boost · anti-gaming.
+
+## Check your understanding
+
+<MultipleChoice
+  id="ce-mlfq"
+  title="Multi-level feedback queue"
+  questions={[
+    {
+      prompt: 'MLFQ places a newly arrived job…',
+      choices: [
+        'Always at the lowest priority',
+        'At the highest priority (assume it might be short)',
+        'In a random queue',
+        'Only after measuring its exact run time',
+      ],
+      answer: 1,
+      why: 'Rule 3: start high. If it is short it finishes; if long it sinks.',
+    },
+    {
+      prompt: 'Priority boost (Rule 5) primarily addresses…',
+      choices: [
+        'Making context switches free',
+        'Starvation of low-priority jobs and jobs that become interactive',
+        'Removing the need for a timer interrupt',
+        'Guaranteeing SJF is optimal',
+      ],
+      answer: 1,
+      why: 'Periodic promotion to the top guarantees CPU for long jobs and resets after phase changes.',
+    },
+    {
+      prompt: 'Cumulative allotment (Rule 4) stops gaming because…',
+      choices: [
+        'I/O is forbidden',
+        'CPU used at a level counts even across many short bursts before demotion',
+        'Only one job may ever run',
+        'Priorities become fixed at birth',
+      ],
+      answer: 1,
+      why: 'Fake early I/O no longer resets the “used this level” meter.',
+    },
+    {
+      prompt: 'Why put short time slices on high-priority queues?',
+      choices: [
+        'Long jobs love tiny slices',
+        'High queues hold interactive jobs — frequent switching improves response time',
+        'Hardware cannot run long slices at high priority',
+        'It disables round-robin',
+      ],
+      answer: 1,
+      why: 'Interactive work wants low latency; low queues use longer quanta for throughput.',
+    },
+  ]}
+/>
+
+## Coding challenges
+
+**Python** helpers that mirror how you reason about `mlfq.py`.
+
+<ExerciseSet
+  title="Exercises"
+  description="Priority pick, demotion, boost, and allotment."
+>
+  <CodeExercise
+    title="who runs"
+    heading="Challenge: pick_job"
+    lang="python"
+    filename="main.py"
+    prompt={`queues[0] is highest priority. pick_job(queues) returns the first job in the first non-empty queue, or None.
+wrap: print two cases.`}
+    sampleLog={`B
+A`}
+    starter={`def pick_job(queues):
+    return None  # TODO
+`}
+    wrapSuffix={`
+print(pick_job([["B", "C"], [], ["A"]]))
+print(pick_job([[], [], ["A"]]))
+`}
+    hint={`Scan from index 0; return first job of first non-empty queue.`}
+    solution={`def pick_job(queues):
+    for q in queues:
+        if q:
+            return q[0]
+    return None
+`}
+    sourceChecks={[
+      { name: 'scans queues', pattern: 'for ', must: true, hint: 'walk queues high to low' },
+    ]}
+    tests={[
+      { name: 'priority then low', stdin: '', equals: 'B\nA' },
+    ]}
+  />
+  <CodeExercise
+    title="demote after allotment"
+    heading="Challenge: after_allotment"
+    lang="python"
+    filename="main.py"
+    prompt={`after_allotment(level, n_queues) demotes one level, clamped at the bottom.
+wrap: print for levels 0,1,2 with n_queues=3.`}
+    sampleLog={`1 2 2`}
+    starter={`def after_allotment(level, n_queues):
+    return level  # TODO
+`}
+    wrapSuffix={`
+print(after_allotment(0, 3), after_allotment(1, 3), after_allotment(2, 3))
+`}
+    hint={`return min(level + 1, n_queues - 1)`}
+    solution={`def after_allotment(level, n_queues):
+    return min(level + 1, n_queues - 1)
+`}
+    sourceChecks={[
+      { name: 'uses n_queues', pattern: 'n_queues', must: true, hint: 'clamp with n_queues - 1' },
+    ]}
+    tests={[
+      { name: 'demote clamp', stdin: '', equals: '1 2 2' },
+    ]}
+  />
+  <CodeExercise
+    title="priority boost"
+    heading="Challenge: boost_all"
+    lang="python"
+    filename="main.py"
+    prompt={`boost_all(queues) puts every job into queue 0 (high→low order), empties the rest.
+wrap: print the result.`}
+    sampleLog={`[['B', 'C', 'A'], [], []]`}
+    starter={`def boost_all(queues):
+    return queues  # TODO
+`}
+    wrapSuffix={`
+print(boost_all([["B"], ["C"], ["A"]]))
+`}
+    hint={`Concatenate all jobs, then [jobs] + [[]]*(n-1).`}
+    solution={`def boost_all(queues):
+    jobs = []
+    for q in queues:
+        jobs.extend(q)
+    n = len(queues)
+    return [jobs] + [[] for _ in range(n - 1)]
+`}
+    sourceChecks={[
+      { name: 'returns list', pattern: 'return', must: true, hint: 'return new queue structure' },
+    ]}
+    tests={[
+      { name: 'all to top', stdin: '', equals: "[['B', 'C', 'A'], [], []]" },
+    ]}
+  />
+  <CodeExercise
+    title="gaming vs allotment"
+    heading="Challenge: should_demote"
+    lang="python"
+    filename="main.py"
+    prompt={`should_demote(cpu_used, allotment, gave_up_early, use_old_rules)
+• old rules: demote iff not gave_up_early
+• new Rule 4: demote iff cpu_used >= allotment
+wrap: print four booleans.`}
+    sampleLog={`False True True False`}
+    starter={`def should_demote(cpu_used, allotment, gave_up_early, use_old_rules):
+    return False  # TODO
+`}
+    wrapSuffix={`
+print(
+    should_demote(5, 10, True, True),
+    should_demote(5, 10, False, True),
+    should_demote(10, 10, True, False),
+    should_demote(5, 10, True, False),
+)
+`}
+    hint={`Branch on use_old_rules.`}
+    solution={`def should_demote(cpu_used, allotment, gave_up_early, use_old_rules):
+    if use_old_rules:
+        return not gave_up_early
+    return cpu_used >= allotment
+`}
+    sourceChecks={[
+      { name: 'branches on rules', pattern: 'use_old_rules', must: true, hint: 'old vs new Rule 4' },
+    ]}
+    tests={[
+      { name: 'four cases', stdin: '', equals: 'False True True False' },
+    ]}
+  />
+</ExerciseSet>
+
+## Homework lab: `mlfq.py`
+
+Use the [OSTEP MLFQ simulator](https://github.com/remzi-arpacidusseau/ostep-homework/tree/master/cpu-sched-mlfq) (`mlfq.py`). Predict traces before `-c`. Notes/screenshots save in this browser.
+
+<GuidedLab id="ostep-mlfq" title="Homework: mlfq.py">
+  <LabStep title="Two jobs, two queues">
+    Run a few randomly generated problems with just two jobs and two queues; compute the MLFQ execution trace for each. Make life easier by limiting job length and turning off I/Os.
+  </LabStep>
+  <LabStep title="Reproduce chapter figures">
+    How would you run the scheduler to reproduce each of the examples in the chapter (long job sinking, short job arrival, I/O interactive, boost, gaming)?
+  </LabStep>
+  <LabStep title="Just like round-robin">
+    How would you configure the scheduler parameters to behave just like a round-robin scheduler?
+  </LabStep>
+  <LabStep title="Game with -S">
+    Craft a workload with two jobs and scheduler parameters so that one job takes advantage of the older Rules 4a and 4b (turned on with the `-S` flag) to game the scheduler and obtain ~99% of the CPU over a particular time interval.
+  </LabStep>
+  <LabStep title="Boost for 5%">
+    Given a quantum of 10 ms in the highest queue, how often would you boost jobs (`-B`) so a single long-running (potentially starving) job gets at least 5% of the CPU?
+  </LabStep>
+  <LabStep title="I/O requeue -I">
+    Which end of a queue should a job join after I/O? Play with the `-I` flag and workloads — what effect do you see?
+  </LabStep>
+</GuidedLab>
+
+## Summary
+
+| Idea | Role |
+|---|---|
+| Multiple priority queues | Who is eligible |
+| Feedback / history | Learn short vs long vs interactive |
+| Boost every S | No starvation; phase changes |
+| Cumulative allotment | Resist gaming |
+| Varying quanta | Latency high, throughput low |
+
+**Next:** [Proportional Share](./proportional-share) — lottery, stride, and Linux CFS.
+
+**Previous:** [Scheduling Introduction](./scheduling-introduction) — FIFO, SJF, STCF, RR.
+
+## Further Reading
+
+- Remzi & Andrea Arpaci-Dusseau — [*Operating Systems: Three Easy Pieces*](https://pages.cs.wisc.edu/~remzi/OSTEP/) Ch. 8
+- [OSTEP mlfq homework](https://github.com/remzi-arpacidusseau/ostep-homework/tree/master/cpu-sched-mlfq)
+- Corbató et al. — CTSS (1962); Solaris TS / BSD decay-usage variants

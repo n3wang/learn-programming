@@ -1,0 +1,309 @@
+---
+sidebar_position: 33
+title: Event-based Concurrency
+---
+
+> **Source:** *Operating Systems: Three Easy Pieces* (OSTEP) — Chapter 33, Arpaci-Dusseau & Arpaci-Dusseau
+
+import EventBasedConcurrencySimulator from "@site/src/components/interactive/EventBasedConcurrencySimulator.js";
+
+# Event-based Concurrency (Advanced)
+
+Threads are not the only way to build concurrent apps. GUIs [O96], some internet servers [PDZ99], and frameworks like **node.js** [N13] often use **event-based concurrency** — roots in classic C/UNIX `select`/`poll` servers.
+
+**Crux:** how to build concurrent servers **without threads**, keep control of scheduling, and dodge many threading bugs?
+
+## The event loop
+
+```text
+while (1) {
+    events = getEvents();
+    for (e in events)
+        processEvent(e);   // one handler at a time
+}
+```
+
+Handling an event is the only activity — so **choosing which event next = scheduling**. That explicit control is a main advantage.
+
+## select() / poll()
+
+Ask the OS which FDs are ready to read/write (or have errors). Typical loop: `FD_ZERO` → `FD_SET` interested sockets → `select` → `FD_ISSET` and `processFD`.
+
+- `timeout = NULL` — block until ready  
+- `timeout = 0` — poll and return immediately  
+
+:::tip Don’t block in event-based servers
+Any blocking call stalls the **entire** server. Non-blocking / async I/O is mandatory.
+:::
+
+## Why simpler? No locks (on one CPU)
+
+One handler at a time, single-threaded → no other thread interrupts → **no locks** for shared state between handlers. Concurrency bugs from Ch. 32 largely vanish — until you go multicore.
+
+## The problem: blocking system calls
+
+A file-serving request needs `open`/`read`. Threads: one thread sleeps on I/O; others run. Events: the **only** loop blocks → idle waste.
+
+## Solution: asynchronous I/O
+
+Fill an **aiocb** (fd, offset, buf, nbytes), call `aio_read` — returns immediately. Poll completion with `aio_error` (or get a **signal** when done). Systems without good AIO often use a **hybrid**: events for network + thread pool for disk [PDZ99].
+
+## Continuations (manual stack management)
+
+Threads keep `sd` on the stack across `read(fd)` then `write(sd,…)`. Events must **package state** when issuing async I/O — a **continuation** [A+02,FHK84]: e.g. hash table `fd → {sd}`; on completion, look up and finish the write.
+
+## What is still hard
+
+| Issue | Why it hurts |
+|---|---|
+| **Multicore** | Parallel handlers → locks return |
+| **Paging** | Implicit page-fault blocking stalls the loop |
+| **API drift** | A routine becoming blocking forces handler rewrites |
+| **Split I/O APIs** | Often `select` for net + AIO for disk — not one uniform wait |
+
+## Interactive
+
+<EventBasedConcurrencySimulator />
+
+**Try:** event loop · select · don’t block · async I/O · continuations.
+
+## Check your understanding
+
+<MultipleChoice
+  id="ce-event-concurrency"
+  title="Event-based concurrency"
+  questions={[
+    {
+      prompt: 'In a single-threaded event loop, deciding which event to handle next is equivalent to…',
+      choices: [
+        'Acquiring a mutex',
+        'Scheduling',
+        'Forking a process',
+        'Disabling interrupts permanently',
+      ],
+      answer: 1,
+      why: 'Explicit control over which work runs is a core benefit.',
+    },
+    {
+      prompt: 'select() is used primarily to…',
+      choices: [
+        'Create new threads',
+        'Discover which file descriptors are ready for I/O',
+        'Allocate the heap',
+        'Sort lock addresses',
+      ],
+      answer: 1,
+      why: 'Ready-set examination for read/write/error FDs.',
+    },
+    {
+      prompt: 'A blocking read inside an event handler typically…',
+      choices: [
+        'Only blocks that one logical client; others proceed',
+        'Blocks the entire event server',
+        'Automatically becomes aio_read',
+        'Requires a second CPU',
+      ],
+      answer: 1,
+      why: 'There is no other thread to run.',
+    },
+    {
+      prompt: 'aio_read returning immediately means…',
+      choices: [
+        'The disk I/O has finished',
+        'The request was issued; completion is checked later',
+        'select is obsolete',
+        'You must hold a mutex',
+      ],
+      answer: 1,
+      why: 'Poll aio_error or use a completion signal.',
+    },
+    {
+      prompt: 'Storing sd keyed by fd until a disk read finishes is an example of a…',
+      choices: [
+        'Condition variable',
+        'Continuation / manual stack management',
+        'Binary semaphore',
+        'Ticket lock',
+      ],
+      answer: 1,
+      why: 'Adya et al.: package state for the next handler.',
+    },
+    {
+      prompt: 'On multicore, a pure “no locks” event server…',
+      choices: [
+        'Still needs no synchronization if handlers run in parallel',
+        'Usually needs locks again once multiple handlers run concurrently',
+        'Cannot use select',
+        'Is immune to page faults',
+      ],
+      answer: 1,
+      why: 'Parallel handlers reintroduce critical sections.',
+    },
+  ]}
+/>
+
+## Coding challenges
+
+<ExerciseSet title="Exercises" description="Event-loop rules and continuation lookup.">
+  <CodeExercise
+    title="ready FDs"
+    heading="Challenge: ready_fds"
+    lang="python"
+    filename="main.py"
+    prompt={`ready_fds(min_fd, max_fd, ready_set) returns sorted FDs in [min_fd, max_fd) that appear in ready_set (a set of ints).
+wrap: print ready_fds(3, 8, {4, 9, 5, 2}).`}
+    sampleLog={`[4, 5]`}
+    starter={`def ready_fds(min_fd, max_fd, ready_set):
+    return []  # TODO
+`}
+    wrapSuffix={`
+print(ready_fds(3, 8, {4, 9, 5, 2}))
+`}
+    hint={`Filter by range, then sort.`}
+    solution={`def ready_fds(min_fd, max_fd, ready_set):
+    return sorted(fd for fd in ready_set if min_fd <= fd < max_fd)
+`}
+    sourceChecks={[
+      { name: 'filters', pattern: 'for|if', must: true, hint: 'range-check each ready FD' },
+    ]}
+    tests={[
+      { name: 'in range', stdin: '', equals: '[4, 5]' },
+    ]}
+  />
+  <CodeExercise
+    title="may block?"
+    heading="Challenge: is_blocking_risk"
+    lang="python"
+    filename="main.py"
+    prompt={`is_blocking_risk(call) is True for calls that must not run in a pure event handler:
+"open", "read", "blocking_connect" — False for "aio_read", "select", "FD_ISSET".
+wrap: print is_blocking_risk("read"), is_blocking_risk("aio_read").`}
+    sampleLog={`True
+False`}
+    starter={`def is_blocking_risk(call):
+    return False  # TODO
+`}
+    wrapSuffix={`
+print(is_blocking_risk("read"))
+print(is_blocking_risk("aio_read"))
+`}
+    hint={`Membership in a blocking set.`}
+    solution={`def is_blocking_risk(call):
+    return call in {"open", "read", "blocking_connect"}
+`}
+    sourceChecks={[
+      { name: 'set/in', pattern: 'in', must: true, hint: 'check membership' },
+    ]}
+    tests={[
+      { name: 'read vs aio', stdin: '', equals: 'True\nFalse' },
+    ]}
+  />
+  <CodeExercise
+    title="continuation"
+    heading="Challenge: lookup_sd"
+    lang="python"
+    filename="main.py"
+    prompt={`lookup_sd(table, fd) returns the socket descriptor stored for fd, or None if missing.
+table maps fd → sd. wrap: print lookup_sd({3: 8, 4: 9}, 3) and lookup_sd({3: 8}, 5).`}
+    sampleLog={`8
+None`}
+    starter={`def lookup_sd(table, fd):
+    return 0  # TODO
+`}
+    wrapSuffix={`
+print(lookup_sd({3: 8, 4: 9}, 3))
+print(lookup_sd({3: 8}, 5))
+`}
+    hint={`dict.get(fd).`}
+    solution={`def lookup_sd(table, fd):
+    return table.get(fd)
+`}
+    sourceChecks={[
+      { name: 'lookup', pattern: 'get|\\[', must: true, hint: 'table access' },
+    ]}
+    tests={[
+      { name: 'hit and miss', stdin: '', equals: '8\nNone' },
+    ]}
+  />
+  <CodeExercise
+    title="timeout mode"
+    heading="Challenge: select_timeout_mode"
+    lang="python"
+    filename="main.py"
+    prompt={`select_timeout_mode(timeout) returns "block_forever" if timeout is None,
+"poll" if timeout == 0, else "timed_wait".
+wrap: print for None, 0, and 1.`}
+    sampleLog={`block_forever
+poll
+timed_wait`}
+    starter={`def select_timeout_mode(timeout):
+    return ""  # TODO
+`}
+    wrapSuffix={`
+print(select_timeout_mode(None))
+print(select_timeout_mode(0))
+print(select_timeout_mode(1))
+`}
+    hint={`Check None first, then == 0.`}
+    solution={`def select_timeout_mode(timeout):
+    if timeout is None:
+        return "block_forever"
+    if timeout == 0:
+        return "poll"
+    return "timed_wait"
+`}
+    sourceChecks={[
+      { name: 'branches', pattern: 'None|==', must: true, hint: 'three cases' },
+    ]}
+    tests={[
+      { name: 'three modes', stdin: '', equals: 'block_forever\npoll\ntimed_wait' },
+    ]}
+  />
+</ExerciseSet>
+
+## Homework lab: event server sketch
+
+There is no dedicated OSTEP code repo for Ch. 33 — build the homework yourself (TCP + `select` + file serving + optional AIO/signals).
+
+<GuidedLab id="ostep-event-server" title="Homework: event-based server">
+  <LabStep title="One-at-a-time TCP">
+    Accept one connection; serve a tiny request (e.g. time of day).
+  </LabStep>
+  <LabStep title="select loop">
+    Accept many FDs; `select` + `FD_ISSET`; process only ready descriptors.
+  </LabStep>
+  <LabStep title="File responses">
+    Request names a file; `open`/`read`/`close` and reply — keep the demo private (path traversal risk!).
+  </LabStep>
+  <LabStep title="Async I/O">
+    Replace blocking reads with AIO (or document why your OS makes this hard).
+  </LabStep>
+  <LabStep title="Signals">
+    Optional: user-level file cache; `SIGHUP` (or similar) clears the cache.
+  </LabStep>
+  <LabStep title="Measure">
+    Design an experiment: when do events beat threads? What complexity did you add?
+  </LabStep>
+</GuidedLab>
+
+## Summary
+
+| Piece | Role |
+|---|---|
+| **Event loop** | Wait → handle one-at-a-time (= schedule) |
+| **select/poll** | Which FDs are ready? |
+| **No blocking** | Or the whole server stalls |
+| **AIO / hybrid** | Overlap disk without a sleeping thread |
+| **Continuations** | Manual stack across async steps |
+
+Threads and events both persist — pick based on control, complexity, and platform I/O support [A+02, PDZ99, WCB01, vB+03].
+
+**Previous:** [Common Concurrency Problems](./common-concurrency-problems)
+
+**Next:** [I/O Devices](../../persistence/devices/io-devices) — buses, interrupts, DMA, drivers.
+
+## Further Reading
+
+- Remzi & Andrea Arpaci-Dusseau — [*Operating Systems: Three Easy Pieces*](https://pages.cs.wisc.edu/~remzi/OSTEP/) Ch. 33
+- [OSTEP threads-events PDF](https://pages.cs.wisc.edu/~remzi/OSTEP/threads-events.pdf)
+- Ousterhout [O96]; Pai et al. Flash [PDZ99]; Welsh et al. SEDA [WCB01]; Adya et al. [A+02]; node.js [N13]; Stevens & Rago [SR05]

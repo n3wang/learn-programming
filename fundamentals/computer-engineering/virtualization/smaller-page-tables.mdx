@@ -1,0 +1,321 @@
+---
+sidebar_position: 20
+title: Smaller Page Tables
+---
+
+> **Source:** *Operating Systems: Three Easy Pieces* (OSTEP) — Chapter 20, Arpaci-Dusseau & Arpaci-Dusseau
+
+import SmallerPageTablesSimulator from "@site/src/components/interactive/SmallerPageTablesSimulator.js";
+
+# Paging: Smaller Tables
+
+Linear page tables are **too big**. 32-bit AS, 4 KB pages, 4-byte PTE → \(2^{20}\) entries → **4 MB per process**. A hundred processes → hundreds of MB just for tables.
+
+**Crux:** how make page tables smaller? What ideas help? What new costs appear?
+
+## Bigger pages
+
+16 KB pages → 18-bit VPN → \(2^{18}\) PTEs → **1 MB** table (4× smaller).
+
+**Problem:** **internal fragmentation** — apps use little of each large page; memory fills with waste. Common default stays **4 KB** (x86) or **8 KB** (SPARCv9).
+
+:::info Multiple page sizes
+Many ISAs support huge pages (e.g. 4 MB) mainly to **raise TLB coverage**, not to shrink tables. Superpages complicate the VM manager [N+02]; databases often request them explicitly.
+:::
+
+## Hybrid: paging + segments
+
+Multics idea [M07]: **one page table per logical segment** (code, heap, stack).
+
+- **Base** register → physical address of that segment’s page table  
+- **Bounds** → max valid page in the segment  
+
+Top bits of the VA select the segment; then index that segment’s linear PT.
+
+**Win:** no giant invalid middle between heap and stack.  
+**Loss:** still assumes a segment layout; sparse heaps waste PT space; PT sizes vary → **external fragmentation** for allocating page tables.
+
+:::tip Use hybrids
+Two good opposing ideas? Try combining them — when it isn’t a Zeedonk.
+:::
+
+## Multi-level page tables
+
+Attack invalid regions without segmentation:
+
+1. Chop the linear page table into **page-sized** chunks  
+2. If an entire chunk is invalid — **don’t allocate it**  
+3. A **page directory** records which PT pages exist (and where)
+
+Each **PDE** has a valid bit + PFN. Valid PDE ⇒ at least one valid PTE in that PT page.
+
+**Advantages:**
+
+- Space ≈ used address space (sparse-friendly)  
+- Every piece fits in a page → allocate with a simple free list of frames  
+- PT pages need not be contiguous in physical memory  
+
+**Costs:**
+
+- TLB miss may need **two** (or more) memory fetches — time–space trade-off  
+- More complex walk (hardware or OS)
+
+### Detailed example
+
+16 KB AS, 64-byte pages → 14-bit VA, **8-bit VPN**, 6-bit offset. Linear PT: 256 × 4B = 1 KB = **16** PT pages. Page directory: **16** PDEs → top **4** VPN bits = PD index; next **4** = PT index.
+
+Used: VPN 0–1 (code), 4–5 (heap), 254–255 (stack). Allocate directory + two PT pages instead of sixteen.
+
+**Translate VA `0x3F80`** (VPN 254, offset 0):
+
+1. PD index `1111` (15) → PDE → PT at PFN **101**  
+2. PT index `1110` (14) → PTE → PFN **55**  
+3. PA = `(55 << 6) | 0` = **`0x0DC0`**
+
+### More than two levels
+
+If the directory itself spans many pages, add another level (PD0, PD1, PT). Goal: **every piece fits in one page**. x86-style trees follow this pattern.
+
+### Remember the TLB
+
+Always: **TLB lookup first**. Multi-level walks run only on a **miss**. Hits cost the same as with a linear table.
+
+## Inverted page tables
+
+One table with an entry **per physical frame**: which process + VPN maps here. Lookup via hash (PowerPC [JM98]). Extreme space savings; different search cost.
+
+## Swapping page tables
+
+Even compact tables can exceed RAM. Some systems put page tables in **kernel virtual memory** and swap them — revisited with VAX/VMS later.
+
+:::tip Be wary of complexity
+Implement the **least complex** system that meets the goal. Saint-Exupéry: perfection is when there is nothing left to take away.
+:::
+
+## Interactive
+
+<SmallerPageTablesSimulator />
+
+**Try:** bigger pages · hybrid · linear vs multi-level · translate `0x3F80`.
+
+## Check your understanding
+
+<MultipleChoice
+  id="ce-smaller-page-tables"
+  title="Smaller page tables"
+  questions={[
+    {
+      prompt: 'A linear page table for a 32-bit AS with 4KB pages and 4-byte PTEs is about…',
+      choices: ['4 KB', '4 MB per process', 'One PTE total', 'Stored only in the TLB'],
+      answer: 1,
+      why: '2^20 entries × 4 bytes ≈ 4 MB.',
+    },
+    {
+      prompt: 'Larger pages shrink the page table but mainly cause…',
+      choices: [
+        'External fragmentation only',
+        'Internal fragmentation inside pages',
+        'No TLB misses ever',
+        'Invalid ASIDs',
+      ],
+      answer: 1,
+      why: 'Apps often use only part of each large page.',
+    },
+    {
+      prompt: 'In a multi-level table, an invalid PDE means…',
+      choices: [
+        'The process must be killed',
+        'That entire page of the page table is not allocated',
+        'The TLB is full',
+        'Physical memory is full',
+      ],
+      answer: 1,
+      why: 'That is how sparse regions free frames.',
+    },
+    {
+      prompt: 'Compared to a linear table, a two-level walk on TLB miss typically needs…',
+      choices: [
+        'Fewer memory accesses',
+        'Two memory accesses (PDE then PTE)',
+        'No memory accesses',
+        'Only a disk read',
+      ],
+      answer: 1,
+      why: 'Classic time–space trade-off.',
+    },
+    {
+      prompt: 'Hybrid paging+segmentation stores in each segment base register…',
+      choices: [
+        'The segment’s data in RAM',
+        'The physical address of that segment’s page table',
+        'The ASID only',
+        'The disk swap offset',
+      ],
+      answer: 1,
+      why: 'Base points at the PT; bounds limits valid pages.',
+    },
+    {
+      prompt: 'An inverted page table is indexed by…',
+      choices: [
+        'VPN only',
+        'Physical frame (who maps this frame?)',
+        'ASID alone',
+        'Instruction opcode',
+      ],
+      answer: 1,
+      why: 'One system-wide table over physical pages.',
+    },
+  ]}
+/>
+
+## Coding challenges
+
+<ExerciseSet title="Exercises" description="Split VPN for multi-level walk and size math.">
+  <CodeExercise
+    title="pd and pt index"
+    heading="Challenge: split_vpn"
+    lang="python"
+    filename="main.py"
+    prompt={`split_vpn(vpn, pd_bits) returns (pd_index, pt_index) where pd_index is the top pd_bits of vpn and pt_index is the rest.
+VPN is an int; use bit ops. Example: vpn=0b11111110 (254), pd_bits=4 → (15, 14).
+wrap: print split_vpn(254, 4).`}
+    sampleLog={`(15, 14)`}
+    starter={`def split_vpn(vpn, pd_bits):
+    return (0, 0)  # TODO
+`}
+    wrapSuffix={`
+print(split_vpn(254, 4))
+`}
+    hint={`pt_bits = total needed; or: pt_index = vpn & ((1<<pt_bits)-1); for 8-bit vpn with pd_bits=4, pt_bits=4.`}
+    solution={`def split_vpn(vpn, pd_bits):
+    # chapter example: 8-bit VPN, 4+4 split
+    pt_bits = 8 - pd_bits
+    pd_index = vpn >> pt_bits
+    pt_index = vpn & ((1 << pt_bits) - 1)
+    return (pd_index, pt_index)
+`}
+    sourceChecks={[
+      { name: 'shifts', pattern: '>>|&', must: true, hint: 'split high/low bits' },
+    ]}
+    tests={[
+      { name: 'vpn 254', stdin: '', equals: '(15, 14)' },
+    ]}
+  />
+  <CodeExercise
+    title="physical address"
+    heading="Challenge: form_pa"
+    lang="python"
+    filename="main.py"
+    prompt={`form_pa(pfn, offset, page_size) = pfn * page_size + offset
+wrap: print form_pa(55, 0, 64) in hex via hex(...).`}
+    sampleLog={`0xdc0`}
+    starter={`def form_pa(pfn, offset, page_size):
+    return 0  # TODO
+`}
+    wrapSuffix={`
+print(hex(form_pa(55, 0, 64)))
+`}
+    hint={`Same as (pfn << shift) | offset when page_size is power of two.`}
+    solution={`def form_pa(pfn, offset, page_size):
+    return pfn * page_size + offset
+`}
+    sourceChecks={[
+      { name: 'combines', pattern: '\\*|\\+', must: true, hint: 'pfn scaled plus offset' },
+    ]}
+    tests={[
+      { name: 'chapter pa', stdin: '', equals: '0xdc0' },
+    ]}
+  />
+  <CodeExercise
+    title="linear vs multi size"
+    heading="Challenge: pt_pages_saved"
+    lang="python"
+    filename="main.py"
+    prompt={`pt_pages_saved(linear_pages, allocated_pt_pages, directory_pages)
+returns linear_pages - (allocated_pt_pages + directory_pages).
+Chapter toy: 16 linear PT pages, 2 allocated + 1 directory → save 13.
+wrap: print pt_pages_saved(16, 2, 1).`}
+    sampleLog={`13`}
+    starter={`def pt_pages_saved(linear_pages, allocated_pt_pages, directory_pages):
+    return 0  # TODO
+`}
+    wrapSuffix={`
+print(pt_pages_saved(16, 2, 1))
+`}
+    hint={`Subtract multi-level footprint from linear footprint.`}
+    solution={`def pt_pages_saved(linear_pages, allocated_pt_pages, directory_pages):
+    return linear_pages - (allocated_pt_pages + directory_pages)
+`}
+    sourceChecks={[
+      { name: 'subtracts', pattern: '-', must: true, hint: 'difference of page counts' },
+    ]}
+    tests={[
+      { name: 'save 13', stdin: '', equals: '13' },
+    ]}
+  />
+  <CodeExercise
+    title="walk miss cost"
+    heading="Challenge: miss_loads"
+    lang="python"
+    filename="main.py"
+    prompt={`miss_loads(levels) returns how many memory loads to fetch a PTE in an N-level table (N directory/PT levels to the PTE).
+Two-level → 2. Three-level → 3.
+wrap: print miss_loads(2) and miss_loads(3).`}
+    sampleLog={`2
+3`}
+    starter={`def miss_loads(levels):
+    return 0  # TODO
+`}
+    wrapSuffix={`
+print(miss_loads(2))
+print(miss_loads(3))
+`}
+    hint={`One load per level down to the PTE.`}
+    solution={`def miss_loads(levels):
+    return levels
+`}
+    sourceChecks={[
+      { name: 'returns levels', pattern: 'return', must: true, hint: 'loads equal depth' },
+    ]}
+    tests={[
+      { name: '2 and 3', stdin: '', equals: '2\n3' },
+    ]}
+  />
+</ExerciseSet>
+
+## Homework lab: `paging-multilevel-translate.py`
+
+Use the [OSTEP multi-level paging homework](https://github.com/remzi-arpacidusseau/ostep-homework/tree/master/vm-paging) (`paging-multilevel-translate.py`).
+
+<GuidedLab id="ostep-paging-multilevel" title="Homework: paging-multilevel-translate.py">
+  <LabStep title="How many base registers?">
+    Linear PT: one PTBR. How many registers to locate a two-level table? A three-level table?
+  </LabStep>
+  <LabStep title="Seeds 0, 1, 2">
+    Run translations for random seeds 0, 1, and 2; check with `-c`. How many memory references per lookup?
+  </LabStep>
+  <LabStep title="Page-table refs and caches">
+    Given how caches work, will page-directory / PT-page accesses hit often or miss often? Why?
+  </LabStep>
+</GuidedLab>
+
+## Summary
+
+| Approach | Idea | Main cost |
+|---|---|---|
+| **Bigger pages** | Fewer VPN bits | Internal fragmentation |
+| **Hybrid** | PT per segment | Inflexible layout; PT external frag |
+| **Multi-level** | Tree; skip empty PT pages | More loads on TLB miss |
+| **Inverted** | One entry per frame | Search / hash complexity |
+| **Swap PTs** | Kernel VA for tables | Later chapters |
+
+**Previous:** [TLBs](./tlb)
+
+**Next:** [Beyond Physical Memory — Mechanisms](./beyond-physical-memory-mechanisms) — swap, present bit, page faults.
+
+## Further Reading
+
+- Remzi & Andrea Arpaci-Dusseau — [*Operating Systems: Three Easy Pieces*](https://pages.cs.wisc.edu/~remzi/OSTEP/) Ch. 20
+- [OSTEP vm-smalltables PDF](https://pages.cs.wisc.edu/~remzi/OSTEP/vm-smalltables.pdf)
+- [OSTEP paging homework](https://github.com/remzi-arpacidusseau/ostep-homework/tree/master/vm-paging)
+- Bryant & O’Hallaron [BOH10]; Jacob & Mudge survey [JM98]

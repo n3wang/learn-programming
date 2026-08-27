@@ -13,7 +13,7 @@ import Divider from '@mui/material/Divider';
  *     <CEBlock.Section>...</CEBlock.Section>
  *   </CEBlock>
  */
-export default function CEBlock({ title, subtitle, children }) {
+export default function CEBlock({ title, subtitle, children, legend, controls }) {
   return (
     <Box sx={{
       border: '1px solid',
@@ -43,6 +43,12 @@ export default function CEBlock({ title, subtitle, children }) {
       {/* Body */}
       <Box sx={{ p: 2 }}>
         {children}
+        {(legend || controls) && (
+          <Box sx={{ mt: 2, pt: 1.5, borderTop: '1px solid', borderColor: 'divider' }}>
+            {legend}
+            {controls && <Box sx={{ mt: legend ? 1.5 : 0 }}>{controls}</Box>}
+          </Box>
+        )}
       </Box>
     </Box>
   );

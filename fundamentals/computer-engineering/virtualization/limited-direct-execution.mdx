@@ -1,0 +1,325 @@
+---
+sidebar_position: 6
+title: Limited Direct Execution
+---
+
+> **Source:** *Operating Systems: Three Easy Pieces* (OSTEP) — Chapter 6, Arpaci-Dusseau & Arpaci-Dusseau
+
+import LimitedDirectExecutionSimulator from "@site/src/components/interactive/LimitedDirectExecutionSimulator.js";
+
+# Mechanism: Limited Direct Execution
+
+To virtualize the CPU the OS must **time-share** it — run one process awhile, then another. Two constraints collide:
+
+| Goal | Fear |
+|---|---|
+| **Performance** | Emulating every instruction would be too slow |
+| **Control** | A process must not run forever or touch forbidden resources |
+
+**Crux:** how to virtualize the CPU **efficiently** while the OS **keeps control**?
+
+**Answer:** **limited direct execution (LDE)** — run the program *directly* on the hardware CPU, but with hardware + OS limits so the kernel stays in charge.
+
+## Direct execution (no limits yet)
+
+Without limits the protocol is almost a library call:
+
+1. Create process entry, allocate memory, load code  
+2. Jump to `main()`  
+3. Process returns → OS frees resources  
+
+Fast — but two problems remain:
+
+1. How does a process do **restricted** work (I/O, …) without owning the machine?  
+2. How does the OS **stop** a running process to switch to another?
+
+Without limits, the OS is “just a library.”
+
+## Problem 1: restricted operations
+
+### User mode vs kernel mode
+
+| Mode | Who | Power |
+|---|---|---|
+| **User** | Apps | Restricted — illegal I/O → exception (often kill the process) |
+| **Kernel** | OS | Full privileges — I/O, timers, trap-table install, … |
+
+### System calls = controlled entry
+
+User code requests services via **system calls** (`open`, `read`, `fork`, …). Under the hood:
+
+1. C library places **syscall number** + args in agreed registers/stack  
+2. Executes a **trap** instruction  
+3. Hardware: save regs → **kernel stack**, raise privilege, jump to OS handler from the **trap table**  
+4. OS validates args (**never trust user pointers**), does the work  
+5. **return-from-trap** → user mode, resume after the trap  
+
+User code must **not** pick an arbitrary kernel address — only a syscall number. The trap table is installed at **boot** (privileged).
+
+:::tip Protected control transfer
+Hardware provides modes + trap / return-from-trap + a place to register handlers. That is how speed and safety coexist.
+:::
+
+## Problem 2: switching processes
+
+If a process is on the CPU, the OS is **not**. So how can the OS decide to switch?
+
+### Cooperative approach
+
+Trust processes to give the CPU back via syscalls (or a `yield`), or when they fault. Early Mac OS / Xerox Alto style.
+
+**Failure mode:** infinite loop with no syscall → only fix is often a **reboot**.
+
+### Non-cooperative: timer interrupt
+
+At boot the OS:
+
+1. Registers a **timer interrupt** handler  
+2. Starts a hardware timer (privileged)
+
+Every few ms the timer fires → hardware saves state → OS runs. Now the kernel can preempt, schedule, and **context switch**.
+
+### Context switch (idea)
+
+When the scheduler picks another process:
+
+1. **Hardware** already saved user regs of the interrupted process (on its kernel stack)  
+2. **OS** saves kernel regs into that process’s PCB; restores the next process’s; switches kernel stacks  
+3. **return-from-trap** resumes the *other* process  
+
+Two save/restore layers: hardware (user → kernel) and software (process A ↔ B).
+
+## Interactive: LDE protocols
+
+<LimitedDirectExecutionSimulator />
+
+**Try:**
+- **Boot + LDE** — trap table + timer, then user-mode process  
+- **System call** — trap, validate, return-from-trap  
+- **Timer + switch** — preempt A, context-switch to B  
+
+## Check your understanding
+
+<MultipleChoice
+  id="ce-limited-direct-execution"
+  title="Limited direct execution"
+  questions={[
+    {
+      prompt: 'Limited direct execution primarily means…',
+      choices: [
+        'The OS interprets every user instruction in software',
+        'User code runs natively on the CPU, with hardware/OS limits',
+        'Only the kernel ever runs on the CPU',
+        'Processes share one address space for speed',
+      ],
+      answer: 1,
+      why: 'Direct = native speed. Limited = modes, traps, and timers keep the OS in control.',
+    },
+    {
+      prompt: 'A successful system call enters the kernel via…',
+      choices: [
+        'Jumping to an address the user chooses in the kernel',
+        'A trap to a handler registered in the trap table, selected by syscall number',
+        'Disabling the MMU',
+        'Rebooting into kernel mode',
+      ],
+      answer: 1,
+      why: 'Users request a service number; hardware vectors to OS-registered handlers.',
+    },
+    {
+      prompt: 'Without a timer interrupt, a process in an infinite loop with no syscalls…',
+      choices: [
+        'Is always preempted after one quantum',
+        'Can leave the OS unable to regain the CPU (cooperative systems often reboot)',
+        'Automatically yields every instruction',
+        'Is converted to kernel mode',
+      ],
+      answer: 1,
+      why: 'If the OS is not running, it cannot schedule. Timers fix that without cooperation.',
+    },
+    {
+      prompt: 'During a timer-driven context switch A→B, return-from-trap eventually resumes…',
+      choices: [
+        'Always process A',
+        'Process B (after the OS switched stacks/regs)',
+        'Only the idle process',
+        'The bootloader',
+      ],
+      answer: 1,
+      why: 'After switch(), the kernel stack/regs look as if we trapped from B, so return resumes B.',
+    },
+  ]}
+/>
+
+## Coding challenges
+
+Conceptual drills in **Python** (no traps in Piston). The measurement homework below is still C on your machine.
+
+<ExerciseSet
+  title="Exercises"
+  description="Modes, traps, timers, and context switches."
+>
+  <CodeExercise
+    title="user vs privileged"
+    heading="Challenge: is_privileged"
+    lang="python"
+    filename="main.py"
+    prompt={`is_privileged(op) returns True if the operation must run in kernel mode.
+Privileged: "io", "set_timer", "install_trap_table".
+User-ok: "add", "branch", "load_user_mem".
+wrap: print for io, add, set_timer.`}
+    sampleLog={`True False True`}
+    starter={`def is_privileged(op):
+    return False  # TODO
+`}
+    wrapSuffix={`
+print(is_privileged("io"), is_privileged("add"), is_privileged("set_timer"))
+`}
+    hint={`Return True for io, set_timer, and install_trap_table.`}
+    solution={`PRIV = {"io", "set_timer", "install_trap_table"}
+
+def is_privileged(op):
+    return op in PRIV
+`}
+    sourceChecks={[
+      { name: 'checks op', pattern: 'op', must: true, hint: 'branch on the operation name' },
+    ]}
+    tests={[
+      { name: 'mix', stdin: '', equals: 'True False True' },
+    ]}
+  />
+  <CodeExercise
+    title="mode after event"
+    heading="Challenge: after_event"
+    lang="python"
+    filename="main.py"
+    prompt={`after_event(mode, event) returns "user" or "kernel".
+• "trap" / "timer" → "kernel"
+• "return_from_trap" → "user"
+• else → mode unchanged
+wrap: print three cases.`}
+    sampleLog={`kernel user user`}
+    starter={`def after_event(mode, event):
+    return mode  # TODO
+`}
+    wrapSuffix={`
+print(after_event("user", "trap"), after_event("kernel", "return_from_trap"), after_event("user", "add"))
+`}
+    hint={`trap and timer → kernel. return_from_trap → user.`}
+    solution={`def after_event(mode, event):
+    if event in ("trap", "timer"):
+        return "kernel"
+    if event == "return_from_trap":
+        return "user"
+    return mode
+`}
+    sourceChecks={[
+      { name: 'handles trap', pattern: 'trap', must: true, hint: 'trap enters kernel mode' },
+    ]}
+    tests={[
+      { name: 'transitions', stdin: '', equals: 'kernel user user' },
+    ]}
+  />
+  <CodeExercise
+    title="can OS regain CPU"
+    heading="Challenge: can_regain"
+    lang="python"
+    filename="main.py"
+    prompt={`can_regain(has_timer, process_loops_forever)
+• has_timer → always True
+• else → not process_loops_forever
+wrap: print three cases.`}
+    sampleLog={`True False True`}
+    starter={`def can_regain(has_timer, process_loops_forever):
+    return False  # TODO
+`}
+    wrapSuffix={`
+print(can_regain(True, True), can_regain(False, True), can_regain(False, False))
+`}
+    hint={`Timer ⇒ OS always gets control back.`}
+    solution={`def can_regain(has_timer, process_loops_forever):
+    if has_timer:
+        return True
+    return not process_loops_forever
+`}
+    sourceChecks={[
+      { name: 'uses has_timer', pattern: 'has_timer', must: true, hint: 'timer is the non-cooperative escape hatch' },
+    ]}
+    tests={[
+      { name: 'three cases', stdin: '', equals: 'True False True' },
+    ]}
+  />
+  <CodeExercise
+    title="who runs after switch"
+    heading="Challenge: resume_after_switch"
+    lang="python"
+    filename="main.py"
+    prompt={`resume_after_switch(current_pid, next_pid) — which pid does return-from-trap resume?
+wrap: print (1,2) then (7,7).`}
+    sampleLog={`2
+7`}
+    starter={`def resume_after_switch(current_pid, next_pid):
+    return current_pid  # TODO
+`}
+    wrapSuffix={`
+print(resume_after_switch(1, 2))
+print(resume_after_switch(7, 7))
+`}
+    hint={`Resume next_pid after a context switch.`}
+    solution={`def resume_after_switch(current_pid, next_pid):
+    return next_pid
+`}
+    sourceChecks={[
+      { name: 'uses next', pattern: 'next_pid', must: true, hint: 'resume the scheduled process' },
+    ]}
+    tests={[
+      { name: 'switch and stay', stdin: '', equals: '2\n7' },
+    ]}
+  />
+</ExerciseSet>
+
+## Homework lab: measure syscall & context-switch cost
+
+Measurement homework (OSTEP): time a null system call and estimate a context switch on a real UNIX-like machine. Notes/screenshots stay in **this browser**.
+
+<GuidedLab id="ostep-lde-measure" title="Homework: measure syscall & context switch">
+  <LabStep title="Timer precision">
+    Measure back-to-back calls to `gettimeofday()` (or a higher-resolution clock). How precise is your timer really? That tells you how many iterations you need for a trustworthy average.
+  </LabStep>
+  <LabStep title="Null system call">
+    Repeatedly call a cheap system call (e.g. a 0-byte `read`) and time the loop. Divide by iterations to estimate syscall cost. Use enough iterations given your timer precision.
+  </LabStep>
+  <LabStep title="Optional: rdtsc">
+    If `gettimeofday()` is too coarse, try `rdtsc` (x86) or another cycle counter. Compare results to the timeval-based measurement.
+  </LabStep>
+  <LabStep title="Context switch via pipes">
+    Recreate the lmbench-style idea: two processes on **one CPU**, two pipes, ping-pong reads/writes so each blocking read forces a switch. Measure many round trips and estimate cost per switch.
+  </LabStep>
+  <LabStep title="CPU affinity">
+    On multicore machines, bind both processes to the same CPU (e.g. Linux `sched_setaffinity`) so you measure a real switch, not two cores chatting. Record your method and numbers.
+  </LabStep>
+</GuidedLab>
+
+## Concurrency teaser
+
+What if a timer fires **during** a syscall? Or one interrupt during another? The OS must protect itself (e.g. briefly **disable interrupts**, locks). Full story: concurrency chapters later.
+
+## Summary
+
+| Term | Meaning |
+|---|---|
+| **Limited direct execution** | Run natively, with limits |
+| **User / kernel mode** | Restricted vs privileged |
+| **Trap / return-from-trap** | Enter / leave the kernel safely |
+| **Trap table** | Boot-time map of handlers |
+| **System call** | Request a numbered kernel service |
+| **Timer interrupt** | Preempt without cooperation |
+| **Context switch** | Save one process, restore another |
+
+**Next:** [Scheduling Introduction](./scheduling-introduction) — FIFO, SJF, STCF, Round Robin — then [Multi-Level Feedback Queue](./mlfq).
+
+## Further Reading
+
+- Remzi & Andrea Arpaci-Dusseau — [*Operating Systems: Three Easy Pieces*](https://pages.cs.wisc.edu/~remzi/OSTEP/) Ch. 6 ([PDF](https://pages.cs.wisc.edu/~remzi/OSTEP/cpu-mechanisms.pdf))
+- lmbench — measuring syscalls and context switches
+- xv6 — `trap`, `swtch` / context switch

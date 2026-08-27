@@ -1,0 +1,315 @@
+---
+sidebar_position: 31
+title: Semaphores
+---
+
+> **Source:** *Operating Systems: Three Easy Pieces* (OSTEP) — Chapter 31, Arpaci-Dusseau & Arpaci-Dusseau
+
+import SemaphoresSimulator from "@site/src/components/interactive/SemaphoresSimulator.js";
+
+# Semaphores
+
+Dijkstra introduced the **semaphore** as one primitive for synchronization [D68b,D72] — usable as both a **lock** and a **condition-like** ordering tool.
+
+**Crux:** how to use semaphores? Binary vs general? Build them from locks/CVs (and the reverse)?
+
+## Definition
+
+POSIX: `sem_init`, `sem_wait` (historically **P** / down), `sem_post` (**V** / up).
+
+```text
+wait:  value--;  if value < 0 → sleep
+post:  value++;  if waiters → wake one
+```
+
+Assume these steps are atomic (implemented with locks underneath). When negative, Dijkstra’s view: magnitude ≈ number waiting (Linux “Zemaphores” often never go below 0).
+
+## Binary semaphore = lock
+
+Init to **1**. `wait` before CS, `post` after. Second waiter drives value to **−1** and sleeps until the holder posts.
+
+## Ordering (join)
+
+Init to **0**. Parent `wait`, child `post`. Works whether parent waits first (sleeps at −1) or child posts first (parent sees 1 and returns).
+
+## Producer / consumer
+
+Semaphores **empty=MAX**, **full=0**. Producer: `wait(empty); put; post(full)`. Consumer: `wait(full); get; post(empty)`.
+
+**Race:** concurrent `put`/`get` on indices need a **mutex**.
+
+**Deadlock:** `wait(mutex)` then `wait(full)` while holding mutex — producer cannot enter to `post(full)`.
+
+**Fix:** wait on empty/full **outside**; hold mutex **only** around put/get (Fig 31.12).
+
+## Reader-writer locks
+
+Allow many concurrent readers **or** one writer [CHP71]. First reader takes `writelock`; last reader releases it. Writers only take `writelock`.
+
+Useful pattern — but can **starve writers**, and fancy R/W often loses to a **simple lock** (Hill’s Law: simple/dumb can be fastest).
+
+## Dining philosophers
+
+Five philosophers, five forks (semaphores=1). Need left+right to eat.
+
+**Broken:** everyone `wait(left)` then `wait(right)` → circular wait / deadlock.
+
+**Fix:** break the cycle (e.g. philosopher 4 acquires **right then left**) [D71].
+
+## Implementing semaphores
+
+**Zemaphore:** mutex + CV + `value`; wait while `value<=0`; post increments and signals (Fig 31.16). Building **CVs out of semaphores** is surprisingly hard [B04].
+
+:::tip Be careful with generalization
+Semaphores generalize locks+CVs — but Lampson: “Don’t generalize; generalizations are generally wrong” [L83].
+:::
+
+## Interactive
+
+<SemaphoresSimulator />
+
+**Try:** binary/join · prod/cons deadlock vs fix · reader-writer · dining philosophers.
+
+## Check your understanding
+
+<MultipleChoice
+  id="ce-semaphores"
+  title="Semaphores"
+  questions={[
+    {
+      prompt: 'To use a semaphore as a mutex, initialize it to…',
+      choices: ['0', '1', 'MAX', '−1'],
+      answer: 1,
+      why: 'Binary semaphore: free=1.',
+    },
+    {
+      prompt: 'For a join-style “wait until child done”, initialize the semaphore to…',
+      choices: ['1', '0', '2', 'MAX'],
+      answer: 1,
+      why: 'Parent waits; child posts. Init 0 handles both schedules.',
+    },
+    {
+      prompt: 'In the bounded buffer with empty/full, acquiring mutex then waiting on full while holding mutex can…',
+      choices: [
+        'Improve fairness',
+        'Deadlock if a producer needs the mutex to post full',
+        'Remove the need for empty',
+        'Make put lock-free',
+      ],
+      answer: 1,
+      why: 'Classic lock-order / hold-and-wait deadlock.',
+    },
+    {
+      prompt: 'The first reader of a simple R/W lock also…',
+      choices: [
+        'Releases all writers immediately',
+        'Acquires the writelock so writers stay out until readers drain',
+        'Sets empty=MAX',
+        'Disables the scheduler',
+      ],
+      answer: 1,
+      why: 'Last reader posts writelock.',
+    },
+    {
+      prompt: 'Dining philosophers left-then-right for everyone fails due to…',
+      choices: [
+        'Spurious wakeups only',
+        'Circular wait / deadlock',
+        'Missing condition variables',
+        'Init forks to 0',
+      ],
+      answer: 1,
+      why: 'Break acquisition order for at least one philosopher.',
+    },
+    {
+      prompt: 'A Zemaphore wait loop uses…',
+      choices: [
+        'Only test-and-set with no sleep',
+        'while (value <= 0) Cond_wait, then value--',
+        'Broadcast instead of signal always',
+        'Interrupt disabling in user code',
+      ],
+      answer: 1,
+      why: 'Lock + CV around the counter.',
+    },
+  ]}
+/>
+
+## Coding challenges
+
+<ExerciseSet title="Exercises" description="Inits, PC lock order, and fork helpers.">
+  <CodeExercise
+    title="init for lock"
+    heading="Challenge: init_for_mutex"
+    lang="python"
+    filename="main.py"
+    prompt={`init_for_mutex() returns the sem_init value for a binary lock.
+wrap: print init_for_mutex().`}
+    sampleLog={`1`}
+    starter={`def init_for_mutex():
+    return 0  # TODO
+`}
+    wrapSuffix={`
+print(init_for_mutex())
+`}
+    hint={`Free lock starts at one.`}
+    solution={`def init_for_mutex():
+    return 1
+`}
+    sourceChecks={[
+      { name: 'returns 1', pattern: 'return\\s+1', must: true, hint: 'binary semaphore init' },
+    ]}
+    tests={[
+      { name: 'one', stdin: '', equals: '1' },
+    ]}
+  />
+  <CodeExercise
+    title="init for join"
+    heading="Challenge: init_for_join"
+    lang="python"
+    filename="main.py"
+    prompt={`init_for_join() returns the sem_init value so parent wait / child post works for join.
+wrap: print init_for_join().`}
+    sampleLog={`0`}
+    starter={`def init_for_join():
+    return 1  # TODO
+`}
+    wrapSuffix={`
+print(init_for_join())
+`}
+    hint={`Start with no “done” credits.`}
+    solution={`def init_for_join():
+    return 0
+`}
+    sourceChecks={[
+      { name: 'returns 0', pattern: 'return\\s+0', must: true, hint: 'ordering semaphore' },
+    ]}
+    tests={[
+      { name: 'zero', stdin: '', equals: '0' },
+    ]}
+  />
+  <CodeExercise
+    title="PC inits"
+    heading="Challenge: pc_inits"
+    lang="python"
+    filename="main.py"
+    prompt={`pc_inits(max_slots) returns (empty_init, full_init, mutex_init) for a working bounded buffer.
+wrap: print pc_inits(10).`}
+    sampleLog={`(10, 0, 1)`}
+    starter={`def pc_inits(max_slots):
+    return (0, 0, 0)  # TODO
+`}
+    wrapSuffix={`
+print(pc_inits(10))
+`}
+    hint={`MAX empty, 0 full, mutex free.`}
+    solution={`def pc_inits(max_slots):
+    return (max_slots, 0, 1)
+`}
+    sourceChecks={[
+      { name: 'tuple', pattern: 'return', must: true, hint: 'three initial values' },
+    ]}
+    tests={[
+      { name: 'MAX=10', stdin: '', equals: '(10, 0, 1)' },
+    ]}
+  />
+  <CodeExercise
+    title="deadlock order?"
+    heading="Challenge: is_deadlock_order"
+    lang="python"
+    filename="main.py"
+    prompt={`is_deadlock_order(first, second) is True for the bad consumer/producer pattern:
+waiting on "full" or "empty" while already holding "mutex"
+i.e. first=="mutex" and second in ("full","empty").
+wrap: print is_deadlock_order("mutex","full"), is_deadlock_order("empty","mutex").`}
+    sampleLog={`True
+False`}
+    starter={`def is_deadlock_order(first, second):
+    return False  # TODO
+`}
+    wrapSuffix={`
+print(is_deadlock_order("mutex", "full"))
+print(is_deadlock_order("empty", "mutex"))
+`}
+    hint={`Bad: mutex then resource wait.`}
+    solution={`def is_deadlock_order(first, second):
+    return first == "mutex" and second in ("full", "empty")
+`}
+    sourceChecks={[
+      { name: 'checks', pattern: '==|in', must: true, hint: 'mutex before full/empty' },
+    ]}
+    tests={[
+      { name: 'bad vs good', stdin: '', equals: 'True\nFalse' },
+    ]}
+  />
+  <CodeExercise
+    title="philosopher forks"
+    heading="Challenge: fork_ids"
+    lang="python"
+    filename="main.py"
+    prompt={`fork_ids(p, n=5) returns (left, right) where left=p and right=(p+1)%n.
+wrap: print fork_ids(4) and fork_ids(0).`}
+    sampleLog={`(4, 0)
+(0, 1)`}
+    starter={`def fork_ids(p, n=5):
+    return (0, 0)  # TODO
+`}
+    wrapSuffix={`
+print(fork_ids(4))
+print(fork_ids(0))
+`}
+    hint={`Modulo for the last philosopher’s right fork.`}
+    solution={`def fork_ids(p, n=5):
+    return (p, (p + 1) % n)
+`}
+    sourceChecks={[
+      { name: 'modulo', pattern: '%', must: true, hint: 'wrap right fork' },
+    ]}
+    tests={[
+      { name: 'p4 and p0', stdin: '', equals: '(4, 0)\n(0, 1)' },
+    ]}
+  />
+</ExerciseSet>
+
+## Homework lab: semaphore puzzles
+
+Use the [OSTEP semaphore homework](https://github.com/remzi-arpacidusseau/ostep-homework/tree/master/threads-sema) (and Downey’s [Little Book](https://greenteapress.com/semaphores/) for more).
+
+<GuidedLab id="ostep-threads-sema" title="Homework: threads-sema">
+  <LabStep title="Fork/join">
+    Implement `fork-join.c`. Add `sleep(1)` in the child to validate ordering.
+  </LabStep>
+  <LabStep title="Rendezvous">
+    Two threads; neither leaves the rendezvous until both have entered (`rendezvous.c`).
+  </LabStep>
+  <LabStep title="Barrier">
+    All N threads finish P1 before any starts P2 (`barrier.c`).
+  </LabStep>
+  <LabStep title="Reader-writer">
+    Build R/W without starvation handling, then the no-starve variant. Show starvation with sleeps if you can.
+  </LabStep>
+  <LabStep title="No-starve mutex">
+    Any acquirer eventually gets the lock (`mutex-nostarve.c`).
+  </LabStep>
+</GuidedLab>
+
+## Summary
+
+| Use | Init | Pattern |
+|---|---|---|
+| **Lock** | 1 | wait / CS / post |
+| **Join / signal event** | 0 | waiter wait; signaler post |
+| **Bounded buffer** | empty=MAX, full=0, mutex=1 | resource waits outside mutex |
+| **R/W** | writelock=1 | first/last reader gate writers |
+| **Philosophers** | forks=1 | break circular acquire order |
+
+**Previous:** [Condition Variables](./condition-variables)
+
+**Next:** [Common Concurrency Problems](./common-concurrency-problems) — atomicity, order, deadlock.
+
+## Further Reading
+
+- Remzi & Andrea Arpaci-Dusseau — [*Operating Systems: Three Easy Pieces*](https://pages.cs.wisc.edu/~remzi/OSTEP/) Ch. 31
+- [OSTEP threads-sema PDF](https://pages.cs.wisc.edu/~remzi/OSTEP/threads-sema.pdf)
+- [OSTEP threads-sema homework](https://github.com/remzi-arpacidusseau/ostep-homework/tree/master/threads-sema)
+- Downey [D08]; Courtois et al. readers/writers [CHP71]; Birrell on CVs from semaphores [B04]

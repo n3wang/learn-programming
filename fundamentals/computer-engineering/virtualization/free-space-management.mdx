@@ -1,0 +1,442 @@
+---
+sidebar_position: 17
+title: Free-Space Management
+---
+
+> **Source:** *Operating Systems: Three Easy Pieces* (OSTEP) — Chapter 17, Arpaci-Dusseau & Arpaci-Dusseau
+
+import FreeSpaceSimulator from "@site/src/components/interactive/FreeSpaceSimulator.js";
+
+# Free-Space Management
+
+A short detour from virtualization: how **any** memory manager tracks free space — a user-level **`malloc`/`free`** library *or* the OS placing **variable-sized segments**.
+
+Fixed-size units (paging) make this easy: keep a list of free slots, hand out the first. **Variable-sized** units are harder — and interesting.
+
+## The problem: external fragmentation
+
+```
+[ free 10 ] [ used 10 ] [ free 10 ]     total free = 20 bytes
+```
+
+A request for **15 bytes fails** — no single contiguous chunk is large enough, even though 20 bytes are free. That is **external fragmentation**.
+
+**Crux:** how manage free space for variable-sized requests? Which strategies limit fragmentation? What are the time and space costs?
+
+## Assumptions
+
+Most of this chapter follows user-level allocators (Wilson’s survey [W+95]).
+
+| Assumption | Meaning |
+|---|---|
+| **`malloc(size)` / `free(ptr)`** | Classic C heap API |
+| **`free` has no size** | Library recovers size from a **header** before `ptr` |
+| **Heap + free list** | Track free chunks in the managed region |
+| **Focus on external fragmentation** | Internal waste (padding) exists but we de-emphasize it |
+| **No compaction** | Once handed out, C pointers pin the block — cannot move it |
+| **Fixed-size heap region** | Real libraries may grow via `sbrk`; we keep life simple |
+
+Compaction *is* possible in the OS for segmentation (previous chapter) or in GC languages that can rewrite all references.
+
+## Low-level mechanisms
+
+### Splitting and coalescing
+
+30-byte heap with free list `(addr:0,len:10)` and `(addr:20,len:10)`:
+
+- Request **&gt; 10** → fail (`NULL`)
+- Request **10** → either free chunk works
+- Request **1** → **split**: return address 20; free list becomes `(0,10)` and `(21,9)`
+
+**Coalescing:** when `free(10)` returns the middle used block, do **not** leave three separate 10-byte free nodes. Merge neighbors → one `(0,30)` entry so a later `malloc(20)` can succeed.
+
+### Tracking size: headers
+
+```c
+typedef struct __header_t {
+    int size;
+    int magic;
+} header_t;
+```
+
+User gets `ptr` after the header. On free:
+
+```c
+void free(void *ptr) {
+    header_t *hptr = (void *)ptr - sizeof(header_t);
+    // assert(hptr->magic == 1234567);
+    // free region size = header + hptr->size
+}
+```
+
+Critical detail: a request for **N** bytes needs a free chunk of size **N + header** (e.g. 100 + 8 = **108**).
+
+### Embedding a free list
+
+You cannot call `malloc` inside the allocator to build list nodes. Store `{ size, next }` **inside** the free memory itself:
+
+```c
+typedef struct __node_t {
+    int size;
+    struct __node_t *next;
+} node_t;
+
+node_t *head = mmap(...);           // e.g. 4096-byte heap
+head->size = 4096 - sizeof(node_t); // 4088
+head->next = NULL;
+```
+
+After `malloc(100)` with an 8-byte header: allocate 108 bytes, shrink free node to **3980**. Three such allocs leave free size **3764**. Freeing the middle chunk without coalescing **fragments** the list; free everything without coalescing → Figure 17.7 mess; **merge neighbors** to restore one contiguous free region.
+
+### Growing the heap
+
+Out of space? Fail with `NULL`, or ask the OS (`sbrk` / `mmap`) for more pages, then continue allocating.
+
+## Basic strategies
+
+Ideal: **fast** and **low fragmentation**. Arbitrary request streams mean no policy always wins.
+
+| Policy | Rule | Pros / cons |
+|---|---|---|
+| **Best fit** | Smallest free chunk that still fits | Less leftover waste; full list scan |
+| **Worst fit** | Largest chunk; leave big remainder | Tries to avoid tiny splinters; often worse + still expensive |
+| **First fit** | First chunk that fits | Fast; can pollute the head of the list with small leftovers |
+| **Next fit** | Like first fit, resume from last search point | Spreads searches; similar to first fit |
+
+**Example free list:** sizes 10, 30, 20. Request **15**:
+
+| Policy | Picks | Leftover list idea |
+|---|---|---|
+| Best | 20 | 10, 30, **5** |
+| Worst | 30 | 10, **15**, 20 |
+| First | 30 (first big enough) | same leftover shape as worst, cheaper search |
+
+Address-ordered free lists make coalescing easier and can reduce fragmentation.
+
+## Other approaches
+
+### Segregated lists
+
+Keep a **separate free list** for popular object sizes; everything else goes to a general allocator. Fast path, less fragmentation for those sizes.
+
+**Slab allocator** (Bonwick, Solaris kernel) [B94]: caches for locks, inodes, …; when low, pull **slabs** (multiples of a page) from a general allocator; reclaim empty slabs when VM needs memory. Free objects often kept **pre-initialized** to skip costly init/destroy.
+
+### Buddy allocation
+
+Binary buddy [K65]: free space starts as size \(2^N\). Split by two until a block fits (further split would be too small). Only power-of-two sizes → **internal** fragmentation possible.
+
+Beauty: on free, check the **buddy** (address differs by one bit at that level); if free, coalesce up the tree. Coalescing is simple by design.
+
+### Scaling & multiprocessors
+
+List searches do not scale. Real allocators use trees, or designs like **Hoard** [B+00] and **jemalloc** [E06] for multithreaded heaps. See also glibc malloc deep-dives [S15].
+
+:::tip No best allocator
+If a thousand policies exist, none is universally great. Know the workload — or avoid variable-sized allocation entirely (**paging**, next).
+:::
+
+## Interactive
+
+<FreeSpaceSimulator />
+
+**Try:** external fragmentation · split · coalesce · best/worst/first · buddy splits.
+
+## Check your understanding
+
+<MultipleChoice
+  id="ce-free-space"
+  title="Free-space management"
+  questions={[
+    {
+      prompt: 'External fragmentation means…',
+      choices: [
+        'Waste inside an allocated block',
+        'Free memory split into non-contiguous pieces',
+        'The MMU is disabled',
+        'All pages are full',
+      ],
+      answer: 1,
+      why: 'Enough total free space may exist but not in one contiguous chunk.',
+    },
+    {
+      prompt: 'Coalescing runs when…',
+      choices: [
+        'malloc is called',
+        'A block is freed and merged with adjacent free neighbors',
+        'The CPU context-switches',
+        'A page fault occurs',
+      ],
+      answer: 1,
+      why: 'Merge neighbors so large requests can succeed.',
+    },
+    {
+      prompt: 'free(ptr) finds the block size using…',
+      choices: [
+        'The user passes size to free',
+        'A header stored just before ptr',
+        'Random guess',
+        'The page table',
+      ],
+      answer: 1,
+      why: 'header_t before the returned pointer holds size and magic.',
+    },
+    {
+      prompt: 'A request for N bytes with an 8-byte header needs a free chunk of at least…',
+      choices: ['N', 'N + 8', 'N − 8', '8'],
+      answer: 1,
+      why: 'Library searches for request + header size.',
+    },
+    {
+      prompt: 'Best fit chooses…',
+      choices: [
+        'The largest free chunk',
+        'The smallest free chunk that still fits the request',
+        'Always the first chunk',
+        'A random chunk',
+      ],
+      answer: 1,
+      why: 'Minimize leftover fragment in the chosen chunk.',
+    },
+    {
+      prompt: 'Buddy allocation makes coalescing easy because…',
+      choices: [
+        'Blocks are always 1 byte',
+        'Buddy addresses differ by a predictable bit; free buddies merge upward',
+        'Compaction runs every free',
+        'There is no free list',
+      ],
+      answer: 1,
+      why: 'Power-of-two splits + buddy check enable recursive coalesce.',
+    },
+    {
+      prompt: 'Compaction is hard in C because…',
+      choices: [
+        'Headers are too small',
+        'Programs hold pointers into the heap that would break if blocks moved',
+        'malloc is forbidden',
+        'Stacks grow upward',
+      ],
+      answer: 1,
+      why: 'Cannot relocate allocated objects without updating every pointer.',
+    },
+  ]}
+/>
+
+## Coding challenges
+
+<ExerciseSet title="Exercises" description="Split, coalesce, policies, and headers.">
+  <CodeExercise
+    title="split"
+    heading="Challenge: split_chunk"
+    lang="python"
+    filename="main.py"
+    prompt={`split_chunk(chunk_len, need) returns (need, chunk_len - need) after taking need bytes from the front.
+wrap: print split_chunk(10, 1).`}
+    sampleLog={`(1, 9)`}
+    starter={`def split_chunk(chunk_len, need):
+    return (0, 0)  # TODO
+`}
+    wrapSuffix={`
+print(split_chunk(10, 1))
+`}
+    hint={`Return tuple (allocated, remainder).`}
+    solution={`def split_chunk(chunk_len, need):
+    return (need, chunk_len - need)
+`}
+    sourceChecks={[
+      { name: 'returns tuple', pattern: 'return', must: true, hint: 'need and remainder' },
+    ]}
+    tests={[
+      { name: 'one from ten', stdin: '', equals: '(1, 9)' },
+    ]}
+  />
+  <CodeExercise
+    title="coalesce"
+    heading="Challenge: coalesce_free"
+    lang="python"
+    filename="main.py"
+    prompt={`coalesce_free(chunks) merges adjacent free (start,len,"free"|"used") into larger free extents; used stays.
+Assume sorted by start. Example: free 0-9, used 10-19, free 20-29 after freeing middle becomes one free 0-29.
+wrap: print coalesce of [(0,10,"free"),(10,10,"free"),(20,10,"free")].`}
+    sampleLog={`[(0, 30, 'free')]`}
+    starter={`def coalesce_free(chunks):
+    return chunks  # TODO
+`}
+    wrapSuffix={`
+print(coalesce_free([(0, 10, "free"), (10, 10, "free"), (20, 10, "free")]))
+`}
+    hint={`Walk list; if current free and next free abut, merge lengths.`}
+    solution={`def coalesce_free(chunks):
+    if not chunks:
+        return []
+    out = [list(chunks[0])]
+    for start, length, state in chunks[1:]:
+        prev = out[-1]
+        if state == "free" and prev[2] == "free" and prev[0] + prev[1] == start:
+            prev[1] += length
+        else:
+            out.append([start, length, state])
+    return [tuple(x) for x in out]
+`}
+    sourceChecks={[
+      { name: 'merges', pattern: 'free', must: true, hint: 'merge adjacent free chunks' },
+    ]}
+    tests={[
+      { name: 'three free', stdin: '', equals: "[(0, 30, 'free')]" },
+    ]}
+  />
+  <CodeExercise
+    title="best fit"
+    heading="Challenge: best_fit"
+    lang="python"
+    filename="main.py"
+    prompt={`best_fit(sizes, need) returns index of smallest size >= need, or -1.
+Chapter example: sizes [10,30,20], need 15 → index of 20.
+wrap: print best_fit([10,30,20], 15).`}
+    sampleLog={`2`}
+    starter={`def best_fit(sizes, need):
+    return -1  # TODO
+`}
+    wrapSuffix={`
+print(best_fit([10, 30, 20], 15))
+`}
+    hint={`Among fitting entries, pick minimum size.`}
+    solution={`def best_fit(sizes, need):
+    best = -1
+    best_len = None
+    for i, length in enumerate(sizes):
+        if length >= need and (best_len is None or length < best_len):
+            best = i
+            best_len = length
+    return best
+`}
+    sourceChecks={[
+      { name: 'scans sizes', pattern: 'for |enumerate', must: true, hint: 'scan free sizes' },
+    ]}
+    tests={[
+      { name: 'pick 20', stdin: '', equals: '2' },
+    ]}
+  />
+  <CodeExercise
+    title="worst vs first"
+    heading="Challenge: pick_policy"
+    lang="python"
+    filename="main.py"
+    prompt={`pick_policy(sizes, need, policy) returns index for "best"|"worst"|"first", or -1.
+best = smallest fit; worst = largest fit; first = first fit.
+wrap: print for [10,30,20] need 15 under best, worst, first.`}
+    sampleLog={`2
+1
+1`}
+    starter={`def pick_policy(sizes, need, policy):
+    return -1  # TODO
+`}
+    wrapSuffix={`
+print(pick_policy([10, 30, 20], 15, "best"))
+print(pick_policy([10, 30, 20], 15, "worst"))
+print(pick_policy([10, 30, 20], 15, "first"))
+`}
+    hint={`Branch on policy; first stops early.`}
+    solution={`def pick_policy(sizes, need, policy):
+    if policy == "first":
+        for i, length in enumerate(sizes):
+            if length >= need:
+                return i
+        return -1
+    best = -1
+    best_len = None
+    for i, length in enumerate(sizes):
+        if length < need:
+            continue
+        if policy == "best":
+            if best_len is None or length < best_len:
+                best, best_len = i, length
+        elif policy == "worst":
+            if best_len is None or length > best_len:
+                best, best_len = i, length
+    return best
+`}
+    sourceChecks={[
+      { name: 'branches policy', pattern: 'best|worst|first', must: true, hint: 'handle three policies' },
+    ]}
+    tests={[
+      { name: 'chapter example', stdin: '', equals: '2\n1\n1' },
+    ]}
+  />
+  <CodeExercise
+    title="header total"
+    heading="Challenge: alloc_size"
+    lang="python"
+    filename="main.py"
+    prompt={`alloc_size(request, header) returns bytes to take from the free list (request + header).
+wrap: print alloc_size(100, 8).`}
+    sampleLog={`108`}
+    starter={`def alloc_size(request, header):
+    return 0  # TODO
+`}
+    wrapSuffix={`
+print(alloc_size(100, 8))
+`}
+    hint={`Library searches for request + header.`}
+    solution={`def alloc_size(request, header):
+    return request + header
+`}
+    sourceChecks={[
+      { name: 'adds header', pattern: '\\+', must: true, hint: 'include header bytes' },
+    ]}
+    tests={[
+      { name: '108 bytes', stdin: '', equals: '108' },
+    ]}
+  />
+</ExerciseSet>
+
+## Homework lab: `malloc.py`
+
+Use the [OSTEP free-space homework](https://github.com/remzi-arpacidusseau/ostep-homework/tree/master/vm-freespace) (`malloc.py`). Predict free-list state before `-c`.
+
+<GuidedLab id="ostep-malloc" title="Homework: malloc.py">
+  <LabStep title="BEST fit baseline">
+    Run `-n 10 -H 0 -p BEST -s 0`. Predict each alloc/free return and sketch the free list after each step. What do you notice over time?
+  </LabStep>
+  <LabStep title="WORST fit">
+    Repeat with `-p WORST`. What changes in which chunks get chosen?
+  </LabStep>
+  <LabStep title="FIRST fit speed">
+    Try `-p FIRST`. What speeds up compared to best/worst?
+  </LabStep>
+  <LabStep title="List orderings">
+    Compare `-l ADDRSORT`, `-l SIZESORT+`, `-l SIZESORT-`. How do orderings interact with each policy’s search cost?
+  </LabStep>
+  <LabStep title="Coalescing matters">
+    Raise allocations to `-n 1000`. Run with and without `-C`. What happens to large requests? How big is the free list over time?
+  </LabStep>
+  <LabStep title="Percent allocated (-P)">
+    Raise `-P` above 50 toward 100, then toward 0. What happens to allocation success?
+  </LabStep>
+  <LabStep title="Craft fragmentation (-A)">
+    Use `-A` to build a highly fragmented free list. How do policies and options change the organization?
+  </LabStep>
+</GuidedLab>
+
+## Summary
+
+| Mechanism / idea | Role |
+|---|---|
+| **Free list** | Track variable free extents (often embedded in free memory) |
+| **Split** | Carve a small alloc from a larger free chunk |
+| **Coalesce** | Merge neighbors on free |
+| **Header** | Size + magic before user pointer |
+| **Best / worst / first / next** | Search policies — tradeoffs, no universal winner |
+| **Segregated / slab / buddy** | Specialization and easier coalescing |
+| **Limit** | Paging avoids variable-size external fragmentation |
+
+**Previous:** [Segmentation](./segmentation)
+
+**Next:** [Paging Introduction](./paging-introduction) — fixed-size pages and page tables.
+
+## Further Reading
+
+- Remzi & Andrea Arpaci-Dusseau — [*Operating Systems: Three Easy Pieces*](https://pages.cs.wisc.edu/~remzi/OSTEP/) Ch. 17
+- [OSTEP vm-freespace PDF](https://pages.cs.wisc.edu/~remzi/OSTEP/vm-freespace.pdf)
+- [OSTEP malloc.py homework](https://github.com/remzi-arpacidusseau/ostep-homework/tree/master/vm-freespace)
+- Wilson et al. [W+95]; Bonwick slab [B94]; Knowlton buddy [K65]; Hoard [B+00]; jemalloc [E06]

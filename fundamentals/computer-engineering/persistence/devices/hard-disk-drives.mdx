@@ -1,0 +1,308 @@
+---
+sidebar_position: 37
+title: Hard Disk Drives
+---
+
+> **Source:** *Operating Systems: Three Easy Pieces* (OSTEP) — Chapter 37, Arpaci-Dusseau & Arpaci-Dusseau
+
+import HardDiskDrivesSimulator from "@site/src/components/interactive/HardDiskDrivesSimulator.js";
+
+# Hard Disk Drives
+
+Hard drives were the main persistent store for decades; file-system design still leans on their behavior [RW92, ADR03].
+
+**Crux:** how do HDDs store and access data? What is the interface? How does scheduling help?
+
+## Interface
+
+A drive is an array of **sectors** (classically 512 B), addressed `0 … n−1`. Multi-sector I/O is common (e.g. 4 KB FS blocks), but manufacturers typically guarantee **atomicity only for a single sector** — larger writes can be **torn** on power loss.
+
+**Unwritten contract** [SG04]: nearby LBAs are faster than distant ones; **sequential** access is fastest.
+
+## Geometry
+
+| Piece | Role |
+|---|---|
+| **Platter / surface** | Magnetic media (often 2 sides per platter) |
+| **Spindle** | Spins at fixed RPM (e.g. 7.2K–15K) |
+| **Track** | Concentric ring of sectors |
+| **Head / arm** | Sense or write magnetism; seek across tracks |
+
+**I/O time:** seek → rotational delay → transfer.
+
+Seek phases: accelerate, coast, decelerate, **settle** (often 0.5–2 ms). Track **skew** keeps sequential I/O from missing the next sector after a track switch. **Multi-zone** disks put more sectors on outer tracks. On-drive **cache** (track buffer): reads may prefetch a track; writes may be **write-back** (fast, risky for ordered durability) or **write-through**.
+
+## Doing the math
+
+```text
+T_I/O = T_seek + T_rotation + T_transfer
+R_I/O = Size / T_I/O
+```
+
+Dimensional analysis helps: 10K RPM → 6 ms/rotation; half-rotation average ≈ 3 ms at 10K, 2 ms at 15K.
+
+**Random vs sequential** (Cheetah- vs Barracuda-class numbers in the text): random 4 KB may be **~0.3–0.7 MB/s**; sequential approaches **~100+ MB/s** — often **200–300×** apart.
+
+:::tip Use disks sequentially
+Prefer sequential transfers, or at least large contiguous chunks. Tiny random I/O destroys performance.
+:::
+
+Average **seek distance** over all track pairs ≈ **⅓** of a full stroke (geometry integral) — that is where the “one-third” lore comes from.
+
+## Disk scheduling
+
+The scheduler estimates positioning cost and approximates **SJF**.
+
+| Policy | Idea | Caveat |
+|---|---|---|
+| **SSTF / NBF** | Nearest track / nearest LBA next | **Starvation** of far requests |
+| **SCAN / C-SCAN** | Elevator sweeps (F-SCAN freezes queue) | Fairer; still weak on rotation |
+| **SPTF / SATF** | Minimize seek **+** rotation | Needs geometry; often **inside** the drive |
+
+Modern OS: pick a **window** of good requests, **merge** adjacent LBAs, let the drive’s SPTF finish. Sometimes **wait** briefly for a better request (**anticipatory**, non-work-conserving) [ID01].
+
+## Interactive
+
+<HardDiskDrivesSimulator />
+
+**Try:** geometry · I/O time · SSTF / SCAN / SPTF.
+
+## Check your understanding
+
+<MultipleChoice
+  id="ce-hard-disk-drives"
+  title="Hard disk drives"
+  questions={[
+    {
+      prompt: 'Drive manufacturers typically guarantee atomicity for…',
+      choices: [
+        'Any multi-megabyte write',
+        'A single sector write',
+        'Only sequential reads',
+        'Only write-back cache hits',
+      ],
+      answer: 1,
+      why: 'Larger writes may tear on power loss.',
+    },
+    {
+      prompt: 'TI/O is best modeled as…',
+      choices: [
+        'Only transfer time',
+        'Seek + rotation + transfer',
+        'Only RPM',
+        'Only cache size',
+      ],
+      answer: 1,
+      why: 'Three mechanical/electronic phases.',
+    },
+    {
+      prompt: 'Compared to sequential megabyte-scale I/O, random 4 KB I/O is typically…',
+      choices: [
+        'About the same rate',
+        'Orders of magnitude slower',
+        'Always faster',
+        'Independent of seek',
+      ],
+      answer: 1,
+      why: 'Seek+rotate dominate; tip: use disks sequentially.',
+    },
+    {
+      prompt: 'Track skew exists mainly so that…',
+      choices: [
+        'Outer tracks hold fewer sectors',
+        'After a track switch, the next sequential sector has not already passed the head',
+        'DMA becomes unnecessary',
+        'Write-back is disabled',
+      ],
+      answer: 1,
+      why: 'Settle time would otherwise cost nearly a full rotation.',
+    },
+    {
+      prompt: 'SSTF’s main fairness problem is…',
+      choices: [
+        'Ignoring the elevator',
+        'Starvation of distant tracks under a steady nearby stream',
+        'Forbidding NBF',
+        'Requiring write-through',
+      ],
+      answer: 1,
+      why: 'SCAN/C-SCAN address this.',
+    },
+    {
+      prompt: 'SPTF differs from SSTF by also accounting for…',
+      choices: [
+        'Only filesystem journaling',
+        'Rotational delay (positioning = seek + rotate)',
+        'USB bus speed only',
+        'Page cache size',
+      ],
+      answer: 1,
+      why: 'Sometimes a longer seek wins if rotation is worse on the nearer track.',
+    },
+  ]}
+/>
+
+## Coding challenges
+
+<ExerciseSet title="Exercises" description="RPM, I/O time, and scheduler picks.">
+  <CodeExercise
+    title="ms per rotation"
+    heading="Challenge: ms_per_rotation"
+    lang="python"
+    filename="main.py"
+    prompt={`ms_per_rotation(rpm) returns milliseconds for one full rotation.
+Formula: 60000 / rpm. wrap: print round(ms_per_rotation(10000), 1) and round(ms_per_rotation(15000), 1).`}
+    sampleLog={`6.0
+4.0`}
+    starter={`def ms_per_rotation(rpm):
+    return 0.0  # TODO
+`}
+    wrapSuffix={`
+print(round(ms_per_rotation(10000), 1))
+print(round(ms_per_rotation(15000), 1))
+`}
+    hint={`60000 ms per minute / RPM.`}
+    solution={`def ms_per_rotation(rpm):
+    return 60000.0 / rpm
+`}
+    sourceChecks={[
+      { name: 'divides', pattern: '60000|/', must: true, hint: 'ms per minute over rpm' },
+    ]}
+    tests={[
+      { name: '10k and 15k', stdin: '', equals: '6.0\n4.0' },
+    ]}
+  />
+  <CodeExercise
+    title="I/O time"
+    heading="Challenge: io_time_ms"
+    lang="python"
+    filename="main.py"
+    prompt={`io_time_ms(seek, rot, xfer) returns seek+rot+xfer.
+wrap: print io_time_ms(4, 2, 0.03).`}
+    sampleLog={`6.03`}
+    starter={`def io_time_ms(seek, rot, xfer):
+    return 0.0  # TODO
+`}
+    wrapSuffix={`
+print(io_time_ms(4, 2, 0.03))
+`}
+    hint={`Sum the three components.`}
+    solution={`def io_time_ms(seek, rot, xfer):
+    return seek + rot + xfer
+`}
+    sourceChecks={[
+      { name: 'sum', pattern: '\\+', must: true, hint: 'add components' },
+    ]}
+    tests={[
+      { name: 'cheetah-ish', stdin: '', equals: '6.03' },
+    ]}
+  />
+  <CodeExercise
+    title="SSTF pick"
+    heading="Challenge: sstf_next"
+    lang="python"
+    filename="main.py"
+    prompt={`sstf_next(head_track, requests) returns the request track nearest to head_track
+(absolute difference). If tie, pick the smaller track number.
+wrap: print sstf_next(2, [0, 5, 1]) and sstf_next(10, [0, 20]).`}
+    sampleLog={`1
+0`}
+    starter={`def sstf_next(head_track, requests):
+    return 0  # TODO
+`}
+    wrapSuffix={`
+print(sstf_next(2, [0, 5, 1]))
+print(sstf_next(10, [0, 20]))
+`}
+    hint={`min by (abs(diff), track).`}
+    solution={`def sstf_next(head_track, requests):
+    return min(requests, key=lambda t: (abs(t - head_track), t))
+`}
+    sourceChecks={[
+      { name: 'nearest', pattern: 'abs|min', must: true, hint: 'minimize distance' },
+    ]}
+    tests={[
+      { name: 'near and tie', stdin: '', equals: '1\n0' },
+    ]}
+  />
+  <CodeExercise
+    title="merge LBAs"
+    heading="Challenge: merge_adjacent"
+    lang="python"
+    filename="main.py"
+    prompt={`merge_adjacent(blocks) takes a sorted unique list of LBAs and merges runs of consecutive integers into (start, length) pairs.
+wrap: print merge_adjacent([8, 33, 34]).`}
+    sampleLog={`[(8, 1), (33, 2)]`}
+    starter={`def merge_adjacent(blocks):
+    return []  # TODO
+`}
+    wrapSuffix={`
+print(merge_adjacent([8, 33, 34]))
+`}
+    hint={`Walk once; extend length while next == start+length.`}
+    solution={`def merge_adjacent(blocks):
+    if not blocks:
+        return []
+    out = []
+    start = blocks[0]
+    length = 1
+    for b in blocks[1:]:
+        if b == start + length:
+            length += 1
+        else:
+            out.append((start, length))
+            start = b
+            length = 1
+    out.append((start, length))
+    return out
+`}
+    sourceChecks={[
+      { name: 'merges', pattern: 'for|append', must: true, hint: 'scan and coalesce' },
+    ]}
+    tests={[
+      { name: '33-34 merged', stdin: '', equals: '[(8, 1), (33, 2)]' },
+    ]}
+  />
+</ExerciseSet>
+
+## Homework lab: disk.py
+
+Use the [OSTEP disks homework](https://github.com/remzi-arpacidusseau/ostep-homework/tree/master/file-disks) (`disk.py` + animator).
+
+<GuidedLab id="ostep-file-disks" title="Homework: file-disks / disk.py">
+  <LabStep title="Timing components">
+    Run `-a` request sets; separate seek, rotation, transfer. Vary `-S` and `-R`.
+  </LabStep>
+  <LabStep title="SSTF vs SATF">
+    Compare `-p SSTF` and `-p SATF` on `-a 7,30,8` and find a workload where SATF wins.
+  </LabStep>
+  <LabStep title="Track skew">
+    Sequential `-a 10,11,12,13` without/with `-o skew`. Relate skew to seek rate.
+  </LabStep>
+  <LabStep title="Window & starvation">
+    Vary scheduling window; build an SATF starvation sequence; try bounded SATF (`-w`).
+  </LabStep>
+  <LabStep title="Greedy ≠ optimal">
+    Find a request set where greedy next-best is not globally optimal.
+  </LabStep>
+</GuidedLab>
+
+## Summary
+
+| Idea | Takeaway |
+|---|---|
+| **Sector array** | Linear LBAs; sequential/nearby assumed fast |
+| **Mechanics** | Seek + rotate + transfer |
+| **Workloads** | Random ≪ sequential (huge gap) |
+| **Schedulers** | SSTF → SCAN (fairness) → SPTF (rotation); merge + drive-internal reorder |
+
+**Previous:** [I/O Devices](./io-devices)
+
+**Next:** [RAID](./raid) — striping, mirroring, parity.
+
+## Further Reading
+
+- Remzi & Andrea Arpaci-Dusseau — [*Operating Systems: Three Easy Pieces*](https://pages.cs.wisc.edu/~remzi/OSTEP/) Ch. 37
+- [OSTEP file-disks PDF](https://pages.cs.wisc.edu/~remzi/OSTEP/file-disks.pdf)
+- [OSTEP file-disks homework](https://github.com/remzi-arpacidusseau/ostep-homework/tree/master/file-disks)
+- Ruemmler & Wilkes [RW92]; Anderson et al. [ADR03]; Iyer & Druschel anticipatory scheduling [ID01]

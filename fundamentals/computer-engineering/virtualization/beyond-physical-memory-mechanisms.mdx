@@ -1,0 +1,326 @@
+---
+sidebar_position: 21
+title: Beyond Physical Memory — Mechanisms
+---
+
+> **Source:** *Operating Systems: Three Easy Pieces* (OSTEP) — Chapter 21, Arpaci-Dusseau & Arpaci-Dusseau
+
+import BeyondPhysMechanismsSimulator from "@site/src/components/interactive/BeyondPhysMechanismsSimulator.js";
+
+# Beyond Physical Memory: Mechanisms
+
+So far every address space fit in RAM. Real systems support **many large** address spaces at once. That needs another level in the memory hierarchy: a big, slower device (disk or SSD) to hold pages that are not in demand.
+
+**Crux:** how use a larger, slower device to **transparently** give the illusion of a huge virtual address space?
+
+Convenience: allocate without worrying whether RAM is full. Multiprogramming also needs this — early machines could not hold every process’s pages at once.
+
+## Swap space
+
+Reserve disk for moving pages: **swap space**. The OS reads/writes it in page-sized units and remembers each page’s **disk address**. Capacity of swap bounds how much “memory” the system can pretend to have.
+
+Fig 21.1 toy: 4 physical frames, 8 swap blocks. Several processes share RAM; some valid pages live only on disk; one process may be fully swapped out.
+
+Code pages can also be re-fetched from the **file system binary** (not only swap) if the OS evicts them.
+
+## The present bit
+
+On a reference: TLB first. On miss, walk the PTE.
+
+Add a **present bit**:
+
+- **1** — page in physical memory; PFN usable  
+- **0** — not in memory (on disk); access is a **page fault**
+
+“Fault” is a bit of a misnomer for a *legal* but not-present page — historically the same trap path as illegal accesses.
+
+## The page-fault handler
+
+Almost always **software** (even with a hardware-managed TLB). Reasons: disk I/O is slow (OS overhead is noise), and hardware would need to understand swap and I/O.
+
+Rough flow when present=0:
+
+1. Read **disk address** from the PTE (bits that otherwise hold the PFN)  
+2. Find a free frame (or **evict** — next chapter’s policy)  
+3. **DiskRead** into that frame (process **blocked**; other jobs run)  
+4. Set present=1, store PFN, **retry** the instruction (may TLB-miss then hit)
+
+## Control flow (hardware sketch)
+
+On TLB miss, three important cases:
+
+| Case | Meaning |
+|---|---|
+| Valid + present | Fill TLB, retry |
+| Valid + not present | **PAGE_FAULT** → OS handler |
+| Invalid | **SEGMENTATION_FAULT** (bug) → usually kill |
+
+## When memory is full
+
+Evicting to free a frame is the **page-replacement policy** (next lesson). Wrong victims → disk-speed execution.
+
+## Watermarks and the page daemon
+
+Do not wait until free=0. Keep a cushion with **low watermark (LW)** and **high watermark (HW)**:
+
+- Free &lt; LW → wake **page daemon** / swap daemon  
+- Evict until free ≥ HW → sleep  
+
+Batching enables **clustering** writes to swap (better disk efficiency) [LL82].
+
+:::tip Do work in the background
+Background reclaim (and buffered writes) groups I/O, improves latency, and uses idle time [G+95].
+:::
+
+## Interactive
+
+<BeyondPhysMechanismsSimulator />
+
+**Try:** swap layout · page-fault path · LW/HW daemon.
+
+## Check your understanding
+
+<MultipleChoice
+  id="ce-beyond-phys-mech"
+  title="Beyond physical memory — mechanisms"
+  questions={[
+    {
+      prompt: 'Swap space is primarily…',
+      choices: [
+        'Faster than DRAM',
+        'Disk (or SSD) reserved for paging pages in and out',
+        'The TLB’s backup array',
+        'Only used for invalid pages',
+      ],
+      answer: 1,
+      why: 'Big and slower storage for pages not kept in RAM.',
+    },
+    {
+      prompt: 'Present bit = 0 on a valid PTE means…',
+      choices: [
+        'The process must be killed',
+        'The page is mapped but not in physical memory (page fault on access)',
+        'The VPN is illegal',
+        'The TLB is disabled',
+      ],
+      answer: 1,
+      why: 'Legal mapping, contents on disk — OS must page in.',
+    },
+    {
+      prompt: 'Who typically handles page faults?',
+      choices: [
+        'Only the TLB hardware, never the OS',
+        'The OS page-fault handler (even with hardware-managed TLBs)',
+        'The compiler',
+        'The disk firmware alone',
+      ],
+      answer: 1,
+      why: 'OS knows swap layout and can issue I/O.',
+    },
+    {
+      prompt: 'While a page is read from disk, the faulting process is usually…',
+      choices: [
+        'Running on another core with the same PC',
+        'Blocked; the OS can schedule other ready processes',
+        'Holding the TLB locked forever',
+        'Unable to be context-switched',
+      ],
+      answer: 1,
+      why: 'Overlap I/O with useful work.',
+    },
+    {
+      prompt: 'Low/high watermarks exist so the OS…',
+      choices: [
+        'Never uses swap',
+        'Reclaims pages in the background before memory is completely exhausted',
+        'Disables demand paging',
+        'Flushes the TLB every cycle',
+      ],
+      answer: 1,
+      why: 'Page daemon frees until HW; enables clustered writeback.',
+    },
+    {
+      prompt: 'Replacement policy decides…',
+      choices: [
+        'Which VPN bits to use',
+        'Which in-memory page to evict when space is needed',
+        'The ASID of a process',
+        'Whether to use multi-level page tables',
+      ],
+      answer: 1,
+      why: 'Covered in the next chapter (policies).',
+    },
+  ]}
+/>
+
+## Coding challenges
+
+<ExerciseSet title="Exercises" description="Present-bit checks, fault outcomes, and watermarks.">
+  <CodeExercise
+    title="present check"
+    heading="Challenge: access_outcome"
+    lang="python"
+    filename="main.py"
+    prompt={`access_outcome(valid, present, protect_ok) returns one of:
+"segfault" if not valid;
+"prot_fault" if valid but protect_ok is False;
+"page_fault" if valid, protect ok, present False;
+"ok" if valid, protect ok, present True.
+wrap: print for (0,1,1), (1,1,0), (1,0,1), (1,1,1).`}
+    sampleLog={`segfault
+prot_fault
+page_fault
+ok`}
+    starter={`def access_outcome(valid, present, protect_ok):
+    return "ok"  # TODO
+`}
+    wrapSuffix={`
+print(access_outcome(0, 1, 1))
+print(access_outcome(1, 1, 0))
+print(access_outcome(1, 0, 1))
+print(access_outcome(1, 1, 1))
+`}
+    hint={`Check valid first, then protect, then present.`}
+    solution={`def access_outcome(valid, present, protect_ok):
+    if not valid:
+        return "segfault"
+    if not protect_ok:
+        return "prot_fault"
+    if not present:
+        return "page_fault"
+    return "ok"
+`}
+    sourceChecks={[
+      { name: 'branches', pattern: 'if', must: true, hint: 'order the three fault cases' },
+    ]}
+    tests={[
+      { name: 'four outcomes', stdin: '', equals: 'segfault\nprot_fault\npage_fault\nok' },
+    ]}
+  />
+  <CodeExercise
+    title="need reclaim?"
+    heading="Challenge: need_daemon"
+    lang="python"
+    filename="main.py"
+    prompt={`need_daemon(free_pages, low_watermark) is True when free_pages < low_watermark.
+wrap: print need_daemon(2, 3) and need_daemon(5, 3).`}
+    sampleLog={`True
+False`}
+    starter={`def need_daemon(free_pages, low_watermark):
+    return False  # TODO
+`}
+    wrapSuffix={`
+print(need_daemon(2, 3))
+print(need_daemon(5, 3))
+`}
+    hint={`Strictly less than LW wakes the daemon.`}
+    solution={`def need_daemon(free_pages, low_watermark):
+    return free_pages < low_watermark
+`}
+    sourceChecks={[
+      { name: 'compares', pattern: '<', must: true, hint: 'free below LW' },
+    ]}
+    tests={[
+      { name: 'lw threshold', stdin: '', equals: 'True\nFalse' },
+    ]}
+  />
+  <CodeExercise
+    title="daemon done?"
+    heading="Challenge: daemon_done"
+    lang="python"
+    filename="main.py"
+    prompt={`daemon_done(free_pages, high_watermark) is True when free_pages >= high_watermark (daemon can sleep).
+wrap: print daemon_done(5, 6) and daemon_done(6, 6).`}
+    sampleLog={`False
+True`}
+    starter={`def daemon_done(free_pages, high_watermark):
+    return False  # TODO
+`}
+    wrapSuffix={`
+print(daemon_done(5, 6))
+print(daemon_done(6, 6))
+`}
+    hint={`Stop reclaiming once free reaches HW.`}
+    solution={`def daemon_done(free_pages, high_watermark):
+    return free_pages >= high_watermark
+`}
+    sourceChecks={[
+      { name: 'compares', pattern: '>=|>', must: true, hint: 'free at or above HW' },
+    ]}
+    tests={[
+      { name: 'hw threshold', stdin: '', equals: 'False\nTrue' },
+    ]}
+  />
+  <CodeExercise
+    title="frames to free"
+    heading="Challenge: pages_to_reclaim"
+    lang="python"
+    filename="main.py"
+    prompt={`pages_to_reclaim(free_pages, high_watermark) returns how many pages to free to reach HW (0 if already there).
+Example: free=2, HW=6 → 4.
+wrap: print pages_to_reclaim(2, 6) and pages_to_reclaim(8, 6).`}
+    sampleLog={`4
+0`}
+    starter={`def pages_to_reclaim(free_pages, high_watermark):
+    return 0  # TODO
+`}
+    wrapSuffix={`
+print(pages_to_reclaim(2, 6))
+print(pages_to_reclaim(8, 6))
+`}
+    hint={`max(0, HW - free).`}
+    solution={`def pages_to_reclaim(free_pages, high_watermark):
+    return max(0, high_watermark - free_pages)
+`}
+    sourceChecks={[
+      { name: 'uses max or branch', pattern: 'max|if', must: true, hint: 'non-negative reclaim count' },
+    ]}
+    tests={[
+      { name: '4 and 0', stdin: '', equals: '4\n0' },
+    ]}
+  />
+</ExerciseSet>
+
+## Homework lab: `vmstat` / `mem.c`
+
+OSTEP’s measurement homework uses [`mem.c`](https://github.com/remzi-arpacidusseau/ostep-homework/tree/master/vm-beyondphys) and `vmstat` on a real Linux machine (not the in-browser sandbox).
+
+<GuidedLab id="ostep-beyondphys-vmstat" title="Homework: vmstat and mem.c">
+  <LabStep title="Baseline vmstat">
+    In one terminal run `vmstat 1`. In another, `./mem 1`. How do CPU columns change? What if you run several `mem` instances?
+  </LabStep>
+  <LabStep title="swpd and free">
+    Run `./mem 1024` (or sized for your RAM). Watch `swpd` and `free`; then Ctrl-C. Does free jump by about what you expect?
+  </LabStep>
+  <LabStep title="Swap in/out">
+    Push past physical RAM (`./mem` with large args). When do `si`/`so` go non-zero? Compare the first loop vs later loops.
+  </LabStep>
+  <LabStep title="Bandwidth cliff">
+    Time loops that fit in RAM vs ones that thrash. Sketch size vs bandwidth. How close is SSD swap to DRAM?
+  </LabStep>
+  <LabStep title="Swap limits">
+    `swapon -s` — what happens as you exceed available swap? When does allocation fail?
+  </LabStep>
+</GuidedLab>
+
+## Summary
+
+| Piece | Role |
+|---|---|
+| **Swap space** | Disk backing for pages |
+| **Present bit** | In RAM vs on disk |
+| **Page fault** | OS brings page in (maybe after eviction) |
+| **LW / HW + daemon** | Proactive reclaim + clustered I/O |
+
+Transparency: the process still sees a private contiguous VA; behind the scenes pages move between RAM and disk.
+
+**Previous:** [Smaller Page Tables](./smaller-page-tables)
+
+**Next:** [Beyond Physical Memory — Policies](./beyond-physical-memory-policies) — which page to evict (OPT, FIFO, LRU, Clock).
+
+## Further Reading
+
+- Remzi & Andrea Arpaci-Dusseau — [*Operating Systems: Three Easy Pieces*](https://pages.cs.wisc.edu/~remzi/OSTEP/) Ch. 21
+- [OSTEP vm-beyondphys PDF](https://pages.cs.wisc.edu/~remzi/OSTEP/vm-beyondphys.pdf)
+- [OSTEP beyond-physical homework](https://github.com/remzi-arpacidusseau/ostep-homework/tree/master/vm-beyondphys)
+- Levy & Lipman VAX/VMS [LL82]; Denning history [D97]

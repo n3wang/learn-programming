@@ -177,7 +177,7 @@ public class Main {
   ]}
 />
 
-<CodingExam
+<CodeExercise
   title="truncate to int"
   heading="Try it: truncate to int"
   lang="java"
@@ -232,7 +232,7 @@ class Runner {
 :::tip Activity: Round vs truncate
 Read a double. Print two lines: the truncated `int` value (`(int)`), then the rounded value using `Math.round`.
 
-<CodingExam
+<CodeExercise
   title="Round vs truncate"
   heading="exercise-round-vs-truncate"
   lang="java"
@@ -271,7 +271,7 @@ class Runner {
 :::tip Activity: Average as double
 Read two integers. Print their average as a decimal (cast one of them to `double` before dividing).
 
-<CodingExam
+<CodeExercise
   title="Average as double"
   heading="exercise-average-as-double"
   lang="java"
@@ -314,7 +314,7 @@ class Runner {
 :::tip Activity: Char to int
 Read a single character. Print its integer (ASCII) value.
 
-<CodingExam
+<CodeExercise
   title="Char to int"
   heading="exercise-char-to-int"
   lang="java"

@@ -1,0 +1,354 @@
+---
+sidebar_position: 18
+title: Paging Introduction
+---
+
+> **Source:** *Operating Systems: Three Easy Pieces* (OSTEP) — Chapter 18, Arpaci-Dusseau & Arpaci-Dusseau
+
+import PagingIntroSimulator from "@site/src/components/interactive/PagingIntroSimulator.js";
+
+# Paging: Introduction
+
+OS space management often picks one of two paths:
+
+1. **Variable-sized pieces** — segmentation. Leads to **external fragmentation**.  
+2. **Fixed-sized pieces** — **paging** (Atlas [KE+62, L78]).
+
+Split the **virtual address space** into fixed-size **pages**. View physical memory as an array of **page frames**; each frame holds one page.
+
+**Crux:** how virtualize memory with pages to avoid segmentation’s problems — and keep space and time overheads reasonable?
+
+## A simple example
+
+Tiny **64-byte** address space → four **16-byte** pages (VPN 0–3). Physical memory: **128 bytes** → eight frames.
+
+Example placement (Figure 18.2):
+
+| Virtual page | Physical frame |
+|---|---|
+| 0 | 3 |
+| 1 | 7 |
+| 2 | 5 |
+| 3 | 2 |
+
+Frames 1, 4, 6 free; frame 0 reserved for the OS.
+
+**Advantages over segmentation:**
+
+- **Flexibility** — no assumptions about heap/stack growth direction  
+- **Simple free-space management** — grab free frames from a free list; no external fragmentation  
+
+### Page tables
+
+Per-process **page table** stores VPN → PFN translations. Another process gets its **own** table (except when sharing).
+
+### Address translation
+
+Virtual address → **VPN** + **offset**.
+
+64-byte space → 6 address bits; 16-byte pages → **2-bit VPN**, **4-bit offset**:
+
+```
+Va5 Va4 | Va3 Va2 Va1 Va0
+  VPN   |     offset
+```
+
+**Example:** `movl 21, %eax`
+
+- 21 = `010101` → VPN=`01` (1), offset=`0101` (5)  
+- Page table[1] = PFN **7** (`111`)  
+- Physical = `111` ‖ `0101` = `1110101` = **117**  
+
+The **offset is not translated** — it selects the byte within the page.
+
+## Where are page tables stored?
+
+Linear page tables can be **huge**.
+
+32-bit AS, 4 KB pages → 20-bit VPN → \(2^{20}\) PTEs. At 4 bytes/PTE → **4 MB per process**. 100 processes → **400 MB** just for tables.
+
+So: **no** full page table in on-chip MMU registers. Store tables in **memory** (for now: physical memory managed by the OS). A **page-table base register (PTBR)** points at the current process’s table.
+
+## What’s in a PTE?
+
+Simplest structure: **linear page table** — array indexed by VPN.
+
+| Field | Role |
+|---|---|
+| **Valid** | Translation exists; unused sparse pages → invalid (save frames) |
+| **Protection** | Read / write / execute |
+| **Present** | In RAM vs swapped to disk (later) |
+| **Dirty** | Modified since brought in |
+| **Referenced / accessed** | Popular for replacement policy |
+| **PFN** | Physical frame number |
+
+x86 PTEs pack present, R/W, U/S, cache bits, A, D, and the PFN [I09].
+
+## Paging: also too slow
+
+Every explicit load/store (and each instruction fetch) needs:
+
+1. Fetch **PTE** from the page table  
+2. Then fetch/store the **actual data**
+
+```c
+VPN     = (VirtualAddress & VPN_MASK) >> SHIFT;
+PTEAddr = PTBR + (VPN * sizeof(PTE));
+PTE     = AccessMemory(PTEAddr);
+// check valid + protect …
+offset  = VirtualAddress & OFFSET_MASK;
+PhysAddr = (PTE.PFN << SHIFT) | offset;
+Register = AccessMemory(PhysAddr);
+```
+
+≈ **2× memory references** — can cut performance roughly in half.
+
+**Two problems to solve next:** page tables are **too big** and translation is **too slow**.
+
+## Memory trace sketch
+
+Zeroing an array in a loop generates, per iteration roughly:
+
+- Instruction fetches (each needs a PTE lookup)  
+- One explicit store to the array (PTE + data)  
+
+With a 1 KB page and mapped code/array pages, the trace shows **page-table accesses interleaved** with code and array accesses (Figure 18.7) — and it only gets more complex from here.
+
+## Interactive
+
+<PagingIntroSimulator />
+
+**Try:** virtual/physical layout · translate VA 21 · PTE bits · extra memory access cost.
+
+## Check your understanding
+
+<MultipleChoice
+  id="ce-paging-intro"
+  title="Paging introduction"
+  questions={[
+    {
+      prompt: 'Paging avoids external fragmentation because…',
+      choices: [
+        'Pages are variable-sized',
+        'All frames are the same fixed size',
+        'There is no page table',
+        'Virtual addresses equal physical addresses',
+      ],
+      answer: 1,
+      why: 'Fixed-size frames — free list of frames is enough.',
+    },
+    {
+      prompt: 'In VA 21 with 16-byte pages and a 64-byte AS, the VPN is…',
+      choices: ['0', '1', '5', '21'],
+      answer: 1,
+      why: '21 = 010101 → VPN 01 = 1, offset 5.',
+    },
+    {
+      prompt: 'The offset field is…',
+      choices: [
+        'Replaced by the PFN',
+        'Left unchanged when forming the physical address',
+        'Always zero',
+        'Stored only in the PTE',
+      ],
+      answer: 1,
+      why: 'Offset selects the byte within the page; VPN→PFN only.',
+    },
+    {
+      prompt: 'A linear page table for a 32-bit AS with 4KB pages needs about…',
+      choices: [
+        '4 KB total',
+        '4 MB per process (≈1M PTEs × 4 bytes)',
+        'One PTE for the whole space',
+        'No memory — it lives only in registers',
+      ],
+      answer: 1,
+      why: '2^20 VPN entries × ~4 bytes ≈ 4 MB per process.',
+    },
+    {
+      prompt: 'The valid bit primarily enables…',
+      choices: [
+        'Faster addition',
+        'Sparse address spaces without allocating frames for unused pages',
+        'Disk swapping only',
+        'Disabling the MMU',
+      ],
+      answer: 1,
+      why: 'Invalid PTEs → no physical frame; access traps.',
+    },
+    {
+      prompt: 'Naive paging slows memory access because…',
+      choices: [
+        'Disk is always involved',
+        'Each reference needs an extra PTE memory fetch',
+        'Offsets are translated twice',
+        'Free lists are sorted',
+      ],
+      answer: 1,
+      why: 'Translate via page table in memory, then access data — often ~2× traffic.',
+    },
+  ]}
+/>
+
+## Coding challenges
+
+<ExerciseSet title="Exercises" description="VPN/offset split, translate, and page-table size.">
+  <CodeExercise
+    title="vpn offset"
+    heading="Challenge: split_va"
+    lang="python"
+    filename="main.py"
+    prompt={`split_va(vaddr, page_size) returns (vpn, offset) where offset = vaddr % page_size and vpn = vaddr // page_size.
+wrap: print split_va(21, 16).`}
+    sampleLog={`(1, 5)`}
+    starter={`def split_va(vaddr, page_size):
+    return (0, 0)  # TODO
+`}
+    wrapSuffix={`
+print(split_va(21, 16))
+`}
+    hint={`Integer division and remainder.`}
+    solution={`def split_va(vaddr, page_size):
+    return (vaddr // page_size, vaddr % page_size)
+`}
+    sourceChecks={[
+      { name: 'divides', pattern: '//|%', must: true, hint: 'vpn and offset from page_size' },
+    ]}
+    tests={[
+      { name: 'va 21', stdin: '', equals: '(1, 5)' },
+    ]}
+  />
+  <CodeExercise
+    title="translate"
+    heading="Challenge: translate"
+    lang="python"
+    filename="main.py"
+    prompt={`translate(vaddr, page_size, page_table) returns physical address, or "fault" if VPN missing/invalid.
+page_table maps vpn → pfn (dict).
+wrap: table {0:3,1:7,2:5,3:2}, page_size 16, print for 21 and 100.`}
+    sampleLog={`117
+fault`}
+    starter={`def translate(vaddr, page_size, page_table):
+    return "fault"  # TODO
+`}
+    wrapSuffix={`
+pt = {0: 3, 1: 7, 2: 5, 3: 2}
+print(translate(21, 16, pt))
+print(translate(100, 16, pt))
+`}
+    hint={`vpn, off = split; if vpn not in table → fault; else pfn*page_size + off.`}
+    solution={`def translate(vaddr, page_size, page_table):
+    vpn = vaddr // page_size
+    offset = vaddr % page_size
+    if vpn not in page_table:
+        return "fault"
+    return page_table[vpn] * page_size + offset
+`}
+    sourceChecks={[
+      { name: 'uses table', pattern: 'page_table', must: true, hint: 'look up VPN' },
+    ]}
+    tests={[
+      { name: '21 and OOB', stdin: '', equals: '117\nfault' },
+    ]}
+  />
+  <CodeExercise
+    title="page table size"
+    heading="Challenge: pt_bytes"
+    lang="python"
+    filename="main.py"
+    prompt={`pt_bytes(as_size, page_size, pte_size) = (as_size // page_size) * pte_size
+wrap: print for 2**32, 4096, 4 and for 2**16, 1024, 4.`}
+    sampleLog={`4194304
+256`}
+    starter={`def pt_bytes(as_size, page_size, pte_size):
+    return 0  # TODO
+`}
+    wrapSuffix={`
+print(pt_bytes(2**32, 4096, 4))
+print(pt_bytes(2**16, 1024, 4))
+`}
+    hint={`Number of pages × bytes per PTE.`}
+    solution={`def pt_bytes(as_size, page_size, pte_size):
+    return (as_size // page_size) * pte_size
+`}
+    sourceChecks={[
+      { name: 'multiplies', pattern: '\\*', must: true, hint: 'pages times pte_size' },
+    ]}
+    tests={[
+      { name: '32bit and tiny', stdin: '', equals: '4194304\n256' },
+    ]}
+  />
+  <CodeExercise
+    title="pte address"
+    heading="Challenge: pte_addr"
+    lang="python"
+    filename="main.py"
+    prompt={`pte_addr(ptbr, vpn, pte_size) = ptbr + vpn * pte_size
+wrap: print pte_addr(1024, 1, 4) and pte_addr(1024, 39, 4).`}
+    sampleLog={`1028
+1180`}
+    starter={`def pte_addr(ptbr, vpn, pte_size):
+    return 0  # TODO
+`}
+    wrapSuffix={`
+print(pte_addr(1024, 1, 4))
+print(pte_addr(1024, 39, 4))
+`}
+    hint={`Index into the linear array.`}
+    solution={`def pte_addr(ptbr, vpn, pte_size):
+    return ptbr + vpn * pte_size
+`}
+    sourceChecks={[
+      { name: 'indexes', pattern: 'ptbr|vpn', must: true, hint: 'base + vpn * size' },
+    ]}
+    tests={[
+      { name: 'two vpns', stdin: '', equals: '1028\n1180' },
+    ]}
+  />
+</ExerciseSet>
+
+## Homework lab: `paging-linear-translate.py`
+
+Use the [OSTEP paging homework](https://github.com/remzi-arpacidusseau/ostep-homework/tree/master/vm-paging) (`paging-linear-translate.py`). Predict before `-c`.
+
+<GuidedLab id="ostep-paging-linear" title="Homework: paging-linear-translate.py">
+  <LabStep title="Page-table size vs AS growth">
+    With `-v -n 0`, compare:
+    `-P 1k -a 1m -p 512m`, then `-a 2m`, then `-a 4m`.
+    How does linear page-table size change as the address space grows?
+  </LabStep>
+  <LabStep title="Page-table size vs page size">
+    Keep `-a 1m -p 512m`; try `-P 1k`, `2k`, `4k`. Trend as pages get larger? Why not always use huge pages?
+  </LabStep>
+  <LabStep title="Allocated fraction (-u)">
+    Tiny AS: `-P 1k -a 16k -p 32k -v` with `-u 0`, `25`, `50`, `75`, `100`. What changes as more pages are allocated?
+  </LabStep>
+  <LabStep title="Crazy parameters">
+    Try seeds and sizes from the chapter (8B pages, 1M pages, …). Which combinations are unrealistic and why?
+  </LabStep>
+  <LabStep title="Find the limits">
+    What happens if address-space size exceeds physical memory? Where does the simulator stop working?
+  </LabStep>
+</GuidedLab>
+
+## Summary
+
+| Idea | One line |
+|---|---|
+| **Pages / frames** | Fixed-size virtual and physical units |
+| **Page table** | Per-process VPN → PFN map |
+| **VPN + offset** | Split VA; replace VPN with PFN |
+| **Valid / protect** | Sparse spaces + access control |
+| **Cost** | Tables are large; each access needs a PTE fetch |
+| **Next** | TLBs (speed) and smaller/smarter tables (space) |
+
+**Previous:** [Free-Space Management](./free-space-management)
+
+**Next:** [TLBs](./tlb) — caching translations to avoid the extra memory access.
+
+## Further Reading
+
+- Remzi & Andrea Arpaci-Dusseau — [*Operating Systems: Three Easy Pieces*](https://pages.cs.wisc.edu/~remzi/OSTEP/) Ch. 18
+- [OSTEP vm-paging PDF](https://pages.cs.wisc.edu/~remzi/OSTEP/vm-paging.pdf)
+- [OSTEP paging homework](https://github.com/remzi-arpacidusseau/ostep-homework/tree/master/vm-paging)
+- Atlas [KE+62]; Intel SDM [I09] — x86 PTE format

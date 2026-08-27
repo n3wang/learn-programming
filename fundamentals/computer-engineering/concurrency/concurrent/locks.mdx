@@ -1,0 +1,361 @@
+---
+sidebar_position: 28
+title: Locks
+---
+
+> **Source:** *Operating Systems: Three Easy Pieces* (OSTEP) — Chapter 28, Arpaci-Dusseau & Arpaci-Dusseau
+
+import LocksSimulator from "@site/src/components/interactive/LocksSimulator.js";
+
+# Locks
+
+Concurrency needs **atomic** critical sections, but interrupts and multiprocessors break naive sequences. A **lock** (mutex) lets programmers wrap a CS so it executes as if it were one atomic instruction.
+
+```c
+lock_t mutex;
+lock(&mutex);
+balance = balance + 1;   // critical section
+unlock(&mutex);
+```
+
+The lock variable is **free** or **held** (exactly one **owner**). `lock()` acquires or waits; `unlock()` frees (or wakes a waiter). Locks give programmers a slice of scheduling control: at most one thread in that CS.
+
+## pthread mutex
+
+POSIX: `pthread_mutex_lock` / `unlock`. Different locks for different data → **fine-grained** concurrency vs one **coarse** global lock.
+
+## Evaluating locks
+
+| Axis | Question |
+|---|---|
+| **Correctness** | Mutual exclusion? |
+| **Fairness** | Can a waiter **starve**? |
+| **Performance** | Cost with no contention; with contention on 1 CPU; on many CPUs |
+
+**Crux:** build an efficient lock — what hardware? what OS?
+
+## Controlling interrupts
+
+Early uniprocessor trick: disable interrupts in the CS. Simple, but:
+
+- Trusts user code with a privileged op (greedy / infinite loop = hang)  
+- **Fails on multiprocessors**  
+- Long mask → lost interrupts  
+- Slow on modern CPUs  
+
+Still used **inside the OS** for short kernel critical sections.
+
+## Failed attempt: plain flag
+
+Spin while `flag==1`, then `flag=1`. **Broken:** test and set are not atomic — both threads can pass the test (Fig 28.2). Also **spin-waiting** wastes CPU (especially on one core while the holder is descheduled).
+
+:::tip Malicious scheduler
+Assume interrupts at the worst moment. If a bad schedule is *possible*, the design is wrong.
+:::
+
+Dekker / Peterson show locks with only loads/stores (theory interest); modern relaxed memory makes them impractical vs hardware atomics.
+
+## Test-and-set spin locks
+
+Atomic **TestAndSet(ptr, new)**: return old value, store `new`, indivisibly.
+
+```c
+while (TestAndSet(&lock->flag, 1) == 1)
+    ; // spin
+// unlock: flag = 0
+```
+
+Correct ME. **Not fair** (possible starvation). Spin cost: painful if holder preempted on 1 CPU; OK on multi-CPU if CS is short. Needs **preemption** on a uniprocessor or the spinner never yields.
+
+## Compare-and-swap
+
+`CompareAndSwap(ptr, expected, new)`: if `*ptr==expected`, store `new`; return actual. Spin lock: wait until CAS from 0→1 succeeds. More powerful than TAS (later: lock-free structures).
+
+## Load-linked / store-conditional
+
+**LL** loads; **SC** stores only if no intervening write to that address. Lock: spin until LL sees 0, then SC(1); retry on SC fail. Only one of two racing SC succeeds.
+
+## Fetch-and-add: ticket lock
+
+Atomic **FetchAndAdd** returns old and increments. Ticket lock [MS91]: `myturn = FetchAndAdd(&ticket)`; spin until `turn == myturn`; unlock does `turn++`. **Fair progress** once you hold a ticket — unlike plain TAS.
+
+## Too much spinning → yield, then sleep
+
+On one CPU, spinning for a preempted holder wastes whole timeslices.
+
+1. **Yield** while lock held — better than pure spin, still thrashing with many waiters; starvation remains.  
+2. **Queue + park/unpark** (Solaris-style, Fig 28.9): short **guard** spin-lock around flag/queue; failed acquire → enqueue, release guard, **park**. Unlock **unparks** next (often **pass** the lock without clearing flag). Use **setpark()** to avoid the wakeup/waiting race.  
+3. **Linux futex**: wait/wake on an address; fast path when uncontended; waiter count packed with lock bit.  
+4. **Two-phase locks**: spin briefly, then sleep (hybrid).
+
+:::warning Priority inversion
+High-priority spinner blocked on low-priority holder → hang (Pathfinder). Mitigations: avoid long spins, **priority inheritance**, or equal priorities.
+:::
+
+## Interactive
+
+<LocksSimulator />
+
+**Try:** lock API · broken flag · TAS · ticket · park/queue.
+
+## Check your understanding
+
+<MultipleChoice
+  id="ce-locks"
+  title="Locks"
+  questions={[
+    {
+      prompt: 'A mutex’s main job is to…',
+      choices: [
+        'Speed up the disk',
+        'Provide mutual exclusion for a critical section',
+        'Replace the scheduler',
+        'Disable the MMU',
+      ],
+      answer: 1,
+      why: 'At most one owner in the CS.',
+    },
+    {
+      prompt: 'Disabling interrupts as a lock fails on multiprocessors because…',
+      choices: [
+        'Interrupts are never privileged',
+        'Other CPUs can still run threads into the same CS',
+        'Spin locks cannot exist',
+        'CAS is illegal',
+      ],
+      answer: 1,
+      why: 'Masking is per-CPU.',
+    },
+    {
+      prompt: 'The plain flag lock (test then set) is incorrect because…',
+      choices: [
+        'Spinning is always illegal',
+        'The check and the set are not one atomic step',
+        'flag cannot be an int',
+        'unlock is missing',
+      ],
+      answer: 1,
+      why: 'Two threads can both see flag==0.',
+    },
+    {
+      prompt: 'Compared to TAS spin locks, a ticket lock mainly improves…',
+      choices: [
+        'Disk bandwidth',
+        'Fairness / progress for waiters',
+        'Page table size',
+        'TLB hit rate',
+      ],
+      answer: 1,
+      why: 'Assigned tickets are served in order.',
+    },
+    {
+      prompt: 'park/unpark (or futex wait/wake) exist mainly to…',
+      choices: [
+        'Avoid needless spinning when the lock is held a long time',
+        'Remove the need for atomic instructions',
+        'Make locks unfair on purpose',
+        'Turn off preemption forever',
+      ],
+      answer: 0,
+      why: 'Sleep until the lock is free; wake a waiter.',
+    },
+    {
+      prompt: 'Priority inversion with a spin lock can hang a system when…',
+      choices: [
+        'A high-priority thread spins forever waiting for a lock held by a preempted lower-priority thread',
+        'All threads have equal priority',
+        'Only one CPU exists and no locks are used',
+        'CAS always fails',
+      ],
+      answer: 0,
+      why: 'Classic spin + priority scheduling failure mode.',
+    },
+  ]}
+/>
+
+## Coding challenges
+
+<ExerciseSet title="Exercises" description="TAS acquire, ticket turns, and lock evaluation helpers.">
+  <CodeExercise
+    title="TAS try"
+    heading="Challenge: tas_acquired"
+    lang="python"
+    filename="main.py"
+    prompt={`tas_acquired(old_flag) models TestAndSet(flag, 1): it “returns” the old flag. Acquired if old was 0.
+Return True iff old_flag == 0.
+wrap: print tas_acquired(0) and tas_acquired(1).`}
+    sampleLog={`True
+False`}
+    starter={`def tas_acquired(old_flag):
+    return False  # TODO
+`}
+    wrapSuffix={`
+print(tas_acquired(0))
+print(tas_acquired(1))
+`}
+    hint={`Success when the atomic op saw free (0).`}
+    solution={`def tas_acquired(old_flag):
+    return old_flag == 0
+`}
+    sourceChecks={[
+      { name: 'compares', pattern: '==|not', must: true, hint: 'check old value' },
+    ]}
+    tests={[
+      { name: 'free vs held', stdin: '', equals: 'True\nFalse' },
+    ]}
+  />
+  <CodeExercise
+    title="ticket myturn"
+    heading="Challenge: next_ticket"
+    lang="python"
+    filename="main.py"
+    prompt={`next_ticket(ticket) models FetchAndAdd: returns (myturn, new_ticket) where myturn is the old ticket and new_ticket is old+1.
+wrap: print next_ticket(0) then next_ticket(1).`}
+    sampleLog={`(0, 1)
+(1, 2)`}
+    starter={`def next_ticket(ticket):
+    return (0, 0)  # TODO
+`}
+    wrapSuffix={`
+print(next_ticket(0))
+print(next_ticket(1))
+`}
+    hint={`myturn = ticket; then ticket+1.`}
+    solution={`def next_ticket(ticket):
+    return (ticket, ticket + 1)
+`}
+    sourceChecks={[
+      { name: 'increments', pattern: '\\+', must: true, hint: 'return old and old+1' },
+    ]}
+    tests={[
+      { name: 'two fetches', stdin: '', equals: '(0, 1)\n(1, 2)' },
+    ]}
+  />
+  <CodeExercise
+    title="ticket ready?"
+    heading="Challenge: ticket_ready"
+    lang="python"
+    filename="main.py"
+    prompt={`ticket_ready(myturn, turn) is True when myturn == turn (your turn to enter).
+wrap: print ticket_ready(0, 0), ticket_ready(1, 0), ticket_ready(1, 1).`}
+    sampleLog={`True
+False
+True`}
+    starter={`def ticket_ready(myturn, turn):
+    return False  # TODO
+`}
+    wrapSuffix={`
+print(ticket_ready(0, 0))
+print(ticket_ready(1, 0))
+print(ticket_ready(1, 1))
+`}
+    hint={`Equality of ticket and global turn.`}
+    solution={`def ticket_ready(myturn, turn):
+    return myturn == turn
+`}
+    sourceChecks={[
+      { name: 'compares', pattern: '==', must: true, hint: 'myturn equals turn' },
+    ]}
+    tests={[
+      { name: 'three cases', stdin: '', equals: 'True\nFalse\nTrue' },
+    ]}
+  />
+  <CodeExercise
+    title="CAS success"
+    heading="Challenge: cas_ok"
+    lang="python"
+    filename="main.py"
+    prompt={`cas_ok(actual, expected) is True when CompareAndSwap would update (actual == expected).
+wrap: print cas_ok(0, 0), cas_ok(1, 0).`}
+    sampleLog={`True
+False`}
+    starter={`def cas_ok(actual, expected):
+    return False  # TODO
+`}
+    wrapSuffix={`
+print(cas_ok(0, 0))
+print(cas_ok(1, 0))
+`}
+    hint={`Match expected before store.`}
+    solution={`def cas_ok(actual, expected):
+    return actual == expected
+`}
+    sourceChecks={[
+      { name: 'compares', pattern: '==', must: true, hint: 'actual equals expected' },
+    ]}
+    tests={[
+      { name: 'match miss', stdin: '', equals: 'True\nFalse' },
+    ]}
+  />
+  <CodeExercise
+    title="unlock path"
+    heading="Challenge: unlock_action"
+    lang="python"
+    filename="main.py"
+    prompt={`unlock_action(queue_empty) returns "free" if the waiter queue is empty (clear flag), else "unpark" (pass lock to next waiter — Fig 28.9).
+wrap: print unlock_action(True) and unlock_action(False).`}
+    sampleLog={`free
+unpark`}
+    starter={`def unlock_action(queue_empty):
+    return "free"  # TODO
+`}
+    wrapSuffix={`
+print(unlock_action(True))
+print(unlock_action(False))
+`}
+    hint={`Branch on whether anyone is waiting.`}
+    solution={`def unlock_action(queue_empty):
+    return "free" if queue_empty else "unpark"
+`}
+    sourceChecks={[
+      { name: 'branches', pattern: 'if', must: true, hint: 'empty vs non-empty queue' },
+    ]}
+    tests={[
+      { name: 'both paths', stdin: '', equals: 'free\nunpark' },
+    ]}
+  />
+</ExerciseSet>
+
+## Homework lab: `x86.py` locks
+
+Use the [OSTEP locks homework](https://github.com/remzi-arpacidusseau/ostep-homework/tree/master/threads-locks) (`flag.s`, `test-and-set.s`, `peterson.s`, `ticket.s`, `yield.s`, …).
+
+<GuidedLab id="ostep-threads-locks" title="Homework: x86.py locks">
+  <LabStep title="flag.s">
+    Understand the assembly. With defaults, does it work? Trace with `-M`/`-R`/`-c`. Change `-a bx=…` and `-i` — when do you get bad outcomes?
+  </LabStep>
+  <LabStep title="test-and-set.s">
+    How are acquire/release written with `xchg`? Vary `-i` and loop counts. When is the CPU wasted spinning? Try `-P` schedules.
+  </LabStep>
+  <LabStep title="peterson.s">
+    Set thread IDs (`-a bx=0,bx=1`). Explore `-i` and craft `-P` schedules that show ME and no deadlock.
+  </LabStep>
+  <LabStep title="ticket.s">
+    Match the chapter. Run `-a bx=1000,bx=1000`. How much spin? Add more threads.
+  </LabStep>
+  <LabStep title="yield vs TAS">
+    Find a case where `test-and-set.s` wastes cycles but `yield.s` does not. What does `test-and-test-and-set.s` save?
+  </LabStep>
+</GuidedLab>
+
+## Summary
+
+| Approach | ME? | Fair? | Notes |
+|---|---|---|---|
+| Interrupt disable | Uni yes | — | Not for apps / MP |
+| Plain flag | No | — | Race on test/set |
+| TAS / CAS spin | Yes | Poor | OK if CS short + multi-CPU |
+| Ticket (FAA) | Yes | Better | Ordered tickets |
+| Yield while held | Yes | Poor | Less spin, still waste |
+| Queue + park/futex | Yes | Controllable | Real libraries; two-phase hybrid |
+
+**Previous:** [Concurrency — An Introduction](./concurrency-introduction)
+
+**Next:** [Lock-based Concurrent Data Structures](./lock-based-data-structures) — counters, lists, queues, hash tables.
+
+## Further Reading
+
+- Remzi & Andrea Arpaci-Dusseau — [*Operating Systems: Three Easy Pieces*](https://pages.cs.wisc.edu/~remzi/OSTEP/) Ch. 28
+- [OSTEP threads-locks PDF](https://pages.cs.wisc.edu/~remzi/OSTEP/threads-locks.pdf)
+- [OSTEP threads-locks homework](https://github.com/remzi-arpacidusseau/ostep-homework/tree/master/threads-locks)
+- Mellor-Crummey & Scott [MS91]; Linux nptl / futex [L09]

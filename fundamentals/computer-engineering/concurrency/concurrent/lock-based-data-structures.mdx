@@ -1,0 +1,333 @@
+---
+sidebar_position: 29
+title: Lock-based Concurrent Data Structures
+---
+
+> **Source:** *Operating Systems: Three Easy Pieces* (OSTEP) — Chapter 29, Arpaci-Dusseau & Arpaci-Dusseau
+
+import ConcurrentStructuresSimulator from "@site/src/components/interactive/ConcurrentStructuresSimulator.js";
+
+# Lock-based Concurrent Data Structures
+
+Locks make a structure **thread-safe**. How you place them decides **correctness** and **scalability**.
+
+**Crux:** where to put locks so the structure is correct *and* many threads can proceed concurrently when it matters?
+
+## Concurrent counters
+
+**Simple pattern:** one mutex around every method (monitor-style [BH73]). Correct — and often enough.
+
+**Problem:** a hot shared counter does **not** scale. Four threads each doing 1M increments can be **orders of magnitude** slower than one thread (Fig 29.3). Ideal is **perfect scaling**: more CPUs finish more work in about the same wall time.
+
+### Approximate (sloppy) counters
+
+One **logical** counter ≈ many **local** counters (per CPU) + one **global**:
+
+1. Increment under the **local** lock (no cross-CPU contention).  
+2. When local ≥ threshold **S**, add local into **global** under `glock`, reset local.  
+3. `get()` returns **global** — approximate (lag ≤ `#CPUs × S` unless you lock everything).
+
+Small **S** → accurate, slow. Large **S** → scalable, looser. Fig 29.4/29.6 show the trade-off. Linux has cared about this for real multicore scaling [B+10][C06].
+
+## Concurrent linked lists
+
+Start with **one list lock** for insert/lookup/delete.
+
+**Control-flow tip:** don’t lock, then `malloc` fail, then unlock on every exit path — error-prone (~40% of some kernel bugs sit on rare paths [L+13]). Better:
+
+- Allocate **outside** the lock (if `malloc` is thread-safe).  
+- Hold the lock only to splice.  
+- Lookup: single unlock on a common return path (Fig 29.8).
+
+### Hand-over-hand (lock coupling)
+
+Lock **per node**; grab next, release current while walking. Sounds concurrent; in practice lock traffic often **beats** a single big lock. Measure before adopting.
+
+:::tip More concurrency ≠ faster
+Extra lock acquire/release can dominate. Build simple first; compare.
+:::
+
+## Concurrent queues
+
+**Michael & Scott** [MS98]: **headLock** + **tailLock** + a **dummy** node so enqueue (tail) and dequeue (head) rarely contend. Common multi-threaded building block; waiting when empty/full needs **condition variables** (next chapter).
+
+## Concurrent hash tables
+
+Non-resizing table: `BUCKETS` concurrent lists → **lock per bucket**. Operations on different buckets run in parallel. Fig 29.11: hash scales; single-lock list does not.
+
+:::tip Avoid premature optimization (Knuth)
+Start with **one big lock**. Refine only when measurement says you must. Linux’s **BKL**, then many locks; Solaris designed concurrency in from the start.
+:::
+
+## Interactive
+
+<ConcurrentStructuresSimulator />
+
+**Try:** precise vs approximate counters · list lock tips · MS queue · per-bucket hash.
+
+## Check your understanding
+
+<MultipleChoice
+  id="ce-lock-structures"
+  title="Lock-based concurrent structures"
+  questions={[
+    {
+      prompt: 'A single mutex around every counter method is…',
+      choices: [
+        'Always the fastest design',
+        'Correct but may scale poorly under contention',
+        'Incorrect on multiprocessors',
+        'Illegal in pthreads',
+      ],
+      answer: 1,
+      why: 'Simple and right; hot locks serialize everyone.',
+    },
+    {
+      prompt: 'In an approximate counter, larger threshold S tends to…',
+      choices: [
+        'Hurt scalability but perfect accuracy',
+        'Improve scalability while allowing a larger lag in get()',
+        'Remove the need for any locks',
+        'Force hand-over-hand locking',
+      ],
+      answer: 1,
+      why: 'Fewer global transfers; global trails locals.',
+    },
+    {
+      prompt: 'Doing malloc under a list lock (then unlocking on malloc failure) is risky mainly because…',
+      choices: [
+        'malloc is always lock-free',
+        'Extra unlock paths on rare failures are easy to get wrong',
+        'Lists cannot hold heap nodes',
+        'CAS is required for malloc',
+      ],
+      answer: 1,
+      why: 'Structure lock+alloc outside CS when possible.',
+    },
+    {
+      prompt: 'Michael & Scott’s queue uses two locks primarily to…',
+      choices: [
+        'Disable preemption',
+        'Allow concurrent enqueue and dequeue in the common case',
+        'Replace the dummy node with a stack',
+        'Avoid all memory allocation',
+      ],
+      answer: 1,
+      why: 'headLock vs tailLock with a dummy separator.',
+    },
+    {
+      prompt: 'A concurrent hash table of locked lists scales well when…',
+      choices: [
+        'All keys hash to one bucket',
+        'Operations spread across many buckets',
+        'There is only one thread',
+        'S is zero',
+      ],
+      answer: 1,
+      why: 'Per-bucket locks enable parallelism.',
+    },
+    {
+      prompt: 'Knuth’s advice for concurrent structures is closest to…',
+      choices: [
+        'Always use hand-over-hand locking first',
+        'Start simple (e.g. one lock); optimize only after measuring a problem',
+        'Never use locks',
+        'Prefer interrupt disabling in apps',
+      ],
+      answer: 1,
+      why: 'Premature optimization is the root of all evil.',
+    },
+  ]}
+/>
+
+## Coding challenges
+
+<ExerciseSet title="Exercises" description="Sloppy counters, buckets, and lag bounds.">
+  <CodeExercise
+    title="bucket index"
+    heading="Challenge: hash_bucket"
+    lang="python"
+    filename="main.py"
+    prompt={`hash_bucket(key, buckets) returns key % buckets (non-negative keys).
+Chapter style: key % 101.
+wrap: print hash_bucket(203, 101) and hash_bucket(101, 101).`}
+    sampleLog={`1
+0`}
+    starter={`def hash_bucket(key, buckets):
+    return 0  # TODO
+`}
+    wrapSuffix={`
+print(hash_bucket(203, 101))
+print(hash_bucket(101, 101))
+`}
+    hint={`Modulo buckets.`}
+    solution={`def hash_bucket(key, buckets):
+    return key % buckets
+`}
+    sourceChecks={[
+      { name: 'modulo', pattern: '%', must: true, hint: 'key mod buckets' },
+    ]}
+    tests={[
+      { name: '203 and 101', stdin: '', equals: '1\n0' },
+    ]}
+  />
+  <CodeExercise
+    title="need transfer?"
+    heading="Challenge: need_transfer"
+    lang="python"
+    filename="main.py"
+    prompt={`need_transfer(local, threshold) is True when local >= threshold (flush to global).
+wrap: print need_transfer(4, 5), need_transfer(5, 5), need_transfer(6, 5).`}
+    sampleLog={`False
+True
+True`}
+    starter={`def need_transfer(local, threshold):
+    return False  # TODO
+`}
+    wrapSuffix={`
+print(need_transfer(4, 5))
+print(need_transfer(5, 5))
+print(need_transfer(6, 5))
+`}
+    hint={`Compare to S.`}
+    solution={`def need_transfer(local, threshold):
+    return local >= threshold
+`}
+    sourceChecks={[
+      { name: 'compares', pattern: '>=|>', must: true, hint: 'local vs threshold' },
+    ]}
+    tests={[
+      { name: 'S=5', stdin: '', equals: 'False\nTrue\nTrue' },
+    ]}
+  />
+  <CodeExercise
+    title="apply update"
+    heading="Challenge: approx_update"
+    lang="python"
+    filename="main.py"
+    prompt={`approx_update(local, global_count, amt, threshold) adds amt to local.
+If local then >= threshold: add local into global_count, set local to 0.
+Return (new_local, new_global).
+Example: local=3, global=10, amt=2, S=5 → local becomes 5 → transfer → (0, 15).
+wrap: print approx_update(3, 10, 2, 5) and approx_update(1, 10, 2, 5).`}
+    sampleLog={`(0, 15)
+(3, 10)`}
+    starter={`def approx_update(local, global_count, amt, threshold):
+    return (local, global_count)  # TODO
+`}
+    wrapSuffix={`
+print(approx_update(3, 10, 2, 5))
+print(approx_update(1, 10, 2, 5))
+`}
+    hint={`Add amt first; maybe flush.`}
+    solution={`def approx_update(local, global_count, amt, threshold):
+    local = local + amt
+    if local >= threshold:
+        global_count = global_count + local
+        local = 0
+    return (local, global_count)
+`}
+    sourceChecks={[
+      { name: 'updates', pattern: '\\+|if', must: true, hint: 'add then maybe transfer' },
+    ]}
+    tests={[
+      { name: 'flush and noflush', stdin: '', equals: '(0, 15)\n(3, 10)' },
+    ]}
+  />
+  <CodeExercise
+    title="max lag"
+    heading="Challenge: max_lag"
+    lang="python"
+    filename="main.py"
+    prompt={`max_lag(num_cpus, threshold) returns the worst-case count sitting only in locals: num_cpus * threshold.
+wrap: print max_lag(4, 5) and max_lag(4, 1024).`}
+    sampleLog={`20
+4096`}
+    starter={`def max_lag(num_cpus, threshold):
+    return 0  # TODO
+`}
+    wrapSuffix={`
+print(max_lag(4, 5))
+print(max_lag(4, 1024))
+`}
+    hint={`Each CPU can hold almost S before transfer.`}
+    solution={`def max_lag(num_cpus, threshold):
+    return num_cpus * threshold
+`}
+    sourceChecks={[
+      { name: 'multiplies', pattern: '\\*', must: true, hint: 'cpus times S' },
+    ]}
+    tests={[
+      { name: 'two S values', stdin: '', equals: '20\n4096' },
+    ]}
+  />
+  <CodeExercise
+    title="queue empty?"
+    heading="Challenge: ms_queue_empty"
+    lang="python"
+    filename="main.py"
+    prompt={`ms_queue_empty(head_next_is_none) — Michael/Scott dequeue sees empty when the dummy/head’s next is None.
+Return True iff head_next_is_none.
+wrap: print ms_queue_empty(True) and ms_queue_empty(False).`}
+    sampleLog={`True
+False`}
+    starter={`def ms_queue_empty(head_next_is_none):
+    return False  # TODO
+`}
+    wrapSuffix={`
+print(ms_queue_empty(True))
+print(ms_queue_empty(False))
+`}
+    hint={`Empty iff no node after head.`}
+    solution={`def ms_queue_empty(head_next_is_none):
+    return bool(head_next_is_none)
+`}
+    sourceChecks={[
+      { name: 'returns flag', pattern: 'return', must: true, hint: 'use the boolean' },
+    ]}
+    tests={[
+      { name: 'empty check', stdin: '', equals: 'True\nFalse' },
+    ]}
+  />
+</ExerciseSet>
+
+## Homework lab: measure concurrent structures
+
+OSTEP’s Ch. 29 homework is **code + timing** on a real machine (`gettimeofday` / `rdtsc`), not the x86.py simulator.
+
+<GuidedLab id="ostep-threads-api" title="Homework: concurrent counters and lists">
+  <LabStep title="Timer confidence">
+    Measure with `gettimeofday()` (and optionally `rdtsc`). What is the smallest reliable interval?
+  </LabStep>
+  <LabStep title="Simple counter">
+    Locked counter; vary thread count. How many CPUs do you have? Does scaling match Fig 29.3’s pain?
+  </LabStep>
+  <LabStep title="Sloppy counter">
+    Implement approximate counters; sweep threads and threshold S. Plot time vs S.
+  </LabStep>
+  <LabStep title="Hand-over-hand list">
+    Implement lock coupling; compare to a single-lock list. When (if ever) does it win?
+  </LabStep>
+  <LabStep title="Your structure">
+    Pick a favorite structure; start with one lock, measure, then try a finer strategy and compare.
+  </LabStep>
+</GuidedLab>
+
+## Summary
+
+| Structure | Simple approach | Scaling idea |
+|---|---|---|
+| **Counter** | One mutex | Approximate / sloppy locals + S |
+| **List** | One mutex | Careful CS; HOH rarely faster |
+| **Queue** | One mutex | MS: head/tail locks + dummy |
+| **Hash** | One mutex | Lock per bucket (lists) |
+
+**Previous:** [Locks](./locks)
+
+**Next:** [Condition Variables](./condition-variables) — waiting, Mesa semantics, producer/consumer.
+
+## Further Reading
+
+- Remzi & Andrea Arpaci-Dusseau — [*Operating Systems: Three Easy Pieces*](https://pages.cs.wisc.edu/~remzi/OSTEP/) Ch. 29
+- [OSTEP threads-locks-usage PDF](https://pages.cs.wisc.edu/~remzi/OSTEP/threads-locks-usage.pdf)
+- Moir & Shavit survey [MS04]; Michael & Scott queue [MS98]; Linux scalable counters [B+10][C06]

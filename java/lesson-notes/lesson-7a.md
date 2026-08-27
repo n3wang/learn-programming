@@ -166,7 +166,7 @@ Output for `n = 4`:
 
 Read one integer `n`. Print a triangle of `*` with `n` rows: row `i` has `i` stars, no spaces between stars, one row per line.
 
-<CodingExam
+<CodeExercise
   title="star triangle"
   heading="Challenge: star triangle"
   lang="java"
@@ -212,7 +212,7 @@ Piston runs the file as `Main.java`, so the **public** class the tests call into
 
 Read two integers on one line: `row` and `limit`. Print the multiplication table row for `row`, from `row * 1` up to `row * limit`, space-separated.
 
-<CodingExam
+<CodeExercise
   title="multiplication row"
   heading="Challenge: multiplication row"
   lang="java"
@@ -268,7 +268,7 @@ class Runner {
 :::tip Activity: Checkerboard row
 Read one integer `n`. Print a single row of `n` characters alternating `#` and `.`, starting with `#` (e.g. for `n = 5`: `#.#.#`). You do not need a second nested loop for this one — think about how the column index (`col % 2`) decides which character to print.
 
-<CodingExam
+<CodeExercise
   title="Checkerboard row"
   heading="exercise-checkerboard"
   lang="java"
@@ -308,7 +308,7 @@ class Runner {
 :::tip Activity: Grid sum
 Read one integer `n`. Using two nested loops (rows 1..n, cols 1..n), add up `row * col` for every cell and print the total.
 
-<CodingExam
+<CodeExercise
   title="Grid sum"
   heading="exercise-grid-sum"
   lang="java"
@@ -351,7 +351,7 @@ class Runner {
 :::tip Activity: Fizz grid
 Read one integer `n`. For rows 1..n and cols 1..n, print `FB` if `row+col` is divisible by both 3 and 5, `F` if divisible by 3 only, `B` if divisible by 5 only, otherwise the sum `row+col` — all on one line per row, space-separated.
 
-<CodingExam
+<CodeExercise
   title="Fizz grid"
   heading="exercise-fizz-grid"
   lang="java"

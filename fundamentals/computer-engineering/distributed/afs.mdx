@@ -1,0 +1,301 @@
+---
+sidebar_position: 50
+title: The Andrew File System
+---
+
+> **Source:** *Operating Systems: Three Easy Pieces* (OSTEP) — Chapter 50, Arpaci-Dusseau & Arpaci-Dusseau
+
+import AfsSimulator from "@site/src/components/interactive/AfsSimulator.js";
+
+# The Andrew File System (AFS)
+
+CMU’s AFS (Satyanarayanan et al.) [H+88] aimed at **scale**: how many clients can one server support?
+
+NFS burns server time on frequent cache-validity checks. AFS also wanted **clear** user-visible consistency: on `open`, you generally get a consistent latest copy — not NFS’s timeout-dependent fuzziness.
+
+## AFSv1 (ITC DFS)
+
+**Whole-file caching** on the client’s **local disk** (Venus client / Vice servers):
+
+1. `open` → **Fetch** (full pathname) → write file to local disk
+2. `read` / `write` → local FS only (may also hit client RAM cache)
+3. `close` → if dirty, **Store** whole file back
+4. Later access → **TestAuth**; reuse local copy if unchanged
+
+Contrasts with NFS: whole files (not blocks), disk (not only memory). v1 cached file contents; directories stayed at the server.
+
+### What measurement found
+
+**Patterson’s Law:** measure the problem before rebuilding.
+
+| Problem | Effect |
+|---|---|
+| Pathname walks on Fetch/Store | Server CPU spent in directory traversal |
+| Too many TestAuths | Like NFS GETATTR storms |
+| (+ load imbalance, per-client processes) | Volumes + threads in v2 |
+
+Result: ~**20 clients** per overloaded server.
+
+## AFSv2: callbacks + FIDs
+
+**Crux:** redesign the protocol to cut server interactions and make remaining ones cheap.
+
+- **Callback:** server promises to notify the client if a cached file/dir changes → client stops polling (interrupts vs polling)
+- **FID:** volume ID + file ID + uniquifier (like an NFS file handle). Client walks the path **one component at a time**, caches each dir/file, and registers callbacks
+
+First open of `/home/remzi/notes.txt` does several Fetches; afterward, if callbacks remain valid, opens are **local**. Scale rose to ~**50 clients**/server; common-case speed near local disk.
+
+## Cache consistency
+
+| Scope | Rule |
+|---|---|
+| **Different machines** | Updates visible + remote caches invalidated at **close** (flush + break callbacks) |
+| **Same machine** | Immediate visibility (UNIX-like) |
+| **Concurrent writers** | **Last closer wins** — whole file from one client, not an NFS block mix |
+
+DFS baseline consistency is for casual “log into another machine and see my files” — apps that care about concurrent updates still need locks.
+
+## Crash recovery (cost of state)
+
+Callbacks live in server memory. Client reboot may miss callback breaks → treat cache as suspect; **TestAuth** before reuse. Server reboot forgets all callbacks → clients must revalidate. Heavier than NFS’s “just retry the stateless op.”
+
+## Performance vs NFS (qualitative)
+
+Often similar on first fetch. AFS wins on **large-file re-reads** (local disk cache vs NFS re-fetch). AFS loses on **overwrite** (fetch then replace) and **tiny I/O into huge files** (always whole-file). Workload assumptions matter: AFS assumed infrequent sharing and whole-file sequential access.
+
+## Other improvements
+
+True **global namespace**, serious **security**, flexible **ACLs**, admin tools for volumes. Marketplace favored open NFS/CIFS; AFS’s lasting influence is ideas (callbacks, clearer consistency) — NFSv4 even adds more server state.
+
+## Interactive
+
+<AfsSimulator />
+
+**Try:** goals · v1 limits · callbacks/FIDs · consistency · trade-offs.
+
+## Check your understanding
+
+<MultipleChoice
+  id="ce-afs"
+  title="Andrew File System"
+  questions={[
+    {
+      prompt: 'AFS’s primary design goal emphasized in this chapter is…',
+      choices: [
+        'Minimizing local disk use',
+        'Scaling the number of clients per server',
+        'Eliminating all caching',
+        'Replacing POSIX open/close',
+      ],
+      answer: 1,
+      why: 'Protocol chatter was the bottleneck.',
+    },
+    {
+      prompt: 'AFSv1 Fetch sent the full pathname, which hurt scale because…',
+      choices: [
+        'UDP cannot carry paths',
+        'Servers spent CPU walking directories for every request',
+        'Clients refused to cache',
+        'FIDs were mandatory in v1',
+      ],
+      answer: 1,
+      why: 'Measurement drove the redesign.',
+    },
+    {
+      prompt: 'A callback lets the client…',
+      choices: [
+        'Skip close forever',
+        'Assume a cached copy is valid until the server notifies otherwise',
+        'Disable whole-file caching',
+        'Avoid FIDs',
+      ],
+      answer: 1,
+      why: 'Push invalidation instead of polling.',
+    },
+    {
+      prompt: 'Across machines, AFS makes a writer’s updates visible to others primarily when…',
+      choices: [
+        'Each write() returns',
+        'The file is closed (flush + break callbacks)',
+        'Attribute cache times out at 3 seconds',
+        'TestAuth fails once',
+      ],
+      answer: 1,
+      why: 'Close-to-open style with explicit invalidation.',
+    },
+    {
+      prompt: '“Last closer wins” means concurrent remote writers produce…',
+      choices: [
+        'A mixed block-level file like NFS often can',
+        'An entire file from one client or the other',
+        'Automatic merge of JPEGs',
+        'No server Store',
+      ],
+      answer: 1,
+      why: 'Whole-file Store semantics.',
+    },
+    {
+      prompt: 'AFS tends to do worse than NFS when…',
+      choices: [
+        'Re-reading a large file that fits on local disk',
+        'Doing a tiny read/write inside a huge file (whole-file Fetch/Store)',
+        'Using a global namespace',
+        'Callbacks are valid',
+      ],
+      answer: 1,
+      why: 'Protocol fetches more than you touch.',
+    },
+  ]}
+/>
+
+## Coding challenges
+
+<ExerciseSet title="Exercises" description="Callbacks, close visibility, and last closer.">
+  <CodeExercise
+    title="use local cache?"
+    heading="Challenge: use_local_copy"
+    lang="python"
+    filename="main.py"
+    prompt={`use_local_copy(callback_valid) is True iff callback_valid.
+wrap: print use_local_copy(True), use_local_copy(False).`}
+    sampleLog={`True
+False`}
+    starter={`def use_local_copy(callback_valid):
+    return False  # TODO
+`}
+    wrapSuffix={`
+print(use_local_copy(True))
+print(use_local_copy(False))
+`}
+    hint={`Trust callback status.`}
+    solution={`def use_local_copy(callback_valid):
+    return callback_valid
+`}
+    sourceChecks={[
+      { name: 'return', pattern: 'return', must: true, hint: 'return the flag' },
+    ]}
+    tests={[
+      { name: 'valid/invalid', stdin: '', equals: 'True\nFalse' },
+    ]}
+  />
+  <CodeExercise
+    title="must Store?"
+    heading="Challenge: must_store"
+    lang="python"
+    filename="main.py"
+    prompt={`must_store(opened_for_write, dirty) True iff opened_for_write and dirty.
+wrap: print must_store(True, True), must_store(True, False).`}
+    sampleLog={`True
+False`}
+    starter={`def must_store(opened_for_write, dirty):
+    return False  # TODO
+`}
+    wrapSuffix={`
+print(must_store(True, True))
+print(must_store(True, False))
+`}
+    hint={`Both conditions.`}
+    solution={`def must_store(opened_for_write, dirty):
+    return opened_for_write and dirty
+`}
+    sourceChecks={[
+      { name: 'and', pattern: 'and', must: true, hint: 'combine flags' },
+    ]}
+    tests={[
+      { name: 'store cases', stdin: '', equals: 'True\nFalse' },
+    ]}
+  />
+  <CodeExercise
+    title="last closer"
+    heading="Challenge: last_closer_wins"
+    lang="python"
+    filename="main.py"
+    prompt={`last_closer_wins(close_order) where close_order is a list of client ids in close order;
+return the last id (winner on the server).
+wrap: print last_closer_wins([1, 2]), last_closer_wins([2, 1, 2]).`}
+    sampleLog={`2
+2`}
+    starter={`def last_closer_wins(close_order):
+    return 0  # TODO
+`}
+    wrapSuffix={`
+print(last_closer_wins([1, 2]))
+print(last_closer_wins([2, 1, 2]))
+`}
+    hint={`Last element.`}
+    solution={`def last_closer_wins(close_order):
+    return close_order[-1]
+`}
+    sourceChecks={[
+      { name: 'last', pattern: '-1|\\[-1\\]', must: true, hint: 'take last closer' },
+    ]}
+    tests={[
+      { name: 'two cases', stdin: '', equals: '2\n2' },
+    ]}
+  />
+  <CodeExercise
+    title="suspect cache?"
+    heading="Challenge: treat_cache_suspect"
+    lang="python"
+    filename="main.py"
+    prompt={`treat_cache_suspect(client_rebooted, server_rebooted) True if either rebooted
+(may have missed callback breaks / lost callback state).
+wrap: print treat_cache_suspect(True, False), treat_cache_suspect(False, False).`}
+    sampleLog={`True
+False`}
+    starter={`def treat_cache_suspect(client_rebooted, server_rebooted):
+    return False  # TODO
+`}
+    wrapSuffix={`
+print(treat_cache_suspect(True, False))
+print(treat_cache_suspect(False, False))
+`}
+    hint={`Either reboot.`}
+    solution={`def treat_cache_suspect(client_rebooted, server_rebooted):
+    return client_rebooted or server_rebooted
+`}
+    sourceChecks={[
+      { name: 'or', pattern: 'or', must: true, hint: 'either side' },
+    ]}
+    tests={[
+      { name: 'suspect cases', stdin: '', equals: 'True\nFalse' },
+    ]}
+  />
+</ExerciseSet>
+
+## Homework lab: afs.py
+
+Use the [OSTEP dist-afs homework](https://github.com/remzi-arpacidusseau/ostep-homework/tree/master/dist-afs) (`afs.py`).
+
+<GuidedLab id="ostep-afs-sim" title="Homework: afs.py">
+  <LabStep title="Predict reads">
+    Vary `-s`, `-f`, `-C`, `-r`, `-n` — predict intermediate and final file values; check with `-c`.
+  </LabStep>
+  <LabStep title="Callbacks & cache">
+    With `-d 3` / `-d 7` and `-c`, predict when callbacks fire and cache state at each step.
+  </LabStep>
+  <LabStep title="Schedules">
+    Workloads like `-A oa1:w1:c1,oa1:r1:c1` and schedules `-S 01`, `100011`, … — when does client 1 read 0 vs 1? What decides the final file on concurrent writes?
+  </LabStep>
+</GuidedLab>
+
+## Summary
+
+| Idea | Takeaway |
+|---|---|
+| **Scale** | Cut server chatter (callbacks, path FIDs) |
+| **Whole-file + disk** | Common case ≈ local FS |
+| **Consistency** | Close visibility + last closer; simple story |
+| **Cost** | Stateful recovery; bad for tiny/partial updates |
+| **Legacy** | Ideas & tools; NFS/CIFS won the market |
+
+**Previous:** [Sun’s NFS](./nfs)
+
+**Next:** Distributed systems dialogue / wrap-up (OSTEP Ch. 51+).
+
+## Further Reading
+
+- Remzi & Andrea Arpaci-Dusseau — [*Operating Systems: Three Easy Pieces*](https://pages.cs.wisc.edu/~remzi/OSTEP/) Ch. 50
+- [OSTEP AFS PDF](https://pages.cs.wisc.edu/~remzi/OSTEP/dist-afs.pdf)
+- [OSTEP dist-afs homework](https://github.com/remzi-arpacidusseau/ostep-homework/tree/master/dist-afs)
+- Howard et al. AFS [H+88]; ITC DFS [S+85]

@@ -183,7 +183,7 @@ class Main{
   ]}
 />
 
-<CodingExam
+<CodeExercise
   title="compare two ages"
   heading="Try it: compare two ages"
   lang="java"
@@ -282,7 +282,7 @@ Write code that takes two values from the user, userâ€™s age and his/her friendâ
 :::tip Activity: Is multiple of
 Read two integers `n` and `d`. Print `true` if `n` is a multiple of `d`, `false` otherwise.
 
-<CodingExam
+<CodeExercise
   title="Is multiple of"
   heading="exercise-is-multiple"
   lang="java"
@@ -325,7 +325,7 @@ class Runner {
 :::tip Activity: Min of two
 Read two integers. Print the smaller one, using a comparison (no `Math.min`).
 
-<CodingExam
+<CodeExercise
   title="Min of two"
   heading="exercise-min-of-two"
   lang="java"
@@ -370,7 +370,7 @@ class Runner {
 :::tip Activity: In range
 Read three integers: `value`, `low`, `high`. Print `true` if `value` is between `low` and `high` (inclusive), `false` otherwise.
 
-<CodingExam
+<CodeExercise
   title="In range"
   heading="exercise-in-range"
   lang="java"

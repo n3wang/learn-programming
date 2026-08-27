@@ -1,0 +1,297 @@
+---
+sidebar_position: 45
+title: Data Integrity
+---
+
+> **Source:** *Operating Systems: Three Easy Pieces* (OSTEP) — Chapter 45, Arpaci-Dusseau & Arpaci-Dusseau
+
+import DataIntegritySimulator from "@site/src/components/interactive/DataIntegritySimulator.js";
+
+# Data Integrity and Protection
+
+RAID assumed **fail-stop** disks. Real drives also fail **partially** [P+05]: some blocks become unreadable or silently wrong.
+
+**Crux:** how do we ensure what we write is what we read later — efficiently?
+
+## Disk failure modes
+
+| Fault | Symptom | Silent? |
+|---|---|---|
+| **Whole-disk** | Drive gone | No |
+| **Latent sector error (LSE)** | Read/write returns an error (ECC can’t fix) | No |
+| **Block corruption** | Wrong data returned; drive thinks it’s fine | **Yes** |
+
+Over ~1.5M drives / ~3 years [B+07,B+08]: cheap drives ~**9.4%** had ≥1 LSE, ~**0.5%** corruption; costly drives ~10× better — still not zero. LSEs show spatial/temporal locality; scrubbing finds most. Corruption varies by model and is **not independent** across RAID members.
+
+## Handling LSEs
+
+Detection is built-in. Recover with existing redundancy: other mirror copy or parity reconstruction.
+
+**Rebuild hazard:** reconstructing a failed disk while hitting an LSE on a survivor can fail the rebuild. Extra redundancy (e.g. NetApp **RAID-DP** dual parity) [C+04] covers that case — at space (and some update) cost.
+
+## Detecting corruption: checksums
+
+A **checksum** `C(D)` is a small summary of block `D`. Store it with the data; on read compare **stored** `Cs(D)` to **computed** `Cc(D)`.
+
+| Function | Notes |
+|---|---|
+| **XOR** | Fast; misses some multi-bit patterns |
+| **Addition** | Fast; weak on shifts |
+| **Fletcher** | Two running sums; near-CRC strength, cheap |
+| **CRC** | Binary modulo by agreed `k`; popular in networking |
+
+Collisions are inevitable (large → small). Stronger usually means slower — **no free lunch**.
+
+**Layout:** manufacturers may use 520 B sectors (8 B checksum); otherwise pack checksums into full sectors (extra RMW when updating one data block).
+
+**On mismatch:** use a redundant good copy, or return an error. Checksums **detect**; they don’t invent correct data.
+
+## Harder silent faults
+
+**Misdirected write** — correct payload, wrong LBA/disk. Fix: store **physical ID** (disk #, offset) with the checksum; verify on read.
+
+**Lost write** — device claims success; old block remains. Basic `C(D)` and physical ID still match the **old** data. Mitigations: **read-after-write** (2× I/O) or a checksum in a parent structure (ZFS inode/indirect) so orphaned old data fails the upper check.
+
+## Scrubbing and overheads
+
+Cold data may never be read by apps → bit rot can kill every copy unnoticed. **Scrub** periodically (nightly/weekly): read all blocks, verify checksums.
+
+| Overhead | Typical |
+|---|---|
+| Disk space | ~8 B / 4 KB ≈ **0.2%** |
+| Memory | Transient unless you keep checksums for RAM protection |
+| CPU | Compute on store + load; often combined with copy |
+| I/O | Extra if checksums live separately; scrub is tunable background |
+
+## Interactive
+
+<DataIntegritySimulator />
+
+**Try:** fault types · LSE recovery · checksum use · misdirect/lost write · cost.
+
+## Check your understanding
+
+<MultipleChoice
+  id="ce-data-integrity"
+  title="Data integrity"
+  questions={[
+    {
+      prompt: 'Compared to fail-stop, the fail-partial model adds…',
+      choices: [
+        'Only network partitions',
+        'Per-block LSEs and silent corruption while the disk seems up',
+        'Guaranteed atomic multi-block writes',
+        'Free dual parity on every drive',
+      ],
+      answer: 1,
+      why: 'Partial faults are the integrity focus of this chapter.',
+    },
+    {
+      prompt: 'LSEs are easier than corruption mainly because…',
+      choices: [
+        'They never happen on cheap drives',
+        'The disk reports an error, so detection is free',
+        'Checksums are unnecessary for RAID',
+        'They only affect SSDs',
+      ],
+      answer: 1,
+      why: 'Recover with mirrors/parity once detected.',
+    },
+    {
+      prompt: 'On read, integrity checking compares…',
+      choices: [
+        'Only the inode size field',
+        'Stored checksum Cs(D) to recomputed Cc(D)',
+        'Cylinder number to zone number',
+        'TRIM hints only',
+      ],
+      answer: 1,
+      why: 'Mismatch ⇒ corruption detected.',
+    },
+    {
+      prompt: 'A physical ID next to the checksum helps detect…',
+      choices: [
+        'Lost writes only',
+        'Misdirected writes (right data, wrong place)',
+        'Network latency',
+        'SLC vs TLC',
+      ],
+      answer: 1,
+      why: 'Verify disk# and offset match the address you asked for.',
+    },
+    {
+      prompt: 'Lost writes are hard for a lone block checksum because…',
+      choices: [
+        'CRC cannot run on disks',
+        'The old block still has a matching checksum and correct physical ID',
+        'RAID forbids checksums',
+        'Scrubbing disables maps',
+      ],
+      answer: 1,
+      why: 'Need verify or a checksum in a parent object.',
+    },
+    {
+      prompt: 'Disk scrubbing exists primarily to…',
+      choices: [
+        'Defragment directories',
+        'Verify rarely accessed data before all copies rot',
+        'Replace the FTL',
+        'Turn off ECC',
+      ],
+      answer: 1,
+      why: 'Unchecked cold data is dangerous.',
+    },
+  ]}
+/>
+
+## Coding challenges
+
+<ExerciseSet title="Exercises" description="Checksums and integrity checks.">
+  <CodeExercise
+    title="XOR checksum"
+    heading="Challenge: xor_checksum"
+    lang="python"
+    filename="main.py"
+    prompt={`xor_checksum(chunks) XORs all ints in the list and returns the result.
+wrap: print xor_checksum([0x365ec4cd, 0xba148a92, 0xecef2c3a, 0x40bef666]).`}
+    sampleLog={`538678275`}
+    starter={`def xor_checksum(chunks):
+    return 0  # TODO
+`}
+    wrapSuffix={`
+print(xor_checksum([0x365ec4cd, 0xba148a92, 0xecef2c3a, 0x40bef666]))
+`}
+    hint={`Fold with ^= starting from 0.`}
+    solution={`def xor_checksum(chunks):
+    x = 0
+    for c in chunks:
+        x ^= c
+    return x
+`}
+    sourceChecks={[
+      { name: 'xor', pattern: '\\^=|\\^', must: true, hint: 'use XOR' },
+    ]}
+    tests={[
+      { name: 'ostep example', stdin: '', equals: '538678275' },
+    ]}
+  />
+  <CodeExercise
+    title="verify"
+    heading="Challenge: checksum_ok"
+    lang="python"
+    filename="main.py"
+    prompt={`checksum_ok(stored, computed) is True iff equal.
+wrap: print checksum_ok(1, 1), checksum_ok(1, 2).`}
+    sampleLog={`True
+False`}
+    starter={`def checksum_ok(stored, computed):
+    return False  # TODO
+`}
+    wrapSuffix={`
+print(checksum_ok(1, 1))
+print(checksum_ok(1, 2))
+`}
+    hint={`Equality.`}
+    solution={`def checksum_ok(stored, computed):
+    return stored == computed
+`}
+    sourceChecks={[
+      { name: 'eq', pattern: '==', must: true, hint: 'compare' },
+    ]}
+    tests={[
+      { name: 'match/mismatch', stdin: '', equals: 'True\nFalse' },
+    ]}
+  />
+  <CodeExercise
+    title="Fletcher s1"
+    heading="Challenge: fletcher_s1"
+    lang="python"
+    filename="main.py"
+    prompt={`fletcher_s1(data) computes s1 = 0; for each byte di: s1 = (s1 + di) % 255; return s1.
+wrap: print fletcher_s1([1, 2, 3, 4]).`}
+    sampleLog={`10`}
+    starter={`def fletcher_s1(data):
+    return 0  # TODO
+`}
+    wrapSuffix={`
+print(fletcher_s1([1, 2, 3, 4]))
+`}
+    hint={`Running sum mod 255.`}
+    solution={`def fletcher_s1(data):
+    s1 = 0
+    for di in data:
+        s1 = (s1 + di) % 255
+    return s1
+`}
+    sourceChecks={[
+      { name: 'mod', pattern: '%\\s*255|255', must: true, hint: 'mod 255' },
+    ]}
+    tests={[
+      { name: '1..4', stdin: '', equals: '10' },
+    ]}
+  />
+  <CodeExercise
+    title="physical ID check"
+    heading="Challenge: phys_id_ok"
+    lang="python"
+    filename="main.py"
+    prompt={`phys_id_ok(want_disk, want_blk, got_disk, got_blk) True iff both pairs match.
+wrap: print phys_id_ok(10, 4, 10, 4), phys_id_ok(10, 4, 10, 5).`}
+    sampleLog={`True
+False`}
+    starter={`def phys_id_ok(want_disk, want_blk, got_disk, got_blk):
+    return False  # TODO
+`}
+    wrapSuffix={`
+print(phys_id_ok(10, 4, 10, 4))
+print(phys_id_ok(10, 4, 10, 5))
+`}
+    hint={`Both equal.`}
+    solution={`def phys_id_ok(want_disk, want_blk, got_disk, got_blk):
+    return want_disk == got_disk and want_blk == got_blk
+`}
+    sourceChecks={[
+      { name: 'and', pattern: 'and|==', must: true, hint: 'both fields' },
+    ]}
+    tests={[
+      { name: 'ok/bad', stdin: '', equals: 'True\nFalse' },
+    ]}
+  />
+</ExerciseSet>
+
+## Homework lab: checksums
+
+Use the [OSTEP file-integrity homework](https://github.com/remzi-arpacidusseau/ostep-homework/tree/master/file-integrity) (`checksum.py` + C coding).
+
+<GuidedLab id="ostep-checksum-sim" title="Homework: checksum.py + code">
+  <LabStep title="Simulator">
+    Run `checksum.py`, vary `-s`, use `-c`. Find non-zero data where add and XOR match; find collisions for add and XOR; compare Fletcher on `[1,2,3,4]` vs `[4,3,2,1]`.
+  </LabStep>
+  <LabStep title="Implement">
+    Write `check-xor.c` and `check-fletcher.c`; time them with `gettimeofday`. Optionally implement 16-bit CRC.
+  </LabStep>
+  <LabStep title="Block tools">
+    `create-csum.c` / `check-csum.c`: per-4KB checksums; corrupt a file and confirm detection.
+  </LabStep>
+</GuidedLab>
+
+## Summary
+
+| Technique | Guards against |
+|---|---|
+| **RAID / mirrors** | LSEs (once detected), disk loss |
+| **Checksums** | Silent corruption |
+| **Physical IDs** | Misdirected writes |
+| **Parent checksums / verify** | Lost writes |
+| **Scrubbing** | Rot of cold replicas |
+
+**Previous:** [Flash-based SSDs](./flash-based-ssds)
+
+**Next:** [Persistence Dialogue](./persistence-dialogue) — recap the persistence arc.
+
+## Further Reading
+
+- Remzi & Andrea Arpaci-Dusseau — [*Operating Systems: Three Easy Pieces*](https://pages.cs.wisc.edu/~remzi/OSTEP/) Ch. 45
+- [OSTEP data integrity PDF](https://pages.cs.wisc.edu/~remzi/OSTEP/file-integrity.pdf)
+- [OSTEP file-integrity homework](https://github.com/remzi-arpacidusseau/ostep-homework/tree/master/file-integrity)
+- Bairavasundaram LSE/corruption studies [B+07,B+08]; IRON File Systems [P+05]

@@ -1,0 +1,301 @@
+---
+sidebar_position: 44
+title: Flash-based SSDs
+---
+
+> **Source:** *Operating Systems: Three Easy Pieces* (OSTEP) — Chapter 44, Arpaci-Dusseau & Arpaci-Dusseau
+
+import FlashSsdSimulator from "@site/src/components/interactive/FlashSsdSimulator.js";
+
+# Flash-based SSDs
+
+Solid-state storage has **no moving parts** — NAND flash transistors that retain charge across power loss. Fujio Masuoka’s flash (1980s) has quirks that make SSD design hard:
+
+**Crux:** how to build a flash SSD despite expensive **erase** and **wear out** from repeated program/erase?
+
+## Raw flash: bits → pages → blocks
+
+| Term (flash) | Typical size | Role |
+|---|---|---|
+| **Cell** | 1–3 bits (SLC / MLC / TLC) | Charge level encodes value |
+| **Page** | ~2–4 KB | Unit of **read** / **program** |
+| **Erase block** | ~128–256 KB | Unit of **erase** (many pages) |
+
+**Ops**
+
+- **Read(page)** — tens of μs, roughly location-independent (true random access vs disk)
+- **Erase(block)** — milliseconds; sets bits to 1; **destroys** all pages in the block
+- **Program(page)** — ~100s μs; can only change 1→0 after erase; once VALID, must erase block to rewrite
+
+States: INVALID → erase → ERASED → program → VALID. You cannot re-program a VALID page in place.
+
+**Reliability:** wear out (~10k P/E MLC, ~100k SLC); read/program **disturb** on neighbors. Program pages low→high within a block to reduce disturb.
+
+## From chips to a block device: the FTL
+
+An SSD exposes a normal **logical block** interface. Internally: flash chips + SRAM (cache/maps) + controller. The **flash translation layer (FTL)** maps client reads/writes to read/erase/program, aiming for:
+
+- Low **write amplification** (bytes written to flash / bytes from client)
+- **Wear leveling** (spread P/E across blocks)
+- Parallelism across chips
+
+### Direct-mapped FTL (bad)
+
+Logical N ↔ physical N. Every write: read whole erase block, erase, reprogram → terrible amp and hot-spot wear. Don’t do this.
+
+### Log-structured FTL (common)
+
+Append each write to the next free page; update an in-memory **LBA → physical** map. Erases happen when opening a new block; overwrites leave **garbage**.
+
+**Garbage collection:** find blocks with dead pages, relocate live pages to the log, erase the old block. Ideal reclaim target: all-dead. **Overprovisioning** delays GC and hides cleaning bandwidth.
+
+**TRIM:** host tells the device LBAs are unused → drop maps, reclaim earlier.
+
+**Map persistence:** OOB metadata per page (slow full scan on boot) or logging/checkpoints (faster recovery).
+
+### Mapping table size
+
+Page-level maps need too much DRAM (e.g. ~1 GB for 1 TB @ 4 KB). Options:
+
+| Scheme | Memory | Write pain |
+|---|---|---|
+| **Page map** | Huge | Flexible |
+| **Block map** | Small | Small write → copy whole block |
+| **Hybrid** | Log blocks page-mapped; data blocks block-mapped | **Switch / partial / full** merges |
+| **Cached page map** (DFTL) | Only hot entries | Misses cost extra flash I/O |
+
+### Wear leveling
+
+Log + GC help, but **cold** long-lived data never frees its block. FTL must periodically migrate cold live data so every block gets write traffic — more write amp for fairness.
+
+## Performance vs cost
+
+SSDs crush HDDs on **random** IOPS; sequential gap is smaller. Log FTLs turn random client writes into sequential flash programs. HDDs still win **$/GB** → hybrid “hot on SSD, cold on disk” tiers remain common.
+
+## Interactive
+
+<FlashSsdSimulator />
+
+**Try:** raw ops · bad direct FTL · log FTL + GC · mapping schemes · wear/cost.
+
+## Check your understanding
+
+<MultipleChoice
+  id="ce-flash-ssd"
+  title="Flash-based SSDs"
+  questions={[
+    {
+      prompt: 'Before programming a flash page that was already written, the device must…',
+      choices: [
+        'Only issue a disk seek',
+        'Erase the entire erase block containing that page',
+        'TRIM the page only',
+        'Flip bits without erase',
+      ],
+      answer: 1,
+      why: 'Flash cannot overwrite a programmed page in place.',
+    },
+    {
+      prompt: 'Write amplification is…',
+      choices: [
+        'Client bytes / flash bytes',
+        'Flash bytes written by the FTL divided by client write bytes',
+        'Only the erase latency',
+        'The number of SLC cells',
+      ],
+      answer: 1,
+      why: 'GC and copies inflate bytes hitting the chips.',
+    },
+    {
+      prompt: 'A log-structured FTL improves on direct mapping mainly by…',
+      choices: [
+        'Removing the need for any map',
+        'Appending writes and translating via a map instead of read-erase-rewrite each time',
+        'Disabling wear leveling',
+        'Storing only TLC cells',
+      ],
+      answer: 1,
+      why: 'Same idea as LFS — sequentialize writes.',
+    },
+    {
+      prompt: 'TRIM helps SSDs because…',
+      choices: [
+        'Hard drives need TRIM for geometry',
+        'The FTL learns which LBAs are free and can reclaim them during GC',
+        'It doubles map table size',
+        'It disables logging',
+      ],
+      answer: 1,
+      why: 'Implementation shaped the interface.',
+    },
+    {
+      prompt: 'A pure block-level map hurts when…',
+      choices: [
+        'Reads are sequential',
+        'Writes are smaller than an erase block (must copy siblings)',
+        'Wear leveling is perfect',
+        'SLC is used',
+      ],
+      answer: 1,
+      why: 'Small update forces large rewrite.',
+    },
+    {
+      prompt: 'Wear leveling must sometimes rewrite cold data so that…',
+      choices: [
+        'TRIM becomes illegal',
+        'Long-lived blocks still receive P/E cycles and wear evenly',
+        'Maps shrink to zero',
+        'HDDs replace SSDs',
+      ],
+      answer: 1,
+      why: 'Fair share of erase/program load.',
+    },
+  ]}
+/>
+
+## Coding challenges
+
+<ExerciseSet title="Exercises" description="Flash ops, amplification, and FTL maps.">
+  <CodeExercise
+    title="can program?"
+    heading="Challenge: can_program"
+    lang="python"
+    filename="main.py"
+    prompt={`can_program(state) is True only if state == "E" (erased).
+wrap: print can_program("E"), can_program("V").`}
+    sampleLog={`True
+False`}
+    starter={`def can_program(state):
+    return False  # TODO
+`}
+    wrapSuffix={`
+print(can_program("E"))
+print(can_program("V"))
+`}
+    hint={`Only erased pages are programmable.`}
+    solution={`def can_program(state):
+    return state == "E"
+`}
+    sourceChecks={[
+      { name: 'E', pattern: 'E', must: true, hint: 'check erased' },
+    ]}
+    tests={[
+      { name: 'E vs V', stdin: '', equals: 'True\nFalse' },
+    ]}
+  />
+  <CodeExercise
+    title="write amp"
+    heading="Challenge: write_amp"
+    lang="python"
+    filename="main.py"
+    prompt={`write_amp(flash_bytes, client_bytes) returns flash_bytes / client_bytes as float
+(assume client_bytes > 0). wrap: print write_amp(4096, 1024).`}
+    sampleLog={`4.0`}
+    starter={`def write_amp(flash_bytes, client_bytes):
+    return 0.0  # TODO
+`}
+    wrapSuffix={`
+print(write_amp(4096, 1024))
+`}
+    hint={`Division.`}
+    solution={`def write_amp(flash_bytes, client_bytes):
+    return flash_bytes / client_bytes
+`}
+    sourceChecks={[
+      { name: 'div', pattern: '/', must: true, hint: 'ratio' },
+    ]}
+    tests={[
+      { name: '4x', stdin: '', equals: '4.0' },
+    ]}
+  />
+  <CodeExercise
+    title="map lookup"
+    heading="Challenge: physical_of"
+    lang="python"
+    filename="main.py"
+    prompt={`physical_of(table, lba) returns table[lba] (dict LBA→phys).
+wrap: print physical_of({100: 0, 101: 1}, 100).`}
+    sampleLog={`0`}
+    starter={`def physical_of(table, lba):
+    return -1  # TODO
+`}
+    wrapSuffix={`
+print(physical_of({100: 0, 101: 1}, 100))
+`}
+    hint={`Dict index.`}
+    solution={`def physical_of(table, lba):
+    return table[lba]
+`}
+    sourceChecks={[
+      { name: 'index', pattern: '\\[', must: true, hint: 'table[lba]' },
+    ]}
+    tests={[
+      { name: '100→0', stdin: '', equals: '0' },
+    ]}
+  />
+  <CodeExercise
+    title="live page?"
+    heading="Challenge: page_is_live"
+    lang="python"
+    filename="main.py"
+    prompt={`page_is_live(table, lba, phys) is True iff table.get(lba) == phys
+(GC liveness: map still points here). wrap: print both cases for table {100:4}.`}
+    sampleLog={`True
+False`}
+    starter={`def page_is_live(table, lba, phys):
+    return False  # TODO
+`}
+    wrapSuffix={`
+t = {100: 4}
+print(page_is_live(t, 100, 4))
+print(page_is_live(t, 100, 0))
+`}
+    hint={`Compare map entry to phys.`}
+    solution={`def page_is_live(table, lba, phys):
+    return table.get(lba) == phys
+`}
+    sourceChecks={[
+      { name: 'get', pattern: 'get|\\[', must: true, hint: 'look up lba' },
+    ]}
+    tests={[
+      { name: 'live/dead', stdin: '', equals: 'True\nFalse' },
+    ]}
+  />
+</ExerciseSet>
+
+## Homework lab: ssd.py
+
+Use the [OSTEP file-ssd homework](https://github.com/remzi-arpacidusseau/ostep-homework/tree/master/file-ssd) (`ssd.py`).
+
+<GuidedLab id="ostep-ssd-sim" title="Homework: ssd.py">
+  <LabStep title="Log FTL traces">
+    `-T log -s 1 -n 10 -q` then `-c` / `-C`. Infer ops; use `-F` for flash state between commands; try `-r 20`.
+  </LabStep>
+  <LabStep title="Timing & direct">
+    Estimate erase/program/read time (`-S`; defaults 1000/40/10 μs). Compare `-T log` vs `-T direct` vs `-T ideal`.
+  </LabStep>
+  <LabStep title="GC & skew">
+    Tune `-G` / `-g` watermarks; watch GC with `-J`. Explore workload skew `-K 80/20` and `-k 100`.
+  </LabStep>
+</GuidedLab>
+
+## Summary
+
+| Idea | Takeaway |
+|---|---|
+| **Erase before program** | Page write ≠ disk overwrite |
+| **FTL** | Block API atop weird flash ops |
+| **Log FTL** | Append + map; GC + TRIM + wear leveling |
+| **Map space** | Hybrid or cached page maps |
+| **Market** | SSD for latency/IOPS; HDD for $/GB |
+
+**Previous:** [Log-structured File Systems](./log-structured-file-systems)
+
+**Next:** [Data Integrity](./data-integrity) — LSEs, checksums, scrubbing.
+
+## Further Reading
+
+- Remzi & Andrea Arpaci-Dusseau — [*Operating Systems: Three Easy Pieces*](https://pages.cs.wisc.edu/~remzi/OSTEP/) Ch. 44
+- [OSTEP flash SSD PDF](https://pages.cs.wisc.edu/~remzi/OSTEP/file-ssd.pdf)
+- [OSTEP file-ssd homework](https://github.com/remzi-arpacidusseau/ostep-homework/tree/master/file-ssd)
+- Agrawal et al. SSD design [A+08]; “Unwritten contract” [HK+17]; Ma et al. survey [M+14]

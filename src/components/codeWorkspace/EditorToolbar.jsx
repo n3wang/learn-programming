@@ -3,7 +3,8 @@ import chrome from './chrome.module.css';
 
 export default function EditorToolbar({
     badge,
-    exam,
+    practice,
+    exam, // deprecated alias
     filename,
     saveLabel,
     meta,
@@ -13,9 +14,10 @@ export default function EditorToolbar({
     runLabel = '▶ Run',
     runningLabel = 'Running…',
 }) {
+    const isPractice = practice || exam;
     return (
         <div className={chrome.toolbar}>
-            <span className={`${chrome.badge} ${exam ? chrome.badgeExam : ''}`}>{badge}</span>
+            <span className={`${chrome.badge} ${isPractice ? chrome.badgePractice : ''}`}>{badge}</span>
             <span className={chrome.fileTab}>{filename}</span>
             <span className={chrome.saveHint}>{saveLabel}</span>
             {meta ? <span className={chrome.meta}>{meta}</span> : null}

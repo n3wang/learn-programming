@@ -102,7 +102,7 @@ public class Main
   ]}
 />
 
-<CodingExam
+<CodeExercise
   title="next letter"
   heading="Try it: next letter"
   lang="java"
@@ -216,7 +216,7 @@ public class Main {
 :::tip Activity: Is vowel
 Read a single lowercase letter. Print `true` if it is a vowel (`a`, `e`, `i`, `o`, `u`), `false` otherwise.
 
-<CodingExam
+<CodeExercise
   title="Is vowel"
   heading="exercise-is-vowel"
   lang="java"
@@ -256,7 +256,7 @@ class Runner {
 :::tip Activity: ASCII offset
 Read a single letter. Print how many letters after `'a'` it is (e.g. `'a'` is 0, `'c'` is 2). Assume lowercase input.
 
-<CodingExam
+<CodeExercise
   title="ASCII offset"
   heading="exercise-ascii-offset"
   lang="java"
@@ -299,7 +299,7 @@ class Runner {
 :::tip Activity: Capitalize first letter
 Read a lowercase word. Print it with only the first letter capitalized (e.g. `apple` → `Apple`). Use `Character.toUpperCase` on the first character and `.substring` for the rest.
 
-<CodingExam
+<CodeExercise
   title="Capitalize first letter"
   heading="exercise-capitalize"
   lang="java"

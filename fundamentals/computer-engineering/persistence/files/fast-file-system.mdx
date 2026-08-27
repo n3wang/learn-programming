@@ -1,0 +1,301 @@
+---
+sidebar_position: 41
+title: Fast File System
+---
+
+> **Source:** *Operating Systems: Three Easy Pieces* (OSTEP) — Chapter 41, Arpaci-Dusseau & Arpaci-Dusseau
+
+import FfsSimulator from "@site/src/components/interactive/FfsSimulator.js";
+
+# Locality and The Fast File System
+
+Ken Thompson’s first UNIX FS was simple (superblock, inodes, data, free list) — and eventually delivered only **~2% of disk bandwidth** [MJLF84].
+
+**Crux:** how to organize on-disk data (and policies) so the FS is **disk-aware**?
+
+## The problem
+
+The old FS treated the disk like RAM:
+
+- Inodes far from their data → seeks on common open+read paths
+- Free-list **fragmentation** → logically contiguous files hop around the platter
+- **512 B** blocks → positioning overhead dominates transfer
+
+Defragmenters exist because of this class of mess.
+
+## FFS: same API, new guts
+
+Berkeley’s **Fast File System** kept `open`/`read`/`write`/… compatible and redesigned layout + allocation — the template for modern FS evolution (ext2/3/4 are intellectual descendants).
+
+## Cylinder / block groups
+
+FFS divides the disk into **cylinder groups** (same-radius tracks across surfaces). Modern drives hide geometry, so Linux uses **block groups**: consecutive LBA ranges.
+
+Each group holds: replica **superblock**, **inode bitmap**, **data bitmap**, **inodes**, **data**. Bitmaps make finding contiguous free space easier than a free list.
+
+## Policies: keep related stuff together
+
+| Object | Heuristic |
+|---|---|
+| **Directory** | Group with few dirs + many free inodes (balance + room for files) |
+| **File inode + data** | Same group (no inode↔data seek) |
+| **Files in one directory** | Same group as that directory (namespace locality) |
+
+SEER-style traces show lots of opens at distance 0–1 in the tree (same file / same dir) — FFS matches that. Distance-2 patterns (e.g. `src/` ↔ `obj/`) are weaker under FFS.
+
+### Large-file exception
+
+Without a rule, one huge file fills a group and crowds out siblings. FFS places the first directs locally, then each large chunk (historically each indirect tree ≈ **4 MB** at 4 KB / 32-bit) in other groups.
+
+**Amortization:** with ~10 ms position and 40 MB/s, ~**410 KB**/seek ≈ 50% bandwidth; ~**3.7 MB** ≈ 90%. Transfer rates improve faster than seeks → chunks grow over time.
+
+## Other FFS ideas
+
+- **Sub-blocks** (512 B) for small files; promote to 4 KB (libc write buffering avoids thrashing)
+- **Parameterized** sector skew for slow host-driven disks (track buffers made this obsolete)
+- Usability: **long names**, **symlinks**, atomic **`rename`**
+
+:::tip Make the system usable
+Adoption often rides on small UX wins as much as seek math.
+:::
+
+## Interactive
+
+<FfsSimulator />
+
+**Try:** old-FS fragmentation · groups/policies · large-file chunking · extras.
+
+## Check your understanding
+
+<MultipleChoice
+  id="ce-ffs"
+  title="Fast File System"
+  questions={[
+    {
+      prompt: 'The old UNIX FS’s main performance sin was…',
+      choices: [
+        'Too many APIs',
+        'Ignoring disk positioning / allowing fragmentation',
+        'Using only RAID-5',
+        'Banning directories',
+      ],
+      answer: 1,
+      why: 'Treated disk like RAM; ~2% bandwidth.',
+    },
+    {
+      prompt: 'Modern “block groups” exist because…',
+      choices: [
+        'Disks no longer have platters',
+        'Drives hide true cylinder geometry behind LBAs',
+        'Bitmaps are illegal',
+        'FFS forbade replicas',
+      ],
+      answer: 1,
+      why: 'Consecutive address ranges stand in for cylinder groups.',
+    },
+    {
+      prompt: 'FFS places files from the same directory…',
+      choices: [
+        'On random distant groups always',
+        'Preferably in the same group as that directory',
+        'Only in the superblock',
+        'Never near their inodes',
+      ],
+      answer: 1,
+      why: 'Namespace locality heuristic.',
+    },
+    {
+      prompt: 'The large-file exception exists to…',
+      choices: [
+        'Fill one group completely',
+        'Avoid monopolizing a group so related files can still colocate',
+        'Disable indirect blocks',
+        'Remove bitmaps',
+      ],
+      answer: 1,
+      why: 'Spill chunks elsewhere; amortize seeks with large transfers.',
+    },
+    {
+      prompt: 'Amortization here means…',
+      choices: [
+        'Never seeking',
+        'Transferring enough data between seeks to hide positioning cost',
+        'Deleting large files',
+        'Using only 512 B blocks',
+      ],
+      answer: 1,
+      why: 'Chunk size vs desired % of peak bandwidth.',
+    },
+    {
+      prompt: 'FFS sub-blocks primarily fight…',
+      choices: [
+        'Network latency',
+        'Internal fragmentation from large blocks on small files',
+        'RAID parity',
+        'Page faults only',
+      ],
+      answer: 1,
+      why: '512 B pieces until a full 4 KB block is justified.',
+    },
+  ]}
+/>
+
+## Coding challenges
+
+<ExerciseSet title="Exercises" description="Locality metrics and amortization.">
+  <CodeExercise
+    title="path distance"
+    heading="Challenge: path_distance"
+    lang="python"
+    filename="main.py"
+    prompt={`path_distance(a, b) measures FFS-style distance: 0 if a==b; 1 if they share a parent directory
+(same dirname); else 2 for this exercise (deeper trees not required).
+Paths are absolute like "/a/c". wrap: print path_distance("/a/c","/a/c"), path_distance("/a/c","/a/d"), path_distance("/a/c","/b/f").`}
+    sampleLog={`0
+1
+2`}
+    starter={`def path_distance(a, b):
+    return 0  # TODO
+`}
+    wrapSuffix={`
+print(path_distance("/a/c", "/a/c"))
+print(path_distance("/a/c", "/a/d"))
+print(path_distance("/a/c", "/b/f"))
+`}
+    hint={`Split on /; compare last dirs.`}
+    solution={`def path_distance(a, b):
+    if a == b:
+        return 0
+    da, fa = a.rsplit("/", 1)
+    db, fb = b.rsplit("/", 1)
+    if da == db:
+        return 1
+    return 2
+`}
+    sourceChecks={[
+      { name: 'compares', pattern: '==|rsplit|split', must: true, hint: 'same path / same parent' },
+    ]}
+    tests={[
+      { name: '0 1 2', stdin: '', equals: '0\n1\n2' },
+    ]}
+  />
+  <CodeExercise
+    title="amortize chunk"
+    heading="Challenge: chunk_for_half"
+    lang="python"
+    filename="main.py"
+    prompt={`chunk_for_half(seek_ms, rate_mb_s) returns KB to transfer in seek_ms at rate_mb_s
+so transfer time equals seek (50% bandwidth case).
+KB = rate_mb_s * 1024 * (seek_ms/1000). wrap: print round(chunk_for_half(10, 40), 1).`}
+    sampleLog={`409.6`}
+    starter={`def chunk_for_half(seek_ms, rate_mb_s):
+    return 0.0  # TODO
+`}
+    wrapSuffix={`
+print(round(chunk_for_half(10, 40), 1))
+`}
+    hint={`MB/s × 1024 × seconds.`}
+    solution={`def chunk_for_half(seek_ms, rate_mb_s):
+    return rate_mb_s * 1024 * (seek_ms / 1000.0)
+`}
+    sourceChecks={[
+      { name: 'math', pattern: '1024|\\*', must: true, hint: 'dimensional analysis' },
+    ]}
+    tests={[
+      { name: '10ms 40MB/s', stdin: '', equals: '409.6' },
+    ]}
+  />
+  <CodeExercise
+    title="same group?"
+    heading="Challenge: same_group_policy"
+    lang="python"
+    filename="main.py"
+    prompt={`same_group_policy(dir_path, file_path) is True if file_path is directly under dir_path
+(FFS would try same group). wrap: print same_group_policy("/a","/a/c") and same_group_policy("/a","/b/f").`}
+    sampleLog={`True
+False`}
+    starter={`def same_group_policy(dir_path, file_path):
+    return False  # TODO
+`}
+    wrapSuffix={`
+print(same_group_policy("/a", "/a/c"))
+print(same_group_policy("/a", "/b/f"))
+`}
+    hint={`Parent of file_path equals dir_path.`}
+    solution={`def same_group_policy(dir_path, file_path):
+    parent = file_path.rsplit("/", 1)[0]
+    return parent == dir_path
+`}
+    sourceChecks={[
+      { name: 'parent', pattern: 'rsplit|split|==', must: true, hint: 'compare parent dir' },
+    ]}
+    tests={[
+      { name: 'yes/no', stdin: '', equals: 'True\nFalse' },
+    ]}
+  />
+  <CodeExercise
+    title="filespan"
+    heading="Challenge: filespan"
+    lang="python"
+    filename="main.py"
+    prompt={`filespan(blocks) returns max(blocks)-min(blocks) for a nonempty list of block numbers
+(simple span metric). wrap: print filespan([10, 11, 12, 40]).`}
+    sampleLog={`30`}
+    starter={`def filespan(blocks):
+    return 0  # TODO
+`}
+    wrapSuffix={`
+print(filespan([10, 11, 12, 40]))
+`}
+    hint={`max − min.`}
+    solution={`def filespan(blocks):
+    return max(blocks) - min(blocks)
+`}
+    sourceChecks={[
+      { name: 'span', pattern: 'max|min', must: true, hint: 'difference of extremes' },
+    ]}
+    tests={[
+      { name: 'span 30', stdin: '', equals: '30' },
+    ]}
+  />
+</ExerciseSet>
+
+## Homework lab: ffs.py
+
+Use the [OSTEP file-ffs homework](https://github.com/remzi-arpacidusseau/ostep-homework/tree/master/file-ffs) (`ffs.py`).
+
+<GuidedLab id="ostep-ffs" title="Homework: ffs.py">
+  <LabStep title="Large-file exception">
+    `in.largefile` with `-L 4` vs `-L 30`; inspect with `-c` / `-S`.
+  </LabStep>
+  <LabStep title="filespan">
+    Measure filespan as `-L` grows; explain the trend.
+  </LabStep>
+  <LabStep title="manyfiles / dirspan">
+    Predict layout for `in.manyfiles`; compute dirspan (`-T`). Try `-I 5` and `-A 2`.
+  </LabStep>
+  <LabStep title="Fragmentation">
+    `in.fragmented`; then contiguous policy `-C n` — effect on filespan/dirspan?
+  </LabStep>
+</GuidedLab>
+
+## Summary
+
+| Idea | Takeaway |
+|---|---|
+| **Old FS** | Simple APIs, disk-blind → fragmentation + seeks |
+| **Groups** | Locality containers with local bitmaps/inodes/data |
+| **Policies** | Related names → nearby blocks |
+| **Large files** | Chunk across groups; amortize seeks |
+| **Lesson** | Treat the disk like a disk — still true for HDDs |
+
+**Previous:** [File System Implementation](./file-system-implementation)
+
+**Next:** [Crash Consistency](./crash-consistency) — fsck, journaling, ordered metadata.
+
+## Further Reading
+
+- Remzi & Andrea Arpaci-Dusseau — [*Operating Systems: Three Easy Pieces*](https://pages.cs.wisc.edu/~remzi/OSTEP/) Ch. 41
+- [OSTEP file-ffs PDF](https://pages.cs.wisc.edu/~remzi/OSTEP/file-ffs.pdf)
+- [OSTEP file-ffs homework](https://github.com/remzi-arpacidusseau/ostep-homework/tree/master/file-ffs)
+- McKusick et al. FFS [MJLF84]

@@ -1,0 +1,390 @@
+---
+sidebar_position: 16
+title: Segmentation
+---
+
+> **Source:** *Operating Systems: Three Easy Pieces* (OSTEP) — Chapter 16, Arpaci-Dusseau & Arpaci-Dusseau
+
+import SegmentationSimulator from "@site/src/components/interactive/SegmentationSimulator.js";
+
+# Segmentation
+
+So far each process’s **entire** address space sits in physical memory behind one **base/bounds** pair. That wastes RAM on the unused gap between **heap** and **stack** (Figure 16.1). A 32-bit (4 GB) sparse space would demand the whole space resident even if the program only uses megabytes.
+
+**Crux:** how support a **large address space** with lots of free space between stack and heap?
+
+## Segmentation: generalized base/bounds
+
+**Segmentation** (early 1960s [H61, G62]): instead of one base/bounds pair, give the MMU a pair **per logical segment**.
+
+A **segment** is a contiguous piece of the address space of a given length. The canonical layout has three:
+
+| Segment | Role |
+|---|---|
+| **Code** | Instructions |
+| **Heap** | `malloc` / dynamic data |
+| **Stack** | Calls, locals |
+
+Place each segment **independently** in physical memory (Figure 16.2) — unused virtual gap need not occupy physical RAM. That enables **sparse address spaces**.
+
+### Example register values (Fig 16.3)
+
+| Segment | Base | Size |
+|---|---|---|
+| Code | 32 KB | 2 KB |
+| Heap | 34 KB | 2 KB |
+| Stack | 28 KB | 2 KB |
+
+Code at physical 32 KB (size 2 KB); heap at 34 KB (size 2 KB). Only **used** memory is allocated.
+
+### Translation examples
+
+**Code, virtual address 100** (instruction fetch):
+
+- Offset into code = 100  
+- Physical = 100 + 32 KB = **32868**  
+- Bounds check: 100 &lt; 2 KB → OK  
+
+**Heap, virtual address 4200:**
+
+Do **not** add 4200 + 34 KB (that gives the wrong 39016). The heap starts at virtual **4 KB**, so:
+
+- Offset = 4200 − 4096 = **104**  
+- Physical = 104 + 34 KB = **34920**  
+
+**Illegal (e.g. virtual 7 KB)** past the heap → hardware raises an exception → OS usually kills the process.
+
+:::info Segmentation fault
+The term **segmentation fault / violation** comes from illegal access on a segmented machine. It stuck even on machines without segmentation — and still ruins your day when you cannot find the bug.
+:::
+
+## Which segment are we referring to?
+
+### Explicit approach (VAX/VMS [LL82])
+
+Chop the address space with the **top bits** of the virtual address. Three segments → need **two** bits. For a 14-bit VA:
+
+```
+[ 2-bit segment | 12-bit offset ]
+ bits 13–12         bits 11–0
+```
+
+| Top bits | Segment |
+|---|---|
+| `00` | Code |
+| `01` | Heap |
+| `11` | Stack |
+
+Virtual **4200** in binary: `01 0000 0110 1000` → segment `01` (heap), offset `0x068` = **104**.
+
+Hardware sketch:
+
+```c
+Segment = (VirtualAddress & SEG_MASK) >> SEG_SHIFT;  // 0x3000, shift 12
+Offset  = VirtualAddress & OFFSET_MASK;              // 0xFFF
+if (Offset >= Bounds[Segment])
+    RaiseException(PROTECTION_FAULT);
+else
+    PhysAddr = Base[Segment] + Offset;
+```
+
+With only three segments, one top-bit pattern is unused. Some systems put **code + heap** in one segment and use a **single** select bit [LL82]. Top-bit chopping also **caps** each segment’s max size (here 4 KB per quarter of a 16 KB space).
+
+### Implicit approach
+
+Infer the segment from **how** the address was formed:
+
+- From the **PC** (instruction fetch) → code  
+- From stack / base pointer → stack  
+- Anything else → heap  
+
+## What about the stack?
+
+The stack is at physical **28 KB** but **grows backwards** (toward lower addresses): physical 28 KB → 26 KB maps virtual 16 KB → 14 KB.
+
+Hardware needs a **grows positive?** bit (Figure 16.4):
+
+| Segment | Base | Size | Grows +? |
+|---|---|---|---|
+| Code | 32 KB | 2 KB | 1 |
+| Heap | 34 KB | 2 KB | 1 |
+| Stack | 28 KB | 2 KB | 0 |
+
+**Example:** virtual **15 KB** → physical **27 KB**.
+
+- Binary `11 1100 0000 0000` (`0x3C00`) → segment `11`, raw offset **3 KB**  
+- Negative offset = 3 KB − 4 KB (max segment size) = **−1 KB**  
+- Physical = 28 KB + (−1 KB) = **27 KB**  
+- Bounds: |negative offset| must be within the segment’s current size  
+
+## Support for sharing
+
+**Protection bits** per segment (read / write / execute). Set code to **read-execute** only → the same physical code can be **shared** across processes while each still sees a private address space (Figure 16.5).
+
+Writes to read-only, or execute from non-executable → exception.
+
+## Fine-grained vs coarse-grained
+
+| Style | Idea | Example |
+|---|---|---|
+| **Coarse** | Few large segments (code, heap, stack) | This chapter’s model |
+| **Fine** | Many smaller segments + **segment table** in memory | Multics [CV65, DD68], Burroughs B5000 [RK68] |
+
+Fine-grained systems expected compilers to chop programs into many segments so the OS could track usage more precisely.
+
+## OS support
+
+1. **Context switch** — save/restore **all** segment registers for the process.  
+2. **Free-space management** — segments are **variable-sized**; physical memory fills with holes (**external fragmentation**, Figure 16.6).  
+
+Example: 24 KB free total, but in three non-contiguous chunks → a **20 KB** request fails.
+
+| Approach | Idea | Cost |
+|---|---|---|
+| **Compaction** | Stop processes, copy segments together, update bases | Expensive (memory + CPU) |
+| **Free-list policies** | Best-fit, worst-fit, first-fit, buddy [K68], … | Still cannot eliminate external fragmentation |
+
+:::tip If 1000 solutions exist, no great one does
+Many allocator algorithms exist because there is **no best** fix for external fragmentation. The real escape (later): **never allocate variable-sized chunks** — paging.
+:::
+
+## Interactive
+
+<SegmentationSimulator />
+
+**Try:** sparse physical layout · code/heap/stack translations · external fragmentation vs compaction.
+
+## Check your understanding
+
+<MultipleChoice
+  id="ce-segmentation"
+  title="Segmentation"
+  questions={[
+    {
+      prompt: 'Segmentation improves on single base/bounds mainly by…',
+      choices: [
+        'Eliminating the MMU',
+        'Not mapping unused virtual gaps between heap and stack',
+        'Making virtual equal physical',
+        'Removing protection',
+      ],
+      answer: 1,
+      why: 'Each segment placed independently — sparse address spaces fit in less RAM.',
+    },
+    {
+      prompt: 'Heap virtual address 4200 with heap starting at 4 KB uses offset…',
+      choices: ['4200', '104', '4096', '0'],
+      answer: 1,
+      why: 'Offset into segment = 4200 − 4096 = 104, then add heap base.',
+    },
+    {
+      prompt: 'A segmentation fault means…',
+      choices: [
+        'Disk is full',
+        'Illegal segment or out-of-bounds virtual address',
+        'Timer interrupt',
+        'Successful malloc',
+      ],
+      answer: 1,
+      why: 'Hardware detected illegal access under segmentation — term stuck even without segments.',
+    },
+    {
+      prompt: 'In the explicit approach, which part of the VA selects the segment?',
+      choices: [
+        'The low 12 bits',
+        'The top few bits',
+        'Only the PC',
+        'The bounds register alone',
+      ],
+      answer: 1,
+      why: 'Top bits choose code/heap/stack; remaining bits are the offset.',
+    },
+    {
+      prompt: 'Code sharing works when the code segment is…',
+      choices: ['Read-write', 'Read-only / read-execute', 'Unmapped', 'Swapped only'],
+      answer: 1,
+      why: 'Multiple processes map same physical code without write permission.',
+    },
+    {
+      prompt: 'External fragmentation means…',
+      choices: [
+        'Waste inside one allocated segment',
+        'Free memory split into non-contiguous holes',
+        'The stack grows the wrong way',
+        'All segments are identical size',
+      ],
+      answer: 1,
+      why: 'Enough free bytes may exist but no single contiguous chunk fits the request.',
+    },
+  ]}
+/>
+
+## Coding challenges
+
+<ExerciseSet title="Exercises" description="Segment select, heap translate, and stack negative offset.">
+  <CodeExercise
+    title="segment id"
+    heading="Challenge: segment_id"
+    lang="python"
+    filename="main.py"
+    prompt={`14-bit VA: top 2 bits = segment. segment_id(vaddr) returns (vaddr >> 12) & 3.
+wrap: print for 100, 4200, 15360.`}
+    sampleLog={`0
+1
+3`}
+    starter={`def segment_id(vaddr):
+    return 0  # TODO
+`}
+    wrapSuffix={`
+print(segment_id(100))
+print(segment_id(4200))
+print(segment_id(15360))
+`}
+    hint={`Shift right 12, mask 2 bits.`}
+    solution={`def segment_id(vaddr):
+    return (vaddr >> 12) & 3
+`}
+    sourceChecks={[
+      { name: 'shifts', pattern: '>> 12', must: true, hint: 'top two bits' },
+    ]}
+    tests={[
+      { name: 'three addrs', stdin: '', equals: '0\n1\n3' },
+    ]}
+  />
+  <CodeExercise
+    title="heap translate"
+    heading="Challenge: heap_phys"
+    lang="python"
+    filename="main.py"
+    prompt={`heap_phys(vaddr, heap_start, base, size) returns base + (vaddr - heap_start) if in segment, else "fault".
+wrap: heap_start=4096 base=34816 size=2048 for 4200 and 7168.`}
+    sampleLog={`34920
+fault`}
+    starter={`def heap_phys(vaddr, heap_start, base, size):
+    return "fault"  # TODO
+`}
+    wrapSuffix={`
+print(heap_phys(4200, 4096, 34816, 2048))
+print(heap_phys(7168, 4096, 34816, 2048))
+`}
+    hint={`Check offset in [0, size).`}
+    solution={`def heap_phys(vaddr, heap_start, base, size):
+    off = vaddr - heap_start
+    if off < 0 or off >= size:
+        return "fault"
+    return base + off
+`}
+    sourceChecks={[
+      { name: 'subtracts start', pattern: 'heap_start', must: true, hint: 'offset into heap' },
+    ]}
+    tests={[
+      { name: 'ok and fault', stdin: '', equals: '34920\nfault' },
+    ]}
+  />
+  <CodeExercise
+    title="stack translate"
+    heading="Challenge: stack_phys"
+    lang="python"
+    filename="main.py"
+    prompt={`stack_phys(vaddr, base, size, max_seg) for a negative-growth stack.
+raw_off = vaddr & (max_seg - 1); neg = raw_off - max_seg.
+If abs(neg) > size → "fault", else base + neg.
+wrap: base=28672 size=2048 max_seg=4096 for vaddr 15360 (15KB).`}
+    sampleLog={`27648`}
+    starter={`def stack_phys(vaddr, base, size, max_seg):
+    return "fault"  # TODO
+`}
+    wrapSuffix={`
+print(stack_phys(15360, 28672, 2048, 4096))
+`}
+    hint={`15KB → raw 3KB; neg = 3KB - 4KB = -1KB; phys = 28KB - 1KB.`}
+    solution={`def stack_phys(vaddr, base, size, max_seg):
+    raw = vaddr & (max_seg - 1)
+    neg = raw - max_seg
+    if abs(neg) > size:
+        return "fault"
+    return base + neg
+`}
+    sourceChecks={[
+      { name: 'uses max_seg', pattern: 'max_seg', must: true, hint: 'subtract max segment size' },
+    ]}
+    tests={[
+      { name: '15kb', stdin: '', equals: '27648' },
+    ]}
+  />
+  <CodeExercise
+    title="can allocate?"
+    heading="Challenge: can_alloc"
+    lang="python"
+    filename="main.py"
+    prompt={`can_alloc(free_chunks, need) is True iff some contiguous free length >= need.
+free_chunks: list of free lengths (e.g. [8,4,12]).
+wrap: print for need 20 with [8,4,12] and [8,4,20].`}
+    sampleLog={`False
+True`}
+    starter={`def can_alloc(free_chunks, need):
+    return False  # TODO
+`}
+    wrapSuffix={`
+print(can_alloc([8, 4, 12], 20))
+print(can_alloc([8, 4, 20], 20))
+`}
+    hint={`any(c >= need for c in free_chunks) — total free is not enough.`}
+    solution={`def can_alloc(free_chunks, need):
+    return any(c >= need for c in free_chunks)
+`}
+    sourceChecks={[
+      { name: 'checks chunks', pattern: 'any|for ', must: true, hint: 'look at each contiguous free extent' },
+    ]}
+    tests={[
+      { name: 'external frag', stdin: '', equals: 'False\nTrue' },
+    ]}
+  />
+</ExerciseSet>
+
+## Homework lab: `segmentation.py`
+
+Use the [OSTEP segmentation homework](https://github.com/remzi-arpacidusseau/ostep-homework/tree/master/vm-segmentation) (`segmentation.py`). Predict translations before `-c`.
+
+<GuidedLab id="ostep-segmentation" title="Homework: segmentation.py">
+  <LabStep title="Tiny address space, three seeds">
+    Translate with:
+    `segmentation.py -a 128 -p 512 -b 0 -l 20 -B 512 -L 20 -s 0`
+    (and seeds 1 and 2). In or out of bounds? Physical address if valid?
+  </LabStep>
+  <LabStep title="Legal vs illegal addresses">
+    With those parameters: highest legal VA in segment 0? Lowest legal in segment 1? Lowest and highest illegal addresses in the whole space? Confirm with `-A`.
+  </LabStep>
+  <LabStep title="Craft base/bounds">
+    16-byte VA space in 128-byte physical. Set `--b0 --l0 --b1 --l1` so stream `0..15` yields: valid, valid, violation…violation, valid, valid (see chapter Q3).
+  </LabStep>
+  <LabStep title="~90% valid">
+    Configure the simulator so roughly 90% of random virtual addresses are valid. Which parameters matter most?
+  </LabStep>
+  <LabStep title="Zero valid">
+    Can you run so that **no** virtual addresses are valid? How?
+  </LabStep>
+</GuidedLab>
+
+## Summary
+
+| Idea | One line |
+|---|---|
+| **Segments** | Code / heap / stack each have base + bounds |
+| **Sparse spaces** | Don’t allocate physical gap between heap and stack |
+| **Explicit select** | Top bits → segment register |
+| **Stack** | Negative growth needs extra MMU bit |
+| **Sharing** | Read-only code segments mapped into many ASes |
+| **Cost** | External fragmentation; compaction expensive |
+| **Limit** | Still not flexible enough for sparse heaps → paging |
+
+**Previous:** [Address Translation](./address-translation)
+
+**Next:** [Free-Space Management](./free-space-management) — split, coalesce, and allocation policies.
+
+## Further Reading
+
+- Remzi & Andrea Arpaci-Dusseau — [*Operating Systems: Three Easy Pieces*](https://pages.cs.wisc.edu/~remzi/OSTEP/) Ch. 16
+- [OSTEP vm-segmentation PDF](https://pages.cs.wisc.edu/~remzi/OSTEP/vm-segmentation.pdf)
+- [OSTEP segmentation.py homework](https://github.com/remzi-arpacidusseau/ostep-homework/tree/master/vm-segmentation)
+- Wilson et al. [W+95] — allocator survey; Randell [R69] — fragmentation

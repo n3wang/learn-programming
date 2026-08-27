@@ -1,0 +1,387 @@
+---
+sidebar_position: 13
+title: Address Spaces
+---
+
+> **Source:** *Operating Systems: Three Easy Pieces* (OSTEP) — Chapter 13, Arpaci-Dusseau & Arpaci-Dusseau
+
+import AddressSpaceSimulator from "@site/src/components/interactive/AddressSpaceSimulator.js";
+
+# The Abstraction: Address Spaces
+
+Users expect ease of use, performance, reliability — and that is why virtual memory exists.
+
+## Early systems
+
+Early machines offered **little memory abstraction**. Physical RAM looked roughly like this:
+
+| Region | Contents |
+|---|---|
+| Low addresses (e.g. 0) | **OS** — a library of routines |
+| Rest of memory | **One running program** (e.g. starting at 64 KB) |
+
+Few illusions; users expected little. Life was simple for OS developers.
+
+## Multiprogramming and time sharing
+
+Machines were expensive → **multiprogramming** [DV66]: several processes ready; OS switches when one blocks on I/O.
+
+Then **time sharing** [S59, L60, M62]: many interactive users; each wants a timely response.
+
+**Naive approach:** run one process with all of memory, then **save entire RAM to disk**, load the next process — **far too slow** as memory grows.
+
+**Better:** leave processes **in memory** while switching the CPU (Figure 13.2). Three processes A, B, C each occupy a slice of 512 KB physical RAM; the OS runs one while others wait Ready.
+
+New requirement: **protection** — one process must not read or write another’s memory.
+
+## The address space
+
+The OS must provide an **easy abstraction** of physical memory: the **address space** — the running program’s **view** of memory.
+
+It holds the program’s **memory state**:
+
+| Region | Role |
+|---|---|
+| **Code** | Instructions (static; fixed size at load) |
+| **Heap** | `malloc` / `new` — dynamic, grows |
+| **Stack** | Locals, args, return addresses — grows on calls |
+
+Plus static data and more in real binaries; these three are the core picture.
+
+### A tiny 16 KB example (Fig 13.3)
+
+```
+code     [0 – 1 KB)
+heap     grows from 1 KB downward (toward stack)
+(free)   middle gap
+stack    grows upward from the high end (16 KB)
+```
+
+Placement is **convention** — other layouts exist (especially with threads sharing one space).
+
+**Critical distinction:** the diagram is the **abstraction**. In Figure 13.2, A, B, C sit at **different physical addresses**. Process A’s load from **virtual address 0** must land at A’s **physical** frame (e.g. 64 KB), not at physical 0.
+
+**Crux:** how does the OS build a **private, potentially large** address space for each process on **one shared physical memory**?
+
+That translation — virtual → physical — underlies every modern system.
+
+:::tip Isolation
+Isolation lets one component fail without breaking others. Memory isolation keeps processes (and often the kernel) from harming each other — a step toward reliable systems and microkernel designs [BH70, R+89, S+03].
+:::
+
+## VM goals
+
+Three goals guide the memory chapters (same themes as the OS intro):
+
+| Goal | Meaning |
+|---|---|
+| **Transparency** | Programs behave as if they have private physical memory — the illusion is **invisible** (confusing word: “transparent” = hard to notice) |
+| **Efficiency** | Low time and space overhead — hardware help (e.g. **TLB**) |
+| **Protection** | Loads/stores/fetches cannot touch other processes or the OS — **isolation** |
+
+## Every address you see is virtual
+
+Print a pointer in C? **Virtual.** Print `main`? **Virtual.** `malloc` result? **Virtual.** Stack local? **Virtual.**
+
+Only the **OS + hardware** know physical locations.
+
+```c
+#include <stdio.h>
+#include <stdlib.h>
+
+int main(int argc, char *argv[]) {
+    printf("location of code  : %p\n", (void *) main);
+    printf("location of heap  : %p\n", (void *) malloc(1));
+    int x = 3;
+    printf("location of stack : %p\n", (void *) &x);
+    return x;
+}
+```
+
+On a 64-bit Mac, typical output:
+
+```
+location of code  : 0x1095afe50
+location of heap  : 0x1096008c0
+location of stack : 0x7fff691aea64
+```
+
+Code low, heap next, stack far away — all **virtual**; translation happens on every access.
+
+## Interactive: physical vs virtual layouts
+
+<AddressSpaceSimulator />
+
+**Try:** early single-program · multiprogramming · 16 KB layout · virtual→physical translation.
+
+## Check your understanding
+
+<MultipleChoice
+  id="ce-address-spaces"
+  title="Address spaces"
+  questions={[
+    {
+      prompt: 'Swapping an entire process’s physical memory to disk between time slices is…',
+      choices: [
+        'The standard fast approach',
+        'Too slow — we keep processes in RAM and switch the CPU',
+        'Required for protection',
+        'Only needed for single-program systems',
+      ],
+      answer: 1,
+      why: 'Saving/restoring all of RAM is brutally slow; multiprogramming keeps processes resident.',
+    },
+    {
+      prompt: 'An address space is…',
+      choices: [
+        'The same as physical RAM starting at 0',
+        'The running program’s view of memory (code, heap, stack, …)',
+        'Only the kernel’s page tables',
+        'The disk swap partition',
+      ],
+      answer: 1,
+      why: 'Abstraction the OS provides — not the raw physical layout.',
+    },
+    {
+      prompt: 'When process A loads from virtual address 0…',
+      choices: [
+        'It always reads physical address 0',
+        'Hardware/OS map virtual 0 to A’s physical load address',
+        'The load fails unless A is the only process',
+        'Virtual address 0 is always unmapped',
+      ],
+      answer: 1,
+      why: 'Translation — e.g. virtual 0 → physical 320 KB where A actually lives.',
+    },
+    {
+      prompt: 'VM transparency means…',
+      choices: [
+        'All addresses are printed in debug logs',
+        'Programs should not notice that memory is virtualized',
+        'The OS exposes physical addresses to user code',
+        'Memory is never swapped',
+      ],
+      answer: 1,
+      why: 'Illusion of private memory — invisible to the application.',
+    },
+    {
+      prompt: 'Protection in VM primarily enables…',
+      choices: [
+        'Faster malloc',
+        'Isolation — processes cannot harm each other’s memory',
+        'Larger disks',
+        'Disabling the MMU',
+      ],
+      answer: 1,
+      why: 'Each process in its own cocoon; faults on cross-boundary access.',
+    },
+    {
+      prompt: 'In the usual 16 KB layout convention…',
+      choices: [
+        'Stack and heap grow toward each other from opposite ends',
+        'Code and stack share the same region',
+        'Heap is always at the highest address',
+        'Virtual equals physical by default',
+      ],
+      answer: 0,
+      why: 'Code fixed low; heap and stack grow toward the middle gap.',
+    },
+  ]}
+/>
+
+## Coding challenges
+
+**Python** models for segment layout and simple relocation — preview of base/bounds.
+
+<ExerciseSet
+  title="Exercises"
+  description="Segments, relocation, and VM goals."
+>
+  <CodeExercise
+    title="segment"
+    heading="Challenge: segment_of"
+    lang="python"
+    filename="main.py"
+    prompt={`16 KB layout: code [0, code_end), heap [code_end, heap_end), stack [stack_start, space_size).
+segment_of(addr, code_end, heap_end, stack_start, space_size) → "code"|"heap"|"stack"|"free"|"out".
+wrap: print for addrs 512, 8192, 15000, 20000 with code_end=1024 heap_end=10240 stack_start=12288 space_size=16384.`}
+    sampleLog={`code
+heap
+stack
+out`}
+    starter={`def segment_of(addr, code_end, heap_end, stack_start, space_size):
+    return "out"  # TODO
+`}
+    wrapSuffix={`
+print(segment_of(512, 1024, 10240, 12288, 16384))
+print(segment_of(8192, 1024, 10240, 12288, 16384))
+print(segment_of(15000, 1024, 10240, 12288, 16384))
+print(segment_of(20000, 1024, 10240, 12288, 16384))
+`}
+    hint={`Check ranges in order; free is between heap_end and stack_start.`}
+    solution={`def segment_of(addr, code_end, heap_end, stack_start, space_size):
+    if addr < 0 or addr >= space_size:
+        return "out"
+    if addr < code_end:
+        return "code"
+    if addr < heap_end:
+        return "heap"
+    if addr >= stack_start:
+        return "stack"
+    return "free"
+`}
+    sourceChecks={[
+      { name: 'branches', pattern: 'code|heap|stack', must: true, hint: 'classify into segments' },
+    ]}
+    tests={[
+      { name: 'four addrs', stdin: '', equals: 'code\nheap\nstack\nout' },
+    ]}
+  />
+  <CodeExercise
+    title="relocate"
+    heading="Challenge: relocate"
+    lang="python"
+    filename="main.py"
+    prompt={`relocate(vaddr, load_base, size) returns load_base + vaddr if 0 <= vaddr < size, else None.
+(Simple base relocation preview.)
+wrap: print for load_base=65536 size=65536 at vaddr 0 and 70000.`}
+    sampleLog={`65536
+None`}
+    starter={`def relocate(vaddr, load_base, size):
+    return None  # TODO
+`}
+    wrapSuffix={`
+print(relocate(0, 65536, 65536))
+print(relocate(70000, 65536, 65536))
+`}
+    hint={`Check vaddr in [0, size); return load_base + vaddr.`}
+    solution={`def relocate(vaddr, load_base, size):
+    if 0 <= vaddr < size:
+        return load_base + vaddr
+    return None
+`}
+    sourceChecks={[
+      { name: 'adds base', pattern: 'load_base \\+ vaddr|load_base\\+vaddr', must: true, hint: 'physical = base + virtual' },
+    ]}
+    tests={[
+      { name: 'in and out', stdin: '', equals: '65536\nNone' },
+    ]}
+  />
+  <CodeExercise
+    title="vm goals"
+    heading="Challenge: vm_goal"
+    lang="python"
+    filename="main.py"
+    prompt={`vm_goal(tag) maps keywords to a VM goal:
+"invisible_to_app" → transparency
+"tlb", "low_overhead" → efficiency
+"isolation", "no_cross_process" → protection
+else → "unknown"
+wrap: print four tags.`}
+    sampleLog={`transparency
+efficiency
+protection
+unknown`}
+    starter={`def vm_goal(tag):
+    return "unknown"  # TODO
+`}
+    wrapSuffix={`
+print(vm_goal("invisible_to_app"))
+print(vm_goal("tlb"))
+print(vm_goal("isolation"))
+print(vm_goal("swap_only"))
+`}
+    hint={`Use dict or if/elif on tag strings.`}
+    solution={`MAP = {
+    "invisible_to_app": "transparency",
+    "tlb": "efficiency",
+    "low_overhead": "efficiency",
+    "isolation": "protection",
+    "no_cross_process": "protection",
+}
+
+def vm_goal(tag):
+    return MAP.get(tag, "unknown")
+`}
+    sourceChecks={[
+      { name: 'returns goal', pattern: 'transparency|efficiency|protection', must: true, hint: 'map to three goals' },
+    ]}
+    tests={[
+      { name: 'four tags', stdin: '', equals: 'transparency\nefficiency\nprotection\nunknown' },
+    ]}
+  />
+  <CodeExercise
+    title="physical usage"
+    heading="Challenge: used_kb"
+    lang="python"
+    filename="main.py"
+    prompt={`used_kb(os_kb, proc_sizes) returns total KB used by OS plus all process sizes.
+wrap: print for os_kb=64 proc_sizes=[64,64,64] on 512 KB machine.`}
+    sampleLog={`256`}
+    starter={`def used_kb(os_kb, proc_sizes):
+    return 0  # TODO
+`}
+    wrapSuffix={`
+print(used_kb(64, [64, 64, 64]))
+`}
+    hint={`Sum os_kb and all proc_sizes.`}
+    solution={`def used_kb(os_kb, proc_sizes):
+    return os_kb + sum(proc_sizes)
+`}
+    sourceChecks={[
+      { name: 'sums', pattern: 'sum', must: true, hint: 'add process sizes' },
+    ]}
+    tests={[
+      { name: 'three procs', stdin: '', equals: '256' },
+    ]}
+  />
+</ExerciseSet>
+
+## Homework lab: inspect real address spaces
+
+Run on a **Linux** machine (or WSL). Tools won't run in the Piston sandbox — this lab is for your own system.
+
+<GuidedLab id="ostep-address-spaces" title="Homework: free, memory-user, pmap">
+  <LabStep title="Read man free">
+    Run `man free` and skim the whole page — it's short.
+  </LabStep>
+  <LabStep title="Run free">
+    Run `free` (try `-m` for megabytes). How much RAM? How much free? Does it match intuition?
+  </LabStep>
+  <LabStep title="Write memory-user.c">
+    Build a program that takes MB to allocate, touches every page in a loop, and runs until killed or for a timeout. (OSTEP homework template.)
+  </LabStep>
+  <LabStep title="free while memory-user runs">
+    In another terminal, run `free` while `memory-user` runs. Watch totals change; kill the program — what happens?
+  </LabStep>
+  <LabStep title="Read man pmap">
+    Read the `pmap` manual in detail — note the flags (`-X`, etc.).
+  </LabStep>
+  <LabStep title="pmap a real process">
+    Use `ps auxw`, pick a browser or your `memory-user` PID (`getpid()`), run `pmap -X` on it. How many mappings vs simple code/stack/heap?
+  </LabStep>
+  <LabStep title="pmap vs allocation size">
+    Run `pmap` on `memory-user` with different MB arguments. Does output match expectations?
+  </LabStep>
+</GuidedLab>
+
+## Summary
+
+| Idea | One line |
+|---|---|
+| **Early OS** | OS low in RAM; one program; no illusion |
+| **Time sharing** | Keep processes in memory; switch CPU — don't dump all RAM |
+| **Address space** | Program's view: code, heap, stack |
+| **Virtual ≠ physical** | Translation on every access |
+| **Goals** | Transparency, efficiency, protection |
+| **Next mechanisms** | Base/bounds, paging, TLB |
+
+**Previous:** [Memory Virtualization Dialogue](./memory-virtualization-dialogue)
+
+**Next:** [Address Translation](./address-translation) — base/bounds, dynamic relocation, and the MMU.
+
+## Further Reading
+
+- Remzi & Andrea Arpaci-Dusseau — [*Operating Systems: Three Easy Pieces*](https://pages.cs.wisc.edu/~remzi/OSTEP/) Ch. 13
+- [OSTEP VM intro PDF](https://pages.cs.wisc.edu/~remzi/OSTEP/vm-intro.pdf)
+- Valgrind [NS07] — dynamic binary instrumentation for memory debugging

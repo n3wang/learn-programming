@@ -97,7 +97,7 @@ public static void main(String[] args)
   ]}
 />
 
-<CodingExam
+<CodeExercise
   title="distance between two points"
   heading="Try it: distance between two points"
   lang="java"
@@ -190,7 +190,7 @@ I am left with $7.5
 :::tip Activity: Clamp a value
 Read a value, a minimum, and a maximum. Print the value clamped into that range, using `Math.max` and `Math.min` together.
 
-<CodingExam
+<CodeExercise
   title="Clamp a value"
   heading="exercise-clamp"
   lang="java"
@@ -232,7 +232,7 @@ class Runner {
 :::tip Activity: Round money
 Read a price as a double. Print it rounded to the nearest whole number using `Math.round` (which returns a `long`).
 
-<CodingExam
+<CodeExercise
   title="Round money"
   heading="exercise-round-money"
   lang="java"
@@ -271,7 +271,7 @@ class Runner {
 :::tip Activity: Absolute difference
 Read two integers. Print the absolute value of their difference using `Math.abs`.
 
-<CodingExam
+<CodeExercise
   title="Absolute difference"
   heading="exercise-abs-diff"
   lang="java"

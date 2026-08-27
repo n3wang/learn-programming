@@ -1,0 +1,280 @@
+---
+sidebar_position: 43
+title: Log-structured File Systems
+---
+
+> **Source:** *Operating Systems: Three Easy Pieces* (OSTEP) — Chapter 43, Arpaci-Dusseau & Arpaci-Dusseau
+
+import LfsSimulator from "@site/src/components/interactive/LfsSimulator.js";
+
+# Log-structured File Systems
+
+Berkeley LFS [RO91] (Rosenblum & Ousterhout) aims for **write performance** by turning updates into **large sequential** transfers.
+
+**Motivation**
+
+- Bigger memories → more reads hit cache → disk traffic is **write-heavy**
+- Sequential bandwidth ≫ random (seeks/rotations lag transfer rates)
+- FFS still pays many small seeks for create/metadata updates
+- Classic FSes ignore RAID **small-write** pain (RAID-4/5)
+
+**Crux:** how can a file system make **all writes** sequential?
+
+## Segments and write buffering
+
+LFS buffers data **and** metadata in memory, then writes a **segment** (a few MB) to free space in one long I/O. It **never overwrites in place** (copy-on-write / shadow paging).
+
+Sequential *addresses* alone aren’t enough — if you wait between block writes, the platter rotates. You need a **large contiguous** write to amortize positioning:
+
+`Reffective = D / (Tposition + D/Rpeak)`. For fraction `F` of peak: `D = F · Rpeak · Tposition / (1 − F)`.
+
+Example: 10 ms position, 100 MB/s, F = 0.9 → about **9 MB** per flush.
+
+## Finding inodes: imap and CR
+
+Inodes are no longer at fixed offsets — each update moves them. LFS adds an **inode map (imap)**: inode number → disk address of the latest inode. imap chunks are written **next to** the segment contents (not a fixed hot spot).
+
+A fixed **checkpoint region (CR)** points at the latest imap pieces. CR is updated periodically (~30 s) so the write path stays sequential.
+
+**Read path (cold):** CR → load imap → inode → (in)direct blocks — same I/O count as a classic FS once imap is cached.
+
+**Directories** still store `(name, inum)`. When an inode moves, only the imap changes — this avoids the **recursive update problem** up the directory tree.
+
+## Garbage collection (cleaning)
+
+Old versions left behind are **garbage**. Cleaning runs **segment-by-segment**: read `M` segments, compact live blocks into `N < M` new segments, free the old — keeps large free regions for future sequential writes.
+
+**Liveness:** segment summary stores `(inum, offset)` per block; live iff current inode still points at that address. Version numbers in imap short-circuit truncate/delete checks.
+
+**Policy:** clean **cold** segments sooner; wait on **hot** ones (more blocks die). Cleaning cost was controversial early on [SS+95]; later work improved policies [MR+97].
+
+## Crash recovery
+
+- **Two CRs** (ends of disk), updated alternately with timestamped header/body/trailer → detect partial CR writes
+- **Roll forward** from the last good CR along the log to recover recent segments
+
+## Interactive
+
+<LfsSimulator />
+
+**Try:** why LFS · segment write path · imap/CR · cleaning · crash recovery.
+
+## Check your understanding
+
+<MultipleChoice
+  id="ce-lfs"
+  title="Log-structured file systems"
+  questions={[
+    {
+      prompt: 'LFS’s core write strategy is to…',
+      choices: [
+        'Overwrite inodes in a fixed array only',
+        'Buffer updates and write large segments sequentially to free space',
+        'Disable the page cache',
+        'Always issue single-block random writes',
+      ],
+      answer: 1,
+      why: 'COW + write buffering → peak sequential bandwidth.',
+    },
+    {
+      prompt: 'Why isn’t “write to A then A+1 later” enough for peak performance?',
+      choices: [
+        'Disks forbid sequential addresses',
+        'Rotation between delayed writes wastes almost a full spin',
+        'imap cannot store A+1',
+        'CR forbids adjacent blocks',
+      ],
+      answer: 1,
+      why: 'Need large contiguous transfers, not merely sequential LBAs over time.',
+    },
+    {
+      prompt: 'The inode map exists because…',
+      choices: [
+        'Directories store full paths only',
+        'Inodes move on every update and need indirection from inode numbers',
+        'RAID forbids inodes',
+        'fsck replaces imap',
+      ],
+      answer: 1,
+      why: 'Indirection lets LFS relocate inodes freely.',
+    },
+    {
+      prompt: 'The checkpoint region’s job is to…',
+      choices: [
+        'Store all file data',
+        'Provide a fixed place that points to the latest imap pieces',
+        'Replace segment cleaning',
+        'Disable roll forward',
+      ],
+      answer: 1,
+      why: 'Something fixed must start lookups.',
+    },
+    {
+      prompt: 'LFS cleans at segment granularity so that…',
+      choices: [
+        'Free space stays in large contiguous chunks for future sequential writes',
+        'Bitmaps become mandatory',
+        'Directories store disk addresses',
+        'CR updates every block',
+      ],
+      answer: 0,
+      why: 'Block-at-a-time free holes would destroy sequential write performance.',
+    },
+    {
+      prompt: 'WAFL’s snapshot idea relative to LFS cleaning is an example of…',
+      choices: [
+        'Disabling COW',
+        'Turning old versions into a user feature instead of pure garbage',
+        'Requiring fsck after every write',
+        'Removing the imap',
+      ],
+      answer: 1,
+      why: 'Flaw → virtue: keep old versions useful longer.',
+    },
+  ]}
+/>
+
+## Coding challenges
+
+<ExerciseSet title="Exercises" description="Buffering math, liveness, and lookup.">
+  <CodeExercise
+    title="buffer size"
+    heading="Challenge: buffer_mb"
+    lang="python"
+    filename="main.py"
+    prompt={`buffer_mb(F, R_peak_mbs, T_pos_s) returns D = F * R_peak_mbs * T_pos_s / (1 - F)
+rounded to nearest int. wrap: print buffer_mb(0.9, 100, 0.01).`}
+    sampleLog={`9`}
+    starter={`def buffer_mb(F, R_peak_mbs, T_pos_s):
+    return 0  # TODO
+`}
+    wrapSuffix={`
+print(buffer_mb(0.9, 100, 0.01))
+`}
+    hint={`D = F*R*T / (1-F); round().`}
+    solution={`def buffer_mb(F, R_peak_mbs, T_pos_s):
+    return round(F * R_peak_mbs * T_pos_s / (1 - F))
+`}
+    sourceChecks={[
+      { name: 'formula', pattern: '1\\s*-\\s*F|/', must: true, hint: 'amortization formula' },
+    ]}
+    tests={[
+      { name: '90pct example', stdin: '', equals: '9' },
+    ]}
+  />
+  <CodeExercise
+    title="block live?"
+    heading="Challenge: is_live"
+    lang="python"
+    filename="main.py"
+    prompt={`is_live(disk_addr, inode_ptr) is True iff inode_ptr == disk_addr
+(simplified liveness: inode[T] still points here).
+wrap: print is_live(10, 10), is_live(10, 99).`}
+    sampleLog={`True
+False`}
+    starter={`def is_live(disk_addr, inode_ptr):
+    return False  # TODO
+`}
+    wrapSuffix={`
+print(is_live(10, 10))
+print(is_live(10, 99))
+`}
+    hint={`Equality check.`}
+    solution={`def is_live(disk_addr, inode_ptr):
+    return inode_ptr == disk_addr
+`}
+    sourceChecks={[
+      { name: 'eq', pattern: '==', must: true, hint: 'compare addresses' },
+    ]}
+    tests={[
+      { name: 'live/dead', stdin: '', equals: 'True\nFalse' },
+    ]}
+  />
+  <CodeExercise
+    title="lookup path"
+    heading="Challenge: lookup_order"
+    lang="python"
+    filename="main.py"
+    prompt={`lookup_order() returns the cold-start read order as a list:
+["CR","imap","inode","data"]. wrap: print ", ".join(lookup_order()).`}
+    sampleLog={`CR, imap, inode, data`}
+    starter={`def lookup_order():
+    return []  # TODO
+`}
+    wrapSuffix={`
+print(", ".join(lookup_order()))
+`}
+    hint={`Fixed CR first.`}
+    solution={`def lookup_order():
+    return ["CR", "imap", "inode", "data"]
+`}
+    sourceChecks={[
+      { name: 'CR', pattern: 'CR', must: true, hint: 'start at checkpoint region' },
+    ]}
+    tests={[
+      { name: 'order', stdin: '', equals: 'CR, imap, inode, data' },
+    ]}
+  />
+  <CodeExercise
+    title="clean count"
+    heading="Challenge: segments_freed"
+    lang="python"
+    filename="main.py"
+    prompt={`segments_freed(M, N) after compacting M old segments into N new ones (N < M)
+returns M - N. wrap: print segments_freed(4, 1).`}
+    sampleLog={`3`}
+    starter={`def segments_freed(M, N):
+    return 0  # TODO
+`}
+    wrapSuffix={`
+print(segments_freed(4, 1))
+`}
+    hint={`M - N.`}
+    solution={`def segments_freed(M, N):
+    return M - N
+`}
+    sourceChecks={[
+      { name: 'sub', pattern: 'M\\s*-\\s*N|-', must: true, hint: 'difference' },
+    ]}
+    tests={[
+      { name: '4→1', stdin: '', equals: '3' },
+    ]}
+  />
+</ExerciseSet>
+
+## Homework lab: lfs.py
+
+Use the [OSTEP file-lfs homework](https://github.com/remzi-arpacidusseau/ostep-homework/tree/master/file-lfs) (`lfs.py`).
+
+<GuidedLab id="ostep-lfs-sim" title="Homework: lfs.py">
+  <LabStep title="Infer commands">
+    `./lfs.py -n 3` (vary `-s`): guess commands and block liveness; check with `-o` / `-c`. Try `-i` for per-command updates.
+  </LabStep>
+  <LabStep title="Scripted writes">
+    Compare four 1-block writes vs one 4-block write (`-L`); what does buffering buy? Try creates, dirs, hard links (`-L c,/foo:l,…`).
+  </LabStep>
+  <LabStep title="Policies & CR">
+    Sequential vs random inode allocation (`-a s` / `-a r`). Run with `-N` (no CR update each step) and reason about roll-forward recovery.
+  </LabStep>
+</GuidedLab>
+
+## Summary
+
+| Idea | Role |
+|---|---|
+| **Segments** | Large sequential COW writes |
+| **imap** | Find moving inodes; stop recursive dir updates |
+| **CR** | Fixed root; periodic; dual CR for atomicity |
+| **Cleaning** | Segment GC of garbage versions |
+| **Legacy** | WAFL, ZFS, btrfs, SSD FTLs |
+
+**Previous:** [Crash Consistency](./crash-consistency)
+
+**Next:** [Flash-based SSDs](./flash-based-ssds) — NAND ops, FTL, wear leveling.
+
+## Further Reading
+
+- Remzi & Andrea Arpaci-Dusseau — [*Operating Systems: Three Easy Pieces*](https://pages.cs.wisc.edu/~remzi/OSTEP/) Ch. 43
+- [OSTEP log-structured FS PDF](https://pages.cs.wisc.edu/~remzi/OSTEP/file-lfs.pdf)
+- [OSTEP file-lfs homework](https://github.com/remzi-arpacidusseau/ostep-homework/tree/master/file-lfs)
+- Rosenblum & Ousterhout — LFS [RO91]; Rosenblum dissertation [R92]; WAFL [HLM94]

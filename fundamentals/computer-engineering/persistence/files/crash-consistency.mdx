@@ -1,0 +1,328 @@
+---
+sidebar_position: 42
+title: Crash Consistency
+---
+
+> **Source:** *Operating Systems: Three Easy Pieces* (OSTEP) — Chapter 42, Arpaci-Dusseau & Arpaci-Dusseau
+
+import CrashConsistencySimulator from "@site/src/components/interactive/CrashConsistencySimulator.js";
+
+# Crash Consistency: FSCK and Journaling
+
+Persistent structures must survive power loss. Updating several on-disk blocks is **not atomic** — a crash between writes leaves an inconsistent image.
+
+**Crux:** how do we keep the on-disk FS in a reasonable state despite crashes at arbitrary times?
+
+## Example: append one block
+
+An append dirties (at least) **inode**, **data bitmap**, and **new data block**. Any subset may reach disk:
+
+| Survives | Result |
+|---|---|
+| Data only | Looks like no-op (OK for metadata) |
+| Inode only | Points to garbage; bitmap disagrees |
+| Bitmap only | **Space leak** |
+| Inode + bitmap | Consistent metadata, garbage data |
+| Inode + data | Bitmap inconsistency |
+| Bitmap + data | Orphan block |
+
+Ideal: move atomically from one consistent state to another. Disks write one request at a time → **crash-consistency / consistent-update problem**.
+
+## Solution 1: fsck
+
+Old approach: allow inconsistency, **repair before mount** [MK96].
+
+Checks include: superblock sanity, rebuild bitmaps from inodes, inode fields/links, duplicate/bad pointers, directory structure (`.` / `..`, no cycles). Orphans → `lost+found`.
+
+**Limits:** can’t fix “consistent but wrong data”; cost is **O(volume)** — minutes/hours on large disks/RAIDs. Overkill for a three-block update.
+
+## Solution 2: Journaling (write-ahead logging)
+
+Before overwriting final locations, write a **note** of the update to a **journal** (Cedar [H87]; ext3/4, XFS, NTFS, …). Recovery scans the log, not the whole disk.
+
+### Data journaling protocol
+
+1. **Journal write** — TxB + physical blocks (+ metadata/data)
+2. **Journal commit** — TxE (only after body durable)
+3. **Checkpoint** — write blocks to final addresses
+4. **Free** — mark tx reusable in journal superblock (circular log)
+
+Issue TxE too early (or with reordered internals) and garbage can look like a valid transaction — hence ordered commit / barriers / **transaction checksums** (ext4) [P+05].
+
+Batch many dirty blocks into one **global transaction** to avoid rewriting the same bitmap/dir over and over.
+
+### Metadata (ordered) journaling
+
+Journal **metadata only**; write **user data first** (pointees before pointers) so recovery never makes an inode point at garbage. Cuts roughly half the write traffic vs full data journaling — the common default.
+
+**Block reuse** after delete is subtle: replaying old journaled directory data can clobber a new file that reused the LBA → **revoke** records (ext3) [T00].
+
+## Other approaches
+
+| Approach | Idea |
+|---|---|
+| **Soft Updates** [GP94] | Order every write so disk is never illegal |
+| **COW / ZFS** | Never overwrite in place; flip root atomically |
+| **Backpointers** | Lazy check: forward ptr must match back ptr [C+12] |
+| **Optimistic journaling** | Fewer waits via richer checksums [C+13] |
+
+## Interactive
+
+<CrashConsistencySimulator />
+
+**Try:** partial-update failures · fsck · journal protocol · alternatives.
+
+## Check your understanding
+
+<MultipleChoice
+  id="ce-crash-consistency"
+  title="Crash consistency"
+  questions={[
+    {
+      prompt: 'The crash-consistency problem arises because…',
+      choices: [
+        'CPUs cannot run user code',
+        'Multi-block updates are not atomic on disk',
+        'Directories cannot store names',
+        'RAID forbids journaling',
+      ],
+      answer: 1,
+      why: 'A crash can land between any two writes.',
+    },
+    {
+      prompt: 'fsck’s main drawback on modern large volumes is…',
+      choices: [
+        'It is too fast',
+        'Recovery cost scales with the whole disk, not the update',
+        'It journals every byte twice',
+        'It requires Soft Updates',
+      ],
+      answer: 1,
+      why: 'Full-volume scan vs localized fix.',
+    },
+    {
+      prompt: 'Write-ahead logging / journaling first…',
+      choices: [
+        'Deletes the superblock',
+        'Records the pending update in a log, then checkpoints',
+        'Disables the page cache forever',
+        'Runs only at mkfs time',
+      ],
+      answer: 1,
+      why: 'Note intent; replay if crash before checkpoint finishes.',
+    },
+    {
+      prompt: 'TxE must not hit disk before the transaction body because…',
+      choices: [
+        'Disks cannot store TxE',
+        'A partial body plus TxE can look like a valid committed transaction',
+        'Bitmaps forbid TxE',
+        'fsck requires TxE first',
+      ],
+      answer: 1,
+      why: 'Garbage could be replayed as real data.',
+    },
+    {
+      prompt: 'Ordered metadata journaling writes file data before related metadata so that…',
+      choices: [
+        'Seeks disappear',
+        'Inodes never point at garbage after recovery',
+        'fsck becomes mandatory',
+        'COW is disabled',
+      ],
+      answer: 1,
+      why: 'Pointee before pointer.',
+    },
+    {
+      prompt: 'A journal revoke record helps when…',
+      choices: [
+        'Mounting read-only always',
+        'Deleted blocks are reused and old journaled contents must not be replayed',
+        'Building RAID-0 only',
+        'Disabling checksums',
+      ],
+      answer: 1,
+      why: 'Delete/reuse is the hairy part of journaling.',
+    },
+  ]}
+/>
+
+## Coding challenges
+
+<ExerciseSet title="Exercises" description="Crash outcomes and journal steps.">
+  <CodeExercise
+    title="crash outcome"
+    heading="Challenge: crash_outcome"
+    lang="python"
+    filename="main.py"
+    prompt={`crash_outcome(wrote) where wrote is a frozenset subset of {"I","B","D"}:
+"ok_noop" if only D or empty; "garbage_ptr" if I in wrote and D not in wrote;
+"space_leak" if B in wrote and I not in wrote; "meta_inconsist" if I and B disagree with missing piece;
+else "ok_or_garbage_data" for I+B without D, etc.
+Simpler mapping for tests:
+frozenset() or {{"D"}} → "noop"
+{{"I"}} → "garbage_ptr"
+{{"B"}} → "space_leak"
+{{"I","B"}} → "garbage_data"
+{{"I","D"}} → "bitmap_mismatch"
+{{"B","D"}} → "orphan_block"
+{{"I","B","D"}} → "consistent"
+wrap: print crash_outcome(frozenset()), crash_outcome(frozenset("I")), crash_outcome(frozenset({"I","B","D"})).`}
+    sampleLog={`noop
+garbage_ptr
+consistent`}
+    starter={`def crash_outcome(wrote):
+    return ""  # TODO
+`}
+    wrapSuffix={`
+print(crash_outcome(frozenset()))
+print(crash_outcome(frozenset({"I"})))
+print(crash_outcome(frozenset({"I", "B", "D"})))
+`}
+    hint={`Branch on which of I/B/D are present.`}
+    solution={`def crash_outcome(wrote):
+    keys = frozenset(wrote)
+    if keys in (frozenset(), frozenset({"D"})):
+        return "noop"
+    if keys == frozenset({"I"}):
+        return "garbage_ptr"
+    if keys == frozenset({"B"}):
+        return "space_leak"
+    if keys == frozenset({"I", "B"}):
+        return "garbage_data"
+    if keys == frozenset({"I", "D"}):
+        return "bitmap_mismatch"
+    if keys == frozenset({"B", "D"}):
+        return "orphan_block"
+    if keys == frozenset({"I", "B", "D"}):
+        return "consistent"
+    return "unknown"
+`}
+    sourceChecks={[
+      { name: 'cases', pattern: 'I|B|D', must: true, hint: 'classify subsets' },
+    ]}
+    tests={[
+      { name: 'three cases', stdin: '', equals: 'noop\ngarbage_ptr\nconsistent' },
+    ]}
+  />
+  <CodeExercise
+    title="journal steps"
+    heading="Challenge: next_journal_step"
+    lang="python"
+    filename="main.py"
+    prompt={`next_journal_step(done) for data journaling: steps =
+["journal_write","journal_commit","checkpoint","free"].
+done is how many finished (0..3). wrap: print next_journal_step(0) and next_journal_step(2).`}
+    sampleLog={`journal_write
+checkpoint`}
+    starter={`def next_journal_step(done):
+    return ""  # TODO
+`}
+    wrapSuffix={`
+print(next_journal_step(0))
+print(next_journal_step(2))
+`}
+    hint={`Index the list.`}
+    solution={`def next_journal_step(done):
+    steps = ["journal_write", "journal_commit", "checkpoint", "free"]
+    return steps[done]
+`}
+    sourceChecks={[
+      { name: 'list', pattern: 'journal_write|steps', must: true, hint: 'ordered protocol' },
+    ]}
+    tests={[
+      { name: 'first and third', stdin: '', equals: 'journal_write\ncheckpoint' },
+    ]}
+  />
+  <CodeExercise
+    title="ordered data first?"
+    heading="Challenge: data_before_commit"
+    lang="python"
+    filename="main.py"
+    prompt={`data_before_commit(mode) is True for "ordered" or "metadata" journaling modes
+(data must be durable before TxE), False for "data" full journaling (data is in the log).
+wrap: print data_before_commit("ordered"), data_before_commit("data").`}
+    sampleLog={`True
+False`}
+    starter={`def data_before_commit(mode):
+    return False  # TODO
+`}
+    wrapSuffix={`
+print(data_before_commit("ordered"))
+print(data_before_commit("data"))
+`}
+    hint={`ordered/metadata → True.`}
+    solution={`def data_before_commit(mode):
+    return mode in ("ordered", "metadata")
+`}
+    sourceChecks={[
+      { name: 'modes', pattern: 'ordered|metadata|in', must: true, hint: 'check mode name' },
+    ]}
+    tests={[
+      { name: 'ordered vs data', stdin: '', equals: 'True\nFalse' },
+    ]}
+  />
+  <CodeExercise
+    title="recovery action"
+    heading="Challenge: recovery_action"
+    lang="python"
+    filename="main.py"
+    prompt={`recovery_action(committed) returns "replay" if committed else "skip".
+wrap: print both.`}
+    sampleLog={`replay
+skip`}
+    starter={`def recovery_action(committed):
+    return ""  # TODO
+`}
+    wrapSuffix={`
+print(recovery_action(True))
+print(recovery_action(False))
+`}
+    hint={`Simple ternary.`}
+    solution={`def recovery_action(committed):
+    return "replay" if committed else "skip"
+`}
+    sourceChecks={[
+      { name: 'branch', pattern: 'if|else', must: true, hint: 'committed?' },
+    ]}
+    tests={[
+      { name: 'replay/skip', stdin: '', equals: 'replay\nskip' },
+    ]}
+  />
+</ExerciseSet>
+
+## Homework lab: fsck.py
+
+Use the [OSTEP file-journaling homework](https://github.com/remzi-arpacidusseau/ostep-homework/tree/master/file-journaling) (`fsck.py`).
+
+<GuidedLab id="ostep-fsck-sim" title="Homework: fsck.py">
+  <LabStep title="Clean image">
+    `fsck.py -D` then `-p`: interpret a random consistent FS; try seeds 1–3.
+  </LabStep>
+  <LabStep title="Corruptions">
+    Seeds `-S 1`, `3`, `19`, `5`, `38`, `642`, … — name the inconsistency and a repair; check with `-c`.
+  </LabStep>
+  <LabStep title="Trust & loss">
+    When metadata conflicts, what should the checker trust? When is data unrecoverable?
+  </LabStep>
+</GuidedLab>
+
+## Summary
+
+| Approach | Recovery cost | Runtime cost |
+|---|---|---|
+| **fsck** | O(disk) | None until crash |
+| **Journaling** | O(log) | Extra log writes (+ seeks) |
+| **Ordered metadata** | Fast | Log metadata; data once, ordered |
+| **Soft Updates / COW** | Varies | Different trade-offs |
+
+**Previous:** [Fast File System](./fast-file-system)
+
+**Next:** [Log-structured File Systems](./log-structured-file-systems) — segments, imap, cleaning.
+
+## Further Reading
+
+- Remzi & Andrea Arpaci-Dusseau — [*Operating Systems: Three Easy Pieces*](https://pages.cs.wisc.edu/~remzi/OSTEP/) Ch. 42
+- [OSTEP file-journaling PDF](https://pages.cs.wisc.edu/~remzi/OSTEP/file-journaling.pdf)
+- [OSTEP file-journaling homework](https://github.com/remzi-arpacidusseau/ostep-homework/tree/master/file-journaling)
+- Tweedie ext3 [T98]; Hagmann Cedar logging [H87]; Ganger Soft Updates [GP94]

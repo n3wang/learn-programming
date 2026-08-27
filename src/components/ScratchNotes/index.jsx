@@ -10,6 +10,7 @@ import {
 } from './db';
 import {
   CODE_PROGRESS_EVENT,
+  isPracticeDraft,
   listDrafts,
   toggleDraftBookmark,
 } from '@site/src/components/codeWorkspace/drafts';
@@ -32,7 +33,7 @@ function formatDate(ts) {
   }
 }
 
-function examStatus(row) {
+function practiceStatus(row) {
   if (row.completed) {
     return {label: formatDate(row.completedAt || row.updatedAt), done: true};
   }
@@ -48,7 +49,7 @@ export default function ScratchNotes() {
   const [noteSearch, setNoteSearch] = useState('');
   const [codeSearch, setCodeSearch] = useState('');
   const [codeFilter, setCodeFilter] = useState('all');
-  const [exams, setExams] = useState([]);
+  const [practices, setPractices] = useState([]);
   const saveTimer = useRef(null);
   const textareaRef = useRef(null);
   const dockRef = useRef(null);
@@ -59,9 +60,9 @@ export default function ScratchNotes() {
     return rows;
   }, []);
 
-  const refreshExams = useCallback(async () => {
+  const refreshPractices = useCallback(async () => {
     const rows = await listDrafts().catch(() => []);
-    setExams(rows.filter((row) => row.kind === 'exam'));
+    setPractices(rows.filter(isPracticeDraft));
   }, []);
 
   useEffect(() => {
@@ -78,7 +79,7 @@ export default function ScratchNotes() {
           }
         }
         setNotes(noteRows);
-        setExams((draftRows || []).filter((row) => row.kind === 'exam'));
+        setPractices((draftRows || []).filter(isPracticeDraft));
       })
       .finally(() => {
         if (!cancelled) {
@@ -92,11 +93,11 @@ export default function ScratchNotes() {
 
   useEffect(() => {
     const onProgress = () => {
-      refreshExams();
+      refreshPractices();
     };
     window.addEventListener(CODE_PROGRESS_EVENT, onProgress);
     return () => window.removeEventListener(CODE_PROGRESS_EVENT, onProgress);
-  }, [refreshExams]);
+  }, [refreshPractices]);
 
   const persistPrefs = useCallback((nextOpen, nextTab) => {
     savePrefs({open: nextOpen, tab: nextTab}).catch(() => {});
@@ -141,7 +142,7 @@ export default function ScratchNotes() {
       setActiveId(null);
     } else {
       refreshNotes();
-      refreshExams();
+      refreshPractices();
     }
     persistPrefs(next, tab);
   }
@@ -151,7 +152,7 @@ export default function ScratchNotes() {
     setActiveId(null);
     persistPrefs(open, next);
     if (next === 'code') {
-      refreshExams();
+      refreshPractices();
     }
   }
 
@@ -168,20 +169,20 @@ export default function ScratchNotes() {
     );
   }, [notes, noteSearch]);
 
-  const completedCount = exams.filter((e) => e.completed).length;
+  const completedCount = practices.filter((e) => e.completed).length;
   const langs = useMemo(() => {
     const set = new Set();
-    exams.forEach((e) => {
+    practices.forEach((e) => {
       if (e.lang) {
         set.add(String(e.lang).toLowerCase());
       }
     });
     return [...set].sort();
-  }, [exams]);
+  }, [practices]);
 
-  const filteredExams = useMemo(() => {
+  const filteredPractices = useMemo(() => {
     const q = codeSearch.trim().toLowerCase();
-    return exams.filter((e) => {
+    return practices.filter((e) => {
       if (codeFilter === 'bookmarked' && !e.bookmarked) {
         return false;
       }
@@ -197,11 +198,11 @@ export default function ScratchNotes() {
         (e.pathname || '').toLowerCase().includes(q)
       );
     });
-  }, [exams, codeSearch, codeFilter]);
+  }, [practices, codeSearch, codeFilter]);
 
-  const groupedExams = useMemo(() => {
+  const groupedPractices = useMemo(() => {
     const groups = new Map();
-    filteredExams.forEach((e) => {
+    filteredPractices.forEach((e) => {
       const key = e.chapter || e.pathname || 'Other';
       if (!groups.has(key)) {
         groups.set(key, []);
@@ -209,11 +210,11 @@ export default function ScratchNotes() {
       groups.get(key).push(e);
     });
     return [...groups.entries()].map(([chapter, items]) => {
-      const allInChapter = exams.filter((e) => (e.chapter || e.pathname || 'Other') === chapter);
+      const allInChapter = practices.filter((e) => (e.chapter || e.pathname || 'Other') === chapter);
       const done = allInChapter.filter((e) => e.completed).length;
       return {chapter, items, done, total: allInChapter.length};
     });
-  }, [filteredExams, exams]);
+  }, [filteredPractices, practices]);
 
   async function addNote() {
     const index = notes.length + 1;
@@ -389,24 +390,24 @@ export default function ScratchNotes() {
                   </button>
                 ))}
               </div>
-              {groupedExams.length === 0 ? (
-                <p className={styles.empty}>Open a lesson with exams to start tracking progress.</p>
+              {groupedPractices.length === 0 ? (
+                <p className={styles.empty}>Open a lesson with practice exercises to start tracking progress.</p>
               ) : (
-                groupedExams.map((group) => (
+                groupedPractices.map((group) => (
                   <div key={group.chapter} className={styles.chapter}>
                     <div className={styles.chapterHead}>
                       {group.chapter}. {group.done}/{group.total}
                     </div>
                     <ul className={styles.list}>
                       {group.items.map((e) => {
-                        const status = examStatus(e);
+                        const status = practiceStatus(e);
                         return (
                           <li key={e.id} className={styles.codeRowWrap}>
                             <button
                               type="button"
                               className={styles.star}
                               aria-label={e.bookmarked ? 'Remove bookmark' : 'Bookmark'}
-                              onClick={() => toggleDraftBookmark(e.id).then(refreshExams)}>
+                              onClick={() => toggleDraftBookmark(e.id).then(refreshPractices)}>
                               {e.bookmarked ? '★' : '☆'}
                             </button>
                             <Link
