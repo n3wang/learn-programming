@@ -1,0 +1,363 @@
+---
+sidebar_position: 17
+title: Determinant (Kraut / LU)
+---
+
+import KrautDeterminantSimulator from "@site/src/components/interactive/KrautDeterminantSimulator.js";
+
+# Calculating the Determinant (Kraut method)
+
+**Kraut** (often spelled **Crout**; CP-Algorithms uses “Kraut”) computes an **LU factorization** `A = L U` in **`O(N³)`**, then reads off
+
+```text
+det(A) = Πᵢ Uᵢᵢ
+```
+
+when `L` has a unit diagonal. This lesson follows [CP-Algorithms — Determinant (Kraut)](https://cp-algorithms.com/linear_algebra/determinant-kraut.html).
+
+## Idea
+
+- `L` = lower triangular, **`Lᵢᵢ = 1`**
+- `U` = upper triangular
+- `det(L) = 1`, so `det(A) = det(L)·det(U) = det(U) = product of diag(U)`
+
+An invertible matrix has a unique LU factorization of this form **iff all leading principal minors are nonzero**. If a pivot `Uⱼⱼ` hits zero, you need **row pivoting** (partial pivoting) and must track the sign of each swap.
+
+## Formulas
+
+For each column `j = 1 … N` (1-based):
+
+1. For `i = 1 … j`:
+
+```text
+Uᵢⱼ = Aᵢⱼ − Σ_{k=1}^{i−1} Lᵢₖ · Uₖⱼ
+```
+
+2. For `i = j+1 … N`:
+
+```text
+Lᵢⱼ = (1 / Uⱼⱼ) · ( Aᵢⱼ − Σ_{k=1}^{j−1} Lᵢₖ · Uₖⱼ )
+```
+
+Same formulas, 0-based, appear in the simulator and C++ demo.
+
+## Compact storage & pivoting
+
+In practice one matrix overwrites `A`:
+
+- upper triangle (incl. diagonal) → `U`
+- strict lower triangle → multipliers `Lᵢⱼ` (`L` diagonal stays implicit 1s)
+
+The Java snippet on CP-Algorithms also:
+
+- scales rows for pivot selection
+- swaps rows for the largest scaled residual (`imax`)
+- flips `sign` on each swap
+- returns `sign · Π aᵢᵢ` rounded to an integer
+
+Without pivoting the algorithm can fail or lose precision even when `det(A) ≠ 0`.
+
+## Tiny instance
+
+```text
+A = [[ 2,  1, 1],
+     [ 4, −6, 0],
+     [−2,  7, 2]]
+```
+
+```text
+L = [[ 1,  0, 0],
+     [ 2,  1, 0],
+     [−1, −1, 1]]
+
+U = [[ 2,  1,  1],
+     [ 0, −8, −2],
+     [ 0,  0,  1]]
+```
+
+`det(A) = 2 · (−8) · 1 = −16`.
+
+<details>
+<summary>🧪 LU determinant (C++, no pivoting)</summary>
+
+<PistonRunner
+  lang="c++"
+  height="480px"
+  code={`#include <iostream>
+#include <vector>
+#include <iomanip>
+using namespace std;
+
+int main() {
+    const int N = 3;
+    vector<vector<double>> A = {
+        {2, 1, 1},
+        {4, -6, 0},
+        {-2, 7, 2}
+    };
+    vector<vector<double>> L(N, vector<double>(N, 0));
+    vector<vector<double>> U(N, vector<double>(N, 0));
+    for (int i = 0; i < N; i++) L[i][i] = 1;
+
+    for (int j = 0; j < N; j++) {
+        for (int i = 0; i <= j; i++) {
+            double sum = 0;
+            for (int k = 0; k < i; k++) sum += L[i][k] * U[k][j];
+            U[i][j] = A[i][j] - sum;
+        }
+        for (int i = j + 1; i < N; i++) {
+            double sum = 0;
+            for (int k = 0; k < j; k++) sum += L[i][k] * U[k][j];
+            L[i][j] = (A[i][j] - sum) / U[j][j];
+        }
+    }
+
+    double det = 1;
+    for (int i = 0; i < N; i++) det *= U[i][i];
+
+    cout << fixed << setprecision(3);
+    cout << "L:" << endl;
+    for (auto &row : L) {
+        for (double x : row) cout << setw(8) << x;
+        cout << endl;
+    }
+    cout << "U:" << endl;
+    for (auto &row : U) {
+        for (double x : row) cout << setw(8) << x;
+        cout << endl;
+    }
+    cout << "det = " << det << endl;
+    return 0;
+}
+`}
+/>
+
+</details>
+
+<KrautDeterminantSimulator />
+
+## Complexity
+
+Filling each of the `O(N²)` entries of `L`/`U` costs an `O(N)` sum → **`O(N³)`**, same order as Gaussian elimination. Determinant via Laplace expansion is factorial; LU is the practical cubic method.
+
+## Check: LU determinant
+
+<MultipleChoice
+  id="algo-16-kraut-basic"
+  title="Kraut / LU determinant"
+  questions={[
+    {
+      prompt: 'With unit-diagonal L, det(A) equals…',
+      choices: [
+        'Product of all entries of L',
+        'Product of diag(U)',
+        'Trace of A',
+        'Sum of diag(U)',
+      ],
+      answer: 1,
+      why: 'det(L)=1 so det(A)=det(U)=Π Uᵢᵢ.',
+    },
+    {
+      prompt: 'Time complexity of Kraut / LU for N×N is…',
+      choices: ['O(N)', 'O(N²)', 'O(N³)', 'O(N!)'],
+      answer: 2,
+      why: 'Same cubic cost as elimination.',
+    },
+    {
+      prompt: 'If a leading principal minor is zero…',
+      choices: [
+        'LU without pivoting may fail; use row swaps and track sign',
+        'det is always 1',
+        'You only compute L',
+        'N must be even',
+      ],
+      answer: 0,
+      why: 'Existence/uniqueness needs nonzero principal minors; pivoting fixes many cases.',
+    },
+    {
+      prompt: 'Each row swap during pivoting…',
+      choices: [
+        'Leaves det unchanged',
+        'Multiplies det by −1',
+        'Squares the det',
+        'Forces det=0',
+      ],
+      answer: 1,
+      why: 'det(PA)=det(P)det(A) and a transposition has det −1.',
+    },
+  ]}
+/>
+
+## Practice drills
+
+<ExerciseSet>
+<Exercise title="2×2 LU det" anchor="exercise-kraut-2x2">
+
+:::tip Activity: 2×2 LU det
+Input: four numbers `a b c d` for matrix `[[a,b],[c,d]]`. Using unit-`L` LU (no pivoting), print `det` as an integer (inputs are chosen so it is exact).
+
+Hint formulas: `U00=a`, `U01=b`, `L10=c/a`, `U11=d−L10·b`, `det=U00·U11`.
+
+<CodeExercise
+  title="2×2 LU det"
+  heading="exercise-kraut-2x2"
+  lang="python"
+  filename="main.py"
+  prompt="Recover det from diag(U)."
+  sampleLog={`(input) 1 2 3 4
+-2`}
+  starter={`def det2(a, b, c, d):
+    # TODO: unit-L LU (assume a != 0)
+    return 0
+`}
+  wrapSuffix={`
+a, b, c, d = map(int, input().split())
+print(det2(a, b, c, d))
+`}
+  hint="U00=a; L10=c/a; U11=d-(c/a)*b; return int(a*U11) or a*d-b*c"
+  solution={`def det2(a, b, c, d):
+    u00 = a
+    l10 = c / a
+    u11 = d - l10 * b
+    return int(u00 * u11)
+`}
+  sourceChecks={[
+    { name: 'uses division or formula', pattern: '/|\\*', must: true, hint: 'form L10 and U11 or ad−bc' },
+  ]}
+  tests={[
+    { name: 'sample', stdin: '1 2 3 4', equals: '-2' },
+    { name: 'id', stdin: '1 0 0 1', equals: '1' },
+    { name: 'neg', stdin: '2 1 0 3', equals: '6' },
+  ]}
+/>
+
+:::
+
+</Exercise>
+
+<Exercise title="Product of pivots" anchor="exercise-kraut-pivots">
+
+:::tip Activity: Product of pivots
+First line: `n`. Second: `n` floats/ints — the diagonal of `U` after LU (possibly with sign already applied as the first entry’s sign). Print the product rounded to nearest integer.
+
+<CodeExercise
+  title="Product of pivots"
+  heading="exercise-kraut-pivots"
+  lang="python"
+  filename="main.py"
+  prompt="det from diag(U)."
+  sampleLog={`(input) 3
+2 -8 1
+-16`}
+  starter={`def product_diag(diag):
+    # TODO
+    return 0
+`}
+  wrapSuffix={`
+n = int(input())
+diag = list(map(float, input().split()))
+print(product_diag(diag))
+`}
+  hint="p=1; for x in diag: p*=x; return int(round(p))"
+  solution={`def product_diag(diag):
+    p = 1.0
+    for x in diag:
+        p *= x
+    return int(round(p))
+`}
+  sourceChecks={[
+    { name: 'multiplies', pattern: '\\*|prod', must: true, hint: 'multiply all diagonal entries' },
+  ]}
+  tests={[
+    { name: 'sample', stdin: '3\n2 -8 1', equals: '-16' },
+    { name: 'one', stdin: '1\n5', equals: '5' },
+    { name: 'sign', stdin: '2\n-3 4', equals: '-12' },
+  ]}
+/>
+
+:::
+
+</Exercise>
+
+<Exercise title="3×3 Kraut det" anchor="exercise-kraut-3x3">
+
+:::tip Activity: 3×3 Kraut det
+First line: `3`. Next 3 lines: matrix rows (integers). Compute `det` with unit-`L` LU **without pivoting** (tests have nonzero pivots). Print an integer.
+
+<CodeExercise
+  title="3×3 Kraut det"
+  heading="exercise-kraut-3x3"
+  lang="python"
+  filename="main.py"
+  prompt="Implement the column-wise U then L updates."
+  sampleLog={`(input) 3
+2 1 1
+4 -6 0
+-2 7 2
+-16`}
+  starter={`def det_lu(A):
+    # A: n x n list of numbers; n may be 2 or 3 in tests
+    # TODO
+    return 0
+`}
+  wrapSuffix={`
+n = int(input())
+A = [list(map(float, input().split())) for _ in range(n)]
+print(int(round(det_lu(A))))
+`}
+  hint="L=I; for j in range(n): fill U[i][j] for i<=j; fill L[i][j]=(...)/U[j][j] for i>j; return product U[i][i]"
+  solution={`def det_lu(A):
+    n = len(A)
+    L = [[0.0] * n for _ in range(n)]
+    U = [[0.0] * n for _ in range(n)]
+    for i in range(n):
+        L[i][i] = 1.0
+    for j in range(n):
+        for i in range(j + 1):
+            s = sum(L[i][k] * U[k][j] for k in range(i))
+            U[i][j] = A[i][j] - s
+        for i in range(j + 1, n):
+            s = sum(L[i][k] * U[k][j] for k in range(j))
+            L[i][j] = (A[i][j] - s) / U[j][j]
+    det = 1.0
+    for i in range(n):
+        det *= U[i][i]
+    return det
+`}
+  sourceChecks={[
+    { name: 'nested work', pattern: 'for\\s+', must: true, hint: 'loop over columns / rows' },
+  ]}
+  tests={[
+    { name: 'sample', stdin: '3\n2 1 1\n4 -6 0\n-2 7 2', equals: '-16' },
+    { name: '2x2', stdin: '2\n1 2\n3 4', equals: '-2' },
+    { name: 'tri', stdin: '3\n1 0 0\n2 3 0\n4 5 6', equals: '18' },
+  ]}
+/>
+
+:::
+
+</Exercise>
+</ExerciseSet>
+
+## Contest / further reading
+
+<ExerciseSet>
+<Exercise title="Practice ideas" anchor="exercise-kraut-practice">
+
+- Implement **partial pivoting** and compare det on ill-conditioned inputs.
+- [CP-Algorithms — Gauss method for determinant](https://cp-algorithms.com/linear_algebra/determinant-gauss.html) — closely related cubic approach.
+- Solve linear systems with the same `L`/`U` via forward- and back-substitution (`O(N²)` after factorization).
+
+</Exercise>
+</ExerciseSet>
+
+## Cheat sheet
+
+| Idea | Takeaway |
+|---|---|
+| Goal | `det(A)` via `A = L U` |
+| Convention | `Lᵢᵢ = 1` (CP-Algorithms Kraut / Doolittle) |
+| Formula | `det = Π Uᵢᵢ` (× `(−1)^{#swaps}` with pivoting) |
+| Fill | Per column: `U` for `i≤j`, then `L` for `i>j` |
+| Cost | `O(N³)` |
+| Caveat | Need nonzero pivots / principal minors, or pivot |

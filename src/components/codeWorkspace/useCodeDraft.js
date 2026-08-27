@@ -1,9 +1,21 @@
 import {useCallback, useEffect, useRef, useState} from 'react';
-import {loadDraft, saveDraft} from './drafts';
+import {
+    deleteDraft,
+    loadDraft,
+    notifyCodeProgress,
+    registerPractice,
+    saveDraft,
+} from './drafts';
 
 const SAVE_MS = 400;
 
-export default function useCodeDraft(id, starter, initialStdin = '') {
+/**
+ * @param {string} id
+ * @param {string} starter
+ * @param {string} [initialStdin]
+ * @param {object|null} [practiceMeta]  When set, drafts count as practice progress only after code changes.
+ */
+export default function useCodeDraft(id, starter, initialStdin = '', practiceMeta = null) {
     const [code, setCode] = useState(starter);
     const [stdin, setStdin] = useState(initialStdin);
     const [ready, setReady] = useState(false);
@@ -12,8 +24,10 @@ export default function useCodeDraft(id, starter, initialStdin = '') {
     const timer = useRef(null);
     const starterRef = useRef(starter);
     const stdinRef = useRef(initialStdin);
+    const practiceMetaRef = useRef(practiceMeta);
     starterRef.current = starter;
     stdinRef.current = initialStdin;
+    practiceMetaRef.current = practiceMeta;
 
     useEffect(() => {
         let cancelled = false;
@@ -49,17 +63,61 @@ export default function useCodeDraft(id, starter, initialStdin = '') {
             if (!id) {
                 return;
             }
-            const write = () => {
+            const write = async () => {
                 setSaveLabel('Saving…');
                 const starterNow = starterRef.current;
-                saveDraft(id, {
-                    code: nextCode,
-                    stdin: nextStdin,
-                    modified: nextCode !== starterNow,
-                    starter: starterNow,
-                })
-                    .then(() => setSaveLabel('Saved'))
-                    .catch(() => setSaveLabel('Save failed'));
+                const meta = practiceMetaRef.current;
+                const modified = nextCode !== starterNow;
+
+                try {
+                    if (meta) {
+                        // Practice exercises: only record after the student edits (or keep an existing row).
+                        if (!modified) {
+                            const existing = await loadDraft(id);
+                            if (existing && !existing.completed && !existing.bookmarked) {
+                                await deleteDraft(id);
+                                setSaveLabel('Cleared');
+                                return;
+                            }
+                            if (!existing) {
+                                setSaveLabel('Autosave');
+                                return;
+                            }
+                            // Keep completed / bookmarked rows; store starter code again.
+                            await saveDraft(id, {
+                                code: nextCode,
+                                stdin: nextStdin,
+                                modified: false,
+                                starter: starterNow,
+                            });
+                            notifyCodeProgress();
+                            setSaveLabel('Saved');
+                            return;
+                        }
+
+                        await registerPractice(id, {
+                            ...meta,
+                            starter: starterNow,
+                            code: nextCode,
+                            stdin: nextStdin,
+                            modified: true,
+                        });
+                        notifyCodeProgress();
+                        setSaveLabel('Saved');
+                        return;
+                    }
+
+                    // Non-practice drafts (e.g. PistonRunner demos): save as before.
+                    await saveDraft(id, {
+                        code: nextCode,
+                        stdin: nextStdin,
+                        modified,
+                        starter: starterNow,
+                    });
+                    setSaveLabel('Saved');
+                } catch {
+                    setSaveLabel('Save failed');
+                }
             };
             if (timer.current) {
                 clearTimeout(timer.current);

@@ -1,0 +1,401 @@
+---
+sidebar_position: 27
+title: Point Location
+---
+
+import PointLocationSimulator from "@site/src/components/interactive/PointLocationSimulator.js";
+
+# Point Location in $O(\log n)$
+
+**Problem:** you have a planar subdivision (no degree-0/1 vertices) and many query points. For each query, report which **face** contains it. We answer all queries **offline** in **`O(log n)`** each (after sorting), via a sweep line.
+
+Typical uses: locate points in a **Voronoi diagram** or inside a simple polygon’s trapezoidalization / DCEL.
+
+This lesson follows [CP-Algorithms — Point location](https://cp-algorithms.com/geometry/point-location.html).
+
+Related: [Basic Geometry](./02-basic-geometry), [Half-plane Intersection](./11-halfplane-intersection).
+
+## Reduction: find a supporting edge
+
+For query `p = (x₀, y₀)` find an edge `e` such that:
+
+- if `p` lies on some edge, `e` is that edge; otherwise
+- `e` intersects the vertical line `x = x₀` at `(x₀, y)` with **`y < y₀`**, and this `y` is **maximal** among such edges.
+
+If no such edge exists, `p` is in the **outer face**.
+
+If `p` is not on `e`, the face is the one **immediately above** `e` (for non-vertical `e`). That face can be precomputed from a CCW face walk: when traversing `e` left→right (x increases), the face on the “walking” side is the one above.
+
+## Offline sweep
+
+Collect all x-coordinates of query points and edge endpoints. Sweep left → right. Maintain:
+
+- `t` — ordered set of **active non-vertical** edges (cover the current x)
+- `vert` — vertical edges at the **current** x only (cleared each x)
+
+### Events (per x, sorted by type)
+
+Order: **`VERT` → `GET` → `DEL` → `ADD`**.
+
+| Type | When |
+|---|---|
+| `VERT` | Vertical edge at this x |
+| `GET` | Query with this x |
+| `DEL` | Non-vertical edge ends (max endpoint x) |
+| `ADD` | Non-vertical edge starts (min endpoint x) |
+
+Processing:
+
+1. `VERT` — insert min endpoint y into `vert`
+2. `ADD` / `DEL` — insert / erase edge in `t`
+3. `GET` — binary search `vert` (point on vertical segment?); else `upper_bound` in `t` with a dummy edge at the query point to get the highest edge below
+
+**Degenerate fix:** after finishing all events at this x, re-run `GET`s against the updated `t` and keep the better answer (handles cases like querying a left corner of a triangle).
+
+## Edge comparator for `t`
+
+`edge_cmp(e1=(a,b), e2=(c,d))` must say whether `e1` stays **below** `e2` on their common x-range:
+
+```text
+val = sgn((b−a)×(c−a)) + sgn((b−a)×(d−a))
+if val ≠ 0: return val > 0
+val = sgn((d−c)×(a−c)) + sgn((d−c)×(b−c))
+return val < 0
+```
+
+(Cross products with integer coordinates — no floats required.)
+
+## Complexity
+
+Sorting events: `O((n+q) log(n+q))`. Each insert/erase/query on `t` / `vert`: `O(log n)`. Total **`O((n+q) log(n+q))`**, i.e. **`O(log n)` per query** offline.
+
+**Online:** the same idea works with a **persistent** ordered set of active edges across x.
+
+## From edge to face (DCEL sketch)
+
+Store the subdivision as a DCEL. For each non-vertical undirected edge, remember which incident face is “above”. After `sweepline` returns an edge pointer:
+
+- `nullptr` → outer face `(-1)`
+- point on the segment → report **on edge**
+- else → report the precomputed **above** face
+
+<details>
+<summary>🧪 Supporting edge under a query (toy sweep)</summary>
+
+<PistonRunner
+  lang="c++"
+  height="480px"
+  code={`#include <iostream>
+#include <vector>
+#include <string>
+#include <algorithm>
+using namespace std;
+
+struct pt {
+    long long x, y;
+    pt operator-(pt o) const { return {x - o.x, y - o.y}; }
+    long long cross(pt o) const { return x * o.y - y * o.x; }
+};
+
+struct Edge {
+    pt a, b; // a.x <= b.x
+    string name;
+};
+
+int sgn(long long v) { return (v > 0) - (v < 0); }
+
+// Is e1 below e2?
+bool below(const Edge& e1, const Edge& e2) {
+    pt a = e1.a, b = e1.b, c = e2.a, d = e2.b;
+    auto cr = [&](pt o, pt p, pt q) { return (p - o).cross(q - o); };
+    int val = sgn(cr(a, b, c)) + sgn(cr(a, b, d));
+    if (val != 0) return val > 0;
+    val = sgn(cr(c, d, a)) + sgn(cr(c, d, b));
+    return val < 0;
+}
+
+// y on edge at given x (non-vertical)
+double y_at(const Edge& e, long long x) {
+    if (e.a.x == e.b.x) return e.a.y;
+    return e.a.y + (e.b.y - e.a.y) * double(x - e.a.x) / (e.b.x - e.a.x);
+}
+
+int main() {
+    vector<Edge> edges = {
+        {{0, 0}, {4, 0}, "bot"},
+        {{0, 0}, {4, 4}, "diag"},
+        {{0, 4}, {4, 4}, "top"},
+    };
+    pt q{2, 1};
+
+    // Active edges covering x=2
+    vector<Edge*> active;
+    for (auto& e : edges)
+        if (e.a.x <= q.x && q.x <= e.b.x) active.push_back(&e);
+
+    sort(active.begin(), active.end(),
+         [](Edge* p, Edge* qe) { return below(*p, *qe); });
+
+    cout << "active (bottom→top):";
+    for (auto* e : active) cout << " " << e->name;
+    cout << endl;
+
+    // Highest edge with y_at < q.y (or equal if on edge)
+    Edge* ans = nullptr;
+    for (auto* e : active) {
+        double y = y_at(*e, q.x);
+        if (y < q.y + 1e-9) ans = e;
+    }
+    cout << "query (" << q.x << "," << q.y << ")" << endl;
+    cout << "supporting edge = " << (ans ? ans->name : "none") << endl;
+    cout << "face = below diagonal" << endl;
+    return 0;
+}
+`}
+/>
+
+</details>
+
+<details>
+<summary>Reference: `edge_cmp`, sweep sketch, DCEL face map</summary>
+
+Full integer DCEL version from [CP-Algorithms](https://cp-algorithms.com/geometry/point-location.html). Outer face is `-1`. Each query returns `(1, face)` if strictly inside, or `(0, edgeIndex)` if on an edge.
+
+```cpp
+// Comparator for active non-vertical edges in set t
+bool edge_cmp(Edge* edge1, Edge* edge2) {
+    const pt a = edge1->l, b = edge1->r;
+    const pt c = edge2->l, d = edge2->r;
+    int val = sgn(a.cross(b, c)) + sgn(a.cross(b, d));
+    if (val != 0) return val > 0;
+    val = sgn(c.cross(d, a)) + sgn(c.cross(d, b));
+    return val < 0;
+}
+
+enum EventType { VERT = 0, GET = 1, DEL = 2, ADD = 3 };
+
+// sweepline(planar edges, queries) → supporting Edge* per query
+// At each x: sort events VERT→GET→DEL→ADD; maintain t and vert;
+// GET: check vert, else upper_bound in t; re-GET after all events.
+
+// point_location(DCEL, queries):
+//   Build undirected edges; store "above" face when walking L→R (x increases).
+//   If res[i]==nullptr → (1,-1); else if on segment → (0,edge); else (1,aboveFace).
+```
+
+Assumes the subdivision is a valid DCEL (twin / next / face). Persistent trees on `t` make the same status structure answer queries **online**.
+
+</details>
+
+<PointLocationSimulator />
+
+## Check: point location
+
+<MultipleChoice
+  id="algo-26-pl-basic"
+  title="Point location"
+  questions={[
+    {
+      prompt: 'The geometric key per query is…',
+      choices: [
+        'Closest vertex only',
+        'Highest edge on x=x₀ at or below the query',
+        'Convex hull diameter',
+        'Minkowski sum',
+      ],
+      answer: 1,
+      why: 'That edge bounds the face from below (or contains the point).',
+    },
+    {
+      prompt: 'Event order at a fixed x is…',
+      choices: [
+        'ADD, DEL, GET, VERT',
+        'VERT, GET, DEL, ADD',
+        'Random',
+        'Only GET',
+      ],
+      answer: 1,
+      why: 'As in the article’s sweep.',
+    },
+    {
+      prompt: 'Active non-vertical edges are kept in…',
+      choices: [
+        'An unordered list only',
+        'A balanced set ordered by edge_cmp',
+        'A hash of faces',
+        'DFS timestamps',
+      ],
+      answer: 1,
+      why: 'Supports O(log n) predecessor queries.',
+    },
+    {
+      prompt: 'If the supporting edge is missing…',
+      choices: [
+        'The point is on every edge',
+        'The point is in the outer face',
+        'The algorithm failed',
+        'n must be even',
+      ],
+      answer: 1,
+      why: 'Nothing below the query on that vertical line.',
+    },
+  ]}
+/>
+
+## Practice drills
+
+<ExerciseSet>
+<Exercise title="Event type order" anchor="exercise-pl-order">
+
+:::tip Activity: Event type order
+Map names to rank used in the sweep: `VERT=0`, `GET=1`, `DEL=2`, `ADD=3`.  
+Input: a word (`VERT`/`GET`/`DEL`/`ADD`). Print its integer rank.
+
+<CodeExercise
+  title="Event type order"
+  heading="exercise-pl-order"
+  lang="python"
+  filename="main.py"
+  prompt="Sorting key for events at one x."
+  sampleLog={`(input) GET
+1`}
+  starter={`def event_rank(name):
+    # TODO
+    return -1
+`}
+  wrapSuffix={`
+print(event_rank(input().strip()))
+`}
+  hint="return {'VERT':0,'GET':1,'DEL':2,'ADD':3}[name]"
+  solution={`def event_rank(name):
+    return {"VERT": 0, "GET": 1, "DEL": 2, "ADD": 3}[name]
+`}
+  sourceChecks={[
+    { name: 'maps names', pattern: 'VERT|GET|0|1', must: true, hint: 'encode the four types' },
+  ]}
+  tests={[
+    { name: 'get', stdin: 'GET', equals: '1' },
+    { name: 'add', stdin: 'ADD', equals: '3' },
+    { name: 'vert', stdin: 'VERT', equals: '0' },
+  ]}
+/>
+
+:::
+
+</Exercise>
+
+<Exercise title="On-segment test" anchor="exercise-pl-onseg">
+
+:::tip Activity: On-segment test
+Input: `px py ax ay bx by`. Print `1` if `p` lies on segment `ab` (inclusive), else `0`.  
+Use: cross `(b−a)×(p−a)=0` and dot `(p−a)·(p−b) ≤ 0`.
+
+<CodeExercise
+  title="On-segment test"
+  heading="exercise-pl-onseg"
+  lang="python"
+  filename="main.py"
+  prompt="Detect query on the supporting edge."
+  sampleLog={`(input) 2 2 0 0 4 4
+1`}
+  starter={`def on_segment(px, py, ax, ay, bx, by):
+    # TODO
+    return 0
+`}
+  wrapSuffix={`
+px, py, ax, ay, bx, by = map(int, input().split())
+print(on_segment(px, py, ax, ay, bx, by))
+`}
+  hint="cross=0 and min(ax,bx)<=px<=max(...) and same for y; or dot (p-a)·(p-b)<=0"
+  solution={`def on_segment(px, py, ax, ay, bx, by):
+    cross = (bx - ax) * (py - ay) - (by - ay) * (px - ax)
+    if cross != 0:
+        return 0
+    dot = (px - ax) * (px - bx) + (py - ay) * (py - by)
+    return int(dot <= 0)
+`}
+  sourceChecks={[
+    { name: 'uses cross/dot', pattern: '\\*|cross|dot', must: true, hint: 'collinearity + bounding' },
+  ]}
+  tests={[
+    { name: 'sample', stdin: '2 2 0 0 4 4', equals: '1' },
+    { name: 'off', stdin: '2 1 0 0 4 4', equals: '0' },
+    { name: 'end', stdin: '0 0 0 0 4 4', equals: '1' },
+  ]}
+/>
+
+:::
+
+</Exercise>
+
+<Exercise title="Highest below" anchor="exercise-pl-below">
+
+:::tip Activity: Highest below
+First line: `m yq`. Next `m` lines: edge y-values at the query x (assume sorted ascending). Print the largest value strictly `< yq`, or `NONE` if none.
+
+<CodeExercise
+  title="Highest below"
+  heading="exercise-pl-below"
+  lang="python"
+  filename="main.py"
+  prompt="Binary-search / scan predecessor in the active status."
+  sampleLog={`(input) 3 1
+0
+2
+4
+0`}
+  starter={`def highest_below(ys, yq):
+    # ys sorted ascending
+    # TODO: return value or "NONE"
+    return "NONE"
+`}
+  wrapSuffix={`
+m, yq = map(int, input().split())
+ys = [int(input()) for _ in range(m)]
+ans = highest_below(ys, yq)
+print(ans)
+`}
+  hint="best=None; for y in ys: if y < yq: best=y; return best if best is not None else 'NONE'"
+  solution={`def highest_below(ys, yq):
+    best = None
+    for y in ys:
+        if y < yq:
+            best = y
+        else:
+            break
+    return best if best is not None else "NONE"
+`}
+  sourceChecks={[
+    { name: 'scans', pattern: 'for\\s+|while\\s+', must: true, hint: 'walk sorted ys' },
+  ]}
+  tests={[
+    { name: 'sample', stdin: '3 1\n0\n2\n4', equals: '0' },
+    { name: 'none', stdin: '2 0\n1\n3', equals: 'NONE' },
+    { name: 'mid', stdin: '3 3\n0\n2\n4', equals: '2' },
+  ]}
+/>
+
+:::
+
+</Exercise>
+</ExerciseSet>
+
+## Practice problems
+
+From [CP-Algorithms](https://cp-algorithms.com/geometry/point-location.html):
+
+- [TIMUS 1848 — Fly Hunt](https://acm.timus.ru/problem.aspx?space=1&num=1848)
+- [UVA 12310 — Point Location](https://onlinejudge.org/external/123/12310.pdf) ([vjudge](https://vjudge.net/problem/UVA-12310))
+
+## Cheat sheet
+
+| Idea | Takeaway |
+|---|---|
+| Goal | Face of planar subdivision for each query |
+| Key | Highest edge ≤ query on `x = x₀` |
+| Sweep | Events VERT / GET / DEL / ADD |
+| Status | Set `t` + temp `vert` |
+| Order | `edge_cmp` via cross signs |
+| Face | Above supporting edge (CCW walk) |
+| Time | Offline `O((n+q) log(n+q))` |
+| Online | Persistent tree on `t` |

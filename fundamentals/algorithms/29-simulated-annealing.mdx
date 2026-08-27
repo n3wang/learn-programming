@@ -1,0 +1,444 @@
+---
+sidebar_position: 30
+title: Simulated Annealing
+---
+
+import SimulatedAnnealingSimulator from "@site/src/components/interactive/SimulatedAnnealingSimulator.js";
+
+# Simulated Annealing
+
+**Simulated Annealing (SA)** is a **randomized** metaheuristic that approximates a **global** optimum of an energy function `E(s)`. Randomness means the same input can yield different outputs.
+
+It shines when the state space is **discrete** and `E` has many **local minima** — classic example: the **Travelling Salesman Problem (TSP)**.
+
+This lesson follows [CP-Algorithms — Simulated Annealing](https://cp-algorithms.com/num_methods/simulated_annealing.html).
+
+Related: [Knapsack](./14-knapsack) (exact DP vs heuristics), [Minimum Enclosing Circle](./21-minimum-enclosing-circle) (randomized incremental).
+
+## Motivation (metallurgy → search)
+
+Annealing heats a material then cools it so atoms settle into a low-energy arrangement. Early on, thermal noise lets the system **cross energy barriers**; later it **freezes** into a deep basin.
+
+SA copies that:
+
+1. Start at a random state with **high temperature** `T`.
+2. Propose a **neighbor**; always take improvements; sometimes take **worse** moves (probability grows with `T`).
+3. **Cool** `T` each step so escapes become rare and the search settles.
+
+Track `s_best` across the whole run (the current `s` may wander).
+
+## Building blocks
+
+| Concept | TSP meaning |
+|---|---|
+| State `s` | A tour (permutation of cities) |
+| Energy `E(s)` | Tour length (minimize) |
+| Neighbor | Swap two cities (or 2-opt, …) |
+| Temperature `T` | Willingness to accept worse tours |
+| Decay `u < 1` | Cooling rate (`T ← T·u`) |
+
+For **maximization**, minimize `−f` and flip the sign when reporting.
+
+## Probability acceptance (Gibbs)
+
+```text
+P(E, E_next, T) = True  if  U[0,1] ≤ exp(−(E_next − E) / T)
+                  False otherwise
+```
+
+If `E_next < E`, then `exp(…)` ≥ 1 → **always accept**. If worse, accept with probability `exp(−ΔE / T)`.
+
+```cpp
+bool P(double E, double E_next, double T, mt19937& rng) {
+    double prob = exp(-(E_next - E) / T);
+    if (prob >= 1) return true;
+    bernoulli_distribution d(prob);
+    return d(rng);
+}
+```
+
+## Algorithm template
+
+```cpp
+pair<double, state> simAnneal() {
+    state s = state();       // random start
+    state best = s;
+    double T = 10000;        // initial temperature
+    double u = 0.995;        // decay
+    double E = s.E(), E_best = E;
+    mt19937 rng(...);
+    while (T > 1) {
+        state nxt = s.next();
+        double E_next = nxt.E();
+        if (P(E, E_next, T, rng)) {
+            s = nxt;
+            E = E_next;
+            if (E < E_best) { best = s; E_best = E; }
+        }
+        T *= u;
+    }
+    return {E_best, best};
+}
+```
+
+Fill in `state::next()` (neighbor) and `state::E()` (energy).
+
+### Choosing `T` and `u`
+
+- Wide space / many basins → slow cool, e.g. `u = 0.999` (or ≥ `0.998` if unsure).
+- Narrower space → `u ≈ 0.99` may suffice.
+- Iteration count with exponential cooling: `N ≈ ⌈ −log_u T ⌉` (from `T_final ≈ 1`), or pick `N` from TLE budget then `T = u^{−N}`.
+
+Also common: **time-based** exit; other cooling schedules; change the base of the exponential (`pow(e, −ΔE/T)`) to sharpen/soften the preference for small `ΔE`.
+
+<SimulatedAnnealingSimulator />
+
+<details>
+<summary>🧪 Tiny TSP with SA (fixed seed)</summary>
+
+<PistonRunner
+  lang="c++"
+  height="520px"
+  code={`#include <iostream>
+#include <vector>
+#include <cmath>
+#include <random>
+#include <chrono>
+#include <utility>
+using namespace std;
+
+bool accept_move(double E, double E_next, double T, mt19937& rng) {
+    double prob = exp(-(E_next - E) / T);
+    if (prob >= 1.0) return true;
+    bernoulli_distribution d(prob);
+    return d(rng);
+}
+
+struct State {
+    vector<pair<double, double>> pts;
+    mt19937* rng;
+
+    State next() const {
+        State s = *this;
+        uniform_int_distribution<int> choose(0, (int)pts.size() - 1);
+        int a = choose(*rng), b = choose(*rng);
+        swap(s.pts[a], s.pts[b]);
+        return s;
+    }
+
+    double E() const {
+        double dist = 0;
+        int n = (int)pts.size();
+        for (int i = 0; i < n; i++) {
+            auto [x1, y1] = pts[i];
+            auto [x2, y2] = pts[(i + 1) % n];
+            dist += hypot(x1 - x2, y1 - y2);
+        }
+        return dist;
+    }
+};
+
+int main() {
+    mt19937 rng(42);
+    State s;
+    s.rng = &rng;
+    s.pts = {{0,0},{2,2},{0,2},{2,0},{0,1},{1,2},{2,1},{1,0}};
+
+    State best = s;
+    double T = 100.0;
+    double u = 0.995;
+    double E = s.E();
+    double E_best = E;
+
+    while (T > 1.0) {
+        State nxt = s.next();
+        double En = nxt.E();
+        if (accept_move(E, En, T, rng)) {
+            s = nxt;
+            E = En;
+            if (E < E_best) {
+                best = s;
+                E_best = E;
+            }
+        }
+        T *= u;
+    }
+
+    cout << "best length ≈ " << E_best << endl;
+    cout << "tour order:" << endl;
+    for (auto [x, y] : best.pts) cout << x << " " << y << endl;
+    return 0;
+}
+`}
+/>
+
+</details>
+
+## Check: simulated annealing
+
+<MultipleChoice
+  id="algo-29-sa-basic"
+  title="Simulated annealing"
+  questions={[
+    {
+      prompt: 'SA is especially useful when…',
+      choices: [
+        'E is convex with one minimum',
+        'E has many local minima on a discrete space',
+        'n ≤ 3 always',
+        'You need a proven optimum every time',
+      ],
+      answer: 1,
+      why: 'Random uphill moves help escape basins.',
+    },
+    {
+      prompt: 'If E_next < E, the Gibbs PAF…',
+      choices: [
+        'Always rejects',
+        'Always accepts',
+        'Accepts only when T < 1',
+        'Flips a coin with p=1/2',
+      ],
+      answer: 1,
+      why: 'exp(−ΔE/T) ≥ 1 when ΔE ≤ 0.',
+    },
+    {
+      prompt: 'Temperature decay u should satisfy…',
+      choices: ['u > 1', 'u = 1', '0 < u < 1', 'u = 0'],
+      answer: 2,
+      why: 'Cooling: T ← T·u with u < 1.',
+    },
+    {
+      prompt: 'A TSP neighbor is often…',
+      choices: [
+        'A random unrelated graph',
+        'A tour after swapping two cities',
+        'Deleting all cities',
+        'Sorting by x-coordinate only',
+      ],
+      answer: 1,
+      why: 'Local transform of the current permutation.',
+    },
+    {
+      prompt: 'Slower cooling (larger u closer to 1) usually…',
+      choices: [
+        'Runs fewer iterations and worse quality',
+        'Explores more and often finds better solutions',
+        'Guarantees optimality',
+        'Disables randomness',
+      ],
+      answer: 1,
+      why: 'More steps before T freezes.',
+    },
+  ]}
+/>
+
+## Practice drills
+
+<ExerciseSet>
+<Exercise title="Acceptance probability" anchor="exercise-sa-prob">
+
+:::tip Activity: Acceptance probability
+Input: `E E_next T` (floats). Print `exp(-(E_next-E)/T)` clipped to at most `1`, with 6 decimals.
+
+<CodeExercise
+  title="Acceptance probability"
+  heading="exercise-sa-prob"
+  lang="python"
+  filename="main.py"
+  prompt="Gibbs factor for one proposed move."
+  sampleLog={`(input) 5 6 2
+0.606531`}
+  starter={`import math
+
+def accept_prob(E, E_next, T):
+    # TODO: return probability in [0, 1]
+    return 0.0
+`}
+  wrapSuffix={`
+E, En, T = map(float, input().split())
+print(f"{accept_prob(E, En, T):.6f}")
+`}
+  hint="p = math.exp(-(E_next-E)/T); return 1.0 if p > 1 else p"
+  solution={`import math
+
+def accept_prob(E, E_next, T):
+    p = math.exp(-(E_next - E) / T)
+    return 1.0 if p > 1 else p
+`}
+  sourceChecks={[
+    { name: 'exp', pattern: 'exp\\s*\\(', must: true, hint: 'use math.exp' },
+  ]}
+  tests={[
+    { name: 'sample', stdin: '5 6 2', equals: '0.606531' },
+    { name: 'improve', stdin: '6 5 2', equals: '1.000000' },
+    { name: 'hot', stdin: '1 10 100', equals: '0.913931' },
+  ]}
+/>
+
+:::
+
+</Exercise>
+
+<Exercise title="Should accept?" anchor="exercise-sa-decide">
+
+:::tip Activity: Should accept?
+Input: `E E_next T roll` where `roll` is in `[0,1]`. Print `YES` if the move is accepted under the Gibbs rule (`roll ≤ P`), else `NO`.
+
+<CodeExercise
+  title="Should accept?"
+  heading="exercise-sa-decide"
+  lang="python"
+  filename="main.py"
+  prompt="PAF with a given uniform sample."
+  sampleLog={`(input) 5 6 2 0.5
+YES`}
+  starter={`import math
+
+def should_accept(E, E_next, T, roll):
+    # TODO: return "YES" or "NO"
+    return "NO"
+`}
+  wrapSuffix={`
+E, En, T, roll = map(float, input().split())
+print(should_accept(E, En, T, roll))
+`}
+  hint="p = min(1, exp(-(En-E)/T)); return YES if roll <= p else NO"
+  solution={`import math
+
+def should_accept(E, E_next, T, roll):
+    p = math.exp(-(E_next - E) / T)
+    if p > 1:
+        p = 1.0
+    return "YES" if roll <= p else "NO"
+`}
+  sourceChecks={[
+    { name: 'compares roll', pattern: 'roll|<=|YES', must: true, hint: 'compare uniform sample to P' },
+  ]}
+  tests={[
+    { name: 'sample', stdin: '5 6 2 0.5', equals: 'YES' },
+    { name: 'reject', stdin: '5 6 2 0.9', equals: 'NO' },
+    { name: 'better', stdin: '6 5 0.1 0.99', equals: 'YES' },
+  ]}
+/>
+
+:::
+
+</Exercise>
+
+<Exercise title="Cooling steps" anchor="exercise-sa-iters">
+
+:::tip Activity: Cooling steps
+Start at temperature `T`, multiply by `u` each step until `T ≤ 1`. Print how many multiplications occur (loop iterations).
+
+<CodeExercise
+  title="Cooling steps"
+  heading="exercise-sa-iters"
+  lang="python"
+  filename="main.py"
+  prompt="N while T > 1: T *= u"
+  sampleLog={`(input) 100 0.5
+7`}
+  starter={`def cooling_steps(T, u):
+    # TODO
+    return 0
+`}
+  wrapSuffix={`
+T, u = map(float, input().split())
+print(cooling_steps(T, u))
+`}
+  hint="n=0; while T > 1: T *= u; n += 1; return n"
+  solution={`def cooling_steps(T, u):
+    n = 0
+    while T > 1:
+        T *= u
+        n += 1
+    return n
+`}
+  sourceChecks={[
+    { name: 'loops', pattern: 'while\\s+', must: true, hint: 'cool until T ≤ 1' },
+  ]}
+  tests={[
+    { name: 'sample', stdin: '100 0.5', equals: '7' },
+    { name: 'fast', stdin: '10 0.1', equals: '1' },
+    { name: 'one', stdin: '2 0.5', equals: '1' },
+  ]}
+/>
+
+:::
+
+</Exercise>
+
+<Exercise title="Tour length" anchor="exercise-sa-tour">
+
+:::tip Activity: Closed tour length
+First line: `n`. Next `n` lines: `x y` in visit order. Print the Euclidean closed-tour length with 6 decimals (`hypot` between consecutive points, including last→first).
+
+<CodeExercise
+  title="Tour length"
+  heading="exercise-sa-tour"
+  lang="python"
+  filename="main.py"
+  prompt="E(s) for TSP."
+  sampleLog={`(input) 4
+0 0
+1 0
+1 1
+0 1
+4.000000`}
+  starter={`import math
+
+def tour_length(pts):
+    # TODO
+    return 0.0
+`}
+  wrapSuffix={`
+n = int(input())
+pts = [tuple(map(float, input().split())) for _ in range(n)]
+print(f"{tour_length(pts):.6f}")
+`}
+  hint="sum hypot between pts[i] and pts[(i+1)%n]"
+  solution={`import math
+
+def tour_length(pts):
+    n = len(pts)
+    dist = 0.0
+    for i in range(n):
+        x1, y1 = pts[i]
+        x2, y2 = pts[(i + 1) % n]
+        dist += math.hypot(x1 - x2, y1 - y2)
+    return dist
+`}
+  sourceChecks={[
+    { name: 'closed', pattern: '%\\s*n|hypot', must: true, hint: 'include edge back to start' },
+  ]}
+  tests={[
+    { name: 'square', stdin: '4\n0 0\n1 0\n1 1\n0 1', equals: '4.000000' },
+    { name: 'line', stdin: '2\n0 0\n3 4', equals: '10.000000' },
+  ]}
+/>
+
+:::
+
+</Exercise>
+</ExerciseSet>
+
+## Practice problems
+
+From [CP-Algorithms](https://cp-algorithms.com/num_methods/simulated_annealing.html):
+
+- [USACO Jan 2017 — Subsequence Reversal](https://usaco.org/index.php?page=viewproblem2&cpid=690)
+- [Codeforces 1556H — DIY Tree](https://codeforces.com/contest/1556/problem/H)
+- [AtCoder — Contest Scheduling](https://atcoder.jp/contests/intro-heuristics/tasks/intro_heuristics_a)
+
+## Cheat sheet
+
+| Piece | Role |
+|---|---|
+| `E(s)` | Energy to minimize |
+| Neighbor | Local transform of `s` |
+| High `T` | Escape local minima |
+| Cool `T·u` | Converge / exploit |
+| PAF | `exp(−ΔE/T)` vs `U[0,1]` |
+| `s_best` | Best state across the run |
+| Params | Larger `u` → slower, often better |

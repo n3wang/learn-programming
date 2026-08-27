@@ -1,0 +1,464 @@
+---
+sidebar_position: 16
+title: Knuth's Optimization
+---
+
+import KnuthOptimizationSimulator from "@site/src/components/interactive/KnuthOptimizationSimulator.js";
+
+# Knuth's Optimization
+
+Prerequisite: [Introduction to Dynamic Programming](./13-intro-dynamic-programming). Cousin: [Divide and Conquer DP](./09-divide-and-conquer-dp).
+
+**Knuth's optimization** (Knuth–Yao speedup) is a range-DP trick that drops the usual **`O(n³)`** fill to **`O(n²)`** when the optimal split points are monotone.
+
+This lesson follows [CP-Algorithms — Knuth Optimization](https://cp-algorithms.com/dynamic_programming/knuth-optimization.html).
+
+## The recurrence
+
+We care about transitions of the form
+
+```text
+dp(i, j) = min_{i ≤ k < j}  [ dp(i, k) + dp(k+1, j) + C(i, j) ]
+```
+
+with a cost `C(i, j)` that does not depend on `k`. Naive range DP tries every `k` for every interval → **`O(n³)`** (assuming `C` is `O(1)`).
+
+Let `opt(i, j)` be a maximizing argmin `k` (the rightmost best split). Knuth needs
+
+```text
+opt(i, j−1) ≤ opt(i, j) ≤ opt(i+1, j)
+```
+
+## When does it apply?
+
+For `a ≤ b ≤ c ≤ d`, it is enough that `C` satisfies:
+
+1. **Monotone in the interval:** `C(b, c) ≤ C(a, d)`
+2. **Quadrangle inequality (QI):** `C(a, c) + C(b, d) ≤ C(a, d) + C(b, c)`
+
+Then the `opt` sandwich above holds (proof sketch later). The classic case is
+
+```text
+C(i, j) = sum of a subarray S[i..j]
+```
+
+(or any cost that inherits QI from such sums). Optimal BST is historically the motivating problem: the transition looks different, but the same `opt` inequality still holds.
+
+## Algorithm
+
+Compute `dp(i, j−1)` and `dp(i+1, j)` (and their `opt`s) **before** `dp(i, j)`. Then only scan
+
+```text
+k ∈ [opt(i, j−1), opt(i+1, j)]
+```
+
+instead of `k ∈ [i, j−1]`.
+
+Order that makes the neighbors ready: `i` from large to small, and for each `i`, `j` from `i+1` upward.
+
+```cpp
+int solve() {
+    int N;
+    // read N and input
+    int dp[N][N], opt[N][N];
+
+    auto C = [&](int i, int j) {
+        // cost of interval [i, j]
+        return 0;
+    };
+
+    for (int i = 0; i < N; i++) {
+        opt[i][i] = i;
+        // initialize dp[i][i]
+    }
+
+    for (int i = N - 2; i >= 0; i--) {
+        for (int j = i + 1; j < N; j++) {
+            int mn = INT_MAX;
+            int cost = C(i, j);
+            for (int k = opt[i][j - 1]; k <= min(j - 1, opt[i + 1][j]); k++) {
+                if (mn >= dp[i][k] + dp[k + 1][j] + cost) {
+                    opt[i][j] = k;
+                    mn = dp[i][k] + dp[k + 1][j] + cost;
+                }
+            }
+            dp[i][j] = mn;
+        }
+    }
+
+    return dp[0][N - 1];
+}
+```
+
+Use `>=` (or keep the rightmost `k` on ties) so `opt` is the **maximum** minimizing index, matching the inequality statement.
+
+## Complexity
+
+Write `Δ(i, j) = opt(i+1, j) − opt(i, j−1)` (non-negative by monotonicity). The total number of `k` trials is about
+
+```text
+Σ_{i,j} Δ(i, j)
+```
+
+Telescoping leaves only boundary terms of size `O(n)` per “diagonal band”, so the whole sum is **`O(n²)`** — not `O(n³)`.
+
+## Tiny instance
+
+Merge costs with `a = [2, 3, 1, 4, 2]` and `C(i, j) = sum(a[i..j])`, `dp[i][i] = 0`. Answer is `28`.
+
+<details>
+<summary>🧪 Knuth vs naive k-loops (C++)</summary>
+
+<PistonRunner
+  lang="c++"
+  height="520px"
+  code={`#include <iostream>
+#include <vector>
+#include <climits>
+#include <algorithm>
+using namespace std;
+
+int main() {
+    vector<int> a = {2, 3, 1, 4, 2};
+    int N = (int)a.size();
+    vector<long long> pref(N + 1, 0);
+    for (int i = 0; i < N; i++) pref[i + 1] = pref[i] + a[i];
+    auto C = [&](int i, int j) { return pref[j + 1] - pref[i]; };
+
+    vector<vector<long long>> dp(N, vector<long long>(N, 0));
+    vector<vector<int>> opt(N, vector<int>(N, 0));
+    long long knuthTrials = 0, naiveTrials = 0;
+
+    for (int i = 0; i < N; i++) opt[i][i] = i;
+
+    for (int i = N - 2; i >= 0; i--) {
+        for (int j = i + 1; j < N; j++) {
+            long long cost = C(i, j);
+            naiveTrials += (j - i);
+            int lo = opt[i][j - 1];
+            int hi = min(j - 1, opt[i + 1][j]);
+            long long mn = LLONG_MAX;
+            for (int k = lo; k <= hi; k++) {
+                knuthTrials++;
+                long long val = dp[i][k] + dp[k + 1][j] + cost;
+                if (val <= mn) {
+                    mn = val;
+                    opt[i][j] = k;
+                }
+            }
+            dp[i][j] = mn;
+        }
+    }
+
+    cout << "answer = " << dp[0][N - 1] << endl;
+    cout << "naive k-trials = " << naiveTrials << endl;
+    cout << "Knuth k-trials = " << knuthTrials << endl;
+    return 0;
+}
+`}
+/>
+
+</details>
+
+<KnuthOptimizationSimulator />
+
+## On practice
+
+- Most uses are **interval / matrix-chain / cutting** DPs with the transition above.
+- Hard part is proving QI (or proving the `opt` inequality directly).
+- Subarray-sum costs are the easiest QI examples.
+- If you can prove `opt(i, j−1) ≤ opt(i, j) ≤ opt(i+1, j)` even when `C` looks exotic (e.g. optimal BST), Knuth still applies.
+
+## Proof sketch
+
+Assume QI + interval monotonicity on `C`. One shows that `dp` itself satisfies QI. Then, for fixed `i` and `i ≤ p ≤ q < j`,
+
+```text
+dp_p(i, j−1) ≥ dp_q(i, j−1)  ⇒  dp_p(i, j) ≥ dp_q(i, j)
+```
+
+where `dp_k(i, j) = C(i, j) + dp(i, k) + dp(k+1, j)`. Taking `q = opt(i, j−1)` forces every worse-or-equal left candidate to stay worse when the right endpoint grows, so `opt(i, j) ≥ opt(i, j−1)`. The symmetric argument gives `opt(i, j) ≤ opt(i+1, j)`.
+
+Full write-up: [CP-Algorithms](https://cp-algorithms.com/dynamic_programming/knuth-optimization.html).
+
+## Check: conditions & loops
+
+<MultipleChoice
+  id="algo-15-knuth-basic"
+  title="Knuth basics"
+  questions={[
+    {
+      prompt: 'Knuth targets which complexity drop for range DP?',
+      choices: ['O(n³) → O(n²)', 'O(n²) → O(n)', 'O(2ⁿ) → O(n)', 'O(n log n) → O(n)'],
+      answer: 0,
+      why: 'Monotone opt shrinks total k-work to O(n²).',
+    },
+    {
+      prompt: 'The k-loop for dp(i,j) runs over…',
+      choices: [
+        'All k in [0, n)',
+        'k from opt(i,j−1) to opt(i+1,j)',
+        'Only k = i',
+        'k from j down to 0 always',
+      ],
+      answer: 1,
+      why: 'That is the Knuth window from the sandwich inequality.',
+    },
+    {
+      prompt: 'A sufficient cost condition (with monotone C) is…',
+      choices: [
+        'Only positivity of C',
+        'The quadrangle inequality',
+        'C must be XOR',
+        'C independent of i and j',
+      ],
+      answer: 1,
+      why: 'QI on C implies the opt monotonicity used by Knuth.',
+    },
+    {
+      prompt: 'Fill order must ensure which neighbors exist first?',
+      choices: [
+        'dp(i−1,j−1) only',
+        'dp(i,j−1) and dp(i+1,j)',
+        'Only the full row i−1',
+        'Random order is fine',
+      ],
+      answer: 1,
+      why: 'Their opts bound the search for opt(i,j).',
+    },
+  ]}
+/>
+
+## Practice drills
+
+<ExerciseSet>
+<Exercise title="Subarray cost" anchor="exercise-knuth-cost">
+
+:::tip Activity: Subarray cost
+First line: `n`. Second: `n` ints `a[0..n)`. Third: `i j`. Print `sum(a[i..j])` (inclusive).
+
+<CodeExercise
+  title="Subarray cost"
+  heading="exercise-knuth-cost"
+  lang="python"
+  filename="main.py"
+  prompt="Classic C(i,j) for Knuth examples."
+  sampleLog={`(input) 5
+2 3 1 4 2
+1 3
+8`}
+  starter={`def subarray_sum(a, i, j):
+    # TODO
+    return 0
+`}
+  wrapSuffix={`
+n = int(input())
+a = list(map(int, input().split()))
+i, j = map(int, input().split())
+print(subarray_sum(a, i, j))
+`}
+  hint="sum(a[i:j+1]) or prefix[j+1]-prefix[i]"
+  solution={`def subarray_sum(a, i, j):
+    return sum(a[i : j + 1])
+`}
+  sourceChecks={[
+    { name: 'uses slice or loop', pattern: 'sum\\s*\\(|for\\s+', must: true, hint: 'sum the inclusive range' },
+  ]}
+  tests={[
+    { name: 'sample', stdin: '5\n2 3 1 4 2\n1 3', equals: '8' },
+    { name: 'single', stdin: '3\n9 1 2\n0 0', equals: '9' },
+    { name: 'full', stdin: '4\n1 1 1 1\n0 3', equals: '4' },
+  ]}
+/>
+
+:::
+
+</Exercise>
+
+<Exercise title="Opt sandwich" anchor="exercise-knuth-opt">
+
+:::tip Activity: Opt sandwich
+Input: `n`, then an `n×n` matrix of opts (row-major; ignore below diagonal). Print `YES` if for every `0 ≤ i < j < n` with `j > i+0`:
+
+`opt[i][j-1] ≤ opt[i][j] ≤ opt[i+1][j]` when those cells exist (`j−1 ≥ i`, `i+1 ≤ j`), else `NO`.
+
+Diagonal may be anything; only check pairs with `j ≥ i+1`.
+
+<CodeExercise
+  title="Opt sandwich"
+  heading="exercise-knuth-opt"
+  lang="python"
+  filename="main.py"
+  prompt="Verify the Knuth opt inequality on a table."
+  sampleLog={`(input) 3
+0 0 1
+0 1 1
+0 0 2
+YES`}
+  starter={`def knuth_ok(opt):
+    # opt: n x n list
+    # TODO
+    return False
+`}
+  wrapSuffix={`
+n = int(input())
+opt = [list(map(int, input().split())) for _ in range(n)]
+print("YES" if knuth_ok(opt) else "NO")
+`}
+  hint="for i,j with j>i: if j-1>=i and opt[i][j-1]>opt[i][j]: bad; if i+1<=j and opt[i][j]>opt[i+1][j]: bad"
+  solution={`def knuth_ok(opt):
+    n = len(opt)
+    for i in range(n):
+        for j in range(i + 1, n):
+            if j - 1 >= i and opt[i][j - 1] > opt[i][j]:
+                return False
+            if i + 1 <= j and opt[i][j] > opt[i + 1][j]:
+                return False
+    return True
+`}
+  sourceChecks={[
+    { name: 'compares neighbors', pattern: '>|<=', must: true, hint: 'compare opt with left/below neighbors' },
+  ]}
+  tests={[
+    { name: 'yes', stdin: '3\n0 0 1\n0 1 1\n0 0 2', equals: 'YES' },
+    { name: 'no-left', stdin: '3\n0 1 0\n0 1 1\n0 0 2', equals: 'NO' },
+    { name: 'no-down', stdin: '3\n0 0 2\n0 1 1\n0 0 2', equals: 'NO' },
+  ]}
+/>
+
+:::
+
+</Exercise>
+
+<Exercise title="Knuth merge cost" anchor="exercise-knuth-merge">
+
+:::tip Activity: Knuth merge cost
+First line: `n`. Second: `n` positive ints `a`. Compute min cost to merge the array into one block with
+
+`dp[i][j] = min_k dp[i][k]+dp[k+1][j]+sum(a[i..j])`, `dp[i][i]=0`.
+
+Use Knuth (or any correct `O(n³)` — tests are tiny). Print `dp[0][n-1]`.
+
+<CodeExercise
+  title="Knuth merge cost"
+  heading="exercise-knuth-merge"
+  lang="python"
+  filename="main.py"
+  prompt="Interval DP with subarray-sum cost."
+  sampleLog={`(input) 5
+2 3 1 4 2
+28`}
+  starter={`def merge_cost(a):
+    # TODO
+    return 0
+`}
+  wrapSuffix={`
+n = int(input())
+a = list(map(int, input().split()))
+print(merge_cost(a))
+`}
+  hint="prefix sums for C; fill by increasing length or i↓ j↑; optional Knuth window"
+  solution={`def merge_cost(a):
+    n = len(a)
+    pref = [0]
+    for x in a:
+        pref.append(pref[-1] + x)
+    def C(i, j):
+        return pref[j + 1] - pref[i]
+    INF = 10**18
+    dp = [[0] * n for _ in range(n)]
+    opt = [[0] * n for _ in range(n)]
+    for i in range(n):
+        opt[i][i] = i
+    for i in range(n - 2, -1, -1):
+        for j in range(i + 1, n):
+            cost = C(i, j)
+            lo = opt[i][j - 1]
+            hi = min(j - 1, opt[i + 1][j])
+            best = INF
+            best_k = lo
+            for k in range(lo, hi + 1):
+                val = dp[i][k] + dp[k + 1][j] + cost
+                if val <= best:
+                    best = val
+                    best_k = k
+            dp[i][j] = best
+            opt[i][j] = best_k
+    return dp[0][n - 1]
+`}
+  sourceChecks={[
+    { name: 'nested loops', pattern: 'for\\s+', must: true, hint: 'fill a 2D dp over intervals' },
+  ]}
+  tests={[
+    { name: 'sample', stdin: '5\n2 3 1 4 2', equals: '28' },
+    { name: 'two', stdin: '2\n3 5', equals: '8' },
+    { name: 'three', stdin: '3\n1 1 1', equals: '5' },
+  ]}
+/>
+
+:::
+
+</Exercise>
+</ExerciseSet>
+
+## Contest problems
+
+From [CP-Algorithms](https://cp-algorithms.com/dynamic_programming/knuth-optimization.html):
+
+<ExerciseSet>
+<Exercise title="UVA — Cutting Sticks" anchor="exercise-uva-cutting">
+
+**Solve:** [UVA 10003 — Cutting Sticks](https://onlinejudge.org/external/100/10003.pdf) ([vjudge](https://vjudge.net/problem/UVA-10003))
+
+:::info Tip
+Cost of cutting `[L,R]` is `R−L`; Knuth applies.
+:::
+
+</Exercise>
+
+<Exercise title="UVA — Prefix Codes" anchor="exercise-uva-prefix">
+
+**Solve:** [UVA 1161 — Prefix Codes](https://onlinejudge.org/external/11/1161.pdf) (search “Prefix Codes” on UVa / vjudge)
+
+</Exercise>
+
+<Exercise title="SPOJ — Breaking String" anchor="exercise-spoj-break">
+
+**Solve:** [Breaking Strings (ZOJ 2860)](https://vjudge.net/problem/ZOJ-2860) — same cutting-cost family as Cutting Sticks
+
+:::info Tip
+Cost of an interval is its length; Knuth applies.
+:::
+
+</Exercise>
+
+<Exercise title="UVA — Optimal BST" anchor="exercise-uva-obst">
+
+**Solve:** [UVA 10304 — Optimal Binary Search Tree](https://onlinejudge.org/external/103/10304.pdf)
+
+:::info Tip
+Original Knuth setting: prove `opt` monotonicity even if `C` is less obvious.
+:::
+
+</Exercise>
+
+<Exercise title="More reading" anchor="exercise-knuth-refs">
+
+- [GeeksforGeeks — Knuth Optimization](https://www.geeksforgeeks.org/knuths-optimization-in-dynamic-programming/)
+- [Doc on DP Speedups](https://codeforces.com/blog/entry/8219)
+- Yao, “Efficient dynamic programming using quadrangle inequalities” (STOC / journal notes)
+
+</Exercise>
+</ExerciseSet>
+
+## Cheat sheet
+
+| Idea | Takeaway |
+|---|---|
+| Form | `dp(i,j) = min_k dp(i,k)+dp(k+1,j)+C(i,j)` |
+| Need | `opt(i,j−1) ≤ opt(i,j) ≤ opt(i+1,j)` |
+| Cost | Often QI + monotone `C` (e.g. subarray sums) |
+| Loop | `k` only in that opt window |
+| Order | `i` ↓, `j` ↑ |
+| Fast | `O(n²)` instead of `O(n³)` |
+| Cousin | Divide-and-conquer DP (layered / different recurrence) |

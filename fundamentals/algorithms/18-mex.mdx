@@ -1,0 +1,418 @@
+---
+sidebar_position: 19
+title: MEX
+---
+
+import MexSimulator from "@site/src/components/interactive/MexSimulator.js";
+
+# MEX (Minimal Excluded)
+
+Given an array `A` of size `N`, the **MEX** is the smallest **non-negative** integer that does **not** appear in `A`.
+
+```text
+mex({0, 1, 2, 4, 5}) = 3
+mex({0, 1, 2, 3, 4}) = 5
+mex({1, 2, 3, 4, 5}) = 0
+```
+
+**Bound:** for an array of length `N`, `mex(A) ≤ N` (the values `0…N−1` cannot all be present if the mex were `> N`).
+
+This lesson follows [CP-Algorithms — MEX](https://cp-algorithms.com/sequences/mex.html).
+
+## One-shot: set — `O(N log N)`
+
+Put all elements in a `set`, then walk `result = 0, 1, 2, …` until a value is missing.
+
+```cpp
+int mex(vector<int> const& A) {
+    set<int> b(A.begin(), A.end());
+    int result = 0;
+    while (b.count(result))
+        ++result;
+    return result;
+}
+```
+
+## One-shot: boolean mark — `O(N)`
+
+Mark presence in a bool array of size `N+1` (values `> N` cannot affect the mex). Clear flags afterward if you reuse a static buffer.
+
+```cpp
+int mex(vector<int> const& A) {
+    static bool used[MAX_N + 1] = {0};
+
+    for (int x : A) {
+        if (x <= MAX_N)
+            used[x] = true;
+    }
+
+    int result = 0;
+    while (used[result])
+        ++result;
+
+    for (int x : A) {
+        if (x <= MAX_N)
+            used[x] = false;
+    }
+    return result;
+}
+```
+
+Great for a **single** query. Painful if `A` keeps changing and you recompute from scratch every time.
+
+<details>
+<summary>🧪 One-shot MEX (C++)</summary>
+
+<PistonRunner
+  lang="c++"
+  height="380px"
+  code={`#include <iostream>
+#include <vector>
+#include <set>
+using namespace std;
+
+int mex_set(const vector<int>& A) {
+    set<int> b(A.begin(), A.end());
+    int result = 0;
+    while (b.count(result)) ++result;
+    return result;
+}
+
+int mex_bool(const vector<int>& A) {
+    int n = (int)A.size();
+    vector<char> used(n + 1, 0);
+    for (int x : A)
+        if (0 <= x && x <= n) used[x] = 1;
+    int result = 0;
+    while (result <= n && used[result]) ++result;
+    return result;
+}
+
+int main() {
+    vector<vector<int>> tests = {
+        {0, 1, 2, 4, 5},
+        {0, 1, 2, 3, 4},
+        {1, 2, 3, 4, 5}
+    };
+    for (auto& A : tests) {
+        cout << "A=[";
+        for (size_t i = 0; i < A.size(); i++) {
+            if (i) cout << ",";
+            cout << A[i];
+        }
+        cout << "] mex=" << mex_set(A)
+             << " (bool=" << mex_bool(A) << ")" << endl;
+    }
+    return 0;
+}
+`}
+/>
+
+</details>
+
+## MEX with updates
+
+Need point updates `A[idx] ← new_value` and a fast mex after each change.
+
+### Segment tree / treap on frequencies
+
+Store frequencies of values `0…N`. Each node also tracks **how many distinct** values appear in its range. Update in `O(log N)`.
+
+Find mex with a tree walk / binary search:
+
+- If the left half `[0, ⌊N/2⌋)` has fewer than `⌊N/2⌋` distinct values, a hole exists on the left → go left.
+- Else every value in the left half is present → mex `≥ ⌊N/2⌋` → go right.
+
+### `map` + `set` — mex in `O(1)`, update `O(log N)`
+
+- `frequency[x]` = how often `x` appears
+- `missing_numbers` = all currently absent values in `0…N` (ordered set)
+- mex = `*missing_numbers.begin()`
+
+Precompute in `O(N log N)`. On update: if an old value’s frequency hits `0`, insert it into `missing`; erase the new value from `missing`.
+
+```cpp
+class Mex {
+private:
+    map<int, int> frequency;
+    set<int> missing_numbers;
+    vector<int> A;
+
+public:
+    Mex(vector<int> const& A) : A(A) {
+        for (int i = 0; i <= (int)A.size(); i++)
+            missing_numbers.insert(i);
+        for (int x : A) {
+            ++frequency[x];
+            missing_numbers.erase(x);
+        }
+    }
+
+    int mex() {
+        return *missing_numbers.begin();
+    }
+
+    void update(int idx, int new_value) {
+        if (--frequency[A[idx]] == 0)
+            missing_numbers.insert(A[idx]);
+        A[idx] = new_value;
+        ++frequency[new_value];
+        missing_numbers.erase(new_value);
+    }
+};
+```
+
+<details>
+<summary>🧪 Mex class with updates</summary>
+
+<PistonRunner
+  lang="c++"
+  height="420px"
+  code={`#include <iostream>
+#include <vector>
+#include <map>
+#include <set>
+using namespace std;
+
+class Mex {
+    map<int, int> frequency;
+    set<int> missing_numbers;
+    vector<int> A;
+public:
+    Mex(vector<int> const& A) : A(A) {
+        for (int i = 0; i <= (int)A.size(); i++)
+            missing_numbers.insert(i);
+        for (int x : A) {
+            ++frequency[x];
+            missing_numbers.erase(x);
+        }
+    }
+    int mex() { return *missing_numbers.begin(); }
+    void update(int idx, int new_value) {
+        if (--frequency[A[idx]] == 0)
+            missing_numbers.insert(A[idx]);
+        A[idx] = new_value;
+        ++frequency[new_value];
+        missing_numbers.erase(new_value);
+    }
+};
+
+int main() {
+    vector<int> A = {0, 1, 3, 3};
+    Mex m(A);
+    cout << "start mex=" << m.mex() << endl;
+    m.update(2, 2);
+    cout << "after A[2]=2 mex=" << m.mex() << endl;
+    m.update(0, 4);
+    cout << "after A[0]=4 mex=" << m.mex() << endl;
+    return 0;
+}
+`}
+/>
+
+</details>
+
+<MexSimulator />
+
+## Check: MEX basics
+
+<MultipleChoice
+  id="algo-18-mex-basic"
+  title="MEX basics"
+  questions={[
+    {
+      prompt: 'mex({1,2,3,4,5}) equals…',
+      choices: ['1', '5', '0', '6'],
+      answer: 2,
+      why: '0 is the smallest missing non-negative.',
+    },
+    {
+      prompt: 'For |A|=N, mex(A) is always…',
+      choices: ['> N', '≤ N', 'Exactly N', 'Negative'],
+      answer: 1,
+      why: 'At most N distinct values among 0…N can be forced; a hole exists by N.',
+    },
+    {
+      prompt: 'Boolean marking finds one-shot mex in…',
+      choices: ['O(N)', 'O(N²)', 'O(2ⁿ)', 'O(1) with no scan'],
+      answer: 0,
+      why: 'Mark O(N) entries, then scan from 0.',
+    },
+    {
+      prompt: 'In the map+set structure, mex is…',
+      choices: [
+        'Recomputed with a full O(N) scan each time',
+        '*missing.begin() after O(log N) updates',
+        'Always equal to N',
+        'Stored only in a hash without order',
+      ],
+      answer: 1,
+      why: 'Ordered missing set’s minimum is the mex.',
+    },
+  ]}
+/>
+
+## Practice drills
+
+<ExerciseSet>
+<Exercise title="Compute MEX" anchor="exercise-mex-once">
+
+:::tip Activity: Compute MEX
+First line: `n`. Second: `n` ints. Print `mex(A)`.
+
+<CodeExercise
+  title="Compute MEX"
+  heading="exercise-mex-once"
+  lang="python"
+  filename="main.py"
+  prompt="Smallest missing non-negative."
+  sampleLog={`(input) 5
+0 1 2 4 5
+3`}
+  starter={`def mex(A):
+    # TODO
+    return 0
+`}
+  wrapSuffix={`
+n = int(input())
+A = list(map(int, input().split()))
+print(mex(A))
+`}
+  hint="s=set(A); x=0; while x in s: x+=1; return x"
+  solution={`def mex(A):
+    s = set(A)
+    x = 0
+    while x in s:
+        x += 1
+    return x
+`}
+  sourceChecks={[
+    { name: 'checks membership', pattern: 'set\\s*\\(|in\\s+', must: true, hint: 'use a set or equivalent presence test' },
+  ]}
+  tests={[
+    { name: 'sample', stdin: '5\n0 1 2 4 5', equals: '3' },
+    { name: 'full', stdin: '5\n0 1 2 3 4', equals: '5' },
+    { name: 'zero', stdin: '5\n1 2 3 4 5', equals: '0' },
+  ]}
+/>
+
+:::
+
+</Exercise>
+
+<Exercise title="MEX after one update" anchor="exercise-mex-update">
+
+:::tip Activity: MEX after one update
+First line: `n`. Second: `n` ints `A`. Third: `idx new_value`. Apply `A[idx]=new_value`, print the new mex.
+
+<CodeExercise
+  title="MEX after one update"
+  heading="exercise-mex-update"
+  lang="python"
+  filename="main.py"
+  prompt="Mutate then recompute (or maintain freqs)."
+  sampleLog={`(input) 4
+0 1 3 3
+2 2
+4`}
+  starter={`def mex_after_update(A, idx, new_value):
+    # TODO
+    return 0
+`}
+  wrapSuffix={`
+n = int(input())
+A = list(map(int, input().split()))
+idx, new_value = map(int, input().split())
+print(mex_after_update(A, idx, new_value))
+`}
+  hint="A=A[:]; A[idx]=new_value; then same mex loop"
+  solution={`def mex_after_update(A, idx, new_value):
+    A = list(A)
+    A[idx] = new_value
+    s = set(A)
+    x = 0
+    while x in s:
+        x += 1
+    return x
+`}
+  sourceChecks={[
+    { name: 'assigns update', pattern: '\\[.*\\]\\s*=', must: true, hint: 'apply A[idx] = new_value' },
+  ]}
+  tests={[
+    { name: 'sample', stdin: '4\n0 1 3 3\n2 2', equals: '4' },
+    { name: 'to-zero', stdin: '3\n1 2 3\n0 0', equals: '1' },
+    { name: 'create-hole', stdin: '3\n0 1 2\n1 5', equals: '1' },
+  ]}
+/>
+
+:::
+
+</Exercise>
+
+<Exercise title="Missing-set minimum" anchor="exercise-mex-missing">
+
+:::tip Activity: Missing-set minimum
+Input: `n`, then `n` ints (values may repeat; may be outside `0…n`). Build the set of missing integers in `0…n`, print its minimum (the mex).
+
+<CodeExercise
+  title="Missing-set minimum"
+  heading="exercise-mex-missing"
+  lang="python"
+  filename="main.py"
+  prompt="Same idea as the Mex class initializer."
+  sampleLog={`(input) 4
+0 1 3 3
+2`}
+  starter={`def mex_from_missing(A):
+    # TODO: initialize missing = {{0..n}}, erase present values
+    return 0
+`}
+  wrapSuffix={`
+n = int(input())
+A = list(map(int, input().split()))
+print(mex_from_missing(A))
+`}
+  hint="missing=set(range(n+1)); for x in A: missing.discard(x); return min(missing)"
+  solution={`def mex_from_missing(A):
+    n = len(A)
+    missing = set(range(n + 1))
+    for x in A:
+        missing.discard(x)
+    return min(missing)
+`}
+  sourceChecks={[
+    { name: 'uses range 0..n', pattern: 'range\\s*\\(|n\\s*\\+', must: true, hint: 'seed missing with 0..n' },
+  ]}
+  tests={[
+    { name: 'sample', stdin: '4\n0 1 3 3', equals: '2' },
+    { name: 'full', stdin: '3\n0 1 2', equals: '3' },
+    { name: 'big', stdin: '2\n10 20', equals: '0' },
+  ]}
+/>
+
+:::
+
+</Exercise>
+</ExerciseSet>
+
+## Contest problems
+
+From [CP-Algorithms](https://cp-algorithms.com/sequences/mex.html):
+
+- [AtCoder HHKB2020 C — Neq Min](https://atcoder.jp/contests/hhkb2020/tasks/hhkb2020_c)
+- [Codeforces 1935B — Informatics in MAC](https://codeforces.com/problemset/problem/1935/B)
+- [Codeforces 1375D — Replace by MEX](https://codeforces.com/problemset/problem/1375/D)
+- [Codeforces 842D — Vitya and Strange Lesson](https://codeforces.com/problemset/problem/842/D)
+- [Codeforces 817F — MEX Queries](https://codeforces.com/problemset/problem/817/F)
+
+## Cheat sheet
+
+| Idea | Takeaway |
+|---|---|
+| Definition | Smallest missing `≥ 0` |
+| Bound | `mex ≤ N` |
+| One-shot set | `O(N log N)` |
+| One-shot bool | `O(N)` |
+| Updates | Freq + missing set, or segtree on distinct counts |
+| Fast mex | `*missing.begin()` in `O(1)` |
+| Update | `O(log N)` |

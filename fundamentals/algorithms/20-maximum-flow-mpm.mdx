@@ -1,0 +1,439 @@
+---
+sidebar_position: 21
+title: Maximum Flow (MPM)
+---
+
+import MpmFlowSimulator from "@site/src/components/interactive/MpmFlowSimulator.js";
+
+# Maximum Flow — MPM Algorithm
+
+**MPM** (Malhotra, Pramodh-Kumar, Maheshwari) computes a maximum `s–t` flow in **`O(V³)`**. It is close to **Dinic**: both work in phases on a **layered** residual network and find a **blocking flow** each phase. MPM’s novelty is *how* that blocking flow is built — via **node potentials** and a **reference node**, not DFS / current-edge scans alone.
+
+This lesson follows [CP-Algorithms — MPM](https://cp-algorithms.com/graph/mpm.html).
+
+## Phases (like Dinic)
+
+1. BFS on the residual graph → levels `level[v]`.
+2. Keep only residual arcs with `level[u] = level[v] + 1` (and that can still reach `t`) → layered DAG `L`.
+3. Find a **blocking flow** in `L` (MPM’s method below).
+4. Repeat until `t` is unreachable.
+
+Fewer than `V` phases (same reasoning as Dinic’s level increase), so if each phase is `O(V²)`, total is **`O(V³)`**.
+
+## Potentials and the reference node
+
+In the current layered network `L`:
+
+```text
+p_in(v)  = Σ residual capacity of arcs into v
+p_out(v) = Σ residual capacity of arcs out of v
+p_in(s) = p_out(t) = ∞
+p(v) = min(p_in(v), p_out(v))
+```
+
+A **reference node** `r` minimizes `p(v)` among alive nodes.
+
+**Claim:** you can send exactly `p(r)` extra flow from `s` to `t` through `r`, after which `p(r) = 0`.
+
+Why it works: `L` is acyclic. Pushing `p(r)` **out** of `r` toward `t` never exceeds any later node’s `p_out`; pulling `p(r)` **into** `r` from `s` never exceeds earlier `p_in`. Simulate both pushes with BFS-style excess propagation.
+
+Then:
+
+- Delete fully saturated arcs in `L`.
+- Delete nodes (≠ `s`,`t`) that lost all in- or out-arcs, or whose potential hit `0`.
+
+Repeat until no useful reference remains → blocking flow for the phase.
+
+## Complexity of one phase
+
+- ≤ `V` iterations (each kills at least the reference node).
+- Charging: saturated edges deleted are paid once; at most `O(V)` “frontier” edges survive per iteration.
+
+Total per phase **`O(V² + E) = O(V²)`** on dense graphs → **`O(V³)`** overall.
+
+## Implementation sketch
+
+Core API mirrors Dinic-style edge lists (forward + reverse residual):
+
+```cpp
+struct MPM {
+    // FlowEdge {v, u, cap, flow}; adj holds edge indices
+    void add_edge(int v, int u, long long cap);
+    long long flow(); // max flow s → t
+};
+```
+
+Inside `flow()`:
+
+1. `bfs()` fills `level`.
+2. Build `in[v]` / `out[v]` lists of layered residual arcs; accumulate `pin` / `pout`.
+3. Loop: pick alive `v` with minimal `pot(v)`; if `0`, `remove_node`; else `push(v,s,f,false)`, `push(v,t,f,true)`, then remove `v`.
+
+<details>
+<summary>🧪 MPM on a 4-node network (max flow = 5)</summary>
+
+<PistonRunner
+  lang="c++"
+  height="560px"
+  code={`#include <iostream>
+#include <vector>
+#include <list>
+#include <algorithm>
+using namespace std;
+
+struct MPM {
+    struct FlowEdge {
+        int v, u;
+        long long cap, flow;
+        FlowEdge() {}
+        FlowEdge(int _v, int _u, long long _cap)
+            : v(_v), u(_u), cap(_cap), flow(0) {}
+    };
+    const long long flow_inf = 1e18;
+    vector<FlowEdge> edges;
+    vector<char> alive;
+    vector<long long> pin, pout, ex;
+    vector<list<int>> in, out;
+    vector<vector<int>> adj;
+    vector<int> level, q;
+    int n, m = 0, s, t, qh, qt;
+
+    MPM(int _n, int _s, int _t) : n(_n), s(_s), t(_t) {
+        ex.resize(n); q.resize(n); pin.resize(n); pout.resize(n);
+        adj.resize(n); level.resize(n); in.resize(n); out.resize(n);
+    }
+
+    void add_edge(int v, int u, long long cap) {
+        edges.push_back(FlowEdge(v, u, cap));
+        edges.push_back(FlowEdge(u, v, 0));
+        adj[v].push_back(m);
+        adj[u].push_back(m + 1);
+        m += 2;
+    }
+
+    bool bfs() {
+        while (qh < qt) {
+            int v = q[qh++];
+            for (int id : adj[v]) {
+                if (edges[id].cap - edges[id].flow < 1) continue;
+                if (level[edges[id].u] != -1) continue;
+                level[edges[id].u] = level[v] + 1;
+                q[qt++] = edges[id].u;
+            }
+        }
+        return level[t] != -1;
+    }
+
+    long long pot(int v) { return min(pin[v], pout[v]); }
+
+    void remove_node(int v) {
+        for (int i : in[v]) {
+            int u = edges[i].v;
+            out[u].erase(find(out[u].begin(), out[u].end(), i));
+            pout[u] -= edges[i].cap - edges[i].flow;
+        }
+        for (int i : out[v]) {
+            int u = edges[i].u;
+            in[u].erase(find(in[u].begin(), in[u].end(), i));
+            pin[u] -= edges[i].cap - edges[i].flow;
+        }
+    }
+
+    void push(int from, int to, long long f, bool forw) {
+        qh = qt = 0;
+        ex.assign(n, 0);
+        ex[from] = f;
+        q[qt++] = from;
+        while (qh < qt) {
+            int v = q[qh++];
+            if (v == to) break;
+            long long must = ex[v];
+            auto it = forw ? out[v].begin() : in[v].begin();
+            while (true) {
+                int u = forw ? edges[*it].u : edges[*it].v;
+                long long pushed = min(must, edges[*it].cap - edges[*it].flow);
+                if (pushed == 0) break;
+                if (forw) { pout[v] -= pushed; pin[u] -= pushed; }
+                else { pin[v] -= pushed; pout[u] -= pushed; }
+                if (ex[u] == 0) q[qt++] = u;
+                ex[u] += pushed;
+                edges[*it].flow += pushed;
+                edges[(*it) ^ 1].flow -= pushed;
+                must -= pushed;
+                if (edges[*it].cap - edges[*it].flow == 0) {
+                    auto jt = it; ++jt;
+                    if (forw) {
+                        in[u].erase(find(in[u].begin(), in[u].end(), *it));
+                        out[v].erase(it);
+                    } else {
+                        out[u].erase(find(out[u].begin(), out[u].end(), *it));
+                        in[v].erase(it);
+                    }
+                    it = jt;
+                } else break;
+                if (!must) break;
+            }
+        }
+    }
+
+    long long flow() {
+        long long ans = 0;
+        while (true) {
+            pin.assign(n, 0);
+            pout.assign(n, 0);
+            level.assign(n, -1);
+            alive.assign(n, true);
+            level[s] = 0;
+            qh = 0; qt = 1; q[0] = s;
+            if (!bfs()) break;
+            for (int i = 0; i < n; i++) { out[i].clear(); in[i].clear(); }
+            for (int i = 0; i < m; i++) {
+                if (edges[i].cap - edges[i].flow == 0) continue;
+                int v = edges[i].v, u = edges[i].u;
+                if (level[v] + 1 == level[u] && (level[u] < level[t] || u == t)) {
+                    in[u].push_back(i);
+                    out[v].push_back(i);
+                    pin[u] += edges[i].cap - edges[i].flow;
+                    pout[v] += edges[i].cap - edges[i].flow;
+                }
+            }
+            pin[s] = pout[t] = flow_inf;
+            while (true) {
+                int v = -1;
+                for (int i = 0; i < n; i++) {
+                    if (!alive[i]) continue;
+                    if (v == -1 || pot(i) < pot(v)) v = i;
+                }
+                if (v == -1) break;
+                if (pot(v) == 0) {
+                    alive[v] = false;
+                    remove_node(v);
+                    continue;
+                }
+                long long f = pot(v);
+                ans += f;
+                push(v, s, f, false);
+                push(v, t, f, true);
+                alive[v] = false;
+                remove_node(v);
+            }
+        }
+        return ans;
+    }
+};
+
+int main() {
+    // s=0, a=1, b=2, t=3
+    MPM g(4, 0, 3);
+    g.add_edge(0, 1, 3);
+    g.add_edge(0, 2, 2);
+    g.add_edge(1, 2, 1);
+    g.add_edge(1, 3, 2);
+    g.add_edge(2, 3, 3);
+    cout << "max flow = " << g.flow() << endl;
+    return 0;
+}
+`}
+/>
+
+</details>
+
+<MpmFlowSimulator />
+
+## Check: MPM ideas
+
+<MultipleChoice
+  id="algo-20-mpm-basic"
+  title="MPM max flow"
+  questions={[
+    {
+      prompt: 'MPM’s asymptotic time is…',
+      choices: ['O(VE)', 'O(V³)', 'O(E log V)', 'O(V+E) only'],
+      answer: 1,
+      why: 'O(V) phases × O(V²) blocking-flow work.',
+    },
+    {
+      prompt: 'p(v) is defined as…',
+      choices: [
+        'level[v]',
+        'min(p_in(v), p_out(v))',
+        'degree(v)',
+        'cap(s,v)',
+      ],
+      answer: 1,
+      why: 'Bottleneck of inflow vs outflow residual in L.',
+    },
+    {
+      prompt: 'A reference node is…',
+      choices: [
+        'Always s',
+        'A node with minimal potential',
+        'The sink only',
+        'Any node on a cycle',
+      ],
+      answer: 1,
+      why: 'r = argmin p(v); push p(r) through it.',
+    },
+    {
+      prompt: 'Compared to Dinic, MPM mainly differs in…',
+      choices: [
+        'Never using BFS levels',
+        'How the blocking flow inside a phase is constructed',
+        'Forbidding residual graphs',
+        'Requiring unit capacities only',
+      ],
+      answer: 1,
+      why: 'Same phase shell; potentials / reference pushes vs DFS.',
+    },
+  ]}
+/>
+
+## Practice drills
+
+<ExerciseSet>
+<Exercise title="Node potential" anchor="exercise-mpm-pot">
+
+:::tip Activity: Node potential
+Input: `pin pout` (non-negative ints; use a large number like `10**9` for ∞). Print `min(pin, pout)`.
+
+<CodeExercise
+  title="Node potential"
+  heading="exercise-mpm-pot"
+  lang="python"
+  filename="main.py"
+  prompt="p(v)=min(p_in,p_out)."
+  sampleLog={`(input) 3 5
+3`}
+  starter={`def pot(pin, pout):
+    # TODO
+    return 0
+`}
+  wrapSuffix={`
+pin, pout = map(int, input().split())
+print(pot(pin, pout))
+`}
+  hint="return min(pin, pout)"
+  solution={`def pot(pin, pout):
+    return min(pin, pout)
+`}
+  sourceChecks={[
+    { name: 'uses min', pattern: 'min\\s*\\(', must: true, hint: 'minimum of the two potentials' },
+  ]}
+  tests={[
+    { name: 'sample', stdin: '3 5', equals: '3' },
+    { name: 'eq', stdin: '4 4', equals: '4' },
+    { name: 'inf', stdin: '1000000000 2', equals: '2' },
+  ]}
+/>
+
+:::
+
+</Exercise>
+
+<Exercise title="Reference node" anchor="exercise-mpm-ref">
+
+:::tip Activity: Reference node
+First line: `n`. Second: `n` potentials `p[0..n)`. Print the **smallest index** of a minimal potential (ties → leftmost).
+
+<CodeExercise
+  title="Reference node"
+  heading="exercise-mpm-ref"
+  lang="python"
+  filename="main.py"
+  prompt="argmin of p."
+  sampleLog={`(input) 4
+5 3 3 5
+1`}
+  starter={`def reference_node(p):
+    # TODO
+    return 0
+`}
+  wrapSuffix={`
+n = int(input())
+p = list(map(int, input().split()))
+print(reference_node(p))
+`}
+  hint="return min(range(n), key=lambda i: (p[i], i))"
+  solution={`def reference_node(p):
+    best = 0
+    for i in range(1, len(p)):
+        if p[i] < p[best]:
+            best = i
+    return best
+`}
+  sourceChecks={[
+    { name: 'scans array', pattern: 'for\\s+|min\\s*\\(', must: true, hint: 'find index of minimum' },
+  ]}
+  tests={[
+    { name: 'sample', stdin: '4\n5 3 3 5', equals: '1' },
+    { name: 'first', stdin: '3\n1 2 3', equals: '0' },
+    { name: 'last', stdin: '3\n9 8 2', equals: '2' },
+  ]}
+/>
+
+:::
+
+</Exercise>
+
+<Exercise title="Layer inflow" anchor="exercise-mpm-pin">
+
+:::tip Activity: Layer inflow
+First line: `n m v`. Next `m` lines: `u w cap` meaning layered arc `u→w` with residual `cap`. Print `p_in(v)` = sum of `cap` over arcs with `w = v`.
+
+<CodeExercise
+  title="Layer inflow"
+  heading="exercise-mpm-pin"
+  lang="python"
+  filename="main.py"
+  prompt="Build p_in for one vertex."
+  sampleLog={`(input) 4 3 2
+0 2 2
+1 2 1
+2 3 3
+3`}
+  starter={`def pin_of(n, arcs, v):
+    # arcs: list of (u, w, cap)
+    # TODO
+    return 0
+`}
+  wrapSuffix={`
+n, m, v = map(int, input().split())
+arcs = [tuple(map(int, input().split())) for _ in range(m)]
+print(pin_of(n, arcs, v))
+`}
+  hint="return sum(cap for u,w,cap in arcs if w==v)"
+  solution={`def pin_of(n, arcs, v):
+    return sum(cap for u, w, cap in arcs if w == v)
+`}
+  sourceChecks={[
+    { name: 'sums caps', pattern: 'sum\\s*\\(|for\\s+', must: true, hint: 'sum capacities into v' },
+  ]}
+  tests={[
+    { name: 'sample', stdin: '4 3 2\n0 2 2\n1 2 1\n2 3 3', equals: '3' },
+    { name: 'empty', stdin: '3 1 0\n0 1 5', equals: '0' },
+    { name: 'one', stdin: '2 1 1\n0 1 7', equals: '7' },
+  ]}
+/>
+
+:::
+
+</Exercise>
+</ExerciseSet>
+
+## Further reading
+
+- [CP-Algorithms — MPM](https://cp-algorithms.com/graph/mpm.html)
+- [CP-Algorithms — Dinic](https://cp-algorithms.com/graph/dinic.html) — same phase structure, different blocking flow
+- [CP-Algorithms — Push-relabel](https://cp-algorithms.com/graph/push-relabel.html) — another `O(V³)` family
+
+## Cheat sheet
+
+| Idea | Takeaway |
+|---|---|
+| Goal | Max `s–t` flow |
+| Shell | Dinic-like levels + blocking flow phases |
+| `p_in` / `p_out` | Residual in / out sums in layered DAG |
+| `p(v)` | `min(p_in, p_out)` (`∞` at `s` in / `t` out) |
+| Reference | `argmin p`; push `p(r)` via `r` |
+| Cleanup | Drop saturated arcs & dead nodes |
+| Time | `O(V²)` / phase, `O(V³)` total |

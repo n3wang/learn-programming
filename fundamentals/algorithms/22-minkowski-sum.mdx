@@ -1,0 +1,386 @@
+---
+sidebar_position: 23
+title: Minkowski Sum
+---
+
+import MinkowskiSumSimulator from "@site/src/components/interactive/MinkowskiSumSimulator.js";
+
+# Minkowski Sum of Convex Polygons
+
+For point sets `A` and `B` in the plane,
+
+```text
+A + B = { a + b | a ∈ A, b ∈ B }
+```
+
+When `A` and `B` are **convex polygons** `P` and `Q` (including interiors), the sum `P + Q` is again a convex polygon with **at most `|P| + |Q|` vertices**, and it can be built in **linear time**.
+
+This lesson follows [CP-Algorithms — Minkowski sum](https://cp-algorithms.com/geometry/minkowski.html).
+
+Related: [Basic Geometry](./02-basic-geometry) (cross products / polar order).
+
+## Algorithm
+
+Assume vertices are ordered **counter-clockwise** and indexed cyclically (`P_|P| = P_0`, …).
+
+Edge vectors of a convex CCW polygon are already sorted by polar angle once you rotate the listing so the first vertex is the **lowest** (break ties with leftmost). Merge the two edge sequences by polar angle; when two edges are parallel, replace them by their **sum**. That merge yields the edges of `P + Q`.
+
+Working only with summed side vectors can accumulate float error, so the usual implementation builds **vertices** directly:
+
+1. `reorder_polygon` so index `0` is lowest (then leftmost).
+2. Duplicate `P[0], P[1]` and `Q[0], Q[1]` at the end for cyclic access.
+3. Pointers `i = j = 0`. While `i < |P|` or `j < |Q|` (accounting for the padding):
+   - Append `P_i + Q_j` to the result.
+   - Compare angles of `P_iP_{i+1}` and `Q_jQ_{j+1}` via **`cross`** (integer-safe).
+   - Advance the pointer(s) with the smaller angle (both if equal / parallel).
+
+## Distance between two convex polygons
+
+```text
+dist(P, Q) = min_{a∈P, b∈Q} ‖a − b‖
+```
+
+Naive checks of vertex–vertex / vertex–edge pairs are `O(|P||Q|)`. With Minkowski sums:
+
+1. Reflect `Q` through the origin → `−Q`.
+2. Build `R = P + (−Q)` in `O(|P|+|Q|)`.
+3. Distance = distance from `0` to `R` ( `0` if the origin is inside/on `R`).
+
+That last query is linear in `|R|`, so overall **`O(|P|+|Q|)`**.
+
+## Implementation (integer coordinates)
+
+Compare polar angles with the sign of a cross product — no `atan2`.
+
+```cpp
+struct pt {
+    long long x, y;
+    pt operator+(const pt& p) const { return {x + p.x, y + p.y}; }
+    pt operator-(const pt& p) const { return {x - p.x, y - p.y}; }
+    long long cross(const pt& p) const { return x * p.y - y * p.x; }
+};
+
+void reorder_polygon(vector<pt>& P) {
+    size_t pos = 0;
+    for (size_t i = 1; i < P.size(); i++) {
+        if (P[i].y < P[pos].y || (P[i].y == P[pos].y && P[i].x < P[pos].x))
+            pos = i;
+    }
+    rotate(P.begin(), P.begin() + pos, P.end());
+}
+
+vector<pt> minkowski(vector<pt> P, vector<pt> Q) {
+    reorder_polygon(P);
+    reorder_polygon(Q);
+    P.push_back(P[0]);
+    P.push_back(P[1]);
+    Q.push_back(Q[0]);
+    Q.push_back(Q[1]);
+    vector<pt> result;
+    size_t i = 0, j = 0;
+    while (i < P.size() - 2 || j < Q.size() - 2) {
+        result.push_back(P[i] + Q[j]);
+        auto cross = (P[i + 1] - P[i]).cross(Q[j + 1] - Q[j]);
+        if (cross >= 0 && i < P.size() - 2) ++i;
+        if (cross <= 0 && j < Q.size() - 2) ++j;
+    }
+    return result;
+}
+```
+
+<details>
+<summary>🧪 Two triangles → pentagon</summary>
+
+<PistonRunner
+  lang="c++"
+  height="420px"
+  code={`#include <iostream>
+#include <vector>
+#include <algorithm>
+using namespace std;
+
+struct pt {
+    long long x, y;
+    pt operator+(const pt& p) const { return {x + p.x, y + p.y}; }
+    pt operator-(const pt& p) const { return {x - p.x, y - p.y}; }
+    long long cross(const pt& p) const { return x * p.y - y * p.x; }
+};
+
+void reorder_polygon(vector<pt>& P) {
+    size_t pos = 0;
+    for (size_t i = 1; i < P.size(); i++) {
+        if (P[i].y < P[pos].y || (P[i].y == P[pos].y && P[i].x < P[pos].x))
+            pos = i;
+    }
+    rotate(P.begin(), P.begin() + pos, P.end());
+}
+
+vector<pt> minkowski(vector<pt> P, vector<pt> Q) {
+    reorder_polygon(P);
+    reorder_polygon(Q);
+    P.push_back(P[0]);
+    P.push_back(P[1]);
+    Q.push_back(Q[0]);
+    Q.push_back(Q[1]);
+    vector<pt> result;
+    size_t i = 0, j = 0;
+    while (i < P.size() - 2 || j < Q.size() - 2) {
+        result.push_back(P[i] + Q[j]);
+        auto cr = (P[i + 1] - P[i]).cross(Q[j + 1] - Q[j]);
+        if (cr >= 0 && i < P.size() - 2) ++i;
+        if (cr <= 0 && j < Q.size() - 2) ++j;
+    }
+    return result;
+}
+
+int main() {
+    vector<pt> P = {{0, 0}, {2, 0}, {1, 2}};
+    vector<pt> Q = {{0, 0}, {1, 0}, {0, 1}};
+    auto R = minkowski(P, Q);
+    cout << "|P+Q| = " << R.size() << endl;
+    for (auto p : R) cout << "(" << p.x << "," << p.y << ") ";
+    cout << endl;
+    return 0;
+}
+`}
+/>
+
+</details>
+
+<MinkowskiSumSimulator />
+
+## Check: Minkowski sums
+
+<MultipleChoice
+  id="algo-22-minkowski-basic"
+  title="Minkowski sum"
+  questions={[
+    {
+      prompt: '|P+Q| for convex P,Q is at most…',
+      choices: ['max(|P|,|Q|)', '|P|+|Q|', '|P|·|Q|', '2'],
+      answer: 1,
+      why: 'Merged edge lists; parallel edges may fuse.',
+    },
+    {
+      prompt: 'After rotating so vertex 0 is lowest, edges are sorted by…',
+      choices: ['x-coordinate only', 'polar angle', 'area', 'random order'],
+      answer: 1,
+      why: 'CCW convex chain from the bottom vertex.',
+    },
+    {
+      prompt: 'Angle comparison in the integer code uses…',
+      choices: ['atan2 only', 'dot product only', 'cross product sign', 'hashing'],
+      answer: 2,
+      why: 'sign of (ΔP)×(ΔQ) picks which edge turns less.',
+    },
+    {
+      prompt: 'dist(P,Q) via Minkowski reduces to distance from 0 to…',
+      choices: ['P ∪ Q', 'P + (−Q)', 'convex hull of P only', 'P × Q'],
+      answer: 1,
+      why: 'min ‖a−b‖ = min ‖a+(−b)‖ = dist(0, P+(−Q)).',
+    },
+  ]}
+/>
+
+## Practice drills
+
+<ExerciseSet>
+<Exercise title="Point sum" anchor="exercise-mink-add">
+
+:::tip Activity: Point sum
+Input: `x1 y1 x2 y2`. Print `x1+x2` and `y1+y2`.
+
+<CodeExercise
+  title="Point sum"
+  heading="exercise-mink-add"
+  lang="python"
+  filename="main.py"
+  prompt="a+b componentwise."
+  sampleLog={`(input) 1 2 3 4
+4 6`}
+  starter={`def add_pt(x1, y1, x2, y2):
+    # TODO: return (x, y)
+    return 0, 0
+`}
+  wrapSuffix={`
+x1, y1, x2, y2 = map(int, input().split())
+x, y = add_pt(x1, y1, x2, y2)
+print(x, y)
+`}
+  hint="return x1+x2, y1+y2"
+  solution={`def add_pt(x1, y1, x2, y2):
+    return x1 + x2, y1 + y2
+`}
+  sourceChecks={[
+    { name: 'adds', pattern: '\\+', must: true, hint: 'add coordinates' },
+  ]}
+  tests={[
+    { name: 'sample', stdin: '1 2 3 4', equals: '4 6' },
+    { name: 'neg', stdin: '0 0 -1 5', equals: '-1 5' },
+    { name: 'zero', stdin: '2 3 0 0', equals: '2 3' },
+  ]}
+/>
+
+:::
+
+</Exercise>
+
+<Exercise title="Lowest vertex index" anchor="exercise-mink-reorder">
+
+:::tip Activity: Lowest vertex index
+First line: `n`. Next `n` lines: `x y` (CCW convex). Print the index of the lowest vertex (smallest `y`, then smallest `x`).
+
+<CodeExercise
+  title="Lowest vertex index"
+  heading="exercise-mink-reorder"
+  lang="python"
+  filename="main.py"
+  prompt="Same rule as reorder_polygon."
+  sampleLog={`(input) 3
+1 2
+0 0
+2 0
+1`}
+  starter={`def lowest_index(pts):
+    # pts: list of (x,y)
+    # TODO
+    return 0
+`}
+  wrapSuffix={`
+n = int(input())
+pts = [tuple(map(int, input().split())) for _ in range(n)]
+print(lowest_index(pts))
+`}
+  hint="min range(n) key=lambda i: (pts[i][1], pts[i][0])"
+  solution={`def lowest_index(pts):
+    best = 0
+    for i in range(1, len(pts)):
+        x, y = pts[i]
+        bx, by = pts[best]
+        if y < by or (y == by and x < bx):
+            best = i
+    return best
+`}
+  sourceChecks={[
+    { name: 'compares y/x', pattern: '<|min\\s*\\(', must: true, hint: 'compare y then x' },
+  ]}
+  tests={[
+    { name: 'sample', stdin: '3\n1 2\n0 0\n2 0', equals: '1' },
+    { name: 'tie', stdin: '2\n5 1\n3 1', equals: '1' },
+    { name: 'first', stdin: '3\n0 0\n1 1\n-1 2', equals: '0' },
+  ]}
+/>
+
+:::
+
+</Exercise>
+
+<Exercise title="Minkowski |P+Q|" anchor="exercise-mink-size">
+
+:::tip Activity: Minkowski |P+Q|
+Input two polygons: for each, a line `n` then `n` lines `x y` (CCW). Run the article’s Minkowski merge (integer). Print the number of vertices of `P+Q`.
+
+<CodeExercise
+  title="Minkowski |P+Q|"
+  heading="exercise-mink-size"
+  lang="python"
+  filename="main.py"
+  prompt="Implement reorder + two-pointer merge; print len(result)."
+  sampleLog={`(input) 3
+0 0
+2 0
+1 2
+3
+0 0
+1 0
+0 1
+5`}
+  starter={`def minkowski(P, Q):
+    # P,Q: lists of (x,y); return list of sum vertices
+    # TODO
+    return []
+`}
+  wrapSuffix={`
+def read_poly():
+    n = int(input())
+    return [tuple(map(int, input().split())) for _ in range(n)]
+
+P = read_poly()
+Q = read_poly()
+print(len(minkowski(P, Q)))
+`}
+  hint="reorder lowest; pad first two verts; while: append Pi+Qj; advance by cross sign"
+  solution={`def minkowski(P, Q):
+    def reorder(R):
+        R = list(R)
+        pos = min(range(len(R)), key=lambda i: (R[i][1], R[i][0]))
+        return R[pos:] + R[:pos]
+
+    def cross(ax, ay, bx, by):
+        return ax * by - ay * bx
+
+    P = reorder(P)
+    Q = reorder(Q)
+    P = P + [P[0], P[1]]
+    Q = Q + [Q[0], Q[1]]
+    res = []
+    i = j = 0
+    while i < len(P) - 2 or j < len(Q) - 2:
+        res.append((P[i][0] + Q[j][0], P[i][1] + Q[j][1]))
+        cr = cross(
+            P[i + 1][0] - P[i][0],
+            P[i + 1][1] - P[i][1],
+            Q[j + 1][0] - Q[j][0],
+            Q[j + 1][1] - Q[j][1],
+        )
+        if cr >= 0 and i < len(P) - 2:
+            i += 1
+        if cr <= 0 and j < len(Q) - 2:
+            j += 1
+    return res
+`}
+  sourceChecks={[
+    { name: 'two pointers', pattern: 'while\\s+|for\\s+', must: true, hint: 'merge with i,j' },
+  ]}
+  tests={[
+    {
+      name: 'sample',
+      stdin: '3\n0 0\n2 0\n1 2\n3\n0 0\n1 0\n0 1',
+      equals: '5',
+    },
+    {
+      name: 'squares',
+      stdin: '4\n0 0\n1 0\n1 1\n0 1\n4\n0 0\n1 0\n1 1\n0 1',
+      equals: '4',
+    },
+    {
+      name: 'seg',
+      stdin: '2\n0 0\n2 0\n2\n0 0\n0 3',
+      equals: '4',
+    },
+  ]}
+/>
+
+:::
+
+</Exercise>
+</ExerciseSet>
+
+## Contest problems
+
+From [CP-Algorithms](https://cp-algorithms.com/geometry/minkowski.html):
+
+- [Codeforces 87E — Mogohu-Rea Idol](https://codeforces.com/problemset/problem/87/E)
+- [Codeforces 1195F — Geometers Anonymous Club](https://codeforces.com/problemset/problem/1195/F)
+- [TIMUS 1894 — Non-Flying Weather](https://acm.timus.ru/problem.aspx?space=1&num=1894)
+
+## Cheat sheet
+
+| Idea | Takeaway |
+|---|---|
+| Sum | `{a+b}` of convex polygons → convex |
+| Size | `≤ \|P\|+\|Q\|` |
+| Time | `O(\|P\|+\|Q\|)` two-pointer merge |
+| Order | Start at lowest vertex; edges by polar angle |
+| Compare | `cross(ΔP, ΔQ)` sign |
+| Distance | `dist(0, P+(−Q))` |

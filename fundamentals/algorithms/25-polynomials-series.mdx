@@ -1,0 +1,361 @@
+---
+sidebar_position: 26
+title: Polynomials & Series
+---
+
+import PolynomialsSeriesSimulator from "@site/src/components/interactive/PolynomialsSeriesSimulator.js";
+
+# Operations on Polynomials and Series
+
+Enumerative CP problems often reduce to **polynomial** or **formal power series (FPS)** algebra: multiplication (convolution), division, inverses, log/exp, multipoint eval / interpolation.
+
+This lesson follows [CP-Algorithms — Operations on polynomials and series](https://cp-algorithms.com/algebra/polynomial.html) (concepts and complexities; a full `poly<T>` library lives on that page).
+
+Coefficients are assumed to live in a **field** (e.g. `ℝ`, or `ℤ/pℤ` for prime `p`) so `+ − × ÷` (≠0) behave as usual.
+
+## Polynomials and convolution
+
+```text
+A(x) = a₀ + a₁ x + … + aₙ xⁿ    (aₙ ≠ 0 or A ≡ 0)
+deg A = n   (deg 0 := −∞)
+```
+
+Product expands to
+
+```text
+C(x) = A B = Σₖ cₖ xᵏ ,   cₖ = Σᵢ aᵢ bₖ₋ᵢ
+```
+
+The sequence `(cₖ)` is the **convolution** of `(aᵢ)` and `(bⱼ)`. Write `[xᵏ]A` for the coefficient of `xᵏ`.
+
+**Complexity:** naive `O(nm)`; **FFT / NTT** → **`O(N log N)`** with `N ≥ n+m+1`. Almost every advanced op below uses mul as a subroutine.
+
+**Combinatorics:** if `A` and `B` generate ways to build objects by “size”, then `AB` generates **pairs** by total size (dice sums, knapsacks of two kinds, …).
+
+## Formal power series
+
+An FPS is an infinite sum `A(x)=Σ_{i≥0} aᵢ xⁱ` treated **formally** (no convergence required). Multiplication uses the same finite convolution for each `cₖ`. Polynomials are FPS with finitely many nonzero coeffs.
+
+If `a₀ ≠ 0`, there is a unique inverse series `A⁻¹` with `A · A⁻¹ = 1`. Working **mod `xⁿ`** means keeping the first `n` coefficients.
+
+## Long division
+
+For polynomials `B ≠ 0` there exist unique `D, R` with
+
+```text
+A = D·B + R ,   deg R < deg B
+```
+
+(`D` = quotient, `R` = remainder). Write `A ≡ B (mod C)` when remainders match.
+
+Useful facts:
+
+- `A ≡ 0 (mod B)` ⇔ `B` divides `A`
+- `A(x) ≡ A(r) (mod x−r)` ⇒ `A(r)=0` ⇔ `x−r` divides `A`
+- Mod `xᵏ`: truncate to degree `< k`
+
+FPS don’t use Euclidean division the same way; instead invert when `a₀≠0`, then `A/B = A·B⁻¹` (mod `xⁿ`).
+
+## Inverse series — Newton / Hensel
+
+**Sieveking–Kung:** start `B₀ = a₀⁻¹`, then lift
+
+```text
+B ← B (2 − A B)  (mod x^{2ᵏ})
+```
+
+until you have `n` coefficients. Cost `T(n)=T(n/2)+O(n log n)=O(n log n)` with FFT mul.
+
+Same recurrence appears as **Newton’s method** for `F(Q)=0`:
+
+```text
+Q ← Q − F(Q)/F'(Q)  (mod x^{2ᵏ})
+```
+
+Special cases (all `O(n log n)` with FFT, needing sensible `Q(0)`):
+
+| Goal | Idea |
+|---|---|
+| `A⁻¹` | `F(Q)=Q⁻¹−A` → formula above |
+| `ln A` | `(ln A)' = A'/A` then integrate |
+| `exp P` | solve `ln Q = P` via Newton |
+| `Aᵏ` | `exp(k ln A)` (or factor `α xᵗ` out first) |
+
+**Graeffe / D&C inverse:** use `A(x)A(−x)=T(x²)` to cut the problem in half — also `O(n log n)`.
+
+## Euclidean division via reversal
+
+With `n=deg A ≥ m=deg B`, reverse coeffs `Aᴿ(x)=xⁿ A(x⁻¹)`, etc. Then
+
+```text
+Dᴿ ≡ Aᴿ (Bᴿ)⁻¹  (mod x^{n−m+1})
+```
+
+recover `D`, then `R = A − B D`. Toeplitz structure ↔ series inverse.
+
+## Evaluation and interpolation
+
+| Task | Method | Time |
+|---|---|---|
+| Powers of `z` | **Chirp-z** / Bluestein (one convolution) | `O(n log n)` |
+| Arbitrary `xᵢ` | Segment tree of `Π(x−xⱼ)` + reduce | `O(n log² n)` |
+| Interpolate `(xᵢ,yᵢ)` | Lagrange via `P'` + tree merge | `O(n log² n)` |
+
+## GCD and resultants
+
+Polynomial Euclidean algorithm: `O(nm)`.
+
+**Resultant** `ℛ(A,B)` vanishes iff `A,B` share a root (over an algebraic closure). Computable alongside Euclid in `O(nm)`; **half-GCD** brings GCD/resultant to **`O(n log² n)`**.
+
+<details>
+<summary>🧪 Convolution + Newton inverse (mod x⁸)</summary>
+
+<PistonRunner
+  lang="c++"
+  height="480px"
+  code={`#include <iostream>
+#include <vector>
+using namespace std;
+
+vector<long long> mul(const vector<long long>& a, const vector<long long>& b) {
+    vector<long long> c(a.size() + b.size() - 1, 0);
+    for (size_t i = 0; i < a.size(); i++)
+        for (size_t j = 0; j < b.size(); j++)
+            c[i + j] += a[i] * b[j];
+    return c;
+}
+
+vector<long long> inv_series(vector<long long> a, int n) {
+    // assumes a[0] = 1
+    vector<long long> B = {1};
+    int k = 1;
+    while (k < n) {
+        int m = min(2 * k, n);
+        if ((int)a.size() < m) a.resize(m, 0);
+        auto AB = mul(vector<long long>(a.begin(), a.begin() + m), B);
+        AB.resize(m, 0);
+        vector<long long> T(m);
+        for (int i = 0; i < m; i++) T[i] = (i == 0 ? 2 : 0) - AB[i];
+        B = mul(B, T);
+        B.resize(m);
+        k *= 2;
+    }
+    B.resize(n);
+    return B;
+}
+
+int main() {
+    auto C = mul({1, 2, 3}, {4, 5});
+    cout << "conv:";
+    for (auto v : C) cout << " " << v;
+    cout << endl;
+
+    auto Inv = inv_series({1, -1}, 8); // 1/(1-x)
+    cout << "inv(1-x):";
+    for (auto v : Inv) cout << " " << v;
+    cout << endl;
+    return 0;
+}
+`}
+/>
+
+</details>
+
+<PolynomialsSeriesSimulator />
+
+## Check: polynomials & FPS
+
+<MultipleChoice
+  id="algo-25-poly-basic"
+  title="Polynomials and series"
+  questions={[
+    {
+      prompt: 'Coefficient cₖ of AB is…',
+      choices: ['aₖ + bₖ', 'Σᵢ aᵢ bₖ₋ᵢ', 'aₖ · bₖ only', 'deg A + deg B'],
+      answer: 1,
+      why: 'Definition of convolution.',
+    },
+    {
+      prompt: 'Fast polynomial multiplication typically costs…',
+      choices: ['O(n)', 'O(n log n) via FFT/NTT', 'O(n³)', 'O(2ⁿ)'],
+      answer: 1,
+      why: 'FFT/NTT convolution.',
+    },
+    {
+      prompt: 'Newton lift for A⁻¹ doubles precision with…',
+      choices: ['B←B+A', 'B←B(2−AB) mod x^{2ᵏ}', 'FFT only once', 'Resultant'],
+      answer: 1,
+      why: 'Sieveking–Kung / Hensel step.',
+    },
+    {
+      prompt: 'Multipoint evaluation of degree &lt;n at n points is…',
+      choices: ['O(n)', 'O(n log² n) with a product tree', 'O(n³) only', 'Impossible'],
+      answer: 1,
+      why: 'Segment tree of (x−xᵢ) + modular reduction.',
+    },
+  ]}
+/>
+
+## Practice drills
+
+<ExerciseSet>
+<Exercise title="Convolution" anchor="exercise-poly-conv">
+
+:::tip Activity: Convolution
+First line: `n m`. Second: `n` ints `a[0..n)`. Third: `m` ints `b[0..m)`. Print `n+m−1` coeffs of `a*b`.
+
+<CodeExercise
+  title="Convolution"
+  heading="exercise-poly-conv"
+  lang="python"
+  filename="main.py"
+  prompt="Naive O(nm) multiply."
+  sampleLog={`(input) 3 2
+1 2 3
+4 5
+4 13 22 15`}
+  starter={`def multiply(a, b):
+    # TODO: return list of coeffs
+    return []
+`}
+  wrapSuffix={`
+n, m = map(int, input().split())
+a = list(map(int, input().split()))
+b = list(map(int, input().split()))
+print(*multiply(a, b))
+`}
+  hint="c=[0]*(n+m-1); for i,x in enumerate(a): for j,y in enumerate(b): c[i+j]+=x*y"
+  solution={`def multiply(a, b):
+    c = [0] * (len(a) + len(b) - 1)
+    for i, x in enumerate(a):
+        for j, y in enumerate(b):
+            c[i + j] += x * y
+    return c
+`}
+  sourceChecks={[
+    { name: 'nested loops', pattern: 'for\\s+', must: true, hint: 'double loop over indices' },
+  ]}
+  tests={[
+    { name: 'sample', stdin: '3 2\n1 2 3\n4 5', equals: '4 13 22 15' },
+    { name: 'one', stdin: '1 1\n7\n3', equals: '21' },
+    { name: 'lin', stdin: '2 2\n1 1\n1 1', equals: '1 2 1' },
+  ]}
+/>
+
+:::
+
+</Exercise>
+
+<Exercise title="Degree of product" anchor="exercise-poly-deg">
+
+:::tip Activity: Degree of product
+Input: `degA degB` (non-negative; treat nonzero polys). Print `deg(AB)`.
+
+<CodeExercise
+  title="Degree of product"
+  heading="exercise-poly-deg"
+  lang="python"
+  filename="main.py"
+  prompt="deg(AB)=deg A + deg B."
+  sampleLog={`(input) 2 1
+3`}
+  starter={`def deg_product(da, db):
+    # TODO
+    return 0
+`}
+  wrapSuffix={`
+da, db = map(int, input().split())
+print(deg_product(da, db))
+`}
+  hint="return da + db"
+  solution={`def deg_product(da, db):
+    return da + db
+`}
+  sourceChecks={[
+    { name: 'adds', pattern: '\\+', must: true, hint: 'sum of degrees' },
+  ]}
+  tests={[
+    { name: 'sample', stdin: '2 1', equals: '3' },
+    { name: 'zero-deg', stdin: '0 5', equals: '5' },
+    { name: 'big', stdin: '10 20', equals: '30' },
+  ]}
+/>
+
+:::
+
+</Exercise>
+
+<Exercise title="Newton step check" anchor="exercise-poly-newton">
+
+:::tip Activity: Newton step check
+Input: ints `b0 b1` and `a0 a1` meaning `B=b0+b1 x`, `A=a0+a1 x` with `a0=1`. Compute `B(2−AB)` truncated to degree `<2` (coeffs of `1` and `x`). Print two integers.
+
+(This is one Hensel lift step from mod `x` toward mod `x²` when `B` approximates `A⁻¹`.)
+
+<CodeExercise
+  title="Newton step check"
+  heading="exercise-poly-newton"
+  lang="python"
+  filename="main.py"
+  prompt="B_new = B*(2-A*B) mod x²."
+  sampleLog={`(input) 1 0
+1 -1
+1 1`}
+  starter={`def newton_step(b0, b1, a0, a1):
+    # TODO: return (c0, c1) of B*(2-A*B) mod x^2
+    return 0, 0
+`}
+  wrapSuffix={`
+b0, b1 = map(int, input().split())
+a0, a1 = map(int, input().split())
+c0, c1 = newton_step(b0, b1, a0, a1)
+print(c0, c1)
+`}
+  hint="AB = (a0*b0) + (a0*b1+a1*b0)x; T=2-AB; multiply B*T, keep deg<2"
+  solution={`def newton_step(b0, b1, a0, a1):
+    ab0 = a0 * b0
+    ab1 = a0 * b1 + a1 * b0
+    t0 = 2 - ab0
+    t1 = -ab1
+    c0 = b0 * t0
+    c1 = b0 * t1 + b1 * t0
+    return c0, c1
+`}
+  sourceChecks={[
+    { name: 'uses product', pattern: '\\*', must: true, hint: 'form AB and B*(2-AB)' },
+  ]}
+  tests={[
+    { name: 'sample', stdin: '1 0\n1 -1', equals: '1 1' },
+    { name: 'id', stdin: '1 0\n1 0', equals: '1 0' },
+    { name: 'lift', stdin: '1 1\n1 -1', equals: '1 1' },
+  ]}
+/>
+
+:::
+
+</Exercise>
+</ExerciseSet>
+
+## Contest problems
+
+From [CP-Algorithms](https://cp-algorithms.com/algebra/polynomial.html):
+
+- [CodeChef — RNG](https://www.codechef.com/problems/RNG)
+- [Codeforces — Basis Change](https://codeforces.com/problemset?query=Basis+Change)
+- [Codeforces — Permutant](https://codeforces.com/problemset?query=Permutant)
+- [Codeforces — Medium Hadron Collider](https://codeforces.com/problemset?query=Medium+Hadron+Collider)
+
+(Search the titles on CF/CodeChef if the round numbers move.)
+
+## Cheat sheet
+
+| Op | Takeaway |
+|---|---|
+| Mul | Convolution; FFT `O(n log n)` |
+| Inv | Newton `B(2−AB)`; need `a₀≠0` |
+| Div | Reverse + inv, or Euclid |
+| ln / exp / pow | Newton + mul/inv |
+| Eval many | Product tree `O(n log² n)` |
+| Interp | Lagrange + tree `O(n log² n)` |
+| Chirp-z | Eval at `z^k` via one conv |
+| GCD / ℛ | Euclid `O(nm)`; half-GCD faster |

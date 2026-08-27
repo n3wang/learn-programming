@@ -1,0 +1,527 @@
+---
+sidebar_position: 11
+title: Factoring Exponentiation
+---
+
+import FactoringExponentiationSimulator from "@site/src/components/interactive/FactoringExponentiationSimulator.js";
+
+# Binary Exponentiation by Factoring
+
+Compute `a · xʸ (mod 2ᵈ)` for odd `x` and `d ≥ 3` using **`O(d)`** additions / bit ops and **one** multiply by `y` — not the usual `O(log y)` modular multiplies.
+
+This lesson follows [CP-Algorithms — Factoring Exponentiation](https://cp-algorithms.com/algebra/factoring-exp.html).
+
+## Why it works
+
+The multiplicative group modulo `2ᵈ` is special. Any `x ≡ 1 (mod 4)` can be written
+
+```text
+x ≡ b^{L(x)}  (mod 2ᵈ)
+```
+
+for a fixed generator-like base `b ≡ 5 (mod 8)`. Then
+
+```text
+a · xʸ ≡ a · b^{y · L(x)}  (mod 2ᵈ)
+```
+
+If `x ≡ 3 (mod 4)`, reduce to the `≡ 1 (mod 4)` case by `x ↦ −x` and `a ↦ (−1)ʸ · a`.
+
+We work with **`4 L(x)`** (taken mod `2ᵈ`) instead of `L(x)` mod `2ᵈ⁻²` — that scaling makes bit-decomposition of the discrete log clean.
+
+## 32-bit API
+
+| Function | Meaning |
+|---|---|
+| `mbin_log_32(r, x)` | `r + 4 L(x) (mod 2³²)` |
+| `mbin_exp_32(r, x)` | `r · b^{x/4} (mod 2³²)` |
+| `mbin_power_odd_32(a, x, y)` | `a · xʸ (mod 2³²)` for odd `x` |
+
+```cpp
+uint32_t mbin_power_odd_32(uint32_t rem, uint32_t base, uint32_t exp) {
+    if (base & 2) {
+        /* base ≡ 3 (mod 4): treat as negative */
+        base = -base;
+        if (exp & 1) {
+            rem = -rem;
+        }
+    }
+    return mbin_exp_32(rem, mbin_log_32(0, base) * exp);
+}
+```
+
+## Check: setup
+
+<MultipleChoice
+  id="algo-10-factexp-setup"
+  title="Factoring exponentiation setup"
+  questions={[
+    {
+      prompt: 'The method targets which modulus?',
+      choices: [
+        'Any prime p',
+        'Powers of two: 2ᵈ (d ≥ 3)',
+        'Only mod 10⁹+7',
+        'Only mod 3',
+      ],
+      answer: 1,
+      why: 'It exploits the structure of (Z/2ᵈZ)*.',
+    },
+    {
+      prompt: 'The base x must be…',
+      choices: [
+        'Even',
+        'Odd (and reduced to ≡ 1 mod 4)',
+        'A perfect square',
+        'Less than d',
+      ],
+      answer: 1,
+      why: 'Odd units; ≡ 3 mod 4 is flipped to ≡ 1 via signs.',
+    },
+    {
+      prompt: 'mbin_power_odd_32 essentially computes…',
+      choices: [
+        'a * exp(y * log(base)) in the 4L / b^{·/4} encoding',
+        'CRT over many primes',
+        'FFT multiplication',
+        'Gaussian elimination',
+      ],
+      answer: 0,
+      why: 'log → multiply by y → exp.',
+    },
+    {
+      prompt: 'Cost vs classical binary exponentiation for large y…',
+      choices: [
+        'Still Θ(log y) multiplies',
+        'O(d) bit ops + one multiply by y',
+        'O(y) always',
+        'O(1) with no precomputation ever',
+      ],
+      answer: 1,
+      why: 'Independent of bit-length of y aside from the single multiply.',
+    },
+  ]}
+/>
+
+## Computing `4 L(x)` from `x`
+
+Odd `x ≡ 1 (mod 4)` factors (mod `2ᵈ`) as a product of terms `2^{aᵢ} + 1` with `1 < a₁ < … < aₖ < d`. Discrete logs add:
+
+```text
+4 L(x) ≡ Σ 4 L(2^{aᵢ} + 1)  (mod 2ᵈ)
+```
+
+Precompute `table[n] = 4 L(2ⁿ + 1)` for `1 < n < d`. For 32-bit:
+
+```cpp
+const uint32_t mbin_log_32_table[32] = {
+    0x00000000, 0x00000000, 0xd3cfd984, 0x9ee62e18,
+    0xe83d9070, 0xb59e81e0, 0xa17407c0, 0xce601f80,
+    0xf4807f00, 0xe701fe00, 0xbe07fc00, 0xfc1ff800,
+    0xf87ff000, 0xf1ffe000, 0xe7ffc000, 0xdfff8000,
+    0xffff0000, 0xfffe0000, 0xfffc0000, 0xfff80000,
+    0xfff00000, 0xffe00000, 0xffc00000, 0xff800000,
+    0xff000000, 0xfe000000, 0xfc000000, 0xf8000000,
+    0xf0000000, 0xe0000000, 0xc0000000, 0x80000000,
+};
+```
+
+In code we do **not** factor `x` directly. We multiply by `2ⁿ+1` until `x ≡ 1`, which builds the factorization of **`x⁻¹`**. Since `4 L(x) = −4 L(x⁻¹)`, we **subtract** table entries:
+
+```cpp
+uint32_t mbin_log_32(uint32_t r, uint32_t x) {
+    uint8_t n;
+    for (n = 2; n < 32; n++) {
+        if (x & (1 << n)) {
+            x = x + (x << n);           // *= (2^n + 1)
+            r -= mbin_log_32_table[n];
+        }
+    }
+    return r;
+}
+```
+
+`x + (x << n)` clears bit `n` and leaves bits `< n` unchanged (`x` odd).
+
+## Computing `x` from `4 L(x)` (`mbin_exp`)
+
+Orders of the factors `2ⁿ+1` divide powers of two. Working with `4 L` makes the discrete log uniquely bit-decomposable: if bit `n` of the current log is set, multiply the accumulator by `2ⁿ+1` and subtract `table[n]`.
+
+```cpp
+uint32_t mbin_exp_32(uint32_t r, uint32_t x) {
+    uint8_t n;
+    for (n = 2; n < 32; n++) {
+        if (x & (1 << n)) {
+            r = r + (r << n);
+            x -= mbin_log_32_table[n];
+        }
+    }
+    return r;
+}
+```
+
+<details>
+<summary>🧪 Verify a·xʸ mod 2³² against builtin multiply-pow</summary>
+
+<PistonRunner
+  lang="c++"
+  height="520px"
+  code={`#include <iostream>
+#include <cstdint>
+using namespace std;
+
+const uint32_t mbin_log_32_table[32] = {
+    0x00000000, 0x00000000, 0xd3cfd984, 0x9ee62e18,
+    0xe83d9070, 0xb59e81e0, 0xa17407c0, 0xce601f80,
+    0xf4807f00, 0xe701fe00, 0xbe07fc00, 0xfc1ff800,
+    0xf87ff000, 0xf1ffe000, 0xe7ffc000, 0xdfff8000,
+    0xffff0000, 0xfffe0000, 0xfffc0000, 0xfff80000,
+    0xfff00000, 0xffe00000, 0xffc00000, 0xff800000,
+    0xff000000, 0xfe000000, 0xfc000000, 0xf8000000,
+    0xf0000000, 0xe0000000, 0xc0000000, 0x80000000,
+};
+
+uint32_t mbin_log_32(uint32_t r, uint32_t x) {
+    for (uint8_t n = 2; n < 32; n++) {
+        if (x & (1u << n)) {
+            x = x + (x << n);
+            r -= mbin_log_32_table[n];
+        }
+    }
+    return r;
+}
+
+uint32_t mbin_exp_32(uint32_t r, uint32_t x) {
+    for (uint8_t n = 2; n < 32; n++) {
+        if (x & (1u << n)) {
+            r = r + (r << n);
+            x -= mbin_log_32_table[n];
+        }
+    }
+    return r;
+}
+
+uint32_t mbin_power_odd_32(uint32_t rem, uint32_t base, uint32_t exp) {
+    if (base & 2) {
+        base = -base;
+        if (exp & 1) rem = -rem;
+    }
+    return mbin_exp_32(rem, mbin_log_32(0, base) * exp);
+}
+
+uint32_t naive(uint32_t a, uint32_t x, uint32_t y) {
+    uint32_t r = a;
+    while (y--) r *= x;
+    return r;
+}
+
+int main() {
+    uint32_t cases[][3] = {
+        {1, 5, 3},
+        {7, 13, 5},
+        {1, 9, 10},
+        {3, 17, 7},
+        {11, 21, 4},
+    };
+    for (auto &c : cases) {
+        uint32_t a = c[0], x = c[1], y = c[2];
+        uint32_t fast = mbin_power_odd_32(a, x, y);
+        uint32_t slow = naive(a, x, y);
+        cout << a << "*" << x << "^" << y
+             << " fast=" << fast << " naive=" << slow
+             << (fast == slow ? " OK" : " FAIL") << endl;
+    }
+    return 0;
+}
+`}
+/>
+
+</details>
+
+## Interactive: log loop shape
+
+Toy 8-bit walk of the same “if bit `n` set, `x += x≪n`” idea (table values are illustrative).
+
+<FactoringExponentiationSimulator />
+
+## Further optimizations
+
+For `2n ≥ d`, `4 L(2ⁿ+1) = 2ⁿ`. So you can loop only to `d/2` and finish with bit masks:
+
+```cpp
+uint32_t mbin_log_32(uint32_t r, uint32_t x) {
+    for (uint8_t n = 2; n != 16; n++) {
+        if (x & (1 << n)) {
+            x = x + (x << n);
+            r -= mbin_log_32_table[n];
+        }
+    }
+    r -= (x & 0xFFFF0000);
+    return r;
+}
+
+uint32_t mbin_exp_32(uint32_t r, uint32_t x) {
+    for (uint8_t n = 2; n != 16; n++) {
+        if (x & (1 << n)) {
+            r = r + (r << n);
+            x -= mbin_log_32_table[n];
+        }
+    }
+    r *= 1 - (x & 0xFFFF0000);
+    return r;
+}
+```
+
+## Building the log table
+
+`table[n] = 4 L(2ⁿ+1)` is a discrete log base `g = 5` of `y = 2ⁿ+1` mod `2ᵈ`. Adapt **Pohlig–Hellman** to power-of-two moduli: repeatedly square to read the lowest unknown bit of the exponent, peel it off with `g^{-x₀}`, and continue until all bits are known.
+
+## Check: log / exp loops
+
+<MultipleChoice
+  id="algo-10-factexp-loops"
+  title="Log and exp loops"
+  questions={[
+    {
+      prompt: 'x = x + (x << n) implements…',
+      choices: [
+        'x XOR (1<<n)',
+        'Multiply by (2ⁿ + 1)',
+        'Divide by 2ⁿ',
+        'Rotate left by n',
+      ],
+      answer: 1,
+      why: 'x + x·2ⁿ = x(1+2ⁿ).',
+    },
+    {
+      prompt: 'Why subtract table[n] in mbin_log?',
+      choices: [
+        'We built the factorization of x⁻¹, and 4L(x)=−4L(x⁻¹)',
+        'Unsigned overflow is required by the C++ standard for logs',
+        'To force x even',
+        'Random salt',
+      ],
+      answer: 0,
+      why: 'Clearing bits multiplies toward 1; that product is x⁻¹.',
+    },
+    {
+      prompt: 'mbin_exp mirrors log by…',
+      choices: [
+        'Multiplying r by (2ⁿ+1) when bit n of the log is set',
+        'Sorting the table',
+        'Using floating sqrt',
+        'Calling malloc',
+      ],
+      answer: 0,
+      why: 'Decompose 4L and rebuild the power of b.',
+    },
+    {
+      prompt: 'The half-loop optimization uses that for 2n ≥ d…',
+      choices: [
+        '4L(2ⁿ+1) = 2ⁿ',
+        'table[n] = 0',
+        'x becomes even',
+        'y must be 1',
+      ],
+      answer: 0,
+      why: 'High half of the log is just the high bits of x / the remaining word.',
+    },
+  ]}
+/>
+
+## Practice drills
+
+<ExerciseSet>
+<Exercise title="Detect ≡ 3 mod 4" anchor="exercise-fe-mod4">
+
+:::tip Activity: Detect ≡ 3 mod 4
+Odd `x`. Print `YES` if `x ≡ 3 (mod 4)` (needs the sign flip in `mbin_power_odd`), else `NO`.
+
+<CodeExercise
+  title="Detect ≡ 3 mod 4"
+  heading="exercise-fe-mod4"
+  lang="python"
+  filename="main.py"
+  prompt="Read odd integer x; YES if x%4==3."
+  sampleLog={`(input) 7
+YES`}
+  starter={`def needs_sign_flip(x):
+    # TODO
+    return False
+`}
+  wrapSuffix={`
+x = int(input())
+print("YES" if needs_sign_flip(x) else "NO")
+`}
+  hint="return x % 4 == 3  (equiv. x & 2)"
+  solution={`def needs_sign_flip(x):
+    return (x & 2) != 0
+`}
+  sourceChecks={[
+    { name: 'mod4 or bit', pattern: '%\\s*4|&\\s*2', must: true, hint: 'use x%4==3 or x&2' },
+  ]}
+  tests={[
+    { name: '7', stdin: '7', equals: 'YES' },
+    { name: '5', stdin: '5', equals: 'NO' },
+    { name: '13', stdin: '13', equals: 'NO' },
+    { name: '11', stdin: '11', equals: 'YES' },
+  ]}
+/>
+
+:::
+
+</Exercise>
+
+<Exercise title="Multiply by 2ⁿ+1" anchor="exercise-fe-mul">
+
+:::tip Activity: Multiply by 2ⁿ+1
+`x n` → print `(x + (x << n))` as unsigned 32-bit (wrap with `& 0xFFFFFFFF`).
+
+<CodeExercise
+  title="Multiply by 2ⁿ+1"
+  heading="exercise-fe-mul"
+  lang="python"
+  filename="main.py"
+  prompt="One step of the log/exp loop."
+  sampleLog={`(input) 13 2
+65`}
+  starter={`def mul_two_pow_plus_one(x, n):
+    # TODO
+    return 0
+`}
+  wrapSuffix={`
+x, n = map(int, input().split())
+print(mul_two_pow_plus_one(x, n))
+`}
+  hint="return (x + (x << n)) & 0xFFFFFFFF"
+  solution={`def mul_two_pow_plus_one(x, n):
+    return (x + (x << n)) & 0xFFFFFFFF
+`}
+  sourceChecks={[
+    { name: 'shift add', pattern: '<<|\\*', must: true, hint: 'x + (x<<n)' },
+  ]}
+  tests={[
+    { name: 'sample', stdin: '13 2', equals: '65' },
+    { name: 'n3', stdin: '5 3', equals: '45' },
+    { name: 'wrap', stdin: '3000000000 1', equals: '410065408' },
+  ]}
+/>
+
+:::
+
+</Exercise>
+
+<Exercise title="Clear bit n via * (2ⁿ+1)" anchor="exercise-fe-clear">
+
+:::tip Activity: Clear bit n
+Odd `x` with bit `n` set (`2 ≤ n ≤ 30`). Apply one `x = x + (x<<n)` (uint32 wrap). Print the new `x` and whether bit `n` is now clear (`1` if clear, `0` else).
+
+<CodeExercise
+  title="Clear bit n"
+  heading="exercise-fe-clear"
+  lang="python"
+  filename="main.py"
+  prompt="Show that the multiply clears bit n."
+  sampleLog={`(input) 13 2
+65 1`}
+  starter={`def step(x, n):
+    # TODO: return (new_x, bit_n_clear)
+    return 0, 0
+`}
+  wrapSuffix={`
+x, n = map(int, input().split())
+nx, cleared = step(x, n)
+print(nx, cleared)
+`}
+  hint="nx=(x+(x<<n))&0xFFFFFFFF; cleared = 0 if nx&(1<<n) else 1"
+  solution={`def step(x, n):
+    nx = (x + (x << n)) & 0xFFFFFFFF
+    cleared = 0 if (nx & (1 << n)) else 1
+    return nx, cleared
+`}
+  sourceChecks={[
+    { name: 'checks bit', pattern: '1\\s*<<|&', must: true, hint: 'test bit n after update' },
+  ]}
+  tests={[
+    { name: 'sample', stdin: '13 2', equals: '65 1' },
+    { name: '17-4', stdin: '17 4', equals: '289 1' },
+    { name: '21-2', stdin: '21 2', equals: '105 1' },
+  ]}
+/>
+
+:::
+
+</Exercise>
+
+<Exercise title="Compose power_odd pipeline" anchor="exercise-fe-compose">
+
+:::tip Activity: Compose pipeline
+Input: `a x y` (x odd). Print three lines conceptually: whether sign flip (`YES`/`NO`), then `log = mbin_log` is **not** required in Python — instead print `a`, `x` after the same sign normalization as C++ (`if x&2: x=-x; if y odd: a=-a`), wrapping to uint32, then print `(a * pow(x, y, 2**32)) % 2**32` as the reference answer.
+
+<CodeExercise
+  title="Normalize then pow mod 2³²"
+  heading="exercise-fe-compose"
+  lang="python"
+  filename="main.py"
+  prompt="Apply the ≡3 mod 4 reduction, then compute a*x^y mod 2^32."
+  sampleLog={`(input) 1 7 3
+YES
+4294967295 4294967289
+343`}
+  starter={`MASK = (1 << 32) - 1
+
+def normalize_and_pow(a, x, y):
+    # TODO: return (flip_yes_no, a2, x2, result)
+    return "NO", a, x, 0
+`}
+  wrapSuffix={`
+a, x, y = map(int, input().split())
+flip, a2, x2, res = normalize_and_pow(a, x, y)
+print(flip)
+print(a2, x2)
+print(res)
+`}
+  hint="if x&2: x=(-x)&MASK; if y&1: a=(-a)&MASK; else wrap a,x; res=(a*pow(x,y,1<<32))&MASK"
+  solution={`MASK = (1 << 32) - 1
+
+def normalize_and_pow(a, x, y):
+    a &= MASK
+    x &= MASK
+    flip = "NO"
+    if x & 2:
+        flip = "YES"
+        x = (-x) & MASK
+        if y & 1:
+            a = (-a) & MASK
+    res = (a * pow(x, y, 1 << 32)) & MASK
+    return flip, a, x, res
+`}
+  sourceChecks={[
+    { name: 'pow mod', pattern: 'pow\\s*\\(|\\*\\*', must: true, hint: 'use modular power mod 2**32' },
+  ]}
+  tests={[
+    { name: 'sample', stdin: '1 7 3', equals: 'YES\n4294967295 4294967289\n343' },
+    { name: 'noflip', stdin: '1 5 3', equals: 'NO\n1 5\n125' },
+    { name: 'even exp', stdin: '3 7 2', equals: 'YES\n3 4294967289\n147' },
+  ]}
+/>
+
+:::
+
+</Exercise>
+</ExerciseSet>
+
+## References
+
+- M30, Hans Petter Selasky, 2009 (as cited on CP-Algorithms)
+
+## Cheat sheet
+
+| Piece | Role |
+|---|---|
+| Goal | `a xʸ mod 2ᵈ`, odd `x` |
+| Encoding | `x = b^{L(x)}`, work with `4 L` |
+| log | clear bits via `*(2ⁿ+1)`, subtract table |
+| exp | set bits via `*(2ⁿ+1)`, subtract table from log |
+| power | `exp(rem, log(base) * y)` after sign fix |
+| Fast path | loop to `d/2`, mask the high half |

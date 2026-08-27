@@ -1,0 +1,374 @@
+---
+sidebar_position: 22
+title: Minimum Enclosing Circle
+---
+
+import MinEnclosingCircleSimulator from "@site/src/components/interactive/MinEnclosingCircleSimulator.js";
+
+# Minimum Enclosing Circle
+
+**Library Checker — Minimum Enclosing Circle:** given `n ≤ 10⁵` points, decide for each point whether it lies on the circumference of the **minimum enclosing circle (MEC)** of the whole set.
+
+The MEC is the unique circle of smallest radius that contains every point (interior or boundary). There is a randomized algorithm that *looks* cubic but runs in **expected `O(n)`** time — **Welzl’s algorithm** (1991).
+
+This lesson follows [CP-Algorithms — Minimum enclosing circle](https://cp-algorithms.com/geometry/enclosing-circle.html).
+
+Related: [Basic Geometry](./02-basic-geometry).
+
+## Uniqueness
+
+The MEC is unique. Intuition: if two distinct minimum-radius circles both enclose `P`, their intersection is a smaller-radius region that still covers `P` (lens argument / convex combination of centers), a contradiction. So the optimum is a single circle.
+
+## Welzl’s algorithm
+
+Write `mec(S)` for the MEC of set `S`, and `Pᵢ = {p₁,…,pᵢ}`.
+
+1. Apply a **random permutation** to the points.
+2. Start with `C = mec(p₁, p₂)` (diameter circle).
+3. For `i = 3 … n`, if `pᵢ ∈ C`, then `C` is already `mec(Pᵢ)`.
+4. Otherwise `pᵢ` must lie on the new boundary. Set `C = mec(pᵢ, p₁)` and scan `j = 2 … i`:
+   - If `pⱼ ∈ C`, keep going (MEC among circles through `pᵢ`).
+   - Else set `C = mec(pᵢ, pⱼ)` and scan `k = 1 … j`:
+     - If `pₖ ∉ C`, set `C = mec(pᵢ, pⱼ, pₖ)` (unique circle through three non-collinear points).
+
+Each nesting maintains an invariant: `C` is the MEC among circles forced to pass through `0`, `1`, or `2` extra boundary points. When an inner loop finishes, that invariant matches the parent’s current iteration — correctness follows.
+
+```cpp
+mec enclosing_circle(vector<point> &p) {
+    int n = p.size();
+    shuffle(p.begin(), p.end(), gen);
+    mec C{p[0], p[1]};
+    for (int i = 0; i < n; i++) {
+        if (!inside(C, p[i])) {
+            C = mec{p[i], p[0]};
+            for (int j = 0; j < i; j++) {
+                if (!inside(C, p[j])) {
+                    C = mec{p[i], p[j]};
+                    for (int k = 0; k < j; k++) {
+                        if (!inside(C, p[k])) {
+                            C = mec{p[i], p[j], p[k]};
+                        }
+                    }
+                }
+            }
+        }
+    }
+    return C;
+}
+```
+
+(`inside` is `O(1)` — next section.)
+
+## Why expected `O(n)`?
+
+The `k`-loop costs `O(j)` when it runs. The `j`-loop only enters the `k`-loop when `pⱼ` is one of the (at most **two**) points of `Pⱼ` that lie on the boundary of the MEC of `Pⱼ` **through `pᵢ`** and are critical (removing them shrinks the circle). After a random shuffle, that happens with probability `≤ 2/j`.
+
+```text
+Σⱼ (2/j) · O(j) = O(i)
+```
+
+The same backward-analysis argument lifts one level: the outer loop’s expected cost is **`O(n)`**.
+
+## Point-in-MEC via `std::complex`
+
+Represent points as `complex<ftype>` (`z = x + y i`). Multiplying adds polar angles; `conj(z)` negates the angle.
+
+### Two points (diameter)
+
+`mec(a,b)` has diameter `ab`. Point `z` is inside iff `∠azb` is not acute iff
+
+```text
+I₀ = (b − z) · conj(a − z)
+```
+
+has **non-positive real part** (`Re(I₀) ≤ 0`).
+
+### Three points
+
+Let
+
+```text
+I₀ = (b − z) conj(a − z)
+I₂ = (a − c) conj(b − c)
+I₁ = I₀ · I₂
+```
+
+Signed angle sum `∠azb + ∠bca` is the polar angle of `I₁`. Comparing signs of `Im(I₂)` and `Im(I₁)` (with the four side/orientation cases) tells inside vs outside. With integer input, the products stay integers (coefficients up to `O(A⁴)`).
+
+Represent the MEC as the **2 or 3 defining points** (not center/radius) so these predicates stay exact.
+
+```cpp
+using ftype = int64_t;
+using point = complex<ftype>;
+
+struct mec { vector<point> pts; }; // size 2 or 3
+
+ftype indicator(mec const& C, point z) {
+    point a = C.pts[0], b = C.pts[1];
+    point I0 = (b - z) * conj(a - z);
+    if (C.pts.size() == 2) return real(I0);
+    point c = C.pts[2];
+    point I2 = (a - c) * conj(b - c);
+    point I1 = I0 * I2;
+    return imag(I2) < 0 ? -imag(I1) : imag(I1);
+}
+
+bool inside(mec const& C, point p) {
+    return indicator(C, p) <= 0; // <0 inside, =0 on boundary, >0 outside
+}
+```
+
+Library Checker asks which points have `indicator == 0` on the final MEC.
+
+<details>
+<summary>🧪 Welzl on a tiny point set</summary>
+
+<PistonRunner
+  lang="c++"
+  height="480px"
+  code={`#include <iostream>
+#include <vector>
+#include <complex>
+#include <random>
+#include <algorithm>
+#include <cmath>
+using namespace std;
+
+using ftype = long long;
+using point = complex<ftype>;
+
+struct mec { vector<point> pts; };
+
+ftype indicator(const mec& C, point z) {
+    point a = C.pts[0], b = C.pts[1];
+    point I0 = (b - z) * conj(a - z);
+    if (C.pts.size() == 2) return real(I0);
+    point c = C.pts[2];
+    point I2 = (a - c) * conj(b - c);
+    point I1 = I0 * I2;
+    return imag(I2) < 0 ? -imag(I1) : imag(I1);
+}
+
+bool inside(const mec& C, point p) { return indicator(C, p) <= 0; }
+
+mec enclosing_circle(vector<point> p) {
+    int n = (int)p.size();
+    mt19937_64 gen(42);
+    shuffle(p.begin(), p.end(), gen);
+    mec C{vector<point>{p[0], p[1]}};
+    for (int i = 0; i < n; i++) {
+        if (!inside(C, p[i])) {
+            C = mec{vector<point>{p[i], p[0]}};
+            for (int j = 0; j < i; j++) {
+                if (!inside(C, p[j])) {
+                    C = mec{vector<point>{p[i], p[j]}};
+                    for (int k = 0; k < j; k++) {
+                        if (!inside(C, p[k])) {
+                            C = mec{vector<point>{p[i], p[j], p[k]}};
+                        }
+                    }
+                }
+            }
+        }
+    }
+    return C;
+}
+
+int main() {
+    vector<point> p = {{1, 1}, {5, 1}, {3, 4}, {0, 3}, {6, 3}, {2, 0}};
+    mec C = enclosing_circle(p);
+    cout << "defining points = " << C.pts.size() << endl;
+    for (size_t i = 0; i < p.size(); i++) {
+        ftype ind = indicator(C, p[i]);
+        cout << "p" << i << " indicator=" << ind
+             << (ind == 0 ? " (on boundary)" : ind < 0 ? " (inside)" : " (outside?!)")
+             << endl;
+    }
+    return 0;
+}
+`}
+/>
+
+</details>
+
+<MinEnclosingCircleSimulator />
+
+## Check: Welzl / MEC
+
+<MultipleChoice
+  id="algo-21-mec-basic"
+  title="Minimum enclosing circle"
+  questions={[
+    {
+      prompt: 'Welzl’s expected runtime after random shuffle is…',
+      choices: ['O(n)', 'O(n log n)', 'O(n²)', 'O(n³) always'],
+      answer: 0,
+      why: 'Backward analysis: ≤2 critical points ⇒ Σ (2/j)·O(j) = O(n).',
+    },
+    {
+      prompt: 'The MEC of two points is…',
+      choices: [
+        'Any circle through them',
+        'The diameter circle with segment as diameter',
+        'Always infinite radius',
+        'Only defined for 3 points',
+      ],
+      answer: 1,
+      why: 'Smallest circle through two points uses the segment as diameter.',
+    },
+    {
+      prompt: 'For diameter mec(a,b), z is inside if Re((b−z)conj(a−z)) is…',
+      choices: ['Strictly positive', '≤ 0', 'Always zero', 'Undefined'],
+      answer: 1,
+      why: 'Non-acute ∠azb ⇔ non-positive real part.',
+    },
+    {
+      prompt: 'Why store MEC as 2–3 points instead of center/radius?',
+      choices: [
+        'Looks prettier',
+        'Exact integer predicates via complex products',
+        'Faster than O(1) checks',
+        'Required by Kruskal',
+      ],
+      answer: 1,
+      why: 'Avoids floating centers; Library Checker needs robust on-boundary tests.',
+    },
+  ]}
+/>
+
+## Practice drills
+
+<ExerciseSet>
+<Exercise title="Diameter inside" anchor="exercise-mec-diam">
+
+:::tip Activity: Diameter inside
+Input: integers `ax ay bx by zx zy`. Treat points as complex. Print `1` if `z` is inside/on the diameter circle of `ab`, else `0`.
+Use: `Re((b−z)·conj(a−z)) ≤ 0`.
+
+<CodeExercise
+  title="Diameter inside"
+  heading="exercise-mec-diam"
+  lang="python"
+  filename="main.py"
+  prompt="Two-point MEC predicate."
+  sampleLog={`(input) 0 0 4 0 2 0
+1`}
+  starter={`def inside_diameter(ax, ay, bx, by, zx, zy):
+    # TODO
+    return 0
+`}
+  wrapSuffix={`
+ax, ay, bx, by, zx, zy = map(int, input().split())
+print(inside_diameter(ax, ay, bx, by, zx, zy))
+`}
+  hint="I0=(b-z)*conj(a-z); real = dx*ex+dy*ey style: (bx-zx)*(ax-zx)+(by-zy)*(ay-zy) <= 0"
+  solution={`def inside_diameter(ax, ay, bx, by, zx, zy):
+    # Re((b-z) conj(a-z)) = (bx-zx)(ax-zx) + (by-zy)(ay-zy)
+    return int((bx - zx) * (ax - zx) + (by - zy) * (ay - zy) <= 0)
+`}
+  sourceChecks={[
+    { name: 'dot-like product', pattern: '\\*|<=', must: true, hint: 'real part of complex product' },
+  ]}
+  tests={[
+    { name: 'sample', stdin: '0 0 4 0 2 0', equals: '1' },
+    { name: 'on', stdin: '0 0 4 0 2 2', equals: '1' },
+    { name: 'out', stdin: '0 0 4 0 2 3', equals: '0' },
+  ]}
+/>
+
+:::
+
+</Exercise>
+
+<Exercise title="Critical-count bound" anchor="exercise-mec-crit">
+
+:::tip Activity: Critical-count bound
+How many points of `Pⱼ` can be “unlucky” for the `j`-loop (force the `k`-loop) in Welzl’s analysis? Print that constant upper bound (an integer).
+
+<CodeExercise
+  title="Critical-count bound"
+  heading="exercise-mec-crit"
+  lang="python"
+  filename="main.py"
+  prompt="At most how many critical boundary points?"
+  sampleLog={`(input)
+2`}
+  starter={`def max_critical():
+    # TODO
+    return 0
+`}
+  wrapSuffix={`
+print(max_critical())
+`}
+  hint="a circle is fixed by 3 points; at most 2 can be removable critical ones in P_j with p_i fixed"
+  solution={`def max_critical():
+    return 2
+`}
+  sourceChecks={[
+    { name: 'returns 2', pattern: '2', must: true, hint: 'the analysis uses ≤2' },
+  ]}
+  tests={[
+    { name: 'ans', stdin: '', equals: '2' },
+  ]}
+/>
+
+:::
+
+</Exercise>
+
+<Exercise title="Expected inner cost" anchor="exercise-mec-sum">
+
+:::tip Activity: Expected inner cost
+Input: integer `i` (`1 ≤ i ≤ 1000`). Print the integer value of `Σ_{j=1}^{i} 2` (i.e. the simplified `Σ (2/j)·j = Σ 2`), which is the order-of-magnitude budget `O(i)` constant factor count from the article’s sum.
+
+<CodeExercise
+  title="Expected inner cost"
+  heading="exercise-mec-sum"
+  lang="python"
+  filename="main.py"
+  prompt="Σ_{j=1..i} 2 = 2i."
+  sampleLog={`(input) 5
+10`}
+  starter={`def expected_tokens(i):
+    # TODO: sum_{j=1}^{i} 2
+    return 0
+`}
+  wrapSuffix={`
+i = int(input())
+print(expected_tokens(i))
+`}
+  hint="return 2 * i"
+  solution={`def expected_tokens(i):
+    return 2 * i
+`}
+  sourceChecks={[
+    { name: 'linear in i', pattern: '\\*|i', must: true, hint: '2*i' },
+  ]}
+  tests={[
+    { name: 'sample', stdin: '5', equals: '10' },
+    { name: 'one', stdin: '1', equals: '2' },
+    { name: 'ten', stdin: '10', equals: '20' },
+  ]}
+/>
+
+:::
+
+</Exercise>
+</ExerciseSet>
+
+## Practice problems
+
+- [Library Checker — Minimum Enclosing Circle](https://judge.yosupo.jp/problem/minimum_enclosing_circle)
+- [BOI 2002 — Aliens](https://oj.uz/problem/view/BOI02_aliens) (search mirrors if needed)
+
+## Cheat sheet
+
+| Idea | Takeaway |
+|---|---|
+| MEC | Unique smallest enclosing circle |
+| Welzl | Random order + nested rebuilds |
+| Expectation | ≤2 critical pts ⇒ `O(n)` |
+| 2 pts | Diameter; `Re(I₀) ≤ 0` |
+| 3 pts | Angle sum via `I₁ = I₀ I₂`; sign of `Im` |
+| Store | 2–3 boundary points, not float center |
+| On boundary | `indicator == 0` |

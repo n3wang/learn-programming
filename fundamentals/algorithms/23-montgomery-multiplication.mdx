@@ -1,0 +1,339 @@
+---
+sidebar_position: 24
+title: Montgomery Multiplication
+---
+
+import MontgomeryMultiplicationSimulator from "@site/src/components/interactive/MontgomeryMultiplicationSimulator.js";
+
+# Montgomery Multiplication
+
+Modular multiplications `x y mod n` show up constantly in number theory and crypto (primality, factoring, RSA). A naive product-then-divide is slow: **division by `n`** dominates, especially for big integers.
+
+**Montgomery multiplication** replaces that division by adding a multiple of `n` that clears the low bits, then **discarding** those bits (cheap when the auxiliary modulus `r` is a power of two).
+
+This lesson follows [CP-Algorithms — Montgomery multiplication](https://cp-algorithms.com/algebra/montgomery_multiplication.html).
+
+Related: [Integer Factorization](./12-integer-factorization), [Factoring Exponentiation](./10-factoring-exponentiation).
+
+## Montgomery representation
+
+Fix odd `n` (typical) and `r ≥ n` with `gcd(n,r)=1`. In practice `r = 2ᵐ` so mod/`/` by `r` are shifts and masks.
+
+```text
+x̄ := x · r  (mod n)
+```
+
+Entering the space is itself a modular multiply (expensive once). After that, **add / subtract / equality / gcd-with-`n`** work as usual, because they respect the common factor `r`.
+
+Multiplication does **not**:
+
+```text
+x̄ · ȳ ≡ (x y) · r²  (mod n)
+```
+
+but we want
+
+```text
+x̄ * ȳ := (x y) · r  (mod n)
+```
+
+So define
+
+```text
+x̄ * ȳ := x̄ · ȳ · r⁻¹  (mod n)
+```
+
+## Montgomery reduction (REDC)
+
+Need `x · r⁻¹ mod n` efficiently. Since `gcd(n,r)=1`, Bézout gives `r⁻¹`, `n'` with
+
+```text
+r · r⁻¹ + n · n' = 1
+```
+
+(`n' ≡ n⁻¹ (mod r)`). Classic REDC:
+
+```text
+function reduce(x):          # assume 0 ≤ x < n·r
+    q = (x mod r) · n' mod r
+    a = (x − q·n) / r
+    if a < 0: a += n
+    return a
+```
+
+No division by `n` — only ops mod/`/` `r`. Final correction is at most one add of `n`.
+
+Applications:
+
+1. **Montgomery mul:** `reduce(x̄ · ȳ)`
+2. **Leave the space:** `reduce(x̄)` recovers `x`
+
+## Fast inverse mod `2ᵏ` (Newton)
+
+```text
+a·x ≡ 1 (mod 2ᵏ)  ⇒  a·x·(2 − a·x) ≡ 1 (mod 2²ᵏ)
+```
+
+Start from `x=1` (inverse mod `2`) and double correct bits each squaring-style step. For `r=2¹²⁸`, about **7** iterations suffice.
+
+## Implementation notes (128-bit)
+
+GCC provides `__int128` / `__uint128`, so `64×64 → mod n` is easy. For **128×128**, split into high/low 64-bit limbs (`u256::mult`), then REDC with `r=2¹²⁸`.
+
+```cpp
+struct Montgomery {
+    Montgomery(u128 n) : mod(n), inv(1) {
+        for (int i = 0; i < 7; i++)
+            inv *= 2 - n * inv;   // wraps mod 2^128
+    }
+    u128 reduce(u256 x);          // q = x.low * inv; use high half
+    u128 mult(u128 a, u128 b) { return reduce(u256::mult(a, b)); }
+    u128 mod, inv;
+};
+```
+
+## Fast transform into the space
+
+```text
+x̄ = x · r ≡ x * r²   (Montgomery mul by r²)
+```
+
+Precompute `r2 = r² mod n`, then `init(x) = mult(x, r2)`. One construction: start from `r ≡ −n (mod n)`, build `2⁴` in Montgomery form, square five times to get `2¹²⁸ ≡ r` in the space (= `r²` in ordinary residues).
+
+<details>
+<summary>🧪 Toy REDC (n=97, r=128)</summary>
+
+<PistonRunner
+  lang="c++"
+  height="420px"
+  code={`#include <iostream>
+using namespace std;
+
+long long N = 97;
+long long R = 128; // 2^7
+long long NP = 33; // N^{-1} mod R
+
+long long reduce(long long x) {
+    long long q = ((x % R) * NP) % R;
+    long long a = (x - q * N) / R;
+    if (a < 0) a += N;
+    return a;
+}
+
+long long to_mont(long long x) { return (x * R) % N; }
+
+long long mont_mul(long long a, long long b) {
+    return reduce(a * b);
+}
+
+int main() {
+    long long x = 45, y = 67;
+    long long xb = to_mont(x), yb = to_mont(y);
+    long long zb = mont_mul(xb, yb);
+    long long z = reduce(zb);
+    cout << "xbar=" << xb << " ybar=" << yb << endl;
+    cout << "zbar=" << zb << " (expect (x*y*r)%n=" << (x * y * R % N) << ")" << endl;
+    cout << "z=" << z << " (expect (x*y)%n=" << (x * y % N) << ")" << endl;
+
+    // Newton inverse check
+    long long inv = 1;
+    for (int i = 0; i < 7; i++)
+        inv = (inv * (2 - N * inv)) & (R - 1);
+    cout << "newton n'=" << inv << " (expect " << NP << ")" << endl;
+    return 0;
+}
+`}
+/>
+
+</details>
+
+<MontgomeryMultiplicationSimulator />
+
+## Check: Montgomery
+
+<MultipleChoice
+  id="algo-23-mont-basic"
+  title="Montgomery multiplication"
+  questions={[
+    {
+      prompt: 'Typical choice of r is…',
+      choices: ['n−1', 'A power of two', 'Always 10', 'φ(n)'],
+      answer: 1,
+      why: 'Mod/div by 2ᵐ are shifts; need gcd(n,r)=1 (odd n).',
+    },
+    {
+      prompt: 'x̄ is defined as…',
+      choices: ['x mod r', 'x·r mod n', 'x/r', 'x²'],
+      answer: 1,
+      why: 'Montgomery representative.',
+    },
+    {
+      prompt: 'REDC avoids…',
+      choices: [
+        'All arithmetic',
+        'Division by n (uses ops mod r instead)',
+        'Multiplication entirely',
+        'Entering Montgomery space',
+      ],
+      answer: 1,
+      why: 'Clear low bits with q·n, then /r.',
+    },
+    {
+      prompt: 'Newton iteration for n⁻¹ mod 2ᵏ roughly…',
+      choices: [
+        'Halves correct bits each step',
+        'Doubles correct bits each step',
+        'Needs ECDSA',
+        'Only works for even n',
+      ],
+      answer: 1,
+      why: 'From mod 2ᵏ to mod 2²ᵏ.',
+    },
+  ]}
+/>
+
+## Practice drills
+
+<ExerciseSet>
+<Exercise title="Enter Montgomery space" anchor="exercise-mont-enter">
+
+:::tip Activity: Enter Montgomery space
+Input: `x n r`. Print `(x * r) % n`.
+
+<CodeExercise
+  title="Enter Montgomery space"
+  heading="exercise-mont-enter"
+  lang="python"
+  filename="main.py"
+  prompt="x̄ = x·r mod n."
+  sampleLog={`(input) 45 97 128
+37`}
+  starter={`def to_montgomery(x, n, r):
+    # TODO
+    return 0
+`}
+  wrapSuffix={`
+x, n, r = map(int, input().split())
+print(to_montgomery(x, n, r))
+`}
+  hint="return (x * r) % n"
+  solution={`def to_montgomery(x, n, r):
+    return (x * r) % n
+`}
+  sourceChecks={[
+    { name: 'mod', pattern: '%|mod', must: true, hint: 'multiply then mod n' },
+  ]}
+  tests={[
+    { name: 'sample', stdin: '45 97 128', equals: '37' },
+    { name: 'y', stdin: '67 97 128', equals: '40' },
+    { name: 'zero', stdin: '0 97 128', equals: '0' },
+  ]}
+/>
+
+:::
+
+</Exercise>
+
+<Exercise title="Newton double bits" anchor="exercise-mont-newton">
+
+:::tip Activity: Newton double bits
+Input: odd `a` and `k` (`1 ≤ k ≤ 10`). Starting from `x=1`, apply `x ← x*(2−a*x) mod 2ᵏ` enough times to get `a⁻¹ mod 2ᵏ`. Print that inverse.
+
+<CodeExercise
+  title="Newton double bits"
+  heading="exercise-mont-newton"
+  lang="python"
+  filename="main.py"
+  prompt="Lift inverse from mod 2 to mod 2ᵏ."
+  sampleLog={`(input) 97 7
+33`}
+  starter={`def inv_pow2(a, k):
+    # TODO: a odd, return a^{-1} mod 2^k
+    return 0
+`}
+  wrapSuffix={`
+a, k = map(int, input().split())
+print(inv_pow2(a, k))
+`}
+  hint="mod=1<<k; x=1; for _ in range(k): x=(x*(2-a*x))%mod; return x"
+  solution={`def inv_pow2(a, k):
+    mod = 1 << k
+    x = 1
+    for _ in range(k):
+        x = (x * (2 - a * x)) % mod
+    return x
+`}
+  sourceChecks={[
+    { name: 'updates x', pattern: '2\\s*-|\\*', must: true, hint: 'x*(2-a*x)' },
+  ]}
+  tests={[
+    { name: 'sample', stdin: '97 7', equals: '33' },
+    { name: 'small', stdin: '3 4', equals: '11' },
+    { name: 'five', stdin: '5 5', equals: '13' },
+  ]}
+/>
+
+:::
+
+</Exercise>
+
+<Exercise title="Toy REDC" anchor="exercise-mont-redc">
+
+:::tip Activity: Toy REDC
+Input: `x n r np` with `np = n⁻¹ mod r`, `r` a power of two, `0 ≤ x < n·r`. Print `reduce(x)` from the article.
+
+<CodeExercise
+  title="Toy REDC"
+  heading="exercise-mont-redc"
+  lang="python"
+  filename="main.py"
+  prompt="q=(x%r)*np%r; a=(x-q*n)//r; if a<0: a+=n."
+  sampleLog={`(input) 1480 97 128 33
+54`}
+  starter={`def reduce(x, n, r, np):
+    # TODO
+    return 0
+`}
+  wrapSuffix={`
+x, n, r, np = map(int, input().split())
+print(reduce(x, n, r, np))
+`}
+  hint="q=((x%r)*np)%r; a=(x-q*n)//r; return a+n if a<0 else a"
+  solution={`def reduce(x, n, r, np):
+    q = ((x % r) * np) % r
+    a = (x - q * n) // r
+    if a < 0:
+        a += n
+    return a
+`}
+  sourceChecks={[
+    { name: 'uses r', pattern: '%|//', must: true, hint: 'mod/div by r' },
+  ]}
+  tests={[
+    { name: 'sample', stdin: '1480 97 128 33', equals: '54' },
+    { name: 'back', stdin: '54 97 128 33', equals: '8' },
+    { name: 'zero', stdin: '0 97 128 33', equals: '0' },
+  ]}
+/>
+
+:::
+
+</Exercise>
+</ExerciseSet>
+
+## Further reading
+
+- [CP-Algorithms — Montgomery multiplication](https://cp-algorithms.com/algebra/montgomery_multiplication.html)
+- Use inside modular exponentiation / Miller–Rabin / Pollard ρ hot loops
+
+## Cheat sheet
+
+| Idea | Takeaway |
+|---|---|
+| Why | Avoid div by `n` in `xy mod n` |
+| Space | `x̄ = x·r mod n`, `r=2ᵐ` |
+| Mul | `reduce(x̄·ȳ)` removes extra `r` |
+| REDC | `q` from low bits; `(x−qn)/r` |
+| `n'` | `n⁻¹ mod r` via Newton |
+| Init | `mult(x, r²)` faster than 128 shifts |
+| Back | `reduce(x̄)` |

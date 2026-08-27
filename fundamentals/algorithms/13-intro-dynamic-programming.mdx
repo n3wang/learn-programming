@@ -1,0 +1,488 @@
+---
+sidebar_position: 14
+title: Intro to Dynamic Programming
+---
+
+import IntroDynamicProgrammingSimulator from "@site/src/components/interactive/IntroDynamicProgrammingSimulator.js";
+
+# Introduction to Dynamic Programming
+
+Dynamic programming (DP) means **don’t recalculate work you’ve already done**. Many DP problems start as natural recursions; the usual path is: write the recursion, then cache repeated states. That is **top-down DP with memoization** (“memo” like a notepad — not “memorization”).
+
+This lesson follows [CP-Algorithms — Introduction to Dynamic Programming](https://cp-algorithms.com/dynamic_programming/introduction-to-dp.html).
+
+## Fibonacci as the running example
+
+```text
+f(n) = f(n−1) + f(n−2)   for n ≥ 2
+f(0) = 0,  f(1) = 1
+```
+
+```cpp
+int f(int n) {
+    if (n == 0) return 0;
+    if (n == 1) return 1;
+    return f(n - 1) + f(n - 2);
+}
+```
+
+Naive recursion is about **`O(2ⁿ)`**: each call fans into two similar calls. `f(29)` alone can exceed a million calls.
+
+## Top-down: memoization
+
+There are only **`O(n)`** distinct subproblems: `f(n)…f(0)`. Solve each once, store the answer, reuse later → **`O(n)`** time.
+
+```cpp
+const int MAXN = 100;
+bool found[MAXN];
+int memo[MAXN];
+
+int f(int n) {
+    if (found[n]) return memo[n];
+    if (n == 0) return 0;
+    if (n == 1) return 1;
+
+    found[n] = true;
+    return memo[n] = f(n - 1) + f(n - 2);
+}
+```
+
+`f(29)` drops from ~1e6 calls to tens of calls. After that you often hit **integer overflow** before time limits (`f(46)` is the last Fibonacci that fits in signed 32-bit).
+
+### Other memo containers
+
+Arrays are best when indices are dense (`O(1)`). Generically:
+
+```cpp
+unordered_map<int, int> memo; // average O(1)
+// or
+map<int, int> memo;         // O(log n) per lookup → O(n log n) total
+```
+
+Maps/hash maps shine when the state is a string, vector, or sparse key — not for plain Fibonacci.
+
+**Layman’s runtime:**
+
+```text
+(work per subproblem) × (number of subproblems)
+```
+
+Top-down starts at the **query** and recurses toward **base cases**, caching on the way.
+
+## Bottom-up: tabulation
+
+Flip the order: initialize bases, then extend upward with the same recurrence.
+
+```cpp
+const int MAXN = 100;
+int fib[MAXN];
+
+int f(int n) {
+    fib[0] = 0;
+    fib[1] = 1;
+    for (int i = 2; i <= n; i++)
+        fib[i] = fib[i - 1] + fib[i - 2];
+    return fib[n];
+}
+```
+
+Only the last two values matter, so memory can drop from `O(n)` to **`O(1)`**:
+
+```cpp
+const int MAX_SAVE = 3;
+int fib[MAX_SAVE];
+
+int f(int n) {
+    fib[0] = 0;
+    fib[1] = 1;
+    for (int i = 2; i <= n; i++)
+        fib[i % MAX_SAVE] =
+            fib[(i - 1) % MAX_SAVE] + fib[(i - 2) % MAX_SAVE];
+    return fib[n % MAX_SAVE];
+}
+```
+
+That’s DP in one line: **don’t repeat work**.
+
+<details>
+<summary>🧪 Memo vs naive call counts for f(20)</summary>
+
+<PistonRunner
+  lang="c++"
+  height="420px"
+  code={`#include <iostream>
+using namespace std;
+
+long long naive_calls = 0;
+long long memo_calls = 0;
+
+int naive(int n) {
+    naive_calls++;
+    if (n <= 1) return n;
+    return naive(n - 1) + naive(n - 2);
+}
+
+bool found[64];
+int memo[64];
+
+int topdown(int n) {
+    memo_calls++;
+    if (found[n]) return memo[n];
+    if (n <= 1) {
+        found[n] = true;
+        return memo[n] = n;
+    }
+    found[n] = true;
+    return memo[n] = topdown(n - 1) + topdown(n - 2);
+}
+
+int main() {
+    int n = 20;
+    int a = naive(n);
+    int b = topdown(n);
+    cout << "f(" << n << ") = " << a << endl;
+    cout << "naive calls = " << naive_calls << endl;
+    cout << "memo calls  = " << memo_calls << endl;
+    cout << "answers match? " << (a == b ? "yes" : "no") << endl;
+    return 0;
+}
+`}
+/>
+
+</details>
+
+## Interactive walkthrough
+
+<IntroDynamicProgrammingSimulator />
+
+## Classic DP problems (study list)
+
+| Name | Idea |
+|---|---|
+| 0-1 Knapsack | Max value with weight ≤ `W` |
+| Subset Sum | Exists subset summing to `T`? |
+| LIS | Longest strictly increasing subsequence |
+| Grid paths | Count paths `(1,1)→(N,M)` with right/down moves |
+| LCS | Longest common subsequence of two strings |
+| Longest path in DAG | DP on topo order |
+| LPS | Longest palindromic subsequence |
+| Rod cutting | Min cost of ordered cuts |
+| Edit distance | Min insert/delete/replace |
+
+Related flavors: bitmask DP, digit DP, DP on trees. Related on this site: [Divide and Conquer DP](./09-divide-and-conquer-dp), [Convex Hull Trick](./07-convex-hull-trick).
+
+## Check: memoization
+
+<MultipleChoice
+  id="algo-13-dp-memo"
+  title="Top-down DP"
+  questions={[
+    {
+      prompt: 'Memoization means…',
+      choices: [
+        'Memorizing the code by heart',
+        'Caching results of subproblems to avoid recomputation',
+        'Using only O(1) memory always',
+        'Sorting the input first',
+      ],
+      answer: 1,
+      why: 'Save each state once; later calls return the stored value.',
+    },
+    {
+      prompt: 'Naive Fibonacci is slow because…',
+      choices: [
+        'Division is expensive',
+        'The same f(k) is recomputed exponentially often',
+        'Arrays are too small',
+        'It uses hash maps',
+      ],
+      answer: 1,
+      why: 'The recursion tree re-solves overlapping subproblems.',
+    },
+    {
+      prompt: 'With array memo, Fibonacci becomes…',
+      choices: ['O(2ⁿ)', 'O(n)', 'O(n²)', 'O(1) time for any n'],
+      answer: 1,
+      why: 'n states × O(1) work each.',
+    },
+    {
+      prompt: 'map<int,int> memo instead of an array yields…',
+      choices: [
+        'Same O(n) exactly',
+        'O(n log n) from tree lookups',
+        'O(2ⁿ)',
+        'Incorrect answers',
+      ],
+      answer: 1,
+      why: 'Each of O(n) ops costs O(log n).',
+    },
+  ]}
+/>
+
+## Check: bottom-up
+
+<MultipleChoice
+  id="algo-13-dp-bottom"
+  title="Bottom-up DP"
+  questions={[
+    {
+      prompt: 'Bottom-up Fibonacci starts from…',
+      choices: [
+        'f(n) and recurses down',
+        'Base cases and fills toward n',
+        'A random midpoint',
+        'Binary search',
+      ],
+      answer: 1,
+      why: 'Tabulation builds larger answers from smaller ones.',
+    },
+    {
+      prompt: 'Rolling array / modulo trick for fib reduces memory to…',
+      choices: ['O(n)', 'O(1)', 'O(n²)', 'O(2ⁿ)'],
+      answer: 1,
+      why: 'Only a constant number of previous values are needed.',
+    },
+    {
+      prompt: 'Top-down vs bottom-up for the same recurrence…',
+      choices: [
+        'Always give different answers',
+        'Are two ways to evaluate the same DP',
+        'Bottom-up cannot use the recurrence',
+        'Memoization is not DP',
+      ],
+      answer: 1,
+      why: 'Same states and transitions; different evaluation order.',
+    },
+    {
+      prompt: 'Core DP slogan from the article…',
+      choices: [
+        'Always use recursion',
+        "Don't repeat work you've done before",
+        'Prefer exponential algorithms',
+        'Avoid arrays',
+      ],
+      answer: 1,
+      why: 'That’s the essence stated in the introduction.',
+    },
+  ]}
+/>
+
+## Practice drills
+
+<ExerciseSet>
+<Exercise title="Naive fib (small n)" anchor="exercise-dp-naive-fib">
+
+:::tip Activity: Naive fib
+`n` (`0 ≤ n ≤ 20`). Print `f(n)` with the plain recursive definition (no memo required for this drill).
+
+<CodeExercise
+  title="Naive fib"
+  heading="exercise-dp-naive-fib"
+  lang="python"
+  filename="main.py"
+  prompt="Implement the recurrence directly."
+  sampleLog={`(input) 10
+55`}
+  starter={`def fib(n):
+    # TODO
+    return 0
+`}
+  wrapSuffix={`
+n = int(input())
+print(fib(n))
+`}
+  hint="if n<=1: return n; return fib(n-1)+fib(n-2)"
+  solution={`def fib(n):
+    if n <= 1:
+        return n
+    return fib(n - 1) + fib(n - 2)
+`}
+  sourceChecks={[
+    { name: 'recurses', pattern: 'fib\\s*\\(', must: true, hint: 'call fib recursively' },
+  ]}
+  tests={[
+    { name: '10', stdin: '10', equals: '55' },
+    { name: '0', stdin: '0', equals: '0' },
+    { name: '7', stdin: '7', equals: '13' },
+  ]}
+/>
+
+:::
+
+</Exercise>
+
+<Exercise title="Memoized fib" anchor="exercise-dp-memo-fib">
+
+:::tip Activity: Memoized fib
+`n` (`0 ≤ n ≤ 40`). Use a dict/list cache. Print `f(n)`.
+
+<CodeExercise
+  title="Memoized fib"
+  heading="exercise-dp-memo-fib"
+  lang="python"
+  filename="main.py"
+  prompt="Top-down with memo."
+  sampleLog={`(input) 30
+832040`}
+  starter={`def fib(n, memo=None):
+    # TODO
+    return 0
+`}
+  wrapSuffix={`
+n = int(input())
+print(fib(n))
+`}
+  hint="memo dict; if n in memo return; compute and store"
+  solution={`def fib(n, memo=None):
+    if memo is None:
+        memo = {}
+    if n in memo:
+        return memo[n]
+    if n <= 1:
+        return n
+    memo[n] = fib(n - 1, memo) + fib(n - 2, memo)
+    return memo[n]
+`}
+  sourceChecks={[
+    { name: 'caches', pattern: 'memo|cache|dict|\\[', must: true, hint: 'store computed values' },
+  ]}
+  tests={[
+    { name: '30', stdin: '30', equals: '832040' },
+    { name: '10', stdin: '10', equals: '55' },
+    { name: '40', stdin: '40', equals: '102334155' },
+  ]}
+/>
+
+:::
+
+</Exercise>
+
+<Exercise title="Bottom-up fib" anchor="exercise-dp-bottom-fib">
+
+:::tip Activity: Bottom-up fib
+`n` (`0 ≤ n ≤ 40`). Fill an array (or two rolling variables). Print `f(n)`.
+
+<CodeExercise
+  title="Bottom-up fib"
+  heading="exercise-dp-bottom-fib"
+  lang="python"
+  filename="main.py"
+  prompt="Tabulation / iterative DP."
+  sampleLog={`(input) 15
+610`}
+  starter={`def fib(n):
+    # TODO: no recursion
+    return 0
+`}
+  wrapSuffix={`
+n = int(input())
+print(fib(n))
+`}
+  hint="a,b=0,1; loop update; or fib list"
+  solution={`def fib(n):
+    if n <= 1:
+        return n
+    a, b = 0, 1
+    for _ in range(2, n + 1):
+        a, b = b, a + b
+    return b
+`}
+  sourceChecks={[
+    { name: 'no recurse', pattern: 'def fib', must: true, hint: 'define fib' },
+    { name: 'iterative', pattern: 'for |while ', must: true, hint: 'use a loop, not recursion' },
+  ]}
+  tests={[
+    { name: '15', stdin: '15', equals: '610' },
+    { name: '1', stdin: '1', equals: '1' },
+    { name: '25', stdin: '25', equals: '75025' },
+  ]}
+/>
+
+:::
+
+</Exercise>
+
+<Exercise title="Count grid paths" anchor="exercise-dp-grid">
+
+:::tip Activity: Count paths
+`n m` — number of paths from `(1,1)` to `(n,m)` with only right/down steps. (`1 ≤ n,m ≤ 12`)
+
+<CodeExercise
+  title="Count grid paths"
+  heading="exercise-dp-grid"
+  lang="python"
+  filename="main.py"
+  prompt="Classic 2D DP / combo: C(n+m-2, n-1)."
+  sampleLog={`(input) 3 3
+6`}
+  starter={`def paths(n, m):
+    # TODO
+    return 0
+`}
+  wrapSuffix={`
+n, m = map(int, input().split())
+print(paths(n, m))
+`}
+  hint="dp[i][j]=dp[i-1][j]+dp[i][j-1] with first row/col = 1"
+  solution={`def paths(n, m):
+    dp = [[0] * (m + 1) for _ in range(n + 1)]
+    for i in range(1, n + 1):
+        dp[i][1] = 1
+    for j in range(1, m + 1):
+        dp[1][j] = 1
+    for i in range(2, n + 1):
+        for j in range(2, m + 1):
+            dp[i][j] = dp[i - 1][j] + dp[i][j - 1]
+    return dp[n][m]
+`}
+  sourceChecks={[
+    { name: '2d idea', pattern: 'for |\\[', must: true, hint: 'use DP table or loops' },
+  ]}
+  tests={[
+    { name: '3x3', stdin: '3 3', equals: '6' },
+    { name: '1x5', stdin: '1 5', equals: '1' },
+    { name: '2x2', stdin: '2 2', equals: '2' },
+  ]}
+/>
+
+:::
+
+</Exercise>
+</ExerciseSet>
+
+## Contest problems
+
+From [CP-Algorithms](https://cp-algorithms.com/dynamic_programming/introduction-to-dp.html):
+
+<ExerciseSet>
+<Exercise title="Warmups" anchor="exercise-dp-warm">
+
+- [LeetCode 1137 — N-th Tribonacci Number](https://leetcode.com/problems/n-th-tribonacci-number/)
+- [LeetCode 118 — Pascal's Triangle](https://leetcode.com/problems/pascals-triangle/)
+- [LeetCode 1025 — Divisor Game](https://leetcode.com/problems/divisor-game/)
+- [Codeforces — Vacations](https://codeforces.com/problemset/problem/699/C)
+
+</Exercise>
+
+<Exercise title="Harder / contests" anchor="exercise-dp-contests">
+
+- [Codeforces — Hard problem](https://codeforces.com/problemset/problem/706/C)
+- [Codeforces — Zuma](https://codeforces.com/problemset/problem/607/B)
+- [LeetCode 221 — Maximal Square](https://leetcode.com/problems/maximal-square/)
+- [LeetCode 1039 — Minimum Score Triangulation of Polygon](https://leetcode.com/problems/minimum-score-triangulation-of-polygon/)
+- [AtCoder Educational DP Contest](https://atcoder.jp/contests/dp)
+- [CSES Dynamic Programming](https://cses.fi/problemset/)
+
+</Exercise>
+</ExerciseSet>
+
+## Cheat sheet
+
+| Idea | Takeaway |
+|---|---|
+| Goal | Avoid recomputing overlapping subproblems |
+| Top-down | Recursion + memo array/map |
+| Bottom-up | Fill table from bases |
+| Runtime | (#states) × (transition work) |
+| Memory | Often reducible with rolling arrays |
+| Next | Classic knapsack / LIS / LCS / paths |

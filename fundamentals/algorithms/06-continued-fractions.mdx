@@ -1,0 +1,607 @@
+---
+sidebar_position: 7
+title: Continued Fractions
+---
+
+import ContinuedFractionsSimulator from "@site/src/components/interactive/ContinuedFractionsSimulator.js";
+
+# Continued Fractions
+
+A **continued fraction** represents a real number as a convergent sequence of rationals. In contests they show up for **best rational approximations**, Euclidean-algorithm tricks, Stern–Brocot / Calkin–Wilf trees, and floor-sum formulas.
+
+This lesson follows [CP-Algorithms — Continued Fractions](https://cp-algorithms.com/algebra/continued-fractions.html).
+
+**Prerequisites:** GCD / Euclidean algorithm, basic number theory.
+
+## Representation
+
+For integers `a₀, a₁, …, aₖ` with `a₁, …, aₖ ≥ 1`,
+
+```text
+r = a₀ + 1/(a₁ + 1/(… + 1/aₖ))  =  [a₀; a₁, …, aₖ]
+```
+
+Every rational has **exactly two** expansions (replace trailing `aₖ` by `aₖ−1, 1`):
+
+```text
+r = [a₀; …, aₖ, 1] = [a₀; …, aₖ + 1]
+```
+
+For irrationals, the infinite expansion is **unique**.
+
+**Complete quotients:** `sₖ = [aₖ; aₖ₊₁, …]`. Then `r = [a₀; …, aₖ₋₁, sₖ]` and
+
+```text
+aₖ = ⌊sₖ⌋ ,   sₖ₊₁ = (sₖ − aₖ)⁻¹
+```
+
+For `sₖ = p/q`, this is exactly Euclidean division: `sₖ₊₁ = q / (p mod q)`.
+
+## Implementation = Euclidean algorithm
+
+```cpp
+vector<int> fraction(int p, int q) {
+    vector<int> a;
+    while (q) {
+        a.push_back(p / q);
+        tie(p, q) = make_pair(q, p % q);
+    }
+    return a;
+}
+```
+
+```python
+def fraction(p, q):
+    a = []
+    while q:
+        a.append(p // q)
+        p, q = q, p % q
+    return a
+```
+
+Length is `O(log min(p, q))`. Convergents `pₖ/qₖ` are always **coprime**.
+
+<details>
+<summary>🧪 Euclidean CF for 43/19</summary>
+
+<PistonRunner
+  lang="c++"
+  height="320px"
+  code={`#include <iostream>
+#include <vector>
+#include <utility>
+using namespace std;
+
+vector<int> fraction(int p, int q) {
+    vector<int> a;
+    while (q) {
+        a.push_back(p / q);
+        tie(p, q) = make_pair(q, p % q);
+    }
+    return a;
+}
+
+int main() {
+    int p = 43, q = 19;
+    auto a = fraction(p, q);
+    cout << p << "/" << q << " = [";
+    for (size_t i = 0; i < a.size(); i++) {
+        if (i) cout << ";";
+        cout << a[i];
+    }
+    cout << "]" << endl;
+    return 0;
+}
+`}
+/>
+
+</details>
+
+## Check: representation
+
+<MultipleChoice
+  id="algo-06-cf-repr"
+  title="Continued fraction basics"
+  questions={[
+    {
+      prompt: 'Computing [a₀; a₁; …] for p/q uses the same steps as…',
+      choices: [
+        'Binary search on p',
+        'The Euclidean algorithm on p and q',
+        'Sieve of Eratosthenes',
+        'Matrix exponentiation only',
+      ],
+      answer: 1,
+      why: 'Each aᵢ = ⌊p/q⌋; then (p,q) ← (q, p mod q).',
+    },
+    {
+      prompt: 'Every rational number has how many continued fraction expansions?',
+      choices: [
+        'Exactly one',
+        'Exactly two',
+        'Infinitely many',
+        'None',
+      ],
+      answer: 1,
+      why: 'Trailing ak can be replaced by ak−1, 1.',
+    },
+    {
+      prompt: 'Convergents pₖ/qₖ are always…',
+      choices: [
+        'Even denominators only',
+        'Coprime (gcd = 1)',
+        'Powers of two',
+        'Equal to p/q for all k',
+      ],
+      answer: 1,
+      why: 'Follows from the recurrence and Euclidean structure.',
+    },
+    {
+      prompt: 'For irrational r, the infinite continued fraction is…',
+      choices: [
+        'Not defined',
+        'Unique',
+        'Always periodic',
+        'Always [0; 1, 1, 1, …]',
+      ],
+      answer: 1,
+      why: 'Complete quotients never terminate for irrationals.',
+    },
+  ]}
+/>
+
+## Convergents
+
+Partial fractions `rₖ = [a₀; …, aₖ] = pₖ/qₖ` satisfy the recurrence (with `p₋₂=0, p₋₁=1, q₋₂=1, q₋₁=0`):
+
+```text
+pₖ = aₖ pₖ₋₁ + pₖ₋₂
+qₖ = aₖ qₖ₋₁ + qₖ₋₂
+```
+
+```cpp
+pair<vector<int>, vector<int>> convergents(vector<int> a) {
+    vector<int> p = {0, 1}, q = {1, 0};
+    for (int it : a) {
+        p.push_back(p.back() * it + p[p.size() - 2]);
+        q.push_back(q.back() * it + q[q.size() - 2]);
+    }
+    return {p, q};
+}
+```
+
+**Semiconvergents** interpolate between consecutive convergents; **best approximations** with bounded denominator come from convergents and semiconvergents.
+
+<details>
+<summary>🧪 Build convergents for [2;3,1,4]</summary>
+
+<PistonRunner
+  lang="c++"
+  height="380px"
+  code={`#include <iostream>
+#include <vector>
+#include <utility>
+using namespace std;
+
+pair<vector<int>, vector<int>> convergents(vector<int> a) {
+    vector<int> p = {0, 1}, q = {1, 0};
+    for (int it : a) {
+        p.push_back(p.back() * it + p[p.size() - 2]);
+        q.push_back(q.back() * it + q[q.size() - 2]);
+    }
+    return {p, q};
+}
+
+int main() {
+    vector<int> a = {2, 3, 1, 4}; // [2; 3, 1, 4]
+    auto pq = convergents(a);
+    auto& P = pq.first;
+    auto& Q = pq.second;
+    cout << "a = [2; 3, 1, 4]" << endl;
+    for (size_t k = 0; k < a.size(); k++) {
+        int pk = P[k + 2], qk = Q[k + 2];
+        cout << "r" << k << " = " << pk << "/" << qk
+             << " ≈ " << (double)pk / qk << endl;
+    }
+    return 0;
+}
+`}
+/>
+
+</details>
+
+## Key convergence facts
+
+```text
+|r − pₖ/qₖ| ≤ 1/(qₖ qₖ₊₁) ≤ 1/qₖ²
+pₖ qₖ₋₁ − pₖ₋₁ qₖ = (−1)^(k−1)
+```
+
+Convergents alternate above/below `r`. That is why continued fractions give sharp rational approximations.
+
+## Stern–Brocot and Calkin–Wilf trees
+
+**Stern–Brocot:** binary search tree of positive rationals. Mediant `(a+c)/(b+d)` from parents `a/b` and `c/d`. The path `[a₀; a₁, …, aₖ, 1]` encodes left/right moves — continued fraction digits are run-lengths of the index bits.
+
+**Calkin–Wilf:** root `1/1`; children of `p/q` are `p/(p+q)` and `(p+q)/q`. Same rationals as Stern–Brocot in BFS order, but **not** sorted — BFS index differs by bit reversal.
+
+Both connect to **mediants** and the convergent recurrence.
+
+## Why contests care
+
+| Pattern | Continued-fraction tool |
+|---|---|
+| Compare / match a rational to `[aᵢ]` | Euclidean expansion |
+| Best `p/q` with `q ≤ Q` | Convergents & semiconvergents |
+| Lexicographically smallest `(x,y)` in an open interval of slopes | Stern–Brocot / `middle` between bounds |
+| `⌊Ai + B⌋` sums, modular progressions | Complete quotients, LFTs |
+| Quadratic irrationals | Eventually periodic expansion |
+
+## Interactive: build `[a₀; a₁; …]`
+
+Step through `(p, q) → (q, p mod q)` and watch convergents update.
+
+<ContinuedFractionsSimulator />
+
+## Check: convergents & trees
+
+<MultipleChoice
+  id="algo-06-cf-conv"
+  title="Convergents and trees"
+  questions={[
+    {
+      prompt: 'The error bound |r − pₖ/qₖ| is at most…',
+      choices: [
+        '1/qₖ²',
+        '1/qₖ³',
+        'qₖ',
+        'Always zero',
+      ],
+      answer: 0,
+      why: 'Classic convergent inequality from alternating above/below.',
+    },
+    {
+      prompt: 'Stern–Brocot tree places rationals by…',
+      choices: [
+        'Mediants of parent fractions',
+        'Sorting by denominator only',
+        'Random insertion',
+        'Only Fibonacci ratios',
+      ],
+      answer: 0,
+      why: 'Each node is (a+c)/(b+d) from neighbors above.',
+    },
+    {
+      prompt: 'pₖ from convergents satisfies pₖ = …',
+      choices: [
+        'aₖ + pₖ₋₁',
+        'aₖ pₖ₋₁ + pₖ₋₂',
+        'pₖ₋₁ / aₖ',
+        'aₖ − pₖ₋₂',
+      ],
+      answer: 1,
+      why: 'Same linear recurrence as continued-fraction convergents.',
+    },
+    {
+      prompt: 'Best rational approximations with bounded denominator come from…',
+      choices: [
+        'Only a₀',
+        'Convergents and semiconvergents',
+        'Only denominators that divide p',
+        'Floating-point rounding',
+      ],
+      answer: 1,
+      why: 'Semiconvergents are the intermediates between convergents.',
+    },
+  ]}
+/>
+
+## Practice drills
+
+<ExerciseSet>
+<Exercise title="Build expansion" anchor="exercise-build-cf">
+
+:::tip Activity: Build expansion
+Given `p q`, print the Euclidean quotients `a₀ a₁ …` (space-separated).
+
+<CodeExercise
+  title="Build continued fraction"
+  heading="exercise-build-cf"
+  lang="python"
+  filename="main.py"
+  prompt="Output coefficients of [a0; a1; ...] for p/q."
+  sampleLog={`(input) 7 9
+0 1 3 2`}
+  starter={`def continued_fraction(p, q):
+    # TODO: Euclidean quotients
+    return []
+`}
+  wrapSuffix={`
+p, q = map(int, input().split())
+print(*continued_fraction(p, q))
+`}
+  hint="while q: append p//q; p,q = q, p%q"
+  solution={`def continued_fraction(p, q):
+    a = []
+    while q:
+        a.append(p // q)
+        p, q = q, p % q
+    return a
+`}
+  sourceChecks={[
+    { name: 'euclidean loop', pattern: 'while\\s+q|%\\s*q|//\\s*q', must: true, hint: 'repeat division with remainder' },
+  ]}
+  tests={[
+    { name: '7/9', stdin: '7 9', equals: '0 1 3 2' },
+    { name: '13/5', stdin: '13 5', equals: '2 2 2' },
+    { name: '1/1', stdin: '1 1', equals: '1' },
+  ]}
+/>
+
+:::
+
+</Exercise>
+
+<Exercise title="Evaluate expansion" anchor="exercise-eval-cf">
+
+:::tip Activity: Evaluate expansion
+Given `n` then `a₀ … aₙ₋₁`, print the value as `p q` (numerator and denominator, reduced).
+
+<CodeExercise
+  title="Evaluate continued fraction"
+  heading="exercise-eval-cf"
+  lang="python"
+  filename="main.py"
+  prompt="Compute [a0; a1; ...] as a reduced fraction p/q."
+  sampleLog={`(input) 4
+0 1 3 2
+7 9`}
+  starter={`def eval_cf(coeffs):
+    # TODO: return (p, q)
+    return (0, 1)
+
+def gcd(a, b):
+    while b:
+        a, b = b, a % b
+    return a
+`}
+  wrapSuffix={`
+n = int(input())
+coeffs = list(map(int, input().split()))
+p, q = eval_cf(coeffs)
+g = gcd(p, q)
+print(p // g, q // g)
+`}
+  hint="From the bottom: val = a_k; for i down to 0: val = a_i + 1/val as fractions."
+  solution={`def eval_cf(coeffs):
+    from fractions import Fraction
+    val = Fraction(0, 1)
+    for a in reversed(coeffs):
+        if val == 0:
+            val = Fraction(a, 1)
+        else:
+            val = Fraction(a, 1) + 1 / val
+    return val.numerator, val.denominator
+
+def gcd(a, b):
+    while b:
+        a, b = b, a % b
+    return a
+`}
+  sourceChecks={[
+    { name: 'builds from coefficients', pattern: 'for|while|Fraction', must: true, hint: 'combine coefficients into one fraction' },
+  ]}
+  tests={[
+    { name: '7/9', stdin: '4\n0 1 3 2', equals: '7 9' },
+    { name: 'single', stdin: '1\n2', equals: '2 1' },
+    { name: '[1;1;1]', stdin: '3\n1 1 1', equals: '3 2' },
+  ]}
+/>
+
+:::
+
+</Exercise>
+
+<Exercise title="k-th convergent" anchor="exercise-convergent">
+
+:::tip Activity: k-th convergent
+Input: line of coefficients `a₀ a₁ …`, then `k`. Print `pₖ qₖ` for `[a₀; …; aₖ]`.
+
+<CodeExercise
+  title="k-th convergent"
+  heading="exercise-convergent"
+  lang="python"
+  filename="main.py"
+  prompt="Use p[-2]=0,p[-1]=1, q[-2]=1,q[-1]=0 and the standard recurrence."
+  sampleLog={`(input) 0 1 3 2
+2
+3 4`}
+  starter={`def convergent_k(coeffs, k):
+    # TODO: return (p_k, q_k)
+    return (0, 1)
+`}
+  wrapSuffix={`
+parts = input().split()
+k = int(input())
+coeffs = list(map(int, parts))
+p, q = convergent_k(coeffs, k)
+print(p, q)
+`}
+  hint="p_i = a_i*p_{i-1} + p_{i-2}; start with p=[0,1], q=[1,0]."
+  solution={`def convergent_k(coeffs, k):
+    p = [0, 1]
+    q = [1, 0]
+    for i in range(k + 1):
+        a = coeffs[i]
+        p.append(a * p[-1] + p[-2])
+        q.append(a * q[-1] + q[-2])
+    return p[-1], q[-1]
+`}
+  sourceChecks={[
+    { name: 'recurrence', pattern: 'p\\.append|p\\[-1\\]', must: true, hint: 'update p and q arrays' },
+  ]}
+  tests={[
+    { name: 'k=2 for 7/9 prefix', stdin: '0 1 3 2\n2', equals: '3 4' },
+    { name: 'k=0', stdin: '2 1 1\n0', equals: '2 1' },
+    { name: 'k=1', stdin: '0 1 3 2\n1', equals: '1 1' },
+    { name: 'k=3 full', stdin: '0 1 3 2\n3', equals: '7 9' },
+  ]}
+/>
+
+:::
+
+</Exercise>
+
+<Exercise title="Check equality" anchor="exercise-check-equal">
+
+:::tip Activity: Check equality
+Given `p q`, then `n` and `n` coefficients. Print `YES` if they equal `p/q`, else `NO` (305B-style, small integers).
+
+<CodeExercise
+  title="Check CF equality"
+  heading="exercise-check-equal"
+  lang="python"
+  filename="main.py"
+  prompt="Compare p/q to [a1; ...; an] (1-indexed partial quotients after a0, or full list — here full a0..a_{n-1})."
+  sampleLog={`(input) 9 4
+2
+2 4
+YES`}
+  starter={`def eval_cf(coeffs):
+    # TODO
+    return (0, 1)
+
+def equal_cf(p, q, coeffs):
+    # TODO
+    return False
+`}
+  wrapSuffix={`
+p, q = map(int, input().split())
+n = int(input())
+coeffs = list(map(int, input().split()))
+print("YES" if equal_cf(p, q, coeffs) else "NO")
+`}
+  hint="Evaluate CF to p2/q2; cross-multiply p*q2 == p2*q."
+  solution={`def eval_cf(coeffs):
+    from fractions import Fraction
+    val = Fraction(0, 1)
+    for a in reversed(coeffs):
+        val = Fraction(a, 1) if val == 0 else Fraction(a, 1) + 1 / val
+    return val.numerator, val.denominator
+
+def equal_cf(p, q, coeffs):
+    p2, q2 = eval_cf(coeffs)
+    return p * q2 == p2 * q
+`}
+  sourceChecks={[
+    { name: 'compares fractions', pattern: '\\*|==|equal', must: true, hint: 'cross-multiply to compare' },
+  ]}
+  tests={[
+    { name: '9/4 = [2;4]', stdin: '9 4\n2\n2 4', equals: 'YES' },
+    { name: '9/4 vs [2;3]', stdin: '9 4\n2\n2 3', equals: 'NO' },
+    { name: '7/9', stdin: '7 9\n4\n0 1 3 2', equals: 'YES' },
+  ]}
+/>
+
+:::
+
+</Exercise>
+</ExerciseSet>
+
+## Contest problems
+
+<ExerciseSet>
+<Exercise title="UVa Continued Fractions" anchor="exercise-uva-834">
+
+### UVa 834 — Continued Fractions
+
+**Judge:** [UVa 834](https://onlinejudge.org/index.php?option=com_onlinejudge&Itemid=8&page=show_problem&problem=775)
+
+Classic conversion between a decimal / rational and its continued fraction form.
+
+:::tip Why this lesson?
+Direct application of the Euclidean expansion and convergent evaluation.
+:::
+
+</Exercise>
+<Exercise title="Project Euler 64" anchor="exercise-pe-64">
+
+### Project Euler #64 — Odd period square roots
+
+**Judge:** [Project Euler 64](https://projecteuler.net/problem=64)
+
+Count square roots `√n` with **odd** period in their continued fraction. Quadratic irrationals have eventually periodic expansions.
+
+:::tip Why this lesson?
+Periodic CF ↔ quadratic surds; compute expansions until the tail repeats.
+:::
+
+</Exercise>
+<Exercise title="Continued Fractions" anchor="exercise-cf-305b">
+
+### B. Continued Fractions
+
+**Judge:** [Codeforces 305B](https://codeforces.com/problemset/problem/305/B)
+
+Given `p/q` and a finite expansion `[a₁; …; aₙ]`, decide if they represent the same rational.
+
+:::tip Why this lesson?
+Build CF from `(p,q)` via Euclid and compare — watch the two representations of the same rational.
+:::
+
+</Exercise>
+<Exercise title="Doodle Jump" anchor="exercise-cf-346e">
+
+### E. Doodle Jump
+
+**Judge:** [Codeforces 346E](https://codeforces.com/contest/346/problem/E)
+
+Platforms at heights `a·i mod p`. Can the doodler reach the top with jump height `h`? Uses Euclidean shrinking / continued-fraction-style reasoning on gaps.
+
+:::tip Why this lesson?
+Modular progressions + gap analysis; same `(p mod q)` descent as complete quotients.
+:::
+
+</Exercise>
+<Exercise title="Alice, Bob, Oranges and Apples" anchor="exercise-cf-585c">
+
+### C. Alice, Bob, Oranges and Apples
+
+**Judge:** [Codeforces 585C](https://codeforces.com/contest/585/problem/C)
+
+Recover a valid card sequence from final fruit counts. Reduced to extended Euclid / continued-fraction structure on `(oranges, apples)`.
+
+:::tip Why this lesson?
+Lexicographic smallest positive solution from a linear Diophantine / CF path.
+:::
+
+</Exercise>
+<Exercise title="New Elements Part 2" anchor="exercise-gcj-ne2">
+
+### GCJ 2019 — New Elements: Part 2
+
+**Judge:** [Code Jam 2019 Round 2 — New Elements: Part 2](https://codingcompetitions.withgoogle.com/codejam/2019/round/000000000005d6bc/0000000000054e7a)
+
+Find lexicographically smallest `(x, y)` so weighted molecule sums are strictly increasing — a fraction strictly between two bounds (Stern–Brocot / semiconvergent `middle`).
+
+:::tip Why this lesson?
+“Best inner point” between `p₀/q₀` and `p₁/q₁` from the CP-Algorithms writeup.
+:::
+
+</Exercise>
+</ExerciseSet>
+
+## Cheat sheet
+
+| Task | Approach |
+|---|---|
+| Expand `p/q` | Euclid → quotients |
+| Evaluate `[a₀;…;aₖ]` | Bottom-up or convergent recurrence |
+| `k`-th convergent | `pₖ = aₖ pₖ₋₁ + pₖ₋₂` |
+| Best approx with `q ≤ Q` | Scan convergents + semiconvergents |
+| Fraction between two bounds | Stern–Brocot walk / `middle` |
+| Sum of floors | Complete quotients + LFT (see full CP-Algorithms article) |
+
+**Previous:** [Centroid Decomposition](./05-centroid-decomposition) · [Bit Manipulation](./04-bit-manipulation)
+
+**Source:** [CP-Algorithms — Continued Fractions](https://cp-algorithms.com/algebra/continued-fractions.html)

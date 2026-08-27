@@ -1,0 +1,528 @@
+---
+sidebar_position: 10
+title: Divide and Conquer DP
+---
+
+import DivideAndConquerDpSimulator from "@site/src/components/interactive/DivideAndConquerDpSimulator.js";
+
+# Divide and Conquer DP
+
+**Divide and Conquer DP** is a dynamic programming optimization (not the same thing as plain divide-and-conquer algorithms).
+
+This lesson follows [CP-Algorithms — Divide and Conquer DP](https://cp-algorithms.com/dynamic_programming/divide-and-conquer-dp.html).
+
+## The recurrence
+
+Many DP problems look like:
+
+```text
+dp(i, j) = min_{0 ≤ k ≤ j}  dp(i−1, k−1) + C(k, j)
+```
+
+with `dp(i, j) = 0` when `j < 0`. Here `C(k, j)` is a segment cost.
+
+Take `0 ≤ i < m` and `0 ≤ j < n`, and assume `C` evaluates in `O(1)`. Brute force is **`O(m n²)`**: `m·n` states, up to `n` choices of `k` each.
+
+## Monotonicity of opt
+
+Let `opt(i, j)` be a minimizing `k` for that state. If the cost satisfies the **quadrangle inequality** (QI)
+
+```text
+C(a, c) + C(b, d) ≤ C(a, d) + C(b, c)   for all a ≤ b ≤ c ≤ d
+```
+
+then typically
+
+```text
+opt(i, j) ≤ opt(i, j + 1)
+```
+
+— the optimal split point is **non-decreasing** in `j` for fixed `i`.
+
+So once you know `opt(i, mid)`, every `j < mid` only needs `k ≤ opt(i, mid)`, and every `j > mid` only needs `k ≥ opt(i, mid)`.
+
+## Divide-and-conquer evaluation
+
+For a fixed layer `i`:
+
+1. Compute `opt` at the middle index `mid = ⌊(L+R)/2⌋` by scanning `k` in the current bounds `[optl, optr]`.
+2. Recurse on the left half with upper bound `opt`.
+3. Recurse on the right half with lower bound `opt`.
+
+There are `O(log n)` recursion levels. Across one level the total length of all `k`-intervals is `O(n)`, so one layer is `O(n log n)` and the full DP is **`O(m n log n)`**.
+
+Sketch of the level-size bound: if `S_k` is total opt-interval length at level `k`, splitting at most `2^k` intervals gives `S_{k+1} ≤ S_k + 2^k`. With `S_0 = n` you get `S_k ∈ O(n)`.
+
+## Generic template
+
+`compute` fills one row `dp_cur` from the previous row `dp_before`. Call `compute(0, n-1, 0, n-1)`.
+
+```cpp
+int m, n;
+vector<long long> dp_before, dp_cur;
+
+long long C(int i, int j);
+
+// compute dp_cur[l], ... dp_cur[r] (inclusive)
+void compute(int l, int r, int optl, int optr) {
+    if (l > r)
+        return;
+
+    int mid = (l + r) >> 1;
+    pair<long long, int> best = {LLONG_MAX, -1};
+
+    for (int k = optl; k <= min(mid, optr); k++) {
+        best = min(best, {(k ? dp_before[k - 1] : 0) + C(k, mid), k});
+    }
+
+    dp_cur[mid] = best.first;
+    int opt = best.second;
+
+    compute(l, mid - 1, optl, opt);
+    compute(mid + 1, r, opt, optr);
+}
+
+long long solve() {
+    dp_before.assign(n, 0);
+    dp_cur.assign(n, 0);
+
+    for (int i = 0; i < n; i++)
+        dp_before[i] = C(0, i);
+
+    for (int i = 1; i < m; i++) {
+        compute(0, n - 1, 0, n - 1);
+        dp_before = dp_cur;
+    }
+
+    return dp_before[n - 1];
+}
+```
+
+<details>
+<summary>🧪 Tiny instance: C(k,j)=(j−k+1)², m=3, n=8</summary>
+
+<PistonRunner
+  lang="c++"
+  height="480px"
+  code={`#include <iostream>
+#include <vector>
+#include <climits>
+#include <algorithm>
+using namespace std;
+
+int m = 3, n = 8;
+vector<long long> dp_before, dp_cur;
+
+long long C(int k, int j) {
+    long long len = j - k + 1;
+    return len * len;
+}
+
+void compute(int l, int r, int optl, int optr) {
+    if (l > r) return;
+    int mid = (l + r) >> 1;
+    pair<long long, int> best = {LLONG_MAX, -1};
+    for (int k = optl; k <= min(mid, optr); k++) {
+        best = min(best, {(k ? dp_before[k - 1] : 0) + C(k, mid), k});
+    }
+    dp_cur[mid] = best.first;
+    int opt = best.second;
+    compute(l, mid - 1, optl, opt);
+    compute(mid + 1, r, opt, optr);
+}
+
+int main() {
+    dp_before.assign(n, 0);
+    dp_cur.assign(n, 0);
+    for (int i = 0; i < n; i++) dp_before[i] = C(0, i);
+    cout << "layer 0: ";
+    for (auto x : dp_before) cout << x << " ";
+    cout << endl;
+
+    for (int i = 1; i < m; i++) {
+        compute(0, n - 1, 0, n - 1);
+        dp_before = dp_cur;
+        cout << "layer " << i << ": ";
+        for (auto x : dp_before) cout << x << " ";
+        cout << endl;
+    }
+    cout << "answer = " << dp_before[n - 1] << endl;
+    return 0;
+}
+`}
+/>
+
+</details>
+
+## Check: recurrence & complexity
+
+<MultipleChoice
+  id="algo-09-dnc-basics"
+  title="Divide and Conquer DP basics"
+  questions={[
+    {
+      prompt: 'Naive evaluation of the layered min-over-k recurrence is…',
+      choices: [
+        'O(m n)',
+        'O(m n log n)',
+        'O(m n²)',
+        'O(n)',
+      ],
+      answer: 2,
+      why: 'm·n states × up to n choices of k.',
+    },
+    {
+      prompt: 'D&C DP needs which structural property?',
+      choices: [
+        'opt(i, j) ≤ opt(i, j+1) (monotone opt)',
+        'Negative edge weights',
+        'That C is a XOR',
+        'That n is a power of two only',
+      ],
+      answer: 0,
+      why: 'Monotone opt lets you shrink the k-range when recursing left/right of mid.',
+    },
+    {
+      prompt: 'With monotone opt, one full DP becomes…',
+      choices: [
+        'O(m n²)',
+        'O(m n log n)',
+        'O(n)',
+        'O(m² n²)',
+      ],
+      answer: 1,
+      why: 'Each of m layers is O(n log n) from the D&C over j.',
+    },
+    {
+      prompt: 'In compute(l,r,optl,optr), after finding opt at mid you…',
+      choices: [
+        'Only fill mid and stop',
+        'Recurse left with optr=opt and right with optl=opt',
+        'Binary-search C',
+        'Sort the previous row',
+      ],
+      answer: 1,
+      why: 'Left indices need k ≤ opt; right indices need k ≥ opt.',
+    },
+  ]}
+/>
+
+## Interactive walkthrough
+
+Step through one D&C layer: fill `mid`, tighten `[optl, optr]`, recurse.
+
+<DivideAndConquerDpSimulator />
+
+## Things to look out for
+
+- Hardest part is **proving** `opt` is monotone. QI on `C` is the usual sufficient condition.
+- Many of these problems also admit the **convex hull trick** (or vice versa). Knowing both pays off.
+- Rollbacks / offline techniques are unrelated — this optimization is about the **shape of `opt`**, not about deletions.
+
+## Check: quadrangle & related tools
+
+<MultipleChoice
+  id="algo-09-dnc-qi"
+  title="QI and related optimizations"
+  questions={[
+    {
+      prompt: 'The quadrangle inequality is…',
+      choices: [
+        'C(a,c)+C(b,d) ≤ C(a,d)+C(b,c) for a≤b≤c≤d',
+        'C always positive',
+        'opt always zero',
+        'm = n',
+      ],
+      answer: 0,
+      why: 'That crossing inequality often implies monotone opt.',
+    },
+    {
+      prompt: 'D&C DP vs Convex Hull Trick…',
+      choices: [
+        'They are never related',
+        'Many problems can be solved by either; learn both',
+        'CHT always replaces D&C DP',
+        'D&C DP only works online',
+      ],
+      answer: 1,
+      why: 'Overlapping problem families; different structural assumptions.',
+    },
+    {
+      prompt: 'compute must be called initially as…',
+      choices: [
+        'compute(0, 0, 0, 0)',
+        'compute(0, n-1, 0, n-1)',
+        'compute(n, n, n, n)',
+        'compute(-1, n, -1, n)',
+      ],
+      answer: 1,
+      why: 'Full j-range and full legal k-range for the first call.',
+    },
+    {
+      prompt: 'Why is total work per recursion level O(n)?',
+      choices: [
+        'Only one k is tried ever',
+        'Sum of opt-interval lengths across the level stays O(n)',
+        'Hashing',
+        'Matrix exponentiation',
+      ],
+      answer: 1,
+      why: 'S_{k+1} ≤ S_k + 2^k keeps each level linear in n.',
+    },
+  ]}
+/>
+
+## Practice drills
+
+<ExerciseSet>
+<Exercise title="Segment cost" anchor="exercise-dnc-cost">
+
+:::tip Activity: Segment cost
+`k j` → print `C(k, j) = (j - k + 1)²`.
+
+<CodeExercise
+  title="Segment cost"
+  heading="exercise-dnc-cost"
+  lang="python"
+  filename="main.py"
+  prompt="Print (j-k+1)**2 for integers k, j (0-based inclusive segment)."
+  sampleLog={`(input) 2 5
+16`}
+  starter={`def segment_cost(k, j):
+    # TODO
+    return 0
+`}
+  wrapSuffix={`
+k, j = map(int, input().split())
+print(segment_cost(k, j))
+`}
+  hint="len = j - k + 1; return len * len"
+  solution={`def segment_cost(k, j):
+    length = j - k + 1
+    return length * length
+`}
+  sourceChecks={[
+    { name: 'uses length', pattern: 'j\\s*-\\s*k|length|\\*\\*', must: true, hint: 'square the segment length' },
+  ]}
+  tests={[
+    { name: 'sample', stdin: '2 5', equals: '16' },
+    { name: 'single', stdin: '3 3', equals: '1' },
+    { name: 'wide', stdin: '0 7', equals: '64' },
+  ]}
+/>
+
+:::
+
+</Exercise>
+
+<Exercise title="Brute one cell" anchor="exercise-dnc-brute-cell">
+
+:::tip Activity: Brute one cell
+First line: `n`. Second: `n` ints `dp_before[0..n)`. Third: `j`.  
+Compute `min over k=0..j of (dp_before[k-1] if k>0 else 0) + (j-k+1)²`. Print the min value and a best `k` (any optimal).
+
+<CodeExercise
+  title="Brute one cell"
+  heading="exercise-dnc-brute-cell"
+  lang="python"
+  filename="main.py"
+  prompt="Enumerate all k for one dp cell."
+  sampleLog={`(input) 4
+0 0 0 0
+2
+1 2`}
+  starter={`def best_split(dp_before, j):
+    # TODO: return (best_value, best_k)
+    return 0, 0
+`}
+  wrapSuffix={`
+n = int(input())
+dp_before = list(map(int, input().split()))
+j = int(input())
+val, k = best_split(dp_before, j)
+print(val, k)
+`}
+  hint="try every k in 0..j; prev = 0 if k==0 else dp_before[k-1]"
+  solution={`def best_split(dp_before, j):
+    best_val = None
+    best_k = 0
+    for k in range(j + 1):
+        prev = 0 if k == 0 else dp_before[k - 1]
+        val = prev + (j - k + 1) ** 2
+        if best_val is None or val < best_val:
+            best_val = val
+            best_k = k
+    return best_val, best_k
+`}
+  sourceChecks={[
+    { name: 'loops k', pattern: 'for\\s+.*k|range\\s*\\(', must: true, hint: 'enumerate k from 0 to j' },
+  ]}
+  tests={[
+    { name: 'sample', stdin: '4\n0 0 0 0\n2', equals: '1 2' },
+    { name: 'j0', stdin: '3\n5 5 5\n0', equals: '1 0' },
+    { name: 'mixed', stdin: '4\n1 4 9 16\n3', equals: '8 2' },
+  ]}
+/>
+
+:::
+
+</Exercise>
+
+<Exercise title="Check monotone opt" anchor="exercise-dnc-monotone">
+
+:::tip Activity: Check monotone opt
+First line: `n`. Second: `n` ints `opt[0..n)`. Print `YES` if `opt[0] ≤ opt[1] ≤ … ≤ opt[n-1]`, else `NO`.
+
+<CodeExercise
+  title="Check monotone opt"
+  heading="exercise-dnc-monotone"
+  lang="python"
+  filename="main.py"
+  prompt="Verify the monotonicity condition on a given opt array."
+  sampleLog={`(input) 5
+0 0 2 2 4
+YES`}
+  starter={`def is_monotone(opt):
+    # TODO
+    return False
+`}
+  wrapSuffix={`
+n = int(input())
+opt = list(map(int, input().split()))
+print("YES" if is_monotone(opt) else "NO")
+`}
+  hint="check opt[i] <= opt[i+1] for all i"
+  solution={`def is_monotone(opt):
+    return all(opt[i] <= opt[i + 1] for i in range(len(opt) - 1))
+`}
+  sourceChecks={[
+    { name: 'compares neighbors', pattern: '<=|all\\s*\\(', must: true, hint: 'non-decreasing check' },
+  ]}
+  tests={[
+    { name: 'yes', stdin: '5\n0 0 2 2 4', equals: 'YES' },
+    { name: 'no', stdin: '4\n0 2 1 3', equals: 'NO' },
+    { name: 'flat', stdin: '3\n1 1 1', equals: 'YES' },
+  ]}
+/>
+
+:::
+
+</Exercise>
+
+<Exercise title="Complexity pick" anchor="exercise-dnc-complexity">
+
+:::tip Activity: Complexity pick
+Input: `m n`. Print two integers: naive cost `m*n*n` and D&C cost `m*n*ceil(log2(n))` (use `0` log when `n≤1`).
+
+<CodeExercise
+  title="Complexity pick"
+  heading="exercise-dnc-complexity"
+  lang="python"
+  filename="main.py"
+  prompt="Compare O(m n²) vs O(m n log n) step counts (rough)."
+  sampleLog={`(input) 10 16
+2560 640`}
+  starter={`import math
+
+def costs(m, n):
+    # TODO: return (naive, dnc)
+    return 0, 0
+`}
+  wrapSuffix={`
+m, n = map(int, input().split())
+a, b = costs(m, n)
+print(a, b)
+`}
+  hint="naive=m*n*n; log = 0 if n<=1 else ceil(log2(n)); dnc=m*n*log"
+  solution={`import math
+
+def costs(m, n):
+    naive = m * n * n
+    lg = 0 if n <= 1 else math.ceil(math.log2(n))
+    dnc = m * n * lg
+    return naive, dnc
+`}
+  sourceChecks={[
+    { name: 'log', pattern: 'log2|bit_length|ceil', must: true, hint: 'use ceil log2 for D&C estimate' },
+  ]}
+  tests={[
+    { name: 'sample', stdin: '10 16', equals: '2560 640' },
+    { name: 'n1', stdin: '5 1', equals: '5 0' },
+    { name: 'n8', stdin: '2 8', equals: '128 48' },
+  ]}
+/>
+
+:::
+
+</Exercise>
+</ExerciseSet>
+
+## Contest problems
+
+From [CP-Algorithms](https://cp-algorithms.com/dynamic_programming/divide-and-conquer-dp.html):
+
+<ExerciseSet>
+<Exercise title="Gym — GUARDS" anchor="exercise-cf-guards">
+
+**Solve:** [Codeforces Gym 103536A — GUARDS](https://codeforces.com/gym/103536/problem/A) — the exact problem for this article’s template.
+
+:::info Tip
+Prove QI / monotone opt before coding D&C; wrong opt bounds → WA.
+:::
+
+</Exercise>
+
+<Exercise title="CF — Ciel and Gondolas" anchor="exercise-cf-gondolas">
+
+**Solve:** [Codeforces 321E — Ciel and Gondolas](https://codeforces.com/contest/321/problem/E)
+
+:::info Tip
+Watch I/O size; precompute prefix costs so `C` is `O(1)`.
+:::
+
+</Exercise>
+
+<Exercise title="CF — Levels and Regions" anchor="exercise-cf-levels">
+
+**Solve:** [Codeforces 673E — Levels and Regions](https://codeforces.com/contest/673/problem/E)
+
+</Exercise>
+
+<Exercise title="CF — The Bakery" anchor="exercise-cf-bakery">
+
+**Solve:** [Codeforces 834D — The Bakery](https://codeforces.com/problemset/problem/834/D)
+
+:::info Tip
+Distinct-count cost; often D&C DP plus a data structure for moving `C`.
+:::
+
+</Exercise>
+
+<Exercise title="CF — Yet Another Minimization" anchor="exercise-cf-yamp">
+
+**Solve:** [Codeforces 868F — Yet Another Minimization Problem](https://codeforces.com/contest/868/problem/F)
+
+</Exercise>
+
+<Exercise title="More practice" anchor="exercise-dnc-misc">
+
+- [AtCoder ARC067 D — Yakiniku Restaurants](https://atcoder.jp/contests/arc067/tasks/arc067_d)
+- [Codeforces 1527E — Partition Game](https://codeforces.com/contest/1527/problem/E)
+- [Codechef CHEFAOR](https://www.codechef.com/problems/CHEFAOR)
+- [Hackerrank — Guardians of the Lunatics](https://www.hackerrank.com/contests/ioi-2014-practice-contest-2/challenges/guardians-lunatics-ioi14)
+- [SPOJ ADAMOLD](https://www.spoj.com/problems/ADAMOLD/) · [LARMY](https://www.spoj.com/problems/LARMY/) · [NKLEAVES](https://www.spoj.com/problems/NKLEAVES/)
+- [Kattis — money](https://open.kattis.com/problems/money) (ICPC WF 2017)
+
+</Exercise>
+</ExerciseSet>
+
+## Cheat sheet
+
+| Idea | Takeaway |
+|---|---|
+| Form | `dp(i,j) = min_k dp(i−1,k−1) + C(k,j)` |
+| Naive | `O(m n²)` |
+| Need | `opt(i,j) ≤ opt(i,j+1)` (often from QI) |
+| Method | Fill `mid`, recurse with tighter `k` bounds |
+| Fast | `O(m n log n)` |
+| Cousin | Convex hull trick / Li Chao on many of the same tasks |

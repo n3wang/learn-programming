@@ -1,0 +1,614 @@
+---
+sidebar_position: 6
+title: Centroid Decomposition
+---
+
+import CentroidDecompositionSimulator from "@site/src/components/interactive/CentroidDecompositionSimulator.js";
+
+# Centroid Decomposition
+
+**Prerequisites:** DFS, divide and conquer, trees.
+
+Centroid decomposition is a divide-and-conquer technique on **trees**. It helps with path problems: counting paths with a property, distances, queries on tree paths, and dynamic updates with `O(log N)` depth.
+
+This lesson follows [CP-Algorithms — Centroid Decomposition](https://cp-algorithms.com/graph/centroid_decomposition.html).
+
+## The idea
+
+Recursively pick a **centroid** — a vertex whose removal splits the tree into components each of size at most `N/2`. That guarantees `O(log N)` recursion depth.
+
+At each level:
+
+1. Find the centroid of the current component
+2. **Process** all paths that pass through this centroid
+3. **Remove** the centroid (mark used)
+4. Recurse on each remaining subtree
+
+Every original tree path crosses the centroid of **some** component exactly once when that centroid is processed — that is why the technique works.
+
+## What is a centroid?
+
+A **centroid** of a tree with `N` vertices is a node whose removal leaves no subtree with more than `⌊N/2⌋` vertices.
+
+- Every tree has **at least one** and **at most two** centroids.
+- If there are two, they are **adjacent**.
+
+## Properties
+
+| Property | Statement |
+|---|---|
+| Decomposition depth | `O(log N)` — each step at least halves the component |
+| Path coverage | Every path in the tree passes through some centroid during decomposition |
+| Per-vertex work | Each vertex appears in `O(log N)` levels → often `O(N log N)` total |
+
+## Finding a centroid — `O(N)`
+
+1. DFS to compute **subtree sizes** in the current component (skip removed nodes).
+2. Start at any vertex `v`.
+3. If some child `u` has `subtree_size[u] > N/2`, move to `u` and repeat.
+4. If no such child exists, `v` is a centroid.
+
+```cpp
+int get_subtree_size(int v, int p = -1) {
+    subtree_size[v] = 1;
+    for (int u : adj[v]) {
+        if (u == p || removed[u]) continue;
+        subtree_size[v] += get_subtree_size(u, v);
+    }
+    return subtree_size[v];
+}
+
+int get_centroid(int v, int tree_size, int p = -1) {
+    for (int u : adj[v]) {
+        if (u == p || removed[u]) continue;
+        if (subtree_size[u] * 2 > tree_size)
+            return get_centroid(u, tree_size, v);
+    }
+    return v;
+}
+```
+
+<details>
+<summary>🧪 Find the centroid of a small tree</summary>
+
+<PistonRunner
+  lang="c++"
+  height="480px"
+  code={`#include <iostream>
+#include <vector>
+using namespace std;
+
+vector<vector<int>> adj;
+vector<int> subtree_size;
+vector<bool> removed;
+
+int get_subtree_size(int v, int p = -1) {
+    subtree_size[v] = 1;
+    for (int u : adj[v]) {
+        if (u == p || removed[u]) continue;
+        subtree_size[v] += get_subtree_size(u, v);
+    }
+    return subtree_size[v];
+}
+
+int get_centroid(int v, int tree_size, int p = -1) {
+    for (int u : adj[v]) {
+        if (u == p || removed[u]) continue;
+        if (subtree_size[u] * 2 > tree_size)
+            return get_centroid(u, tree_size, v);
+    }
+    return v;
+}
+
+int main() {
+    // Tree: 1-3-2, 3-4, 3-5  (n=5, centroid should be 3)
+    int n = 5;
+    adj.assign(n + 1, {});
+    subtree_size.assign(n + 1, 0);
+    removed.assign(n + 1, false);
+    auto add = [&](int a, int b) {
+        adj[a].push_back(b);
+        adj[b].push_back(a);
+    };
+    add(1, 3); add(2, 3); add(3, 4); add(3, 5);
+
+    int sz = get_subtree_size(1);
+    int c = get_centroid(1, sz);
+    cout << "tree size = " << sz << endl;
+    cout << "subtree sizes from 1: ";
+    for (int i = 1; i <= n; i++) cout << subtree_size[i] << " ";
+    cout << endl << "centroid = " << c << endl;
+    return 0;
+}
+`}
+/>
+
+</details>
+
+## Check: centroids
+
+<MultipleChoice
+  id="algo-05-centroid-def"
+  title="Centroid definition"
+  questions={[
+    {
+      prompt: 'A centroid of an N-node tree satisfies…',
+      choices: [
+        'Maximum degree among all nodes',
+        'No removed subtree has more than N/2 vertices',
+        'It is always the root of the input',
+        'It has the minimum depth',
+      ],
+      answer: 1,
+      why: 'Removal splits the tree into pieces each of size at most half.',
+    },
+    {
+      prompt: 'How many centroids can a tree have?',
+      choices: [
+        'Exactly one always',
+        'At most two; if two, they are adjacent',
+        'Up to N/2',
+        'Zero for some trees',
+      ],
+      answer: 1,
+      why: 'Classic theorem: one or two adjacent centroids.',
+    },
+    {
+      prompt: 'Centroid decomposition depth is…',
+      choices: [
+        'O(N)',
+        'O(log N)',
+        'O(1)',
+        'O(N²)',
+      ],
+      answer: 1,
+      why: 'Each level at least halves the largest component.',
+    },
+    {
+      prompt: 'To find a centroid you walk toward…',
+      choices: [
+        'The leaf farthest from the start',
+        'A child whose subtree size exceeds N/2',
+        'The node with minimum degree',
+        'A random neighbor',
+      ],
+      answer: 1,
+      why: 'If a heavy child exists, the centroid lies in that subtree.',
+    },
+  ]}
+/>
+
+## Interactive walkthrough
+
+Step through centroid finding and recursive decomposition on a 5-node example (centroid `3`).
+
+<CentroidDecompositionSimulator />
+
+## Algorithm template
+
+Example: count paths of **exactly `K` edges** (distinct endpoints).
+
+For each centroid, count pairs in **different** child subtrees whose distances to the centroid sum to `K`:
+
+- DFS each child subtree for distances from the centroid (cap at `K`).
+- When processing child `u`, add pairs `(d, K−d)` against distances seen in **previous** children.
+- Then merge `u`'s distances into the global map.
+
+```cpp
+void process_centroid(int centroid) {
+    unordered_map<int, int> all_distances;
+    all_distances[0] = 1;  // centroid to itself
+
+    for (int u : adj[centroid]) {
+        if (removed[u]) continue;
+
+        vector<int> current_distances;
+        get_distances(u, centroid, 1, current_distances);
+
+        for (int d : current_distances) {
+            if (K - d >= 0)
+                answer += all_distances[K - d];
+        }
+        for (int d : current_distances)
+            all_distances[d]++;
+    }
+}
+
+void decompose(int v) {
+    int tree_size = get_subtree_size(v);
+    int centroid = get_centroid(v, tree_size);
+
+    process_centroid(centroid);
+    removed[centroid] = true;
+
+    for (int u : adj[centroid])
+        if (!removed[u])
+            decompose(u);
+}
+```
+
+Adapt `process_centroid` for XOR sums, length ranges, prime distances, etc.
+
+## Building the centroid tree
+
+If you need explicit centroid-tree structure (queries, LCA on centroids):
+
+```cpp
+int centroid_parent[MAXN];
+
+int decompose(int v, int p = -1) {
+    int tree_size = get_subtree_size(v);
+    int centroid = get_centroid(v, tree_size);
+
+    centroid_parent[centroid] = p;
+    removed[centroid] = true;
+
+    for (int u : adj[centroid])
+        if (!removed[u])
+            decompose(u, centroid);
+
+    return centroid;
+}
+```
+
+Each node's parent is the centroid found in the **larger** component that contained it. Height is `O(log N)`.
+
+## Check: path processing
+
+<MultipleChoice
+  id="algo-05-centroid-paths"
+  title="Path coverage"
+  questions={[
+    {
+      prompt: 'Why process paths at each centroid separately?',
+      choices: [
+        'Every tree path passes through some centroid when that centroid is active',
+        'Paths never use centroids',
+        'Only root-to-leaf paths matter',
+        'Centroids are always leaves',
+      ],
+      answer: 0,
+      why: 'Path coverage theorem — each path is counted once at the right level.',
+    },
+    {
+      prompt: 'When counting length-K paths through centroid c, pairs must come from…',
+      choices: [
+        'The same child subtree only',
+        'Different child subtrees of c (or one endpoint at c)',
+        'Only leaves',
+        'Only the parent of c',
+      ],
+      answer: 1,
+      why: 'A path through c uses at most one side per child subtree (except endpoints at c).',
+    },
+    {
+      prompt: 'Typical total time for centroid decomposition with O(1) work per distance per level is…',
+      choices: [
+        'O(N)',
+        'O(N log N)',
+        'O(N²)',
+        'O(log N) only',
+      ],
+      answer: 1,
+      why: 'Each of N nodes participates in O(log N) levels.',
+    },
+    {
+      prompt: 'In process_centroid, why merge distances AFTER counting pairs for child u?',
+      choices: [
+        'To avoid pairing two vertices in the same subtree (double count)',
+        'Because maps are slow',
+        'To skip removed nodes',
+        'Because K is always 0',
+      ],
+      answer: 0,
+      why: 'Count against previous subtrees first; then add u’s distances for later children.',
+    },
+  ]}
+/>
+
+## Practice drills
+
+<ExerciseSet>
+<Exercise title="Subtree size" anchor="exercise-subtree-size">
+
+:::tip Activity: Subtree size
+Tree with `n` nodes (1-indexed), `n-1` edges. Return subtree size of node `1` when rooted at `1`. Input: `n`, then edges.
+
+<CodeExercise
+  title="Subtree size"
+  heading="exercise-subtree-size"
+  lang="python"
+  filename="main.py"
+  prompt="DFS from node 1. Print size of subtree rooted at 1."
+  sampleLog={`(input) 5
+1 2
+2 3
+3 4
+3 5
+5`}
+  starter={`def subtree_size(n, edges):
+    # TODO: build adjacency, DFS from 1
+    return 0
+`}
+  wrapSuffix={`
+n = int(input())
+edges = [tuple(map(int, input().split())) for _ in range(n - 1)]
+print(subtree_size(n, edges))
+`}
+  hint="Recursive DFS: size[v] = 1 + sum(size[child])."
+  solution={`def subtree_size(n, edges):
+    adj = [[] for _ in range(n + 1)]
+    for a, b in edges:
+        adj[a].append(b)
+        adj[b].append(a)
+
+    def dfs(v, p):
+        s = 1
+        for u in adj[v]:
+            if u == p:
+                continue
+            s += dfs(u, v)
+        return s
+
+    return dfs(1, -1)
+`}
+  sourceChecks={[
+    { name: 'uses dfs or recursion', pattern: 'def dfs|while', must: true, hint: 'traverse the tree from root 1' },
+  ]}
+  tests={[
+    { name: 'chain with branch', stdin: '5\n1 2\n2 3\n3 4\n3 5', equals: '5' },
+    { name: 'two nodes', stdin: '2\n1 2', equals: '2' },
+    { name: 'star', stdin: '4\n1 2\n1 3\n1 4', equals: '4' },
+  ]}
+/>
+
+:::
+
+</Exercise>
+
+<Exercise title="Find centroid" anchor="exercise-find-centroid">
+
+:::tip Activity: Find centroid
+Same input format. Print **any** centroid (1-indexed).
+
+<CodeExercise
+  title="Find centroid"
+  heading="exercise-find-centroid"
+  lang="python"
+  filename="main.py"
+  prompt="Compute subtree sizes, then walk to heavy child until none exceeds n/2."
+  sampleLog={`(input) 5
+1 2
+2 3
+3 4
+3 5
+3`}
+  starter={`def find_centroid(n, edges):
+    # TODO
+    return 1
+`}
+  wrapSuffix={`
+n = int(input())
+edges = [tuple(map(int, input().split())) for _ in range(n - 1)]
+print(find_centroid(n, edges))
+`}
+  hint="get_centroid(v, n): if child u has size[u]*2 > n, recurse into u."
+  solution={`def find_centroid(n, edges):
+    adj = [[] for _ in range(n + 1)]
+    for a, b in edges:
+        adj[a].append(b)
+        adj[b].append(a)
+    size = [0] * (n + 1)
+
+    def dfs(v, p):
+        size[v] = 1
+        for u in adj[v]:
+            if u == p:
+                continue
+            dfs(u, v)
+            size[v] += size[u]
+
+    def get_centroid(v, p, total):
+        for u in adj[v]:
+            if u == p:
+                continue
+            if size[u] * 2 > total:
+                return get_centroid(u, v, total)
+        return v
+
+    dfs(1, -1)
+    return get_centroid(1, -1, n)
+`}
+  sourceChecks={[
+    { name: 'checks half size', pattern: '2\\s*\\*|/\\s*2|//\\s*2', must: true, hint: 'compare subtree size to n/2' },
+  ]}
+  tests={[
+    { name: 'cses sample', stdin: '5\n1 2\n2 3\n3 4\n3 5', equals: '3' },
+    { name: 'path 3', stdin: '3\n1 2\n2 3', equals: '2' },
+    { name: 'single node', stdin: '1', equals: '1' },
+  ]}
+/>
+
+:::
+
+</Exercise>
+
+<Exercise title="Paths through centroid" anchor="exercise-paths-k">
+
+:::tip Activity: Paths of length K
+`n`, edges, and `K`. Count **unordered** pairs of distinct nodes at graph distance exactly `K`. Small trees only — implement centroid counting at each level.
+
+For this sandbox, `n ≤ 12` brute force is OK if your centroid logic is correct; full solution uses decomposition.
+
+<CodeExercise
+  title="Paths length K"
+  heading="exercise-paths-k"
+  lang="python"
+  filename="main.py"
+  prompt="Count pairs at distance K. Input: n K, then n-1 edges."
+  sampleLog={`(input) 5 2
+1 2
+2 3
+3 4
+3 5
+4`}
+  starter={`def count_paths_k(n, edges, k):
+    # TODO: build tree, count pairs at distance k
+    return 0
+`}
+  wrapSuffix={`
+first = input().split()
+n, k = int(first[0]), int(first[1])
+edges = [tuple(map(int, input().split())) for _ in range(n - 1)]
+print(count_paths_k(n, edges, k))
+`}
+  hint="BFS all pairs for small n, or centroid: at each c count d + (k-d) across different child subtrees."
+  solution={`def count_paths_k(n, edges, k):
+    adj = [[] for _ in range(n + 1)]
+    for a, b in edges:
+        adj[a].append(b)
+        adj[b].append(a)
+
+    def bfs(start):
+        dist = [-1] * (n + 1)
+        dist[start] = 0
+        q = [start]
+        for v in q:
+            for u in adj[v]:
+                if dist[u] == -1:
+                    dist[u] = dist[v] + 1
+                    q.append(u)
+        return dist
+
+    ans = 0
+    for u in range(1, n + 1):
+        dist = bfs(u)
+        for v in range(u + 1, n + 1):
+            if dist[v] == k:
+                ans += 1
+    return ans
+`}
+  sourceChecks={[
+    { name: 'counts pairs', pattern: 'dist|bfs|dfs', must: true, hint: 'compute distances on the tree' },
+  ]}
+  tests={[
+    { name: 'sample k=2', stdin: '5 2\n1 2\n2 3\n3 4\n3 5', equals: '4' },
+    { name: 'k=1 path', stdin: '3 1\n1 2\n2 3', equals: '2' },
+    { name: 'k=0 none', stdin: '3 0\n1 2\n2 3', equals: '0' },
+  ]}
+/>
+
+:::
+
+</Exercise>
+</ExerciseSet>
+
+## Contest problems
+
+<ExerciseSet>
+<Exercise title="Finding a Centroid" anchor="exercise-cses-centroid">
+
+### Finding a Centroid
+
+**Judge:** [CSES — Finding a Centroid](https://www.cses.fi/problemset/task/2079/)
+
+Find any centroid of an `n`-node tree (`n ≤ 2·10⁵`).
+
+:::tip Why this lesson?
+Direct application of DFS sizes + walk-to-heavy-child.
+:::
+
+**Sample**
+
+```text
+Input
+5
+1 2
+2 3
+3 4
+3 5
+
+Output
+3
+```
+
+</Exercise>
+<Exercise title="Fixed-Length Paths II" anchor="exercise-cses-paths2">
+
+### Fixed-Length Paths II
+
+**Judge:** [CSES — Fixed-Length Paths II](https://www.cses.fi/problemset/task/2081/)
+
+Count paths whose length is in `[a, b]` (edges). Centroid decomposition + frequency map / Fenwick on depths.
+
+:::tip Why this lesson?
+Extends the “pairs through centroid with distance sum” template to a **range** of lengths.
+:::
+
+</Exercise>
+<Exercise title="Xenia and Tree" anchor="exercise-cf-xenia">
+
+### E. Xenia and Tree
+
+**Judge:** [Codeforces 342E — Xenia and Tree](https://codeforces.com/contest/342/problem/E)
+
+Dynamic “paint red” updates and queries: minimum distance from a node to any red node. Build centroid tree; maintain best distance at each centroid ancestor.
+
+:::tip Why this lesson?
+Classic centroid-tree **dynamic** query pattern — `O(log N)` updates/queries.
+:::
+
+</Exercise>
+<Exercise title="Digit Tree" anchor="exercise-cf-digit">
+
+### C. Digit Tree
+
+**Judge:** [Codeforces 715C — Digit Tree](https://codeforces.com/contest/715/problem/C)
+
+Count paths whose digit concatenation (mod M) equals zero. Centroid decomposition + hashing/modular arithmetic on path values from subtrees.
+
+:::tip Why this lesson?
+Combine centroid pairing with a **path property** (here modular digit strings).
+:::
+
+</Exercise>
+<Exercise title="Race" anchor="exercise-ioi-race">
+
+### IOI 2011 — Race
+
+**Judge:** [OJ.uz — Race](https://oj.uz/problem/view/IOI11_race)
+
+Weighted tree: is there a path of **exact** length `K`? Edge weights up to `10⁹`. Centroid decomposition with distance maps (watch overflow / two-pointer on sorted depths).
+
+:::tip Why this lesson?
+The famous “exact path length” problem that popularized centroid decomposition in contests.
+:::
+
+</Exercise>
+<Exercise title="QTREE5" anchor="exercise-spoj-qtree5">
+
+### QTREE5 — Query on a Tree V
+
+**Judge:** [SPOJ QTREE5](https://www.spoj.com/problems/QTREE5/)
+
+Black/white nodes; toggle color; query min distance to a white node. Harder dynamic variant — centroid decomposition + multisets per ancestor.
+
+:::tip Why this lesson?
+Same family as Xenia, with toggles both ways; typical `O(Q log² N)` or optimized `O(Q log N)`.
+:::
+
+</Exercise>
+</ExerciseSet>
+
+## When to reach for centroid decomposition
+
+| Signal | Technique |
+|---|---|
+| Count/query paths in a tree | Decompose + process at centroids |
+| “Every path considered once” | Path coverage property |
+| Dynamic nearest special node | Centroid tree + per-ancestor data |
+| Need `O(N log N)` on tree paths | Often centroid + map/BIT per level |
+
+**Previous:** [Bit Manipulation](./04-bit-manipulation) · [Binary Search](./03-binary-search)
+
+**Source:** [CP-Algorithms — Centroid Decomposition](https://cp-algorithms.com/graph/centroid_decomposition.html)

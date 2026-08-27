@@ -1,0 +1,355 @@
+---
+sidebar_position: 31
+title: Sparse Table
+---
+
+import SparseTableSimulator from "@site/src/components/interactive/SparseTableSimulator.js";
+
+# Sparse Table
+
+A **sparse table** answers **static** range queries on an immutable array. Most associative folds take **`O(log n)`** per query; for **range minimum / maximum** (idempotent ops) it answers in **`O(1)`**.
+
+**Drawback:** if any `A[i]` changes, rebuild the whole structure (`O(n log n)`).
+
+This lesson follows [CP-Algorithms — Sparse Table](https://cp-algorithms.com/data_structures/sparse-table.html).
+
+Related: [Binary Search](./03-binary-search), [MEX](./18-mex).
+
+## Intuition
+
+Any positive length decomposes into **≤ ⌈log₂ length⌉** decreasing powers of two — same idea as binary digits. So any interval is a union of `O(log n)` dyadic blocks.
+
+Precompute the answer for **every** range of length `2^i`. Answer a query by combining a few (or two overlapping) precomputed blocks.
+
+## Precomputation
+
+Store `st[i][j]` = answer on `[j, j + 2^i − 1]`. Layout `(K+1) × MAXN` with `K ≥ ⌊log₂ MAXN⌋` (often `K = 25`). Put the `MAXN` dimension second for cache-friendly scans.
+
+```cpp
+// st[0][j] = A[j]
+for (int i = 1; i <= K; i++)
+    for (int j = 0; j + (1 << i) <= N; j++)
+        st[i][j] = f(st[i - 1][j], st[i - 1][j + (1 << (i - 1))]);
+```
+
+Each length-`2^i` block is the fold of two halves of length `2^{i−1}`. Build time **`O(N log N)`**.
+
+`f` is `+` for sums, `min` for RMQ, etc.
+
+## Range sum — `O(log n)`
+
+Disjoint cover: from the largest `2^i ≤ remaining length`, add `st[i][L]` and advance `L`.
+
+```cpp
+long long sum = 0;
+for (int i = K; i >= 0; i--) {
+    if ((1 << i) <= R - L + 1) {
+        sum += st[i][L];
+        L += 1 << i;
+    }
+}
+```
+
+## Range minimum — `O(1)`
+
+`min` is **idempotent**: processing an index twice does not change the answer. Cover `[L,R]` with **two overlapping** blocks of length `2^i` where `i = ⌊log₂(R−L+1)⌋`:
+
+```text
+min( st[i][L], st[i][R − 2^i + 1] )
+```
+
+Example: `[1,6]` → `[1,4] ∪ [3,6]`.
+
+Precompute `lg[x] = ⌊log₂ x⌋`:
+
+```cpp
+lg[1] = 0;
+for (int i = 2; i <= MAXN; i++)
+    lg[i] = lg[i / 2] + 1;
+
+int i = lg[R - L + 1];
+int minimum = min(st[i][L], st[i][R - (1 << i) + 1]);
+```
+
+(`__builtin_clzll` / `std::bit_width` also work; a `lg[]` array can be slower from cache misses.)
+
+This **O(1)** trick needs an **idempotent** semigroup (min, max, gcd, AND, OR, …). Sums / products need the disjoint `O(log n)` cover (or a [Disjoint Sparse Table](https://codeforces.com/blog/entry/66398) / Sqrt Tree for `O(1)` associative queries).
+
+<SparseTableSimulator />
+
+<details>
+<summary>🧪 Sparse table RMQ + range sum</summary>
+
+<PistonRunner
+  lang="c++"
+  height="520px"
+  code={`#include <iostream>
+#include <vector>
+#include <algorithm>
+#include <cmath>
+using namespace std;
+
+int main() {
+    vector<int> A = {4, 2, 3, 7, 1, 5, 8, 6};
+    int N = (int)A.size();
+    int K = 0;
+    while ((1 << K) <= N) K++;
+    K--;
+
+    vector<vector<int>> stMin(K + 1, vector<int>(N));
+    vector<vector<long long>> stSum(K + 1, vector<long long>(N));
+    for (int j = 0; j < N; j++) {
+        stMin[0][j] = A[j];
+        stSum[0][j] = A[j];
+    }
+    for (int i = 1; i <= K; i++) {
+        for (int j = 0; j + (1 << i) <= N; j++) {
+            stMin[i][j] = min(stMin[i - 1][j], stMin[i - 1][j + (1 << (i - 1))]);
+            stSum[i][j] = stSum[i - 1][j] + stSum[i - 1][j + (1 << (i - 1))];
+        }
+    }
+
+    vector<int> lg(N + 1);
+    lg[1] = 0;
+    for (int i = 2; i <= N; i++) lg[i] = lg[i / 2] + 1;
+
+    auto rmq = [&](int L, int R) {
+        int i = lg[R - L + 1];
+        return min(stMin[i][L], stMin[i][R - (1 << i) + 1]);
+    };
+
+    auto rsq = [&](int L, int R) {
+        long long sum = 0;
+        for (int i = K; i >= 0; i--) {
+            if ((1 << i) <= R - L + 1) {
+                sum += stSum[i][L];
+                L += 1 << i;
+            }
+        }
+        return sum;
+    };
+
+    cout << "RMQ[1,6] = " << rmq(1, 6) << endl;
+    cout << "RSQ[2,7] = " << rsq(2, 7) << endl;
+    return 0;
+}
+`}
+/>
+
+</details>
+
+## Check: sparse table
+
+<MultipleChoice
+  id="algo-30-st-basic"
+  title="Sparse table"
+  questions={[
+    {
+      prompt: 'Sparse tables assume the array is…',
+      choices: ['Fully dynamic', 'Immutable between rebuilds', 'Always sorted', 'Of size a power of two only'],
+      answer: 1,
+      why: 'Any update forces a full rebuild.',
+    },
+    {
+      prompt: 'Precomputation costs…',
+      choices: ['O(n)', 'O(n log n)', 'O(n²)', 'O(1)'],
+      answer: 1,
+      why: 'O(log n) layers × O(n) starts.',
+    },
+    {
+      prompt: 'O(1) RMQ works because min is…',
+      choices: ['Idempotent', 'Not associative', 'Unstable', 'Only for even lengths'],
+      answer: 0,
+      why: 'Overlapping coverage is fine.',
+    },
+    {
+      prompt: 'Range sum with a classic sparse table is…',
+      choices: ['O(1) with two overlaps', 'O(log n) disjoint dyadic cover', 'Impossible', 'O(n) only'],
+      answer: 1,
+      why: 'Summing twice would double-count.',
+    },
+  ]}
+/>
+
+## Practice drills
+
+<ExerciseSet>
+<Exercise title="Floor log2" anchor="exercise-st-lg">
+
+:::tip Activity: Floor log2
+Input: positive integer `x`. Print `⌊log₂ x⌋` (largest `i` with `2^i ≤ x`).
+
+<CodeExercise
+  title="Floor log2"
+  heading="exercise-st-lg"
+  lang="python"
+  filename="main.py"
+  prompt="Used as i = lg[R-L+1] for RMQ."
+  sampleLog={`(input) 6
+2`}
+  starter={`def floor_log2(x):
+    # TODO
+    return 0
+`}
+  wrapSuffix={`
+print(floor_log2(int(input())))
+`}
+  hint="return x.bit_length() - 1"
+  solution={`def floor_log2(x):
+    return x.bit_length() - 1
+`}
+  sourceChecks={[
+    { name: 'logs', pattern: 'bit_length|log|>>|while', must: true, hint: 'compute floor log2' },
+  ]}
+  tests={[
+    { name: 'sample', stdin: '6', equals: '2' },
+    { name: 'pow', stdin: '8', equals: '3' },
+    { name: 'one', stdin: '1', equals: '0' },
+  ]}
+/>
+
+:::
+
+</Exercise>
+
+<Exercise title="RMQ from two blocks" anchor="exercise-st-rmq">
+
+:::tip Activity: RMQ from two blocks
+Input: `left_min right_min`. Print `min(left_min, right_min)` — the combine step after looking up `st[i][L]` and `st[i][R-2^i+1]`.
+
+<CodeExercise
+  title="RMQ from two blocks"
+  heading="exercise-st-rmq"
+  lang="python"
+  filename="main.py"
+  prompt="Idempotent combine."
+  sampleLog={`(input) 2 1
+1`}
+  starter={`def rmq_combine(a, b):
+    # TODO
+    return a
+`}
+  wrapSuffix={`
+a, b = map(int, input().split())
+print(rmq_combine(a, b))
+`}
+  hint="return min(a, b)"
+  solution={`def rmq_combine(a, b):
+    return min(a, b)
+`}
+  sourceChecks={[
+    { name: 'min', pattern: 'min\\s*\\(', must: true, hint: 'take the smaller' },
+  ]}
+  tests={[
+    { name: 'sample', stdin: '2 1', equals: '1' },
+    { name: 'eq', stdin: '5 5', equals: '5' },
+    { name: 'left', stdin: '3 9', equals: '3' },
+  ]}
+/>
+
+:::
+
+</Exercise>
+
+<Exercise title="Disjoint sum peel" anchor="exercise-st-sum">
+
+:::tip Activity: Disjoint sum peel
+You are given precomputed `st[i][j]` implicitly: the array `A` itself. Input: first line `n L R`, second line `n` integers. Compute range sum `A[L..R]` by the sparse-table peel algorithm (largest power of two each time) — do **not** use Python `sum(A[L:R+1])` as the only approach; implement the loop with bit lengths / shifts.
+
+<CodeExercise
+  title="Disjoint sum peel"
+  heading="exercise-st-sum"
+  lang="python"
+  filename="main.py"
+  prompt="O(log n) cover using prefix of dyadic blocks from a built st."
+  sampleLog={`(input) 8 2 7
+4 2 3 7 1 5 8 6
+30`}
+  starter={`def build_st(A):
+    n = len(A)
+    K = n.bit_length()
+    st = [A[:]]
+    i = 1
+    while (1 << i) <= n:
+        prev = st[-1]
+        row = []
+        span = 1 << i
+        half = 1 << (i - 1)
+        for j in range(0, n - span + 1):
+            row.append(prev[j] + prev[j + half])
+        # pad to length n for simple indexing
+        row.extend([0] * (n - len(row)))
+        st.append(row)
+        i += 1
+    return st
+
+def range_sum(st, L, R):
+    # TODO: peel powers of two
+    return 0
+`}
+  wrapSuffix={`
+n, L, R = map(int, input().split())
+A = list(map(int, input().split()))
+st = build_st(A)
+print(range_sum(st, L, R))
+`}
+  hint="K=len(st)-1; s=0; for i in range(K,-1,-1): if (1<<i) <= R-L+1: s += st[i][L]; L += 1<<i"
+  solution={`def build_st(A):
+    n = len(A)
+    st = [A[:]]
+    i = 1
+    while (1 << i) <= n:
+        prev = st[-1]
+        row = []
+        span = 1 << i
+        half = 1 << (i - 1)
+        for j in range(0, n - span + 1):
+            row.append(prev[j] + prev[j + half])
+        row.extend([0] * (n - len(row)))
+        st.append(row)
+        i += 1
+    return st
+
+def range_sum(st, L, R):
+    s = 0
+    for i in range(len(st) - 1, -1, -1):
+        if (1 << i) <= R - L + 1:
+            s += st[i][L]
+            L += 1 << i
+    return s
+`}
+  sourceChecks={[
+    { name: 'peels bits', pattern: '1\\s*<<|<<\\s*i', must: true, hint: 'use powers of two' },
+    { name: 'no slice sum only', pattern: 'sum\\s*\\(\\s*A\\s*\\[', must: false, hint: 'use the st peel loop' },
+  ]}
+  tests={[
+    { name: 'sample', stdin: '8 2 7\n4 2 3 7 1 5 8 6', equals: '30' },
+    { name: 'single', stdin: '3 1 1\n9 8 7', equals: '8' },
+    { name: 'all', stdin: '4 0 3\n1 2 3 4', equals: '10' },
+  ]}
+/>
+
+:::
+
+</Exercise>
+</ExerciseSet>
+
+## Practice problems
+
+From [CP-Algorithms](https://cp-algorithms.com/data_structures/sparse-table.html):
+
+- [SPOJ RMQSQ](https://www.spoj.com/problems/RMQSQ/), [THRBL](https://www.spoj.com/problems/THRBL/)
+- [CSES Static Range Minimum Queries](https://cses.fi/problemset/task/1647)
+- [Codeforces 475D — CGCDSSQ](https://codeforces.com/problemset/problem/475/D)
+- Codechef MSTICK, SEAD; more RMQ / GCD-range tasks listed in the article
+
+## Cheat sheet
+
+| Topic | Takeaway |
+|---|---|
+| `st[i][j]` | Fold on `[j, j+2^i−1]` |
+| Build | `O(n log n)` DP from halves |
+| Sum / assoc. | Disjoint peel `O(log n)` |
+| Min / max / gcd | Two overlaps `O(1)` |
+| Updates | Rebuild everything |
+| Related | Disjoint sparse table, Sqrt tree |

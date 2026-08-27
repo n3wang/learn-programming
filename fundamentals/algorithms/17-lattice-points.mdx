@@ -1,0 +1,395 @@
+---
+sidebar_position: 18
+title: Lattice Points (non-lattice)
+---
+
+import LatticePointsSimulator from "@site/src/components/interactive/LatticePointsSimulator.js";
+
+# Lattice Points inside a Non-Lattice Polygon
+
+For polygons with **integer** vertices, [Pick's theorem](https://en.wikipedia.org/wiki/Pick%27s_theorem) relates area to interior and boundary lattice counts. For **arbitrary** (real) vertices you need another tool.
+
+This lesson follows [CP-Algorithms — Lattice points](https://cp-algorithms.com/geometry/lattice-points.html): reduce the polygon to **signed edge floor-sums**, then evaluate
+
+```text
+Σ_{x = 0}^{n−1}  ⌊k x + b⌋
+```
+
+in **`O(log n)`** via a Euclidean-style reduction.
+
+Prerequisite flavor: [Basic Geometry](./02-basic-geometry) (edges / orientation).
+
+## Polygon → edges
+
+Process each edge `A → B` and add the number of lattice points **strictly under** that edge, with a **sign** from orientation (same idea as trapezoid / shoelace area).
+
+Vertical edges contribute `0` to this horizontal-strip view (handle separately if you need points on the edge).
+
+## Line through an edge
+
+Edge from `(x₁, y₁)` to `(x₂, y₂)` with `x₂ ≠ x₁`:
+
+```text
+y = k x + b
+k = (y₂ − y₁) / (x₂ − x₁)
+b = (y₁ x₂ − x₁ y₂) / (x₂ − x₁)
+```
+
+Shift so the left endpoint sits at a convenient origin:
+
+```text
+x = x' + ⌈x₁⌉
+b' = b + k · ⌈x₁⌉
+```
+
+Then work with `x₁' = 0`, `x₂' = x₂ − ⌈x₁⌉`, and `n = ⌊x₂'⌋`.
+
+**Convention in the core sum:** do **not** count `x = n` or `y = 0` inside the recursion (add boundary cases by hand if the problem needs them). Assume `k' ≥ 0`, `b' ≥ 0` (reflect / shift if not).
+
+Goal:
+
+```text
+Σ_{x' = 0}^{n − 1}  ⌊k' x' + b'⌋
+```
+
+## Evaluating the floor sum
+
+### Case A — `k ≥ 1` or `b ≥ 1`
+
+Count the integer strip under `⌊k⌋·x + ⌊b⌋` in closed form:
+
+```text
+Σ_{x=0}^{n−1} (⌊k⌋·x + ⌊b⌋) = (⌊k⌋·(n−1) + 2⌊b⌋) · n / 2
+```
+
+Remainder points satisfy
+
+```text
+0 < y ≤ (k − ⌊k⌋)·x + (b − ⌊b⌋)
+```
+
+so set `k' = {k}`, `b' = {b}` — both in `[0, 1)`.
+
+### Case B — `k < 1` and `b < 1`
+
+Let `t = k n + b`. If `⌊t⌋ = 0`, return `0`.
+
+Otherwise flip axes: new origin at `(n, ⌊t⌋)`, `x'` down, `y'` left. The count equals another floor-sum with slope **`1/k`** and length **`⌊t⌋`** — back to Case A. This is the **reciprocity** step (cousin of Euclid / Dedekind sums).
+
+## Complexity
+
+Each Case-A step removes a constant fraction of the points when `⌊k⌋ / k` is bounded away from 0; reciprocity shrinks the “`n`” parameter like a Euclidean algorithm. Overall **`O(log n)`** arithmetic steps (plus the cost of rational / careful floating ops).
+
+## Implementation
+
+Core routine: points with `0 ≤ x < n` and `0 < y ≤ ⌊k x + b⌋`.
+
+```cpp
+// Fraction: rational with floor(), +, -, *, /, comparisons
+long long count_lattices(Fraction k, Fraction b, long long n) {
+    auto fk = k.floor();
+    auto fb = b.floor();
+    long long cnt = 0;
+    if (k >= 1 || b >= 1) {
+        cnt += (fk * (n - 1) + 2 * fb) * n / 2;
+        k -= fk;
+        b -= fb;
+    }
+    auto t = k * n + b;
+    auto ft = t.floor();
+    if (ft >= 1) {
+        cnt += count_lattices(1 / k, (t - ft) / k, ft);
+    }
+    return cnt;
+}
+```
+
+**Numerics:** prefer exact rationals. If numerators/denominators start ≤ `C` and you cancel GCDs, recursive values stay around `C²`. With doubles, treat values within `ε²` of an integer as that integer when flooring (`ε` = input accuracy).
+
+<details>
+<summary>🧪 Floor-sum demo (exact Fraction, C++)</summary>
+
+<PistonRunner
+  lang="c++"
+  height="520px"
+  code={`#include <iostream>
+#include <cmath>
+#include <numeric>
+using namespace std;
+
+struct Frac {
+    long long n, d; // n/d, d > 0
+    Frac(long long n = 0, long long d = 1) {
+        if (d < 0) { n = -n; d = -d; }
+        long long g = gcd(n < 0 ? -n : n, d);
+        this->n = n / g;
+        this->d = d / g;
+    }
+    long long floor() const {
+        long long q = n / d;
+        if (n < 0 && n % d) q--;
+        return q;
+    }
+    Frac operator+(Frac o) const { return Frac(n * o.d + o.n * d, d * o.d); }
+    Frac operator-(Frac o) const { return Frac(n * o.d - o.n * d, d * o.d); }
+    Frac operator*(Frac o) const { return Frac(n * o.n, d * o.d); }
+    Frac operator/(Frac o) const { return Frac(n * o.d, d * o.n); }
+    Frac operator-(long long x) const { return *this - Frac(x); }
+    bool operator>=(long long x) const { return n >= x * d; }
+};
+
+long long count_lattices(Frac k, Frac b, long long n) {
+    long long fk = k.floor();
+    long long fb = b.floor();
+    long long cnt = 0;
+    if (k >= 1 || b >= 1) {
+        cnt += (fk * (n - 1) + 2 * fb) * n / 2;
+        k = k - fk;
+        b = b - fb;
+    }
+    Frac t = k * Frac(n) + b;
+    long long ft = t.floor();
+    if (ft >= 1) {
+        Frac kp = Frac(1) / k;
+        Frac bp = (t - Frac(ft)) / k;
+        cnt += count_lattices(kp, bp, ft);
+    }
+    return cnt;
+}
+
+long long naive(Frac k, Frac b, long long n) {
+    long long s = 0;
+    for (long long x = 0; x < n; x++) {
+        Frac v = k * Frac(x) + b;
+        s += v.floor();
+    }
+    return s;
+}
+
+int main() {
+    Frac k(3, 2), b(1, 5);
+    long long n = 8;
+    cout << "fast  = " << count_lattices(k, b, n) << endl;
+    cout << "naive = " << naive(k, b, n) << endl;
+    return 0;
+}
+`}
+/>
+
+</details>
+
+<LatticePointsSimulator />
+
+## Check: floor-sum ideas
+
+<MultipleChoice
+  id="algo-17-lattice-basic"
+  title="Lattice floor-sums"
+  questions={[
+    {
+      prompt: 'Pick’s theorem applies directly when…',
+      choices: [
+        'Vertices are arbitrary reals',
+        'Vertices are lattice points',
+        'Only triangles appear',
+        'n = 0 always',
+      ],
+      answer: 1,
+      why: 'Pick needs an integer-coordinate polygon.',
+    },
+    {
+      prompt: 'The core primitive counts…',
+      choices: [
+        'Σ ⌊k x + b⌋ for x = 0 … n−1',
+        'Only boundary gcd points',
+        'Convex hull area alone',
+        'FFT of the edge list',
+      ],
+      answer: 0,
+      why: 'Edge contributions reduce to that floor sum.',
+    },
+    {
+      prompt: 'When k≥1, the first step…',
+      choices: [
+        'Ignores ⌊k⌋',
+        'Adds the closed-form strip under ⌊k⌋x+⌊b⌋ then reduces to fractional parts',
+        'Sorts the polygon',
+        'Uses only recursion with 1/k',
+      ],
+      answer: 1,
+      why: 'Peel the integer linear part, leave {k},{b}.',
+    },
+    {
+      prompt: 'Typical complexity of count_lattices is…',
+      choices: ['O(n)', 'O(n²)', 'O(log n) steps', 'O(1) always with no math'],
+      answer: 2,
+      why: 'Euclidean-style reduction / reciprocity.',
+    },
+  ]}
+/>
+
+## Practice drills
+
+<ExerciseSet>
+<Exercise title="Naive floor sum" anchor="exercise-lat-naive">
+
+:::tip Activity: Naive floor sum
+Input: integers `kn kd bn bd n` meaning `k=kn/kd`, `b=bn/bd`. Print `Σ_{x=0}^{n-1} floor(k·x+b)` (exact rationals; `n` small).
+
+<CodeExercise
+  title="Naive floor sum"
+  heading="exercise-lat-naive"
+  lang="python"
+  filename="main.py"
+  prompt="Brute-force reference for the CP-Algorithms sum."
+  sampleLog={`(input) 3 2 1 5 8
+40`}
+  starter={`from fractions import Fraction
+import math
+
+def naive_floor_sum(k, b, n):
+    # TODO
+    return 0
+`}
+  wrapSuffix={`
+kn, kd, bn, bd, n = map(int, input().split())
+k = Fraction(kn, kd)
+b = Fraction(bn, bd)
+print(naive_floor_sum(k, b, n))
+`}
+  hint="sum(math.floor(k*x+b) for x in range(n))"
+  solution={`from fractions import Fraction
+import math
+
+def naive_floor_sum(k, b, n):
+    return sum(math.floor(k * x + b) for x in range(n))
+`}
+  sourceChecks={[
+    { name: 'loops x', pattern: 'range\\s*\\(|for\\s+', must: true, hint: 'iterate x from 0 to n-1' },
+  ]}
+  tests={[
+    { name: 'sample', stdin: '3 2 1 5 8', equals: '40' },
+    { name: 'half', stdin: '1 2 3 10 10', equals: '20' },
+    { name: 'int', stdin: '2 1 1 1 5', equals: '25' },
+  ]}
+/>
+
+:::
+
+</Exercise>
+
+<Exercise title="Integer-strip formula" anchor="exercise-lat-strip">
+
+:::tip Activity: Integer-strip formula
+Input: integers `fk fb n` (`fk=⌊k⌋`, `fb=⌊b⌋`, `n≥1`). Print `(fk*(n-1)+2*fb)*n//2`.
+
+<CodeExercise
+  title="Integer-strip formula"
+  heading="exercise-lat-strip"
+  lang="python"
+  filename="main.py"
+  prompt="Closed form for the Case A green strip."
+  sampleLog={`(input) 1 0 8
+28`}
+  starter={`def strip_count(fk, fb, n):
+    # TODO
+    return 0
+`}
+  wrapSuffix={`
+fk, fb, n = map(int, input().split())
+print(strip_count(fk, fb, n))
+`}
+  hint="return (fk*(n-1)+2*fb)*n//2"
+  solution={`def strip_count(fk, fb, n):
+    return (fk * (n - 1) + 2 * fb) * n // 2
+`}
+  sourceChecks={[
+    { name: 'uses formula', pattern: '\\*|//', must: true, hint: 'implement the closed form' },
+  ]}
+  tests={[
+    { name: 'sample', stdin: '1 0 8', equals: '28' },
+    { name: 'fb', stdin: '0 2 5', equals: '10' },
+    { name: 'n1', stdin: '3 4 1', equals: '4' },
+  ]}
+/>
+
+:::
+
+</Exercise>
+
+<Exercise title="Fast floor sum" anchor="exercise-lat-fast">
+
+:::tip Activity: Fast floor sum
+Same input as the naive drill. Implement `count_lattices` (Case A + reciprocity). Print the sum. Prefer `fractions.Fraction`.
+
+<CodeExercise
+  title="Fast floor sum"
+  heading="exercise-lat-fast"
+  lang="python"
+  filename="main.py"
+  prompt="O(log n) reduction from the article."
+  sampleLog={`(input) 3 2 1 5 8
+40`}
+  starter={`from fractions import Fraction
+import math
+
+def count_lattices(k, b, n):
+    # TODO
+    return 0
+`}
+  wrapSuffix={`
+kn, kd, bn, bd, n = map(int, input().split())
+print(count_lattices(Fraction(kn, kd), Fraction(bn, bd), n))
+`}
+  hint="if k>=1 or b>=1: add strip, k-=floor(k), b-=floor(b); t=k*n+b; if floor(t)>=1: recurse 1/k, (t-ft)/k, ft"
+  solution={`from fractions import Fraction
+import math
+
+def count_lattices(k, b, n):
+    k = Fraction(k)
+    b = Fraction(b)
+    fk = math.floor(k)
+    fb = math.floor(b)
+    cnt = 0
+    if k >= 1 or b >= 1:
+        cnt += (fk * (n - 1) + 2 * fb) * n // 2
+        k -= fk
+        b -= fb
+    t = k * n + b
+    ft = math.floor(t)
+    if ft >= 1:
+        cnt += count_lattices(1 / k, (t - ft) / k, ft)
+    return cnt
+`}
+  sourceChecks={[
+    { name: 'recurses or divides', pattern: 'count_lattices\\s*\\(|1\\s*/', must: true, hint: 'use reciprocity recursion' },
+  ]}
+  tests={[
+    { name: 'sample', stdin: '3 2 1 5 8', equals: '40' },
+    { name: 'frac', stdin: '3 10 7 10 12', equals: '23' },
+    { name: 'int', stdin: '2 1 1 1 5', equals: '25' },
+  ]}
+/>
+
+:::
+
+</Exercise>
+</ExerciseSet>
+
+## Further reading
+
+- [CP-Algorithms — Lattice points](https://cp-algorithms.com/geometry/lattice-points.html)
+- Pick’s theorem for the lattice-vertex special case
+- Dedekind sums / lattice-point enumeration under lines (number-theory view of the same reciprocity)
+
+## Cheat sheet
+
+| Idea | Takeaway |
+|---|---|
+| Polygon | Signed sum of per-edge floor counts |
+| Edge | `y = kx + b`, shift to `x'≥0` |
+| Core | `Σ ⌊kx+b⌋` for `x=0..n−1` |
+| Peel | Add strip `(⌊k⌋(n−1)+2⌊b⌋)n/2` |
+| Flip | Recurse with `1/k` and `n' = ⌊kn+b⌋` |
+| Time | `O(log n)` steps |
+| Numerics | Exact `Fraction`, or doubles with `ε²` floor |

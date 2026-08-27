@@ -1,0 +1,396 @@
+---
+sidebar_position: 34
+title: Strong Orientation
+---
+
+import StrongOrientationSimulator from "@site/src/components/interactive/StrongOrientationSimulator.js";
+
+# Strong Orientation
+
+A **strong orientation** of an undirected graph assigns a direction to every edge so the result is **strongly connected**: you can go from any vertex to any other along directed edges.
+
+This lesson follows [CP-Algorithms — Strong orientation](https://cp-algorithms.com/graph/strong-orientation.html).
+
+Related: [0-1 BFS](./01-bfs), [Centroid Decomposition](./05-centroid-decomposition).
+
+## When is it possible?
+
+A **bridge** can be crossed in only one direction after orientation, so you cannot return. Hence a graph with a bridge has **no** strong orientation.
+
+**Robbins' theorem:** an undirected graph has a strong orientation **iff** it is **connected and bridgeless** (2-edge-connected).
+
+## Construction (DFS)
+
+On a bridgeless connected graph:
+
+1. Run DFS; build a DFS tree.
+2. Orient **tree edges** **away from the root**.
+3. Orient every other edge **from descendant toward ancestor** (back / cross toward the tree).
+
+Why it works: no bridges ⇒ after deleting any tree edge you can still climb using a path with a back edge. So every vertex can reach the root, and the root can reach every vertex via the tree → strongly connected.
+
+## Minimal number of SCCs
+
+Orient so the digraph has as few SCCs as possible.
+
+- Handle each undirected **component** separately.
+- Bridges cannot sit inside a strong piece: after removing bridges you get bridgeless chunks you **can** strongly orient.
+- Orient bridges arbitrarily.
+
+The algorithm below runs the same DFS orientation on each component: tree / back orientation plus bridge detection. Then
+
+```text
+min #SCCs = (#undirected components) + (#bridges)
+```
+
+(each bridge merges into the count as an irreversible cut between otherwise strong pieces).
+
+## Implementation sketch
+
+Bridge-finding DFS that also records an orientation when an edge is first used:
+
+```cpp
+// adj: (neighbor, edge_id); edges[id] = {a,b} as in input
+// orient[id] = '>' if directed a→b, '<' if b→a
+void find_bridges(int v) {
+    low[v] = tin[v] = time++;
+    for (auto [nv, id] : adj[v]) {
+        if (edge_used[id]) continue;
+        edge_used[id] = true;
+        orient[id] = (v == edges[id].first) ? '>' : '<';
+        if (tin[nv] == -1) {
+            find_bridges(nv);
+            low[v] = min(low[v], low[nv]);
+            if (low[nv] > tin[v]) bridge_cnt++;
+        } else {
+            low[v] = min(low[v], tin[nv]);
+        }
+    }
+}
+// answer: comp_cnt + bridge_cnt, and orient string
+```
+
+You can also orient first, then run any SCC algorithm to verify the count.
+
+<StrongOrientationSimulator />
+
+<details>
+<summary>🧪 Orient a cycle vs a path</summary>
+
+<PistonRunner
+  lang="c++"
+  height="480px"
+  code={`#include <iostream>
+#include <vector>
+#include <string>
+using namespace std;
+
+struct Solver {
+    int n, m;
+    vector<vector<pair<int, int>>> adj;
+    vector<pair<int, int>> edges;
+    vector<int> tin, low;
+    vector<char> orient;
+    vector<char> edge_used;
+    int timer = 0, bridge_cnt = 0;
+
+    void dfs(int v) {
+        low[v] = tin[v] = timer++;
+        for (auto [nv, id] : adj[v]) {
+            if (edge_used[id]) continue;
+            edge_used[id] = 1;
+            orient[id] = (v == edges[id].first) ? '>' : '<';
+            if (tin[nv] == -1) {
+                dfs(nv);
+                low[v] = min(low[v], low[nv]);
+                if (low[nv] > tin[v]) bridge_cnt++;
+            } else {
+                low[v] = min(low[v], tin[nv]);
+            }
+        }
+    }
+
+    void run() {
+        tin.assign(n, -1);
+        low.assign(n, -1);
+        orient.assign(m, '?');
+        edge_used.assign(m, 0);
+        timer = bridge_cnt = 0;
+        int comp = 0;
+        for (int v = 0; v < n; v++) {
+            if (tin[v] == -1) {
+                comp++;
+                dfs(v);
+            }
+        }
+        cout << "min SCCs = " << comp + bridge_cnt << endl;
+        cout << "orient = ";
+        for (char c : orient) cout << c;
+        cout << endl;
+    }
+};
+
+int main() {
+    // Cycle 0-1-2-3-0 (bridgeless)
+    {
+        Solver s;
+        s.n = 4; s.m = 4;
+        s.adj.assign(4, {});
+        s.edges = {{0,1},{1,2},{2,3},{3,0}};
+        for (int i = 0; i < 4; i++) {
+            auto [a, b] = s.edges[i];
+            s.adj[a].push_back({b, i});
+            s.adj[b].push_back({a, i});
+        }
+        cout << "cycle:" << endl;
+        s.run();
+    }
+    // Path 0-1-2 (one bridge)
+    {
+        Solver s;
+        s.n = 3; s.m = 2;
+        s.adj.assign(3, {});
+        s.edges = {{0,1},{1,2}};
+        for (int i = 0; i < 2; i++) {
+            auto [a, b] = s.edges[i];
+            s.adj[a].push_back({b, i});
+            s.adj[b].push_back({a, i});
+        }
+        cout << "path:" << endl;
+        s.run();
+    }
+    return 0;
+}
+`}
+/>
+
+</details>
+
+## Check: strong orientation
+
+<MultipleChoice
+  id="algo-33-strongorient-basic"
+  title="Strong orientation"
+  questions={[
+    {
+      prompt: 'A strong orientation exists iff the graph is…',
+      choices: [
+        'A tree',
+        'Connected and bridgeless',
+        'Bipartite',
+        'Complete only',
+      ],
+      answer: 1,
+      why: "Robbins' theorem.",
+    },
+    {
+      prompt: 'In the DFS construction, tree edges point…',
+      choices: [
+        'Toward the root',
+        'Away from the root',
+        'Randomly',
+        'Only left-to-right in the input',
+      ],
+      answer: 1,
+      why: 'Root can reach everyone down the tree.',
+    },
+    {
+      prompt: 'Non-tree edges are oriented…',
+      choices: [
+        'Away from ancestors',
+        'Toward ancestors',
+        'Deleted',
+        'Both ways',
+      ],
+      answer: 1,
+      why: 'So every vertex can climb to the root.',
+    },
+    {
+      prompt: 'Minimal #SCCs after orientation equals…',
+      choices: [
+        'Always 1',
+        'components + bridges',
+        'Only the number of bridges',
+        'n − m',
+      ],
+      answer: 1,
+      why: 'Strongly orient 2-edge-connected pieces; bridges separate SCCs.',
+    },
+  ]}
+/>
+
+## Practice drills
+
+<ExerciseSet>
+<Exercise title="Robbins check" anchor="exercise-so-robbins">
+
+:::tip Activity: Robbins check
+Input: `connected bridges` as `0/1` and an integer. Print `YES` if a strong orientation exists (`connected=1` and `bridges=0`), else `NO`.
+
+<CodeExercise
+  title="Robbins check"
+  heading="exercise-so-robbins"
+  lang="python"
+  filename="main.py"
+  prompt="Connected + bridgeless."
+  sampleLog={`(input) 1 0
+YES`}
+  starter={`def can_strong_orient(connected, bridges):
+    # TODO: return "YES" or "NO"
+    return "NO"
+`}
+  wrapSuffix={`
+c, b = map(int, input().split())
+print(can_strong_orient(c, b))
+`}
+  hint="return 'YES' if connected == 1 and bridges == 0 else 'NO'"
+  solution={`def can_strong_orient(connected, bridges):
+    return "YES" if connected == 1 and bridges == 0 else "NO"
+`}
+  sourceChecks={[
+    { name: 'checks both', pattern: 'connected|bridges|and', must: true, hint: 'need both conditions' },
+  ]}
+  tests={[
+    { name: 'sample', stdin: '1 0', equals: 'YES' },
+    { name: 'bridge', stdin: '1 2', equals: 'NO' },
+    { name: 'disc', stdin: '0 0', equals: 'NO' },
+  ]}
+/>
+
+:::
+
+</Exercise>
+
+<Exercise title="Min SCC count" anchor="exercise-so-scc">
+
+:::tip Activity: Min SCC count
+Input: `comp_cnt bridge_cnt`. Print `comp_cnt + bridge_cnt`.
+
+<CodeExercise
+  title="Min SCC count"
+  heading="exercise-so-scc"
+  lang="python"
+  filename="main.py"
+  prompt="Formula after DFS orientation."
+  sampleLog={`(input) 1 1
+2`}
+  starter={`def min_sccs(comp_cnt, bridge_cnt):
+    # TODO
+    return 0
+`}
+  wrapSuffix={`
+a, b = map(int, input().split())
+print(min_sccs(a, b))
+`}
+  hint="return comp_cnt + bridge_cnt"
+  solution={`def min_sccs(comp_cnt, bridge_cnt):
+    return comp_cnt + bridge_cnt
+`}
+  sourceChecks={[
+    { name: 'adds', pattern: '\\+', must: true, hint: 'sum the two counts' },
+  ]}
+  tests={[
+    { name: 'sample', stdin: '1 1', equals: '2' },
+    { name: 'cycle', stdin: '1 0', equals: '1' },
+    { name: 'two', stdin: '2 3', equals: '5' },
+  ]}
+/>
+
+:::
+
+</Exercise>
+
+<Exercise title="Orient char" anchor="exercise-so-orient">
+
+:::tip Activity: Orient char
+Edge in input is `(a, b)`. DFS first uses it from vertex `v`. Print `>` if oriented `a→b`, else `<`.
+
+<CodeExercise
+  title="Orient char"
+  heading="exercise-so-orient"
+  lang="python"
+  filename="main.py"
+  prompt="Match the article's orient[] encoding."
+  sampleLog={`(input) 0 1 0
+>`}
+  starter={`def orient_char(a, b, v):
+    # TODO: return ">" or "<"
+    return "<"
+`}
+  wrapSuffix={`
+a, b, v = map(int, input().split())
+print(orient_char(a, b, v))
+`}
+  hint="return '>' if v == a else '<'"
+  solution={`def orient_char(a, b, v):
+    return ">" if v == a else "<"
+`}
+  sourceChecks={[
+    { name: 'compares v', pattern: 'v\\s*==|==\\s*v|a', must: true, hint: 'compare v to a' },
+  ]}
+  tests={[
+    { name: 'forward', stdin: '0 1 0', equals: '>' },
+    { name: 'backward', stdin: '0 1 1', equals: '<' },
+    { name: 'other', stdin: '2 5 5', equals: '<' },
+  ]}
+/>
+
+:::
+
+</Exercise>
+
+<Exercise title="Is bridge?" anchor="exercise-so-bridge">
+
+:::tip Activity: Is bridge?
+In classic `tin`/`low` DFS, tree edge `v → nv` is a bridge iff `low[nv] > tin[v]`. Input: `low_nv tin_v`. Print `YES` or `NO`.
+
+<CodeExercise
+  title="Is bridge?"
+  heading="exercise-so-bridge"
+  lang="python"
+  filename="main.py"
+  prompt="Bridge condition from the DFS."
+  sampleLog={`(input) 5 3
+YES`}
+  starter={`def is_bridge(low_nv, tin_v):
+    # TODO
+    return "NO"
+`}
+  wrapSuffix={`
+a, b = map(int, input().split())
+print(is_bridge(a, b))
+`}
+  hint="return 'YES' if low_nv > tin_v else 'NO'"
+  solution={`def is_bridge(low_nv, tin_v):
+    return "YES" if low_nv > tin_v else "NO"
+`}
+  sourceChecks={[
+    { name: 'compares', pattern: '>', must: true, hint: 'low[nv] > tin[v]' },
+  ]}
+  tests={[
+    { name: 'sample', stdin: '5 3', equals: 'YES' },
+    { name: 'back', stdin: '2 4', equals: 'NO' },
+    { name: 'eq', stdin: '3 3', equals: 'NO' },
+  ]}
+/>
+
+:::
+
+</Exercise>
+</ExerciseSet>
+
+## Practice problems
+
+From [CP-Algorithms](https://cp-algorithms.com/graph/strong-orientation.html):
+
+- [26th Polish OI — Osiedla](https://szkopul.edu.pl/problemset/problem/1QaUWE2Z4nER6LB4axHqHpPh/site/?key=statement) *(or search “Osiedla OI”)*
+
+## Cheat sheet
+
+| Idea | Takeaway |
+|---|---|
+| Goal | Orient edges → strongly connected |
+| Exists? | Connected + no bridges (Robbins) |
+| How | DFS: tree ↓ from root, backs ↑ to ancestors |
+| Min SCCs | `#components + #bridges` |
+| Encode | `>` / `<` vs input endpoint order |

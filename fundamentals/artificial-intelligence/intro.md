@@ -7,6 +7,12 @@ title: Artificial Intelligence
 
 From classic search algorithms to modern transformers, this section builds up the theory and intuition behind AI systems — with interactive visualizers for the parts that are hardest to grasp from equations alone.
 
+## AI Engineering
+
+Practical, applied coverage of building with foundation models — not training them from scratch, but understanding the design decisions (training data, architecture, scale, post-training, sampling) that determine how a model behaves once it's in your application.
+
+- [Understanding Foundation Models](./ai-engineering/01-understanding-foundation-models) — training data curation, transformer architecture, model scale and scaling laws, post-training (SFT/RLHF/DPO), and sampling (temperature, top-k/top-p, hallucination)
+
 ## Planned Topics
 
 ### Search & Classical AI

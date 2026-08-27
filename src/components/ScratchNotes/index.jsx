@@ -10,6 +10,7 @@ import {
 } from './db';
 import {
   CODE_PROGRESS_EVENT,
+  countsTowardProgress,
   isPracticeDraft,
   listDrafts,
   toggleDraftBookmark,
@@ -62,7 +63,7 @@ export default function ScratchNotes() {
 
   const refreshPractices = useCallback(async () => {
     const rows = await listDrafts().catch(() => []);
-    setPractices(rows.filter(isPracticeDraft));
+    setPractices((rows || []).filter((row) => isPracticeDraft(row) && countsTowardProgress(row)));
   }, []);
 
   useEffect(() => {
@@ -79,7 +80,7 @@ export default function ScratchNotes() {
           }
         }
         setNotes(noteRows);
-        setPractices((draftRows || []).filter(isPracticeDraft));
+        setPractices((draftRows || []).filter((row) => isPracticeDraft(row) && countsTowardProgress(row)));
       })
       .finally(() => {
         if (!cancelled) {
@@ -186,7 +187,18 @@ export default function ScratchNotes() {
       if (codeFilter === 'bookmarked' && !e.bookmarked) {
         return false;
       }
-      if (codeFilter !== 'all' && codeFilter !== 'bookmarked' && String(e.lang).toLowerCase() !== codeFilter) {
+      if (codeFilter === 'pending' && (e.completed || !e.modified)) {
+        return false;
+      }
+      if (codeFilter === 'passed' && !e.completed) {
+        return false;
+      }
+      const isStatus =
+        codeFilter === 'all' ||
+        codeFilter === 'bookmarked' ||
+        codeFilter === 'pending' ||
+        codeFilter === 'passed';
+      if (!isStatus && String(e.lang).toLowerCase() !== codeFilter) {
         return false;
       }
       if (!q) {
@@ -379,6 +391,18 @@ export default function ScratchNotes() {
                   className={codeFilter === 'bookmarked' ? styles.filterOn : styles.filter}
                   onClick={() => setCodeFilter(codeFilter === 'bookmarked' ? 'all' : 'bookmarked')}>
                   bookmarked
+                </button>
+                <button
+                  type="button"
+                  className={codeFilter === 'pending' ? styles.filterOn : styles.filter}
+                  onClick={() => setCodeFilter(codeFilter === 'pending' ? 'all' : 'pending')}>
+                  pending
+                </button>
+                <button
+                  type="button"
+                  className={codeFilter === 'passed' ? styles.filterOn : styles.filter}
+                  onClick={() => setCodeFilter(codeFilter === 'passed' ? 'all' : 'passed')}>
+                  passed
                 </button>
                 {langs.map((lang) => (
                   <button

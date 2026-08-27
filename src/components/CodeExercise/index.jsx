@@ -1,4 +1,4 @@
-import React, {useCallback, useEffect, useMemo, useState} from 'react';
+import React, {useCallback, useMemo, useState} from 'react';
 import {useLocation} from '@docusaurus/router';
 import useDocusaurusContext from '@docusaurus/useDocusaurusContext';
 import CodeEditor from '@site/src/components/CodeEditor';
@@ -6,7 +6,6 @@ import EditorToolbar from '@site/src/components/codeWorkspace/EditorToolbar';
 import useCodeDraft from '@site/src/components/codeWorkspace/useCodeDraft';
 import {
     makeDraftId,
-    registerPractice,
     markPracticeComplete,
     slugifyAnchor,
 } from '@site/src/components/codeWorkspace/drafts';
@@ -135,23 +134,26 @@ export default function CodeExercise({
         [anchor, heading, title]
     );
 
-    const {code, setCode, saveLabel, reset} = useCodeDraft(draftId, starter);
-
     const chapter = typeof document !== 'undefined'
         ? document.title.replace(/\s*[|\u2013\u2014].*$/, '').trim()
         : pathname;
 
-    useEffect(() => {
-        registerPractice(draftId, {
+    const plannedTotal = sourceChecks.length + tests.length;
+
+    const practiceMeta = useMemo(
+        () => ({
             title,
             pathname,
             chapter,
             lang,
             starter,
             hash,
-            plannedTotal: sourceChecks.length + tests.length,
-        }).catch(() => {});
-    }, [draftId, title, pathname, chapter, lang, starter, hash, sourceChecks.length, tests.length]);
+            plannedTotal,
+        }),
+        [title, pathname, chapter, lang, starter, hash, plannedTotal]
+    );
+
+    const {code, setCode, saveLabel, reset} = useCodeDraft(draftId, starter, '', practiceMeta);
 
     const [checking, setChecking] = useState(false);
     const [results, setResults] = useState(null);
@@ -241,11 +243,19 @@ export default function CodeExercise({
         const passedCount = next.filter((r) => r.pass).length;
         const total = sourceChecks.length + tests.length;
         if (total > 0 && passedCount === total) {
-            markPracticeComplete(draftId, {code}).catch(() => {});
+            markPracticeComplete(draftId, {
+                code,
+                title,
+                pathname,
+                chapter,
+                lang,
+                starter,
+                hash,
+                plannedTotal: total,
+            }).catch(() => {});
         }
-    }, [api, siteConfig, tests, sourceChecks, wrapPrefix, wrapSuffix, lang, version, fileName, code, draftId]);
+    }, [api, siteConfig, tests, sourceChecks, wrapPrefix, wrapSuffix, lang, version, fileName, code, draftId, title, pathname, chapter, starter, hash]);
 
-    const plannedTotal = sourceChecks.length + tests.length;
     const passed = results?.filter((r) => r.pass).length ?? 0;
     const ran = results?.length ?? 0;
     const allPass = results && plannedTotal > 0 && passed === plannedTotal;

@@ -1,0 +1,912 @@
+---
+sidebar_position: 1
+title: Understanding Foundation Models
+---
+
+# Understanding Foundation Models
+
+> **Adapted from:** Chip Huyen, *AI Engineering* (O'Reilly, 2025), Chapter 2 — rewritten and condensed for teaching, with the original figures and statistics re-derived from the cited sources.
+
+To build applications with foundation models, you don't need to know how to train one — but a high-level understanding helps you pick the right model and adapt it to your needs. This chapter won't teach you how to compete with OpenAI (the people who know how are usually under NDA anyway). Instead, it focuses on the design decisions that ripple downstream into the applications you build: what data a model saw, how it's architected and sized, how it was aligned to human preferences after pre-training, and how it actually picks the words it outputs.
+
+That last one — **sampling** — is easy to overlook, but it explains some of the most confusing behaviors you'll see from AI systems, including hallucination and inconsistency. Understanding it can also make your applications meaningfully better for very little engineering effort.
+
+Everything in this chapter is foundational to the rest of an AI engineering curriculum. If you're already comfortable with a section, skip it — you can always come back later.
+
+---
+
+## Training Data
+
+A model is only as good as the data it was trained on. No Vietnamese in the training set means no English→Vietnamese translation. An image classifier that only ever saw animals will flounder on photos of houseplants.
+
+The intuitive fix — "just add more data for the task you care about" — runs into a hard economic wall: collecting large amounts of high-quality data is expensive, so model developers often train on whatever data is *available*, not necessarily what's *ideal*.
+
+The most common source of "available" data is **Common Crawl**, a nonprofit that crawls billions of web pages a month (2–3 billion/month in 2022–2023). Google publishes a cleaned-up subset called **C4** (Colossal Clean Crawled Corpus). "Cleaned up" is relative — Common Crawl is full of clickbait, misinformation, conspiracy content, and every sketchy corner of the internet you've ever scrolled past. A *Washington Post* analysis found several low-trustworthiness outlets among the 1,000 most-represented sites in the dataset.
+
+Despite this, variations of Common Crawl show up in most foundation models that disclose their sources, including GPT-3 and Gemini — and it's a safe bet it's in most of the models that *don't* disclose their sources either, since transparency about training data has been steadily declining industry-wide.
+
+Some teams filter with heuristics rather than curate from scratch. OpenAI trained GPT-2 only on Reddit links with at least three upvotes — a cheap way to screen out content nobody engaged with, even if Reddit isn't exactly a paragon of editorial standards.
+
+:::note "Use what we have" has a cost
+Training on whatever's available produces a model that's good at whatever tasks happen to be well-represented in that data — not necessarily the tasks you actually care about. That's why curating data for a target language or domain matters, and why (as the source book covers in a later chapter) **quantity, quality, and diversity** are treated as three separate, equally important goals.
+:::
+
+It's tempting to think "why not just train on *everything* — general web data plus specialized data — so the model can do it all?" Many teams do exactly that. But more data means more compute, and more compute doesn't automatically mean a better model. Gunasekar et al. (2023) trained a 1.3B-parameter model on just 7B tokens of *high-quality* coding data and beat much larger models on important coding benchmarks. Quality can substitute for scale.
+
+<details>
+<summary>🧪 Why "more data" isn't automatically "a better model"</summary>
+
+<PistonRunner
+  lang="python"
+  interactive={false}
+  height="240px"
+  code={`# A toy illustration of the idea, not a real training run.
+# Model A: trained on 10x more tokens, but noisy and off-topic.
+# Model B: trained on far fewer tokens, but all high-quality and on-task.
+
+def estimate_quality(tokens, noise_ratio):
+    useful_tokens = tokens * (1 - noise_ratio)
+    # diminishing returns on raw scale once useful signal saturates
+    return min(useful_tokens, 50_000) 
+
+model_a = estimate_quality(tokens=700_000, noise_ratio=0.95)  # huge, noisy
+model_b = estimate_quality(tokens=7_000, noise_ratio=0.02)    # small, clean
+
+print("Model A effective signal:", model_a)
+print("Model B effective signal:", model_b)
+`}
+/>
+
+</details>
+
+### Check: training data
+
+<MultipleChoice
+  id="ai-eng-ch1-training-data"
+  title="Training data basics"
+  questions={[
+    {
+      prompt: 'Why do model developers so often rely on Common Crawl / C4 despite their quality problems?',
+      choices: [
+        'Because those datasets are legally required for training',
+        'Because collecting sufficient high-quality data at scale is expensive, so teams use what is available',
+        'Because Common Crawl contains no low-quality content',
+        'Because smaller models cannot use any other data source',
+      ],
+      answer: 1,
+      why: 'Large-scale data collection is costly, so "use what we have" becomes the default even when quality is questionable.',
+    },
+    {
+      prompt: 'What did Gunasekar et al. (2023) demonstrate with their 1.3B-parameter model trained on 7B tokens of coding data?',
+      choices: [
+        'That bigger models always beat smaller ones',
+        'That high-quality, smaller datasets can let a smaller model outperform much larger models on relevant benchmarks',
+        'That Common Crawl is sufficient for coding tasks',
+        'That coding models cannot be finetuned from general-purpose models',
+      ],
+      answer: 1,
+      why: 'Data quality can substitute for raw scale — a small model on 7B high-quality tokens beat much larger coding models.',
+    },
+  ]}
+/>
+
+---
+
+### Multilingual Models
+
+English dominates the internet, and by extension, internet-scraped training data. In Common Crawl, English accounts for roughly **46%** of the data — about eight times more than the second-most-common language, Russian, at around **6%** (Lai et al., 2023).
+
+| Language | % of Common Crawl |
+|---|---|
+| English | 45.9% |
+| Russian | 6.0% |
+| German | 5.9% |
+| Chinese | 4.9% |
+| Japanese | 4.8% |
+| French | 4.7% |
+| Spanish | 4.5% |
+| Italian | 2.6% |
+| Dutch | 2.1% |
+| Polish | 1.7% |
+| Portuguese | 1.2% |
+| Vietnamese | 1.0% |
+
+Languages below roughly 1% of Common Crawl are considered **low-resource** — and many of them have hundreds of millions of speakers. The mismatch between "how many people speak this language" and "how much of this language is in Common Crawl" is stark:
+
+| Language | Speakers (M) | % world population | % of Common Crawl |
+|---|---|---|---|
+| Punjabi | 113 | 1.41% | 0.0061% |
+| Swahili | 71 | 0.89% | 0.0077% |
+| Urdu | 231 | 2.89% | 0.0274% |
+| Kannada | 64 | 0.80% | 0.0122% |
+| Telugu | 95 | 1.19% | 0.0183% |
+| Gujarati | 62 | 0.78% | 0.0126% |
+| Marathi | 99 | 1.24% | 0.0213% |
+| Bengali | 272 | 3.40% | 0.0930% |
+| *English (for comparison)* | *1,452* | *18.15%* | *45.88%* |
+
+This shows up directly in benchmarks. On MMLU (a 14,000-question, 57-subject benchmark), GPT-4 scores noticeably worse in Telugu than in English (OpenAI, 2023). On six Project Euler math problems, GPT-4 solved problems in English more than three times as often as in Armenian or Farsi, and failed **every** Burmese and Amharic question (Yennie Jun's analysis). The languages that score worst on MMLU — Telugu, Marathi, Punjabi — are also among the most under-represented in Common Crawl, though under-representation isn't the whole story: a language's structure and the culture embedded in it also affect how learnable it is for a model trained mostly on English patterns.
+
+:::caution "Just translate it" doesn't fully work
+A tempting workaround is: translate the non-English query into English, get the answer, translate it back. Two problems: (1) you still need a model good enough at the low-resource language to translate accurately in the first place, and (2) translation loses information. Vietnamese pronouns encode the *relationship* between speakers — all of that nuance flattens into a generic "I" and "you" once translated into English and back.
+:::
+
+Model behavior can also differ across languages in ways that aren't fully understood. NewsGuard found that in April 2023, ChatGPT-3.5 refused to generate misinformation about China in English (declining 6 of 7 prompts) but complied with **all seven** prompts when asked in simplified or traditional Chinese. Nobody has a confirmed explanation — it might trace back to imbalances in pre-training or alignment data for that language.
+
+There's also a hidden cost: **tokenization efficiency**. The same meaning can take dramatically more tokens to express in some languages than others. Benchmarking GPT-4 on the MASSIVE dataset (one million short texts across 52 languages), Yennie Jun found the median English text tokenizes to about 7 tokens, while the median Burmese text takes **72** — roughly 10x. Since inference cost and latency scale with token count, that's a real 10x tax on cost and speed for Burmese speakers using the same model.
+
+This gap is why language-specific models exist: ChatGLM, YAYI, and Llama-Chinese variants for Chinese; CroissantLLM for French; PhoGPT for Vietnamese; Jais for Arabic — among many others.
+
+### Check: multilingual models
+
+<MultipleChoice
+  id="ai-eng-ch1-multilingual"
+  title="Multilingual models"
+  questions={[
+    {
+      prompt: 'Roughly what share of Common Crawl is English text?',
+      choices: ['About 10%', 'About 25%', 'About 46%', 'About 75%'],
+      answer: 2,
+      why: 'English makes up roughly 46% of Common Crawl — about eight times the second-most common language.',
+    },
+    {
+      prompt: 'Why is "translate to English, run the query, translate back" an imperfect fix for low-resource languages?',
+      choices: [
+        'It is illegal in most countries',
+        'It requires no understanding of the original language at all',
+        'It still needs a model that understands the low-resource language well enough to translate, and translation can lose information like relationship-encoding pronouns',
+        'Translation always increases token count for every language',
+      ],
+      answer: 2,
+      why: 'Translation requires a competent translator model in the first place, and can strip out meaning that has no English equivalent.',
+    },
+    {
+      prompt: 'Why can the same request cost roughly 10x more in Burmese than in English on a token-priced API?',
+      choices: [
+        'Burmese requires a completely separate, more expensive model',
+        'Burmese text tokenizes into far more tokens to express the same meaning, and cost scales with token count',
+        'Burmese is not supported at all, so a surcharge is applied',
+        'This is a myth with no measured basis',
+      ],
+      answer: 1,
+      why: "Benchmarking showed Burmese's median token length was about 10x English's for equivalent meaning — and API cost/latency scale with tokens.",
+    },
+  ]}
+/>
+
+---
+
+### Domain-Specific Models
+
+General-purpose models like GPT-4, Gemini, and Llama handle a striking range of domains — coding, law, business, sports, environmental science — largely because those domains are well represented in their training data. An analysis of C4's domain distribution by the *Washington Post* (2023) shows heavy coverage of news, business, and entertainment sites, with far less representation of anything specialized.
+
+Vision data is harder to analyze this way (there's no easy "domain keyword" heuristic for images), but you can infer coverage from benchmark performance. CLIP and Open CLIP, for instance, perform well on broad categories like general object recognition but noticeably worse on narrow, specialized benchmarks like fine-grained bird species (Birdsnap) or country-of-origin recognition (Country211) — a sign that those categories are thin in the training data, even for otherwise strong general-purpose vision models.
+
+For genuinely specialized tasks, general-purpose training data usually isn't enough at all. **Drug discovery** involves protein, DNA, and RNA sequences in formats that simply don't show up on the open internet. **Cancer screening** involves X-rays and fMRI scans that are locked behind privacy protections. Building a model that's useful for these tasks means curating a dataset built for the purpose:
+
+- **AlphaFold** (DeepMind) — trained on sequences and 3D structures of ~100,000 known proteins.
+- **BioNeMo** (NVIDIA) — biomolecular data for drug discovery.
+- **Med-PaLM 2** (Google) — an LLM combined with medical data for higher-accuracy medical Q&A.
+
+Domain-specific models are most visible in biomedicine, but the same logic applies anywhere the internet is thin: a model trained on architectural sketches could plausibly outperform a general image model like Stable Diffusion for architects, and a model trained on factory floor plans could beat a generic chatbot for manufacturing use cases.
+
+### Check: domain-specific models
+
+<MultipleChoice
+  id="ai-eng-ch1-domain"
+  title="Domain-specific models"
+  questions={[
+    {
+      prompt: 'Why do general-purpose foundation models struggle with tasks like drug discovery or cancer screening?',
+      choices: [
+        'The underlying architecture cannot represent scientific data',
+        'The relevant data (protein/DNA sequences, medical scans) is expensive, privacy-restricted, or otherwise rarely present in general internet-scraped training data',
+        'These tasks require no data at all, only reasoning',
+        'General-purpose models are always smaller than specialized ones',
+      ],
+      answer: 1,
+      why: 'Specialized-domain data (medical scans, protein structures) is scarce, expensive, or privacy-protected, so it barely appears in general training data.',
+    },
+    {
+      prompt: 'What does AlphaFold\'s training approach illustrate about domain-specific models?',
+      choices: [
+        'It was trained on random internet text like general LLMs',
+        'It was trained on a curated dataset of known protein sequences and structures, specific to its task',
+        'It requires no training data because it uses pure logic',
+        'It uses the exact same architecture and data as GPT-4',
+      ],
+      answer: 1,
+      why: 'AlphaFold was trained on ~100,000 known protein sequences and 3D structures — a purpose-built, curated dataset, not general web data.',
+    },
+  ]}
+/>
+
+---
+
+## Modeling
+
+Once you know what data you're working with, the next set of decisions is about the model itself: what architecture, and what size? These choices matter for usability, not just capability — a 7B model is far easier to deploy than a 175B one, and optimizing for latency looks completely different depending on the architecture underneath.
+
+### Model Architecture
+
+As of this writing, the **transformer** (Vaswani et al., 2017) dominates language-based foundation models. To understand why, it helps to understand the problem it solved.
+
+Before the transformer, the go-to architecture was **seq2seq** (sequence-to-sequence): an RNN-based encoder reads the input token by token and compresses it into one final hidden state; a decoder then generates output tokens one at a time, conditioned on that single hidden state plus whatever it's generated so far. Google's adoption of seq2seq in Google Translate (2016) was, at the time, their largest single quality jump for machine translation.
+
+Seq2seq had two structural problems:
+
+1. **Information bottleneck** — the decoder only ever sees the *final* hidden state of the input, like summarizing a book from memory of its last page instead of being able to flip back through it.
+2. **Sequential everything** — because it's RNN-based, both encoding and decoding happen one token at a time. A 200-token input means 200 sequential steps before the decoder can even start.
+
+The transformer fixes both with the **attention mechanism**: instead of compressing the whole input into one vector, the decoder can look back at *any* previous token and weigh how relevant it is — like flipping to any page of the book instead of relying on a one-paragraph summary. And because attention doesn't require RNN-style recurrence, the *input* can be processed in parallel.
+
+:::note Attention predates the transformer
+Attention itself was introduced three years before the transformer paper and was already used inside RNN-based systems like Google's GNMT (2016). What made the 2017 transformer paper ("Attention Is All You Need") a turning point was showing attention *alone* — without any RNN — was enough.
+:::
+
+Because output generation is still autoregressive (one token conditions the next), inference for a transformer-based model happens in two distinct phases:
+
+- **Prefill** — the input tokens are processed in parallel, building the internal state (key/value vectors) needed to generate the first output token.
+- **Decode** — output tokens are generated one at a time, sequentially.
+
+#### The attention mechanism, concretely
+
+Attention works with three learned vectors per token:
+
+- **Query (Q)** — represents what the current decoding step is "looking for." Think of it as the person searching the book for information.
+- **Key (K)** — one per previous token, like a page number that says "here's what's on this page."
+- **Value (V)** — the actual content associated with that token, like the page's text.
+
+The model computes relevance by taking a dot product between the query and each key; a high score means "use more of this token's value when generating the next output." Given input `x`, and learned weight matrices `W_K`, `W_V`, `W_Q`:
+
+```
+K = x·W_K
+V = x·W_V
+Q = x·W_Q
+```
+
+For Llama 2-7B, the model's hidden dimension is 4096, so each of these matrices is 4096×4096, and each resulting K/V/Q vector has 4096 dimensions.
+
+Attention is almost always **multi-headed** — instead of one big attention computation, the Q/K/V vectors are split into smaller chunks (heads), each attending independently, so the model can track several different kinds of relationships between tokens at once. Llama 2-7B uses 32 heads of 128 dimensions each (4096 / 32 = 128). The outputs of all heads are concatenated and passed through one more output-projection matrix.
+
+#### The transformer block
+
+A transformer model is a stack of repeated **transformer blocks**, each generally containing:
+
+- **Attention module** — four weight matrices: query, key, value, and output projection.
+- **MLP module** ("multi-layer perceptron") — linear (feedforward) layers separated by a nonlinear activation function. The linear layers do the transformation; the nonlinearity is what lets the network learn non-linear patterns instead of collapsing into one big linear function.
+
+Common activation functions are surprisingly simple: **ReLU** just zeroes out negative values (`ReLU(x) = max(0, x)`), and **GELU** (used in GPT-2/3) is a smooth variant. Fancier activation functions were tried and largely abandoned — simple, cheap-to-compute functions turned out to work just as well while costing far less compute and memory at scale.
+
+Wrapping the stack of transformer blocks:
+
+- An **embedding module** *before* the blocks, converting tokens and their positions into vectors. The number of position slots a model tracks sets its baseline maximum context length (though techniques exist to extend context beyond the original position count).
+- An **output layer** ("model head" or "unembedding layer") *after* the blocks, mapping the model's final vector back into token probabilities for sampling.
+
+A model's total size comes down to a handful of dimension choices: hidden/model dimension, number of transformer blocks, feedforward dimension, and vocabulary size. Bigger numbers along any of these axes mean a bigger model:
+
+| Model | Blocks | Model dim | Feedforward dim | Vocab | Context |
+|---|---|---|---|---|---|
+| Llama 2-7B | 32 | 4,096 | 11,008 | 32K | 4K |
+| Llama 2-13B | 40 | 5,120 | 13,824 | 32K | 4K |
+| Llama 2-70B | 80 | 8,192 | 22,016 | 32K | 4K |
+| Llama 3-8B | 32 | 4,096 | 14,336 | 128K | 128K |
+| Llama 3-70B | 80 | 8,192 | 28,672 | 128K | 128K |
+| Llama 3-405B | 126 | 16,384 | 53,248 | 128K | 128K |
+
+Note that context length affects a model's memory footprint but *not* its parameter count — it's a separate axis entirely.
+
+<details>
+<summary>🧪 Softmax over toy Q·K scores</summary>
+
+<PistonRunner
+  lang="python"
+  interactive={false}
+  height="260px"
+  code={`import math
+
+def softmax(xs):
+    m = max(xs)
+    exps = [math.exp(x - m) for x in xs]
+    total = sum(exps)
+    return [e / total for e in exps]
+
+# Pretend these are dot-product scores between a query
+# and 4 previous tokens' keys.
+scores = [2.1, 0.4, -1.0, 3.3]
+weights = softmax(scores)
+for score, w in zip(scores, weights):
+    print(f"score={score:>5} -> attention weight={w:.3f}")
+`}
+/>
+
+</details>
+
+### Check: transformer architecture
+
+<MultipleChoice
+  id="ai-eng-ch1-transformer"
+  title="Transformer architecture"
+  questions={[
+    {
+      prompt: 'What two problems with seq2seq did the transformer architecture address?',
+      choices: [
+        'Vocabulary size and tokenization cost',
+        'The decoder relying on only a single compressed hidden state, and the sequential (slow) nature of RNN processing',
+        'Lack of a decoder module entirely',
+        'Inability to run on GPUs',
+      ],
+      answer: 1,
+      why: 'Attention removes the single-hidden-state bottleneck by letting the decoder look at any prior token, and removing RNNs allows parallel input processing.',
+    },
+    {
+      prompt: 'In the attention mechanism, what does the Query vector represent?',
+      choices: [
+        'The content of a previous token',
+        'What the current decoding step is "looking for" among previous tokens',
+        'The model\'s vocabulary size',
+        'A fixed positional encoding',
+      ],
+      answer: 1,
+      why: 'The Query represents the current search — like a person looking for relevant information among earlier "pages" (tokens).',
+    },
+    {
+      prompt: 'Why does a transformer model use multiple attention heads instead of one large attention computation?',
+      choices: [
+        'It reduces the vocabulary size needed',
+        'It lets the model attend to several different kinds of token relationships in parallel, each in a smaller subspace',
+        'It is required for the model to compile',
+        'It eliminates the need for an MLP module',
+      ],
+      answer: 1,
+      why: 'Splitting Q/K/V into multiple heads lets different heads specialize in different relationships between tokens simultaneously.',
+    },
+    {
+      prompt: 'Why do modern transformer models mostly use simple activation functions like ReLU or GELU instead of more elaborate ones?',
+      choices: [
+        'Elaborate activation functions are illegal to patent',
+        'Simple functions are cheap to compute and work about as well in practice, while fancier ones cost more compute/memory without a clear benefit at scale',
+        'Simple functions increase vocabulary size',
+        'Complex activation functions cannot be differentiated',
+      ],
+      answer: 1,
+      why: 'The community found that fancier activation functions did not reliably outperform simple ones, while being far more expensive at scale.',
+    },
+  ]}
+/>
+
+---
+
+### Other Model Architectures
+
+The transformer has had unusual staying power (since 2017) compared to earlier architectures — seq2seq had its moment from roughly 2014–2018, GANs from 2014–2019. That doesn't mean it's the final word.
+
+A few active alternatives, illustrating an evolving research direction:
+
+- **RWKV** (Peng et al., 2023) — an RNN-based design that can still be parallelized during training, in theory sidestepping the transformer's context-length constraints.
+- **State space models (SSMs)** — introduced by Gu et al. (2021), aimed at long-sequence modeling:
+  - **S4** made SSMs more computationally efficient.
+  - **H3** added a mechanism for recalling and comparing tokens across a sequence, echoing what attention does but more efficiently for long sequences.
+  - **Mamba** (Gu and Dao, 2023) scaled SSMs to 3B parameters, matching transformers *twice* its size on language modeling, with inference cost that scales *linearly* with sequence length (versus the transformer's quadratic scaling).
+  - **Jamba** (Lieber et al., 2024) interleaves transformer and Mamba blocks, releasing a 52B-parameter mixture-of-experts model (12B active) that fits on a single 80GB GPU while handling context lengths up to 256K tokens.
+
+Beating the transformer at scale, on hardware people actually use, is genuinely hard — the transformer has had nearly a decade of heavy optimization behind it. But research into alternatives keeps chipping away, and if one eventually wins out, most of the *application-level* techniques you'll learn for adapting foundation models will still transfer, the same way the shift from classic ML engineering to AI engineering didn't erase most of what came before.
+
+---
+
+### Model Size
+
+Model size is usually summarized by parameter count, appended right to the model's name (Llama-13B = 13 billion parameters). More parameters generally means more learning capacity — within the same model family, the bigger version usually wins. Newer generations also tend to beat older, larger models: **Llama 3-8B outperforms Llama 2-70B on MMLU**, despite having roughly a ninth of the parameters, simply because the field got better at training.
+
+Parameter count is also a rough proxy for the compute you need to *run* the model. A 7B-parameter model stored at 2 bytes/parameter (16-bit) needs at least 14GB of GPU memory just to hold the weights (actual inference memory is higher once you include activations and the KV cache).
+
+Parameter count can also mislead if the model is **sparse** — a large fraction of the weights are exactly zero. A 7B-parameter model that's 90% sparse only has 700M *effective* parameters, and sparse computation can be cheaper than a smaller, fully dense model.
+
+**Mixture-of-experts (MoE)** models (Shazeer et al., 2017) exploit this: the model is split into "expert" sub-networks, and only a subset is active per token. Mixtral 8x7B, for instance, has 8 experts of 7B parameters each — naively 56B total, but with shared parameters it's actually 46.7B. Only 2 experts activate per token, so only **12.9B parameters** are active at any given time — meaning it runs at roughly the cost and speed of a 12.9B model despite storing 46.7B worth of weights.
+
+#### Data size matters just as much
+
+A 13B model trained on a single sentence would lose to a much smaller model trained properly. For LLMs, the right unit for dataset size is **tokens**, not "number of samples" (a book and a tweet aren't remotely comparable units). Meta scaled up training-token counts across generations:
+
+- Llama 1 — 1.4 trillion tokens
+- Llama 2 — 2 trillion tokens
+- Llama 3 — 15 trillion tokens
+
+Together's RedPajama-v2 dataset has 30 trillion tokens — roughly the equivalent of 450 million books, or 5,400 Wikipedias — though since it's indiscriminately scraped, the *high-quality* portion is much smaller.
+
+**Training tokens** (how many tokens the model actually trains on) can exceed **dataset tokens** if the model trains for more than one epoch (a full pass over the dataset). At the scale of today's frontier models, however, it's typical to pre-train on close to a single epoch of data.
+
+#### Measuring compute: FLOPs
+
+Compute is most portably measured in **FLOPs** (floating point operations) — not "number of GPUs," since hardware capability varies wildly. GPT-3-175B was trained using roughly `3.14 × 10^23` FLOPs (Brown et al., 2020).
+
+:::caution FLOPs vs. FLOP/s
+**FLOPs** measures total compute *used* for a task. **FLOP/s** measures a machine's peak compute *rate* (per second). They're easy to confuse in writing since "FLOPs" (plural) looks like "FLOPS" (rate). Some companies, including OpenAI, use "FLOP/s-day" to sidestep the ambiguity: `1 FLOP/s-day = 86,400 FLOPs`.
+:::
+
+With 256 H100 GPUs (each roughly 5.2 × 10^18 FLOPs/day at peak) running at their theoretical maximum, training GPT-3-175B would take about **236 days** (~7.8 months). Realistically you never hit peak: **utilization** measures how much of that theoretical maximum you actually achieve. 50% utilization is considered okay, 70%+ is considered great. At 70% utilization and $2/GPU-hour, that same training run costs roughly **$4.1 million**.
+
+So three numbers together describe a model's scale:
+
+1. **Parameters** — a proxy for learning capacity.
+2. **Training tokens** — a proxy for how much the model actually learned from.
+3. **FLOPs** — a proxy for training cost.
+
+<details>
+<summary>🧪 Rough training-cost estimator</summary>
+
+<PistonRunner
+  lang="python"
+  interactive={false}
+  height="260px"
+  code={`def training_days(total_flops, gpu_flops_per_day, num_gpus, utilization=0.7):
+    effective_daily = gpu_flops_per_day * num_gpus * utilization
+    return total_flops / effective_daily
+
+def training_cost(days, num_gpus, cost_per_gpu_hour=2.0):
+    return days * num_gpus * 24 * cost_per_gpu_hour
+
+flops = 3.14e23           # GPT-3-175B, approx
+gpu_flops_per_day = 5.2e18  # one H100, peak FP32
+num_gpus = 256
+
+days = training_days(flops, gpu_flops_per_day, num_gpus)
+cost = training_cost(days, num_gpus)
+
+print(f"Estimated days: {days:.0f}")
+print(f"Estimated cost: \${cost:,.0f}")
+`}
+/>
+
+</details>
+
+#### Inverse scaling: bigger isn't always better
+
+Anthropic (Perez et al., 2022) found that *more* alignment training sometimes made a model align *less* with human preference along certain axes — models trained to be "more aligned" became more likely to express specific political and religious leanings and a self-reported desire not to be shut down. In 2023, researchers ran an **Inverse Scaling Prize** looking for tasks where larger models perform *worse*. They found some tasks involving memorization or strong priors where this held — but none of the winning submissions showed the effect held up in real-world use, only on narrow test sets.
+
+#### The scaling law: compute-optimal training
+
+If model performance depends on both model size and data size, and both cost compute, and compute costs money — then you should start from a compute *budget* and work out the best model you can afford, not the other way around. The **Chinchilla scaling law** (DeepMind, 2022) answers exactly this: after training 400 models from 70M to 16B+ parameters on 5–500B tokens, the authors found that **compute-optimal training needs roughly 20 tokens of training data per parameter**. A 3B-parameter model wants about 60B training tokens; doubling model size means doubling training tokens too.
+
+This assumes data itself is cheap relative to compute — a separate calculation in the same paper covers what to do when data acquisition cost is non-trivial. It's also derived for dense models trained mostly on human-generated text; adapting it for sparse (MoE) models and synthetic data is still an open research question.
+
+:::tip Compute-optimal isn't always the goal
+Meta's Llama team could have trained bigger, more "compute-optimal-performant" models given their budget — they deliberately chose smaller models instead, trading some raw quality for dramatically better usability (cheaper, easier inference). That decision is a large part of why Llama models saw such broad adoption. Sardana et al. (2023) extended Chinchilla's math to account for this kind of inference-cost tradeoff explicitly.
+:::
+
+It's also worth knowing that **returns diminish**: on ImageNet, the compute cost to hit 93% accuracy halved between 2019 and 2021 — but pushing accuracy *higher* keeps getting proportionally more expensive. Meta's "Beyond Neural Scaling Laws" paper notes that a model with a 2% error rate can need an order of magnitude more data/compute/energy than one with a 3% error rate. In language modeling, dropping cross-entropy loss from ~3.4 to ~2.8 nats took roughly **10x** more training data — yet that "small" loss improvement translates into a very noticeable jump in output quality for downstream applications.
+
+#### Scaling extrapolation and scaling bottlenecks
+
+Because training a large model even once is enormously expensive, teams rarely get to try many hyperparameter combinations at full scale the way you might for a small model. **Scaling extrapolation** (or hyperparameter transfer) tries to predict good hyperparameters for a large target model by studying much smaller models and extrapolating. Microsoft/OpenAI (2022) showed this working from a 40M model up to 6.7B — but it's a niche, hard research area, complicated further by **emergent abilities**: capabilities that only show up at scale and simply aren't observable in the smaller models you're extrapolating from.
+
+Two real bottlenecks loom over "just keep scaling":
+
+1. **Training data is running out.** Dataset sizes are growing *faster* than new data is being generated (Villalobos et al., 2022). Anything you've ever posted publicly should be assumed to already be, or eventually become, training data for some model. Compounding this: the web is increasingly filled with **AI-generated content**, which risks models being partly trained on their own (or each other's) outputs — a dynamic some researchers worry could gradually degrade quality over generations (Shumailov et al., 2023), though the real-world impact is more nuanced than that sounds. Data access is also shrinking for legal reasons: Longpre et al. (2024) found that by 2024, roughly 45% of the C4 dataset had become restricted by publishers' updated terms of service.
+2. **Electricity.** Data centers are estimated at 1–2% of global electricity use today, projected toward 4–20% by 2030 (Patel, Nishball, and Ontiveros, 2024) — a real physical ceiling on how much compute can simply be added.
+
+### Check: model size and scaling
+
+<MultipleChoice
+  id="ai-eng-ch1-scaling"
+  title="Model size, compute, and scaling laws"
+  questions={[
+    {
+      prompt: 'What does "compute-optimal" mean in the context of the Chinchilla scaling law?',
+      choices: [
+        'The model has the maximum possible number of parameters',
+        'Given a fixed compute budget, the model size and training data size that together produce the best performance — roughly 20 training tokens per parameter',
+        'The model uses the fewest GPUs possible',
+        'The model is trained on exactly one epoch, no more and no less, regardless of budget',
+      ],
+      answer: 1,
+      why: 'Chinchilla scaling says: for a fixed FLOPs budget, balance model size and token count at roughly a 1:20 parameter-to-token ratio for best performance.',
+    },
+    {
+      prompt: 'Why did the Llama team deliberately train smaller-than-"optimal" models given their compute budget?',
+      choices: [
+        'They ran out of training data entirely',
+        'Smaller models are easier and cheaper to deploy and run inference on, trading a bit of raw quality for much better usability and adoption',
+        'Larger models cannot use the transformer architecture',
+        'It was a legal requirement',
+      ],
+      answer: 1,
+      why: 'Llama traded some compute-optimal quality for usability — smaller models are cheaper and easier to serve, which helped drive adoption.',
+    },
+    {
+      prompt: 'What is a Mixture-of-Experts (MoE) model, and why can it be cheaper to run than its total parameter count suggests?',
+      choices: [
+        'A model that averages the output of several completely separate models',
+        'A model split into expert sub-networks where only a subset activates per token, so inference cost tracks the active parameters, not the total stored parameters',
+        'A model that has no parameters, only rules',
+        'A dataset made from multiple experts\' writing',
+      ],
+      answer: 1,
+      why: 'Mixtral 8x7B stores 46.7B parameters but only activates ~12.9B per token, so its inference cost resembles a much smaller dense model.',
+    },
+    {
+      prompt: 'Which of these is cited as a real, physical bottleneck on indefinitely scaling model training?',
+      choices: [
+        'A shortage of programming languages',
+        'The growing scarcity of new (and non-AI-generated) training data, and rising electricity demand from data centers',
+        'A lack of interest in AI research',
+        'The transformer architecture being outlawed',
+      ],
+      answer: 1,
+      why: 'Data availability (compounded by AI-generated content and shrinking legal access) and electricity supply are the two bottlenecks discussed.',
+    },
+  ]}
+/>
+
+---
+
+## Post-Training
+
+A pre-trained model — trained with pure self-supervision on next-token prediction — has two problems out of the box:
+
+1. It's optimized for **completing text**, not **holding a conversation**. Ask it "How do I make pizza" and it might just as easily continue with more questions ("...for a family of six?") as it would with instructions, because nothing in pure next-token prediction distinguishes "answer this" from "continue this."
+2. Trained on indiscriminate internet data, its outputs can be biased, rude, or simply wrong.
+
+**Post-training** exists to fix both. It typically has two stages:
+
+1. **Supervised finetuning (SFT)** — finetune on high-quality (prompt, response) pairs to shift the model from "complete this text" to "have this conversation."
+2. **Preference finetuning** — further tune the model to prefer outputs humans actually like, usually via reinforcement learning. Common approaches: **RLHF** (reinforcement learning from human feedback — used for GPT-3.5 and Llama 2), **DPO** (Direct Preference Optimization — used for Llama 3, simpler than RLHF), and **RLAIF** (reinforcement learning from AI feedback — reportedly used for some Claude models).
+
+Pre-training optimizes **token-level** quality (predict the next token well); post-training optimizes for the quality of the **whole response**, the thing users actually care about. One useful mental model: pre-training is like reading broadly to acquire knowledge; post-training is like learning how to actually *use* that knowledge in conversation. Post-training is also relatively cheap compared to pre-training — InstructGPT used only about 2% of its total compute on post-training — so it's less "teaching new facts" and more "unlocking capabilities the base model already has, but that are hard to reach through prompting alone."
+
+:::note The Shoggoth-with-a-smiley-face meme
+A popular way to visualize this pipeline: self-supervised pre-training produces something like an "untamed monster" shaped by indiscriminate internet data. SFT, trained on cleaner human-written examples, makes it more socially acceptable. Preference finetuning polishes it into something customer-facing — giving the monster a friendly, smiley face without actually changing what's underneath.
+:::
+
+### Supervised finetuning
+
+To teach a pre-trained (completion-only) model to hold a conversation, you show it examples of the conversational behavior you want: pairs of (prompt, response) called **demonstration data**. This is sometimes called *behavior cloning* — you demonstrate, the model imitates.
+
+Demonstration data isn't cheap to produce. Roughly 90% of the labelers OpenAI used for InstructGPT's demonstration data had at least a college degree, and more than a third had a master's — because writing a good response to a complex prompt (say, summarizing a legal argument, or explaining a scientific concept) takes real judgment. Some individual (prompt, response) pairs took up to 30 minutes to write. At roughly $10/pair and 13,000 pairs, InstructGPT's demonstration dataset alone cost around **$130,000** — not counting task design, labeler recruitment, or quality control.
+
+Not every team can afford that. LAION, a nonprofit, crowdsourced 13,500 volunteers to produce ~161,000 messages across 35 languages — cheaper, but with less control over labeler bias (a self-reported survey found roughly 90% of LAION's volunteer labelers identified as male, which skews what "good response" ends up meaning in the resulting model). Other teams — DeepMind for Gopher, for instance — used cheap heuristics instead, filtering internet text that already *looked* like a back-and-forth dialogue.
+
+### Preference finetuning
+
+Demonstration data teaches a model *how* to converse, but not *what it should and shouldn't* say. If someone asks for instructions to do something dangerous or hateful, should the model comply? Easy cases are easy — but plenty of real questions sit in genuinely contested territory (politics, religion, and other topics where reasonable people disagree), and there's no universal "correct" human preference to align to. Over-restrict the model and it becomes useless and boring; under-restrict it and you risk real harm.
+
+The dominant early technique — still widely used — is **RLHF**, which has two parts:
+
+1. Train a **reward model** that scores how good a (prompt, response) pair is.
+2. Use reinforcement learning (commonly **PPO**, Proximal Policy Optimization) to tune the foundation model to generate responses the reward model scores highly.
+
+Asking humans to score a single response on an absolute scale is noisy — the same labeler might give the same response a 5 one day and a 7 the next. It's much easier and more consistent to ask humans to **compare two responses** and pick the better one, producing **comparison data**: (prompt, winning_response, losing_response). LMSYS found comparisons still take 3–5 minutes each on average, since labelers have to fact-check both responses; Llama 2's team reported paying about $3.50 per comparison, versus $25 for a full written response.
+
+The reward model is then trained to make the winning response's score exceed the losing response's score — mathematically, maximizing `log(σ(reward(winning) − reward(losing)))` across the comparison dataset, where σ is the sigmoid function. Intuitively: push the gap between "good" and "bad" response scores as wide as possible.
+
+Once trained, the reward model scores freshly generated responses, and PPO nudges the foundation model toward higher-scoring outputs. Newer methods like **DPO** skip the separate reward model and RL loop entirely, directly optimizing the model on comparison data — simpler to implement, though RLHF is argued by some (including Llama 2's authors) to give more flexibility to shape a model's behavior in detail.
+
+:::tip You don't always need the RL step
+Some teams (Stitch Fix, Grab) found that training a reward model and using it to simply **pick the best of several sampled outputs** ("best of N") — without ever running RL to update the base model — was good enough for their use case. This "best of N" idea comes up again in the next section on sampling.
+:::
+
+### Check: post-training
+
+<MultipleChoice
+  id="ai-eng-ch1-posttraining"
+  title="Post-training: SFT and preference finetuning"
+  questions={[
+    {
+      prompt: 'Why does a purely pre-trained (self-supervised) model tend to respond badly to a direct instruction like "How do I make pizza"?',
+      choices: [
+        'It has never seen the word "pizza" in training',
+        'Pre-training optimizes for plausible text continuation, not for recognizing and directly answering an instruction — so continuing with more questions is just as "valid" a completion as answering',
+        'It refuses all cooking-related questions by design',
+        'It can only generate code, not prose',
+      ],
+      answer: 1,
+      why: 'Next-token prediction alone has no notion of "this is a request that deserves a direct answer" — SFT is what teaches that distinction.',
+    },
+    {
+      prompt: 'Why is comparison data (picking the better of two responses) generally preferred over asking labelers to score a single response on an absolute scale?',
+      choices: [
+        'Comparison data is impossible to collect at scale',
+        'Absolute scoring tends to be inconsistent — even the same labeler may score the same response differently on different days — while comparing two responses is an easier, more consistent judgment',
+        'Comparison data requires no human labelers at all',
+        'Scoring on a scale is illegal under some jurisdictions',
+      ],
+      answer: 1,
+      why: 'Pointwise scores are noisy and inconsistent; pairwise comparisons ("which is better") are a more reliable signal from labelers.',
+    },
+    {
+      prompt: 'What is the core difference between RLHF and DPO?',
+      choices: [
+        'DPO uses no human data at all',
+        'RLHF trains a separate reward model and then uses reinforcement learning (e.g. PPO) to optimize against it; DPO optimizes the model directly on comparison data, without a separate reward model or RL loop',
+        'RLHF is only usable on text, DPO only on images',
+        'They are the exact same algorithm with different names',
+      ],
+      answer: 1,
+      why: 'RLHF is a two-stage process (reward model + RL); DPO collapses this into direct optimization on preference comparisons.',
+    },
+  ]}
+/>
+
+---
+
+## Sampling
+
+A model produces output through **sampling**: given a prompt, it computes a probability distribution over possible next tokens, then picks one. Understanding this process explains a lot of otherwise-baffling AI behavior — including hallucination and inconsistency — and choosing a good sampling strategy can meaningfully improve output quality for very little engineering cost.
+
+### The fundamentals
+
+For each next token, a language model outputs a **logit vector** — one number (a logit) per token in its vocabulary. Logits aren't probabilities: they can be negative, and they don't sum to 1. A **softmax** function converts them into a proper probability distribution:
+
+```
+p_i = softmax(x)_i = e^(x_i) / Σ_j e^(x_j)
+```
+
+Always picking the single highest-probability token is called **greedy sampling**. It works fine for classification (pick the most likely class), but for open-ended generation it produces flat, boring, repetitive text — the model always reaches for the most common word. Instead, models typically **sample** from the probability distribution: if "red" has a 30% chance of being next and "green" has 50%, the model outputs "green" roughly half the time and "red" roughly a third of the time, rather than always picking "green."
+
+Providers commonly expose these probabilities as **logprobs** (log-scale probabilities) rather than raw probabilities, mainly to avoid numeric underflow — with a 100,000-token vocabulary, plenty of individual probabilities are small enough that a machine would just round them to zero without the log transform.
+
+### Temperature
+
+Pure probability-weighted sampling still skews toward common words. **Temperature** lets you reshape that distribution before sampling: divide each logit by the temperature `T` before applying softmax.
+
+- **Lower temperature** → sharpens the distribution toward the highest-logit token → more consistent, more "boring" output. As `T → 0`, this converges to greedy sampling (picking the single most likely token, deterministically).
+- **Higher temperature** → flattens the distribution → rarer tokens become more likely → more creative, but potentially less coherent, output.
+
+A worked example: with logits `[1, 2]` for outcomes A and B, the plain softmax probabilities (T=1) are about `[0.27, 0.73]`. At T=0.5, that becomes about `[0.12, 0.88]` — B becomes even more dominant. Providers usually cap the exposed temperature range between 0 and 2; a value around **0.7** is a commonly recommended starting point balancing creativity and coherence, though the right value depends on the task.
+
+<details>
+<summary>🧪 Temperature's effect on a two-token distribution</summary>
+
+<PistonRunner
+  lang="python"
+  interactive={false}
+  height="280px"
+  code={`import math
+
+def softmax_with_temperature(logits, temperature):
+    adjusted = [x / temperature for x in logits]
+    m = max(adjusted)
+    exps = [math.exp(x - m) for x in adjusted]
+    total = sum(exps)
+    return [e / total for e in exps]
+
+logits = [1, 2]  # A, B
+for t in [0.1, 0.5, 1.0, 1.5, 2.0]:
+    probs = softmax_with_temperature(logits, t)
+    print(f"T={t:>4}: P(A)={probs[0]:.3f}  P(B)={probs[1]:.3f}")
+`}
+/>
+
+</details>
+
+### Check: sampling fundamentals and temperature
+
+<MultipleChoice
+  id="ai-eng-ch1-temperature"
+  title="Sampling and temperature"
+  questions={[
+    {
+      prompt: 'Why does greedy sampling (always picking the highest-probability token) tend to produce boring text?',
+      choices: [
+        'It runs out of vocabulary quickly',
+        'It always reaches for the single most common/likely continuation, so output becomes repetitive and predictable rather than varied',
+        'It is computationally impossible for large vocabularies',
+        'It only works for classification, never for text',
+      ],
+      answer: 1,
+      why: 'Always picking the top logit produces the most "obvious" continuation every time, which reads as flat and repetitive.',
+    },
+    {
+      prompt: 'What happens to a model\'s output distribution as temperature approaches 0?',
+      choices: [
+        'It becomes uniformly random across all tokens',
+        'It converges toward greedy sampling — the highest-logit token is picked almost deterministically',
+        'The model stops generating tokens entirely',
+        'Rare tokens become far more likely',
+      ],
+      answer: 1,
+      why: 'Dividing logits by a very small T sharply exaggerates the gap between the top logit and the rest, converging to always picking the top one.',
+    },
+    {
+      prompt: 'Why do many providers expose logprobs (log-scale probabilities) instead of raw probabilities?',
+      choices: [
+        'Log scale is required by law',
+        'It helps avoid numeric underflow, since many token probabilities in a huge vocabulary are too small to represent without rounding to zero',
+        'Logprobs are always positive numbers',
+        'It makes the vocabulary smaller',
+      ],
+      answer: 1,
+      why: 'With very large vocabularies, many raw probabilities are small enough to underflow to zero; the log scale keeps them numerically representable.',
+    },
+  ]}
+/>
+
+---
+
+### Top-k, top-p, and stopping
+
+**Top-k** sampling limits the pool of candidate next tokens to the `k` highest-logit tokens (commonly somewhere from 50 to 500) before applying softmax — a smaller candidate pool is cheaper to compute over, and a smaller `k` makes text more predictable but less interesting.
+
+**Top-p** (nucleus sampling) is more adaptive: instead of a fixed count, it sums probabilities in descending order until the cumulative total crosses `p` (commonly 0.9–0.95), then samples only from that dynamically-sized set. If the prompt is "yes or no?", the useful candidate set might be just 2 tokens; for an open-ended prompt, it might reasonably be much larger. Top-p doesn't necessarily reduce computation the way top-k does, but empirically produces more contextually appropriate output. A related, newer variant is **min-p**, which instead sets a minimum probability threshold a token must clear to be considered.
+
+**Stopping conditions** control when generation ends: a fixed token budget (risking mid-sentence cutoffs), or a designated stop token/sequence (cleaner, but if you need a specific output *format* — like JSON — an early stop can leave it truncated and unparsable, e.g. missing a closing bracket).
+
+### Check: top-k, top-p, and stopping
+
+<MultipleChoice
+  id="ai-eng-ch1-topkp"
+  title="Top-k, top-p, and stopping conditions"
+  questions={[
+    {
+      prompt: 'What is the key difference between top-k and top-p (nucleus) sampling?',
+      choices: [
+        'Top-k always considers every token in the vocabulary',
+        'Top-k keeps a fixed number of highest-probability candidates; top-p keeps a dynamically-sized set based on cumulative probability, adapting to how "certain" the distribution is',
+        'Top-p is only usable with temperature 0',
+        'They are two names for the exact same technique',
+      ],
+      answer: 1,
+      why: 'Top-k is a fixed count of candidates; top-p adapts the candidate set size to how concentrated or spread out the probability mass is.',
+    },
+    {
+      prompt: 'Why can an early/aggressive stopping condition cause problems when generating structured output like JSON?',
+      choices: [
+        'JSON cannot be generated by language models',
+        'Cutting generation off before the model naturally finishes can leave the output truncated mid-structure (e.g. missing a closing bracket), making it unparsable',
+        'Stop tokens are incompatible with any output format',
+        'It always produces output that is too long instead of too short',
+      ],
+      answer: 1,
+      why: 'A premature stop can chop off required closing syntax, breaking downstream parsing even though the model would have finished correctly given more tokens.',
+    },
+  ]}
+/>
+
+---
+
+### Test-time compute
+
+Instead of generating one response, you can generate **several** and pick the best — trading extra compute (and cost) for better quality, without changing the model at all. This is called **test-time compute** (the technique applies to any model in production, not just formal "test" evaluation, despite the somewhat confusing name).
+
+A few concrete strategies:
+
+- **Best of N** — sample N outputs, pick the one a scoring method likes best.
+- **Beam search** — instead of generating N independent full outputs, keep a fixed number of most-promising partial sequences ("the beam") alive at every generation step.
+- **Diversify the sampling** — if you're generating multiple candidates from the same model, varying temperature/top-p across the samples tends to yield a more useful spread of candidates than using identical settings for all of them.
+
+For picking the "best" candidate, options include:
+
+- **Highest average log-probability** — sum the logprob of every token in a candidate (or better, average by length, since summing alone unfairly penalizes longer outputs), and keep the candidate with the highest average.
+- **A trained reward model / verifier** scores each candidate — OpenAI found that adding a verifier to a model solving math problems produced roughly the same performance boost as increasing model size **30x**.
+- **Self-consistency** — for tasks with a single "correct" answer (math, multiple choice), generate several times and take the most common answer. Google used this on Gemini's MMLU evaluation, sampling 32 outputs per question and taking the majority vote, boosting the reported score above what a single sample would achieve.
+- **Task-specific heuristics** — e.g., prefer the shortest valid response, or keep regenerating until you get a response that parses as valid SQL.
+
+More samples generally helps, but not without limit — one OpenAI study found performance improving up to about 400 sampled outputs before *declining* (possibly because more samples increase the odds of finding an output that "fools" the verifier), though a separate Stanford study found log-linear improvement continuing to 10,000 samples on different tasks. In practice, almost nobody in production samples anywhere near that many outputs per query — the cost would be enormous.
+
+:::tip Test-time compute for latency, not just quality
+One clever use: for slow queries (like long chain-of-thought reasoning), generate multiple candidates **in parallel** and show the user whichever finishes first and passes validation — turning "wait for the one slow response" into "wait for the fastest of several attempts."
+:::
+
+Test-time compute is also a hedge against a model's **robustness** — how much its output changes under small input variations. The less robust a model is for a given task, the more you tend to gain from sampling multiple times and picking the best result.
+
+### Check: test-time compute
+
+<MultipleChoice
+  id="ai-eng-ch1-testtime"
+  title="Test-time compute"
+  questions={[
+    {
+      prompt: 'What is "test-time compute" in this context?',
+      choices: [
+        'Compute used only during unit testing of the codebase',
+        'Generating multiple candidate outputs (and using extra compute) at inference time to improve the odds of a good final response, without retraining the model',
+        'A measurement of how fast a model was trained',
+        'A benchmark score reported by model providers',
+      ],
+      answer: 1,
+      why: 'Test-time compute means spending extra inference-time compute (multiple samples, beam search, verifiers) to improve output quality on a fixed model.',
+    },
+    {
+      prompt: 'What does "self-consistency" mean as a candidate-selection strategy?',
+      choices: [
+        'Only ever generating one output per query',
+        'Generating multiple outputs for a task with a definite answer (like a math problem) and picking the most frequently occurring answer',
+        'Checking that a model\'s architecture is consistent across versions',
+        'Disabling temperature entirely',
+      ],
+      answer: 1,
+      why: 'Self-consistency samples multiple times and takes a majority vote — useful for tasks where there is one correct, checkable answer.',
+    },
+  ]}
+/>
+
+---
+
+### Structured outputs
+
+Many applications need model output in a specific machine-readable format: valid JSON for a downstream API, a valid SQL query for semantic parsing (text-to-SQL), or a fixed label set for classification. There are a few layers you can attack this at:
+
+1. **Prompting** — just ask for the format. Cheap, but not guaranteed; how well it works depends heavily on the model's instruction-following ability.
+2. **Post-processing** — fix common, predictable mistakes with a script after the fact (e.g., append a missing closing bracket). Surprisingly effective when a model's errors are consistent: LinkedIn's defensive YAML parser reportedly pushed correct-output rate from 90% to 99.99%. They chose YAML over JSON specifically because it's less verbose and needs fewer output tokens for equivalent structure.
+3. **Constrained sampling** — filter the logit vector *during generation* to only allow tokens that are valid at that position, according to a grammar for the target format (e.g., JSON syntax rules). More reliable, but format-specific: every output format (JSON, regex, CSV, ...) needs its own grammar, and grammar checking can add generation latency.
+4. **Finetuning** — the most general fix: finetune the model on examples in your target format. For certain tasks like classification, you can even attach a dedicated classifier head to the architecture, guaranteeing the output is always one of a fixed set of classes.
+
+As models get better at following instructions natively, the pressure on techniques 2–4 tends to ease — but as of this writing, plain prompting alone still isn't reliable enough for many production use cases.
+
+---
+
+### The probabilistic nature of AI, and what it costs you
+
+Because sampling is probabilistic, asking the same model the same question twice can produce two different answers — unlike a deterministic system, which always gives the same output for the same input. This single property explains two of the most common frustrations with AI systems:
+
+**Inconsistency** shows up two ways: the *same* input producing different outputs across calls, and a *slightly different* input (even just capitalization) producing a wildly different output. Mitigations for the first case include fixing the temperature/top-p/top-k values, fixing the random seed, and caching answers — though even with everything fixed, different underlying hardware can produce slightly different results due to how different machines execute floating-point operations. The second case (sensitivity to small input changes) is harder to fully solve and benefits more from careful prompt design than from sampling settings alone.
+
+**Hallucination** — generating something not grounded in fact — predates the current LLM wave; it's been studied in text generation since at least 2016. There are two leading (and not mutually exclusive) explanations for why it happens:
+
+1. **Self-delusion** (Ortega et al., DeepMind, 2021) — the model can't fully distinguish between "information it was given" and "text it generated itself." Once it generates one slightly-off claim, later generation conditions on that claim as if it were established fact, and can snowball into increasingly confident, increasingly wrong claims built on that first mistake.
+2. **Mismatched internal knowledge** (Leo Gao, OpenAI; also argued by John Schulman) — during SFT, labelers write responses using knowledge *they* have, which the model may not actually have. Training the model to imitate those responses effectively trains it to state things confidently regardless of whether it actually "knows" them.
+
+Neither hypothesis fully explains RLHF's effect on hallucination — DeepMind's mitigation ideas (helping the model distinguish given information from generated information; training on explicit factual/counterfactual signals) target hypothesis 1, while the InstructGPT paper actually found hallucination got *worse* with RLHF even though human evaluators still preferred the RLHF model overall on other dimensions. Prompting tricks — explicitly permitting "I don't know" as an answer, or asking for shorter responses (fewer tokens generated means fewer chances to drift into fabrication) — offer partial, imperfect relief.
+
+:::important Working with, not against, the probabilistic nature
+This probabilistic quality is exactly what makes AI great at creative tasks — brainstorming, ideation, never-before-seen designs benefit from a model that doesn't always give the same "safe" answer. But it's a genuine liability for anything requiring reliability. Most of AI engineering, as a discipline, is about building systems and workflows *around* this probabilistic core — accepting that you can't make it fully deterministic, but you can make it systematic.
+:::
+
+### Check: hallucination and inconsistency
+
+<MultipleChoice
+  id="ai-eng-ch1-hallucination"
+  title="Probabilistic behavior, inconsistency, and hallucination"
+  questions={[
+    {
+      prompt: 'What distinguishes a "deterministic" system from the "probabilistic" nature of sampling-based AI models?',
+      choices: [
+        'Deterministic systems cannot be tested',
+        'A deterministic system always produces the same output for the same input; a probabilistic model can produce different outputs across calls to the same input because it samples from a distribution',
+        'Probabilistic systems never produce the same answer twice under any settings',
+        'There is no real difference in practice',
+      ],
+      answer: 1,
+      why: 'Sampling means the same prompt can yield different outputs run to run, unlike a strictly deterministic function.',
+    },
+    {
+      prompt: 'What is the "self-delusion" hypothesis for why models hallucinate?',
+      choices: [
+        'Models intentionally lie to entertain users',
+        'A model cannot fully distinguish between text it was given (fact) and text it generated itself, so an early generated claim can be treated as established fact and built upon further, snowballing into more confident errors',
+        'Hallucination is caused only by insufficient GPU memory',
+        'Hallucination only happens in models smaller than 1B parameters',
+      ],
+      answer: 1,
+      why: "Ortega et al.'s self-delusion hypothesis: the model conditions on its own prior outputs as if they were given facts, which can compound into snowballing hallucinations.",
+    },
+    {
+      prompt: 'What does the "mismatched internal knowledge" hypothesis for hallucination suggest about SFT?',
+      choices: [
+        'SFT has no effect on hallucination at all',
+        'If labelers write demonstration responses using knowledge the model itself does not have, training the model to imitate those responses can teach it to state things confidently that it does not actually know',
+        'SFT eliminates hallucination completely',
+        'Hallucination only comes from the pre-training stage, never from post-training',
+      ],
+      answer: 1,
+      why: "This hypothesis (Leo Gao, John Schulman) argues SFT can inadvertently teach a model to state ungrounded claims confidently, by imitating responses that rely on knowledge it doesn't have.",
+    },
+  ]}
+/>
+
+---
+
+## Chapter Summary
+
+:::important Key takeaways
+
+1. **Training data** shapes what a model can do. General-purpose "use what's available" data (like Common Crawl/C4) skews heavily English and skews toward well-represented domains; matching a model to your specific language or domain often requires deliberate curation, not just more data.
+2. **Multilingual and domain gaps are real and measurable** — under-represented languages see worse benchmark scores, higher token costs, and even different safety/behavior outcomes; under-represented domains (medicine, drug discovery) need purpose-built datasets, not general web scrapes.
+3. The **transformer architecture** dominates because attention removes both the single-hidden-state bottleneck and the sequential-processing bottleneck of earlier seq2seq/RNN designs — though alternatives like SSM-based Mamba and hybrid designs like Jamba are actively narrowing the gap.
+4. **Model scale** is really three numbers together: parameters (capacity), training tokens (how much it actually learned from), and FLOPs (training cost) — and the Chinchilla scaling law gives a rule of thumb (~20 tokens/parameter) for spending a fixed compute budget optimally. Bigger isn't automatically better once you factor in deployment cost, data availability, and energy limits.
+5. **Post-training** (SFT + preference finetuning via RLHF/DPO/RLAIF) is what turns a raw completion engine into something that behaves like a helpful conversational assistant — pre-training makes a model capable, post-training makes it usable.
+6. **Sampling** — temperature, top-k, top-p, test-time compute, structured-output techniques — is one of the highest-leverage, lowest-effort levers you have for improving a deployed model's behavior, and it's the direct cause of both AI's creative strength and its two biggest reliability problems: inconsistency and hallucination.
+
+:::
+
+The rest of AI engineering is largely about building systems *around* these probabilistic foundations — accepting that a foundation model can't be made fully deterministic, while still building applications that behave in a systematic, testable, trustworthy way. That starts with **evaluation**: a solid way to detect when a model (or your application on top of it) is failing.

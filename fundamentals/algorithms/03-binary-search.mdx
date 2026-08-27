@@ -1,0 +1,681 @@
+---
+sidebar_position: 4
+title: Binary Search
+---
+
+import BinarySearchSimulator from "@site/src/components/interactive/BinarySearchSimulator.js";
+
+# Binary Search
+
+Binary search speeds up a search by repeatedly **halving** the active interval. The classic use is looking up a value in a **sorted** array, but the same split idea powers lower/upper bounds, “binary search on the answer,” continuous root finding, and jump searches on trees.
+
+This lesson follows [CP-Algorithms — Binary Search](https://cp-algorithms.com/num_methods/binary_search.html).
+
+## Search in sorted arrays
+
+Given a sorted array `A₀ ≤ A₁ ≤ … ≤ Aₙ₋₁`, is `k` present?
+
+Linear scan is `O(n)` and ignores sortedness. Binary search keeps indices `L < R` with `A_L ≤ k ≤ A_R` (so if `k` appears at all, it lies in that range). Pick a midpoint `M` with `L < M < R`:
+
+- if `A_L ≤ k ≤ A_M` → shrink to `[L, M]`
+- if `A_M ≤ k ≤ A_R` → shrink to `[M, R]`
+
+When `R = L + 1`, compare against the two endpoints. In the worst case you always keep the larger half, so choose
+
+```text
+M ≈ (L + R) / 2
+```
+
+to minimize `max(M−L, R−M)`. Each step halves the gap; after `h` steps ` (R−L) / 2ʰ ≈ 1 `, so `h ∈ O(log n)`.
+
+For `n ≈ 10⁶ ≈ 2²⁰` that is ~20 probes instead of a million.
+
+## Lower bound and upper bound
+
+Often you want:
+
+- **lower bound** of `k` — first index with `Aᵢ ≥ k`
+- **upper bound** of `k` — first index with `Aᵢ > k`
+
+Together they form the half-open range of elements equal to `k`. Presence check: find the lower bound and test equality.
+
+## Implementation (half-open invariant)
+
+Maintain `L < R` with **`A_L ≤ k < A_R`**. The active interval is `[L, R)`.
+
+Sentinels: `L = -1`, `R = n`, imagining `A_{-1} = −∞` and `A_n = +∞`. Never read `A_L` or `A_R` while they are sentinels. Midpoint:
+
+```text
+m = ⌊(L + R) / 2⌋
+```
+
+```cpp
+// a[0..n) sorted
+int l = -1, r = n;
+while (r - l > 1) {
+    int m = l + (r - l) / 2; // safer than (l+r)/2
+    if (k < a[m]) {
+        r = m; // a[l] ≤ k < a[m] ≤ a[r]
+    } else {
+        l = m; // a[l] ≤ a[m] ≤ k < a[r]
+    }
+}
+// l = last index with a[l] ≤ k (or -1)
+// r = first index with a[r] > k (or n)  → upper bound
+```
+
+:::warning Midpoint overflow
+`(l + r) / 2` can overflow for large positive `l` and `r` (infamous JDK bug). Prefer `l + (r - l) / 2`, or C++20 `std::midpoint(l, r)`.
+:::
+
+<details>
+<summary>🧪 Lower / upper bound on a sorted array</summary>
+
+<PistonRunner
+  lang="c++"
+  height="380px"
+  code={`#include <iostream>
+#include <vector>
+using namespace std;
+
+int main() {
+    vector<int> a = {1, 3, 3, 5, 7, 9};
+    int n = (int)a.size();
+    int k = 3;
+
+    int l = -1, r = n;
+    while (r - l > 1) {
+        int m = l + (r - l) / 2;
+        if (k < a[m]) r = m;
+        else l = m;
+    }
+    // l = last index with a[l] ≤ k; r = first with a[r] > k
+    cout << "array: ";
+    for (int x : a) cout << x << " ";
+    cout << endl << "k = " << k << endl;
+    cout << "last ≤ k at index " << l << " (value " << a[l] << ")" << endl;
+    cout << "first > k at index " << r;
+    if (r < n) cout << " (value " << a[r] << ")";
+    cout << endl;
+
+    // lower_bound: first index with a[i] ≥ k
+    l = -1; r = n;
+    while (r - l > 1) {
+        int m = l + (r - l) / 2;
+        if (a[m] >= k) r = m;
+        else l = m;
+    }
+    cout << "first ≥ k at index " << r << " (value " << a[r] << ")" << endl;
+    return 0;
+}
+`}
+/>
+
+</details>
+
+## Interactive walkthrough
+
+Step through the half-open search. Watch `L` / `R` / `m` and the invariant `a[L] ≤ k < a[R]`.
+
+<BinarySearchSimulator />
+
+## Check: sorted-array search
+
+<MultipleChoice
+  id="algo-03-bs-array"
+  title="Binary search on arrays"
+  questions={[
+    {
+      prompt: 'Worst-case probes for binary search on n sorted elements is…',
+      choices: [
+        'O(1)',
+        'O(log n)',
+        'O(n)',
+        'O(n log n)',
+      ],
+      answer: 1,
+      why: 'Each step halves the active interval until size 1.',
+    },
+    {
+      prompt: 'In the half-open template, after the loop, r is…',
+      choices: [
+        'Always the index of k',
+        'The upper bound: first index with a[r] > k (or n)',
+        'Always −1',
+        'The midpoint of the array',
+      ],
+      answer: 1,
+      why: 'Invariant ends with a[l] ≤ k < a[r] and r = l+1.',
+    },
+    {
+      prompt: 'Why use L=-1 and R=n as sentinels?',
+      choices: [
+        'So the array can be unsorted',
+        'To avoid corner cases; treat ends as ±∞ without reading them',
+        'Because binary search needs negative indices',
+        'To force O(n) time',
+      ],
+      answer: 1,
+      why: 'You never evaluate a[L]/a[R] while they are sentinels; m always lands inside 0..n-1.',
+    },
+    {
+      prompt: 'Preferred way to compute m for large positive l,r?',
+      choices: [
+        '(l + r) / 2 only',
+        'l + (r - l) / 2 (or std::midpoint)',
+        'l * r / 2',
+        'r - l',
+      ],
+      answer: 1,
+      why: 'Avoids overflow when l+r exceeds the integer type.',
+    },
+  ]}
+/>
+
+## Search on an arbitrary predicate
+
+Let `f : {0,…,n−1} → {0,1}` be **monotone**: `f(0) ≤ f(1) ≤ … ≤ f(n−1)`.
+
+Binary search finds the transition: largest `l` with `f(l)=0` and `f(l+1)=1` (if a flip exists). Same skeleton — replace `k < a[m]` with `f(m)`:
+
+```cpp
+int l = -1, r = n;
+while (r - l > 1) {
+    int m = l + (r - l) / 2;
+    if (f(m)) {
+        r = m; // f(l)=0, f(m)=1
+    } else {
+        l = m; // f(m)=0, f(r)=1
+    }
+}
+```
+
+Invariant: `f(l)=0`, `f(r)=1` (with sentinels for all-0 / all-1 edge cases).
+
+Useful when evaluating `f` is expensive — you only pay `O(log n)` calls.
+
+<details>
+<summary>🧪 Binary search on the answer (minimum capacity)</summary>
+
+<PistonRunner
+  lang="c++"
+  height="420px"
+  code={`#include <iostream>
+#include <vector>
+#include <numeric>
+using namespace std;
+
+// Can we ship all weights with capacity mid in ≤ days trips?
+bool ok(const vector<int>& w, int days, int mid) {
+    int used = 1, cur = 0;
+    for (int x : w) {
+        if (x > mid) return false;
+        if (cur + x > mid) { used++; cur = 0; }
+        cur += x;
+    }
+    return used <= days;
+}
+
+int main() {
+    vector<int> weights = {1, 2, 3, 4, 5, 6, 7, 8, 9, 10};
+    int days = 5;
+    int lo = 0, hi = accumulate(weights.begin(), weights.end(), 0) + 1;
+    while (hi - lo > 1) {
+        int mid = lo + (hi - lo) / 2;
+        if (ok(weights, days, mid)) hi = mid;
+        else lo = mid;
+    }
+    cout << "weights: ";
+    for (int x : weights) cout << x << " ";
+    cout << endl << "days = " << days << endl;
+    cout << "minimum capacity = " << hi << endl;
+    return 0;
+}
+`}
+/>
+
+</details>
+
+## Binary search on the answer
+
+When you can only **check** “is the answer ≥ λ?” with a monotone predicate, binary-search λ.
+
+Example idea: maximize a floored average over long enough subarrays. Checking “average ≥ λ” rewrites as “some subarray of `aᵢ − λ` has length ≥ x+1 and nonnegative sum” (prefix sums). Binary-search λ over the value domain.
+
+## Continuous search
+
+If `f` is continuous on `[L, R]` and (w.l.o.g.) `f(L) ≤ f(R)`, intermediate-value theorem says every `y ∈ [f(L), f(R)]` has some `x` with `f(x)=y`. Halve `[L, R]` by comparing `f(M)` to `y`. Accuracy `±δ` costs `O(log((R−L)/δ))` — **no monotonicity required**.
+
+Classic: roots of odd-degree polynomials (`f → −∞` and `+∞` at the ends).
+
+## Search with powers of 2
+
+Instead of an interval, keep pointer `i` and exponent `k`. Test `i + 2ᵏ`; advance if the predicate is still 0, then decrease `k`. Common on trees (LCA, k-th ancestor) and Fenwick “find k-th nonzero.”
+
+## Check: predicates & variants
+
+<MultipleChoice
+  id="algo-03-bs-variants"
+  title="Binary search variants"
+  questions={[
+    {
+      prompt: 'Predicate binary search requires f to be…',
+      choices: [
+        'Arbitrary',
+        'Monotone (non-decreasing 0/1)',
+        'Periodic',
+        'Random',
+      ],
+      answer: 1,
+      why: 'A single 0→1 transition is what the invariant tracks.',
+    },
+    {
+      prompt: '“Binary search on the answer” means…',
+      choices: [
+        'Sorting the answer array',
+        'Binary-searching a value λ using a monotone feasibility check',
+        'Only searching in unsorted arrays',
+        'Replacing BFS with binary search',
+      ],
+      answer: 1,
+      why: 'You binary-search the numeric answer space, not an index in a list of answers.',
+    },
+    {
+      prompt: 'Continuous binary search for f(x)=y needs…',
+      choices: [
+        'f monotone only',
+        'f continuous on [L,R] (IVT); monotonicity not required',
+        'f integer-valued only',
+        'f discontinuous everywhere',
+      ],
+      answer: 1,
+      why: 'Intermediate value theorem guarantees a root in the interval; you approximate it by halving.',
+    },
+    {
+      prompt: 'Power-of-two search is especially common for…',
+      choices: [
+        'Hash collisions',
+        'Tree ancestors / Fenwick order statistics',
+        'Bubble sort',
+        'Matrix multiplication',
+      ],
+      answer: 1,
+      why: 'Binary lifting and Fenwick k-th queries use decreasing powers of two.',
+    },
+  ]}
+/>
+
+## Practice drills
+
+Sandbox versions of classic interview binary-search problems. Starters fail until the logic is right.
+
+<ExerciseSet>
+<Exercise title="Search insert position" anchor="exercise-search-insert">
+
+:::tip Activity: Search insert position
+Sorted unique `nums`. Return the index of `target`, or where it would be inserted to keep order (lower bound).
+
+Input: `n target` then `n` ints.
+
+<CodeExercise
+  title="Search insert position"
+  heading="exercise-search-insert"
+  lang="python"
+  filename="main.py"
+  prompt="Return lower_bound of target in sorted nums (insertion index)."
+  sampleLog={`(input) 4 2
+1 3 5 6
+1`}
+  starter={`def search_insert(nums, target):
+    # TODO: binary search lower bound
+    return 0
+`}
+  wrapSuffix={`
+n, target = map(int, input().split())
+nums = list(map(int, input().split()))
+print(search_insert(nums, target))
+`}
+  hint="Find first index i with nums[i] >= target (or n)."
+  solution={`def search_insert(nums, target):
+    lo, hi = 0, len(nums)
+    while lo < hi:
+        mid = lo + (hi - lo) // 2
+        if nums[mid] < target:
+            lo = mid + 1
+        else:
+            hi = mid
+    return lo
+`}
+  sourceChecks={[
+    { name: 'uses loop / mid', pattern: 'while|mid', must: true, hint: 'binary-search with a midpoint' },
+  ]}
+  tests={[
+    { name: 'insert middle', stdin: '4 2\n1 3 5 6', equals: '1' },
+    { name: 'found', stdin: '4 5\n1 3 5 6', equals: '2' },
+    { name: 'append', stdin: '4 7\n1 3 5 6', equals: '4' },
+  ]}
+/>
+
+:::
+
+</Exercise>
+
+<Exercise title="First and last position" anchor="exercise-first-last">
+
+:::tip Activity: First and last position
+Sorted `nums` (may contain duplicates). Print first and last index of `target`, or `-1 -1` if absent.
+
+<CodeExercise
+  title="First and last position"
+  heading="exercise-first-last"
+  lang="python"
+  filename="main.py"
+  prompt="Print lo hi for the equal-to-target range, or -1 -1."
+  sampleLog={`(input) 6 8
+5 7 7 8 8 10
+3 4`}
+  starter={`def lower_bound(nums, target):
+    return 0  # TODO
+
+def upper_bound(nums, target):
+    return 0  # TODO
+
+def search_range(nums, target):
+    # TODO: use lower/upper; if missing return (-1, -1)
+    return (-1, -1)
+`}
+  wrapSuffix={`
+n, target = map(int, input().split())
+nums = list(map(int, input().split())) if n else []
+lo, hi = search_range(nums, target)
+print(lo, hi)
+`}
+  hint="lower_bound = first ≥ target; upper_bound = first > target; range is [lb, ub)."
+  solution={`def lower_bound(nums, target):
+    lo, hi = 0, len(nums)
+    while lo < hi:
+        mid = lo + (hi - lo) // 2
+        if nums[mid] < target:
+            lo = mid + 1
+        else:
+            hi = mid
+    return lo
+
+def upper_bound(nums, target):
+    lo, hi = 0, len(nums)
+    while lo < hi:
+        mid = lo + (hi - lo) // 2
+        if nums[mid] <= target:
+            lo = mid + 1
+        else:
+            hi = mid
+    return lo
+
+def search_range(nums, target):
+    lb = lower_bound(nums, target)
+    if lb == len(nums) or nums[lb] != target:
+        return (-1, -1)
+    ub = upper_bound(nums, target)
+    return (lb, ub - 1)
+`}
+  sourceChecks={[
+    { name: 'binary search', pattern: 'while\\s+lo|while\\s+left|mid', must: true, hint: 'use binary search, not a full linear scan only' },
+  ]}
+  tests={[
+    { name: 'range of 8', stdin: '6 8\n5 7 7 8 8 10', equals: '3 4' },
+    { name: 'missing', stdin: '6 6\n5 7 7 8 8 10', equals: '-1 -1' },
+    { name: 'single', stdin: '1 1\n1', equals: '0 0' },
+  ]}
+/>
+
+:::
+
+</Exercise>
+
+<Exercise title="First bad version" anchor="exercise-first-bad">
+
+:::tip Activity: First bad version
+Versions `1..n`. `is_bad(v)` is monotone: once bad, all later are bad. Find the first bad version. Minimize calls.
+
+Input: `n` then a line of `n` chars `G`/`B` (good/bad). Wrapper exposes `is_bad`.
+
+<CodeExercise
+  title="First bad version"
+  heading="exercise-first-bad"
+  lang="python"
+  filename="main.py"
+  prompt="Binary-search the first index where is_bad is True (versions 1..n)."
+  sampleLog={`(input) 5
+GGGBB
+4`}
+  starter={`def first_bad_version(n, is_bad):
+    # TODO: binary search on predicate is_bad
+    return 1
+`}
+  wrapSuffix={`
+n = int(input())
+row = "".join(input().split())
+assert len(row) == n
+def is_bad(v):
+    return row[v - 1] == "B"
+print(first_bad_version(n, is_bad))
+`}
+  hint="Find smallest v with is_bad(v). Same as predicate search with f(i)=is_bad(i+1) on 0..n."
+  solution={`def first_bad_version(n, is_bad):
+    lo, hi = 1, n
+    while lo < hi:
+        mid = lo + (hi - lo) // 2
+        if is_bad(mid):
+            hi = mid
+        else:
+            lo = mid + 1
+    return lo
+`}
+  sourceChecks={[
+    { name: 'calls is_bad', pattern: 'is_bad\\s*\\(', must: true, hint: 'query the monotone predicate' },
+  ]}
+  tests={[
+    { name: 'first at 4', stdin: '5\nGGGBB', equals: '4' },
+    { name: 'all bad', stdin: '3\nBBB', equals: '1' },
+    { name: 'last only', stdin: '4\nGGGB', equals: '4' },
+  ]}
+/>
+
+:::
+
+</Exercise>
+
+<Exercise title="Valid perfect square" anchor="exercise-perfect-square">
+
+:::tip Activity: Valid perfect square
+Return `true` if `num` is a perfect square — **without** using `sqrt`. Binary-search the integer root.
+
+<CodeExercise
+  title="Valid perfect square"
+  heading="exercise-perfect-square"
+  lang="python"
+  filename="main.py"
+  prompt="Print true/false whether num is a perfect square. No math.sqrt."
+  sampleLog={`(input) 16
+true`}
+  starter={`def is_perfect_square(num):
+    # TODO: binary search mid*mid vs num
+    return False
+`}
+  wrapSuffix={`
+num = int(input())
+print("true" if is_perfect_square(num) else "false")
+`}
+  hint="Search mid in 1..num; compare mid*mid to num (watch overflow in other languages)."
+  solution={`def is_perfect_square(num):
+    if num < 1:
+        return False
+    lo, hi = 1, num
+    while lo <= hi:
+        mid = lo + (hi - lo) // 2
+        sq = mid * mid
+        if sq == num:
+            return True
+        if sq < num:
+            lo = mid + 1
+        else:
+            hi = mid - 1
+    return False
+`}
+  sourceChecks={[
+    { name: 'no sqrt', pattern: 'sqrt|\\*\\*\\s*0\\.5|math\\.', must: false, hint: 'do not call sqrt' },
+    { name: 'binary search', pattern: 'while', must: true, hint: 'loop with a midpoint' },
+  ]}
+  tests={[
+    { name: '16', stdin: '16', equals: 'true' },
+    { name: '14', stdin: '14', equals: 'false' },
+    { name: '1', stdin: '1', equals: 'true' },
+  ]}
+/>
+
+:::
+
+</Exercise>
+
+<Exercise title="Find peak element" anchor="exercise-peak">
+
+:::tip Activity: Find peak element
+`nums[i]` is a peak if it is strictly greater than neighbors (ends compared to one neighbor). Array may be unsorted; adjacent values differ. Return **any** peak index in `O(log n)`.
+
+Hint: if `nums[mid] < nums[mid+1]`, a peak lies to the right; else to the left (including mid).
+
+<CodeExercise
+  title="Find peak element"
+  heading="exercise-peak"
+  lang="python"
+  filename="main.py"
+  prompt="Return any peak index. Binary-search the ascent."
+  sampleLog={`(input) 4
+1 2 3 1
+2`}
+  starter={`def find_peak(nums):
+    # TODO
+    return 0
+`}
+  wrapSuffix={`
+n = int(input())
+nums = list(map(int, input().split()))
+idx = find_peak(nums)
+# accept any valid peak
+left = nums[idx - 1] if idx > 0 else float("-inf")
+right = nums[idx + 1] if idx + 1 < len(nums) else float("-inf")
+print("ok" if nums[idx] > left and nums[idx] > right else "bad")
+print(idx)
+`}
+  hint="While lo < hi: if nums[mid] < nums[mid+1]: lo = mid+1 else hi = mid."
+  solution={`def find_peak(nums):
+    lo, hi = 0, len(nums) - 1
+    while lo < hi:
+        mid = lo + (hi - lo) // 2
+        if nums[mid] < nums[mid + 1]:
+            lo = mid + 1
+        else:
+            hi = mid
+    return lo
+`}
+  sourceChecks={[
+    { name: 'log style loop', pattern: 'while\\s+lo\\s*<\\s*hi|while\\s+left', must: true, hint: 'shrink an interval in log time' },
+  ]}
+  tests={[
+    { name: 'peak at 2', stdin: '4\n1 2 3 1', includes: ['ok', '2'] },
+    { name: 'peak at end', stdin: '3\n1 2 3', includes: ['ok'] },
+    { name: 'peak at start', stdin: '3\n3 2 1', includes: ['ok', '0'] },
+  ]}
+/>
+
+:::
+
+</Exercise>
+</ExerciseSet>
+
+## Contest / interview problems
+
+Solve on LeetCode (same ideas as the drills).
+
+<ExerciseSet>
+<Exercise title="Find First and Last Position" anchor="exercise-lc-range">
+
+### Find First and Last Position of Element in Sorted Array
+
+**Judge:** [LeetCode 34](https://leetcode.com/problems/find-first-and-last-position-of-element-in-sorted-array/)
+
+Given a sorted array (duplicates allowed), return `[first, last]` indices of `target`, or `[-1, -1]`.
+
+:::tip Why this lesson?
+Lower bound + upper bound (or two binary searches). Exactly the half-open equal range.
+:::
+
+</Exercise>
+<Exercise title="Search Insert Position" anchor="exercise-lc-insert">
+
+### Search Insert Position
+
+**Judge:** [LeetCode 35](https://leetcode.com/problems/search-insert-position/)
+
+Sorted distinct integers. Return index of `target`, or the insertion index that would keep sorted order.
+
+:::tip Why this lesson?
+Classic **lower bound**.
+:::
+
+</Exercise>
+<Exercise title="First Bad Version" anchor="exercise-lc-bad">
+
+### First Bad Version
+
+**Judge:** [LeetCode 278](https://leetcode.com/problems/first-bad-version/)
+
+API `isBadVersion(version)` is monotone. Find the first bad version with fewest calls.
+
+:::tip Why this lesson?
+Binary search on an arbitrary **0/1 predicate**.
+:::
+
+</Exercise>
+<Exercise title="Valid Perfect Square" anchor="exercise-lc-square">
+
+### Valid Perfect Square
+
+**Judge:** [LeetCode 367](https://leetcode.com/problems/valid-perfect-square/)
+
+Decide if `num` is a perfect square without `sqrt` — binary-search the integer root.
+
+:::tip Why this lesson?
+Search on the answer / continuous-style comparison of `mid²` vs `num`.
+:::
+
+</Exercise>
+<Exercise title="Find Peak Element" anchor="exercise-lc-peak">
+
+### Find Peak Element
+
+**Judge:** [LeetCode 162](https://leetcode.com/problems/find-peak-element/)
+
+Return any peak index in `O(log n)` on an array that is not fully sorted.
+
+:::tip Why this lesson?
+Binary search still works when a local comparison tells you **which half** must contain a peak.
+:::
+
+</Exercise>
+</ExerciseSet>
+
+## Cheat sheet
+
+| Situation | What to binary-search |
+|---|---|
+| Sorted array membership | Index interval with `a[l] ≤ k < a[r]` |
+| First ≥ / first > | Lower / upper bound |
+| Expensive monotone yes/no | Predicate `f` |
+| Optimize a numeric answer | Feasibility check on λ |
+| Continuous `f(x)=y` | Halve real interval to ±δ |
+| Trees / Fenwick | Powers of two from a pointer |
+
+**Previous:** [Basic Geometry](./02-basic-geometry) · [0-1 BFS](./01-bfs)
+
+**Source:** [CP-Algorithms — Binary Search](https://cp-algorithms.com/num_methods/binary_search.html)

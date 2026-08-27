@@ -1,0 +1,415 @@
+---
+sidebar_position: 32
+title: Sqrt Tree
+---
+
+import SqrtTreeSimulator from "@site/src/components/interactive/SqrtTreeSimulator.js";
+
+# Sqrt Tree
+
+Given an array `a[0..n)` and an **associative** operation `∘`
+
+```text
+(x ∘ y) ∘ z = x ∘ (y ∘ z)
+```
+
+(`+`, `min`, `max`, `gcd`, AND, OR, XOR, …), answer range folds
+
+```text
+q(l, r) = a[l] ∘ a[l+1] ∘ ⋯ ∘ a[r]
+```
+
+A **sqrt tree** does this in **`O(1)`** per query after **`O(n log log n)`** preprocess and memory — including ops that are **not** idempotent (unlike the two-overlap sparse-table RMQ trick).
+
+This lesson follows [CP-Algorithms — Sqrt Tree](https://cp-algorithms.com/data_structures/sqrt-tree.html).
+
+Related: [Sparse Table](./30-sparse-table).
+
+## One level: sqrt decomposition
+
+Split into `≈ √n` blocks of size `≈ √n`. In each block store:
+
+- **`prefixOp`** — folds that start at the **block start**
+- **`suffixOp`** — folds that end at the **block end**
+
+Plus **`between[i][j]`** (`i ≤ j`) — fold of **full blocks** `i…j` (size `O((√n)²) = O(n)`).
+
+All of that builds in **`O(n)`** for one layer.
+
+**Example** (`∘ = +`, `a = {1..9}`): blocks `{1,2,3}`, `{4,5,6}`, `{7,8,9}`.
+
+| Block | prefixOp | suffixOp |
+|---|---|---|
+| 0 | `{1,3,6}` | `{6,5,3}` |
+| 1 | `{4,9,15}` | `{15,11,6}` |
+| 2 | `{7,15,24}` | `{24,17,9}` |
+
+```text
+between = [[6, 21, 45],
+           [0, 15, 39],
+           [0,  0, 24]]
+```
+
+A query that **spans** blocks splits into three pieces:
+
+```text
+suffixOp (partial first block)  ∘  between[…]  ∘  prefixOp (partial last block)
+```
+
+Queries **inside one block** are not covered yet.
+
+## Make a tree
+
+Build the **same** structure **recursively inside each block** until length is `1` or `2` (answer in `O(1)`).
+
+- Node for length `k` has `≈ √k` children.
+- Height: `log √k = (log k)/2` → **`O(log log n)`** layers.
+- Each index appears once per layer → build/memory **`O(n log log n)`**.
+
+Naively walk down until the query no longer lies in a single child → **`O(log log n)`** per query.
+
+## `O(1)` queries
+
+Pad `n` to a power of two; force equal **power-of-two** block sizes on each layer.
+
+Indices in one block of size `2^k` differ only in the **lowest `k` bits**. So `l` and `r` lie in the same block iff
+
+```text
+(l xor r) < 2^k
+```
+
+Precompute highest set bits / layer maps (`clz`, `onLayer`). For `q(l,r)` read the highest bit of `l xor r`, jump to a suitable layer, then combine `suffix ∘ between ∘ prefix` in **`O(1)`**.
+
+## Updates
+
+| Operation | Naive | Optimized |
+|---|---|---|
+| Point assign | Rebuild `between` on root → **`O(n)`** | Replace root `between` by an **unindexed** sqrt-tree **`index`** over block answers → point update **`O(√n)`**, queries still **`O(1)`** |
+| Range assign | — | Lazy tags: (1) `massUpdate` **`O(√n log log n)`**, query **`O(1)`**; or (2) `massUpdate` **`O(√n)`**, query **`O(log log n)`** |
+
+Indexed tree: only the **root** has `index`; deeper nodes keep `between`.
+
+<SqrtTreeSimulator />
+
+<details>
+<summary>🧪 One-layer sqrt decomp (sum) + in-block scan</summary>
+
+<PistonRunner
+  lang="c++"
+  height="480px"
+  code={`#include <iostream>
+#include <vector>
+#include <cmath>
+using namespace std;
+
+struct SqrtLayer {
+    int n, B, nb;
+    vector<long long> a, pref, suf;
+    vector<vector<long long>> between;
+
+    SqrtLayer(const vector<long long>& arr) : a(arr) {
+        n = (int)a.size();
+        B = max(1, (int)sqrt(n));
+        nb = (n + B - 1) / B;
+        pref.assign(n, 0);
+        suf.assign(n, 0);
+        between.assign(nb, vector<long long>(nb, 0));
+        for (int b = 0; b < nb; b++) {
+            int L = b * B, R = min(n, L + B);
+            pref[L] = a[L];
+            for (int i = L + 1; i < R; i++) pref[i] = pref[i - 1] + a[i];
+            suf[R - 1] = a[R - 1];
+            for (int i = R - 2; i >= L; i--) suf[i] = a[i] + suf[i + 1];
+        }
+        vector<long long> blockSum(nb);
+        for (int b = 0; b < nb; b++) {
+            int L = b * B;
+            blockSum[b] = suf[L];
+        }
+        for (int i = 0; i < nb; i++) {
+            long long s = 0;
+            for (int j = i; j < nb; j++) {
+                s += blockSum[j];
+                between[i][j] = s;
+            }
+        }
+    }
+
+    long long query(int l, int r) {
+        int bl = l / B, br = r / B;
+        if (bl == br) {
+            long long s = 0;
+            for (int i = l; i <= r; i++) s += a[i];
+            return s;
+        }
+        long long ans = suf[l];
+        if (bl + 1 <= br - 1) ans += between[bl + 1][br - 1];
+        ans += pref[r];
+        return ans;
+    }
+};
+
+int main() {
+    vector<long long> a = {1, 2, 3, 4, 5, 6, 7, 8, 9};
+    SqrtLayer st(a);
+    cout << "q(1,7) = " << st.query(1, 7) << endl;
+    cout << "q(0,8) = " << st.query(0, 8) << endl;
+    cout << "q(3,5) = " << st.query(3, 5) << endl;
+    return 0;
+}
+`}
+/>
+
+</details>
+
+<details>
+<summary>Full `O(1)` SqrtTree sketch</summary>
+
+Implement `op`, pad layers with `log2Up`, maintain `pref` / `suf` / `between` (or root `index`), map `onLayer[clz[l xor r]]`, then:
+
+```cpp
+// ans = suf[layer][l]
+// ∘ between / index on full middle blocks
+// ∘ pref[layer][r]
+SqrtTreeItem query(int l, int r);
+void update(int x, SqrtTreeItem item); // O(√n) with index
+```
+
+Complete listing: [CP-Algorithms Sqrt Tree](https://cp-algorithms.com/data_structures/sqrt-tree.html).
+
+</details>
+
+## Check: sqrt tree
+
+<MultipleChoice
+  id="algo-31-sqrttree-basic"
+  title="Sqrt tree"
+  questions={[
+    {
+      prompt: 'Sqrt trees need the operation to be…',
+      choices: ['Idempotent only', 'Associative', 'Commutative only', 'Distributive over ×'],
+      answer: 1,
+      why: 'Range fold is well-defined under associativity.',
+    },
+    {
+      prompt: 'Build / memory is typically…',
+      choices: ['O(n)', 'O(n log log n)', 'O(n²)', 'O(1)'],
+      answer: 1,
+      why: 'O(log log n) layers × O(n) per layer.',
+    },
+    {
+      prompt: 'A spanning query on one layer uses…',
+      choices: [
+        'Only prefix sums of the whole array',
+        'suffix ∘ between ∘ prefix',
+        'Two overlapping sparse-table blocks only',
+        'DFS of the input graph',
+      ],
+      answer: 1,
+      why: 'Partial ends + full middle blocks.',
+    },
+    {
+      prompt: 'Same power-of-two block: l and r differ only in…',
+      choices: [
+        'The highest bit',
+        'The lowest k bits (block size 2^k)',
+        'Parity only',
+        'Nothing — always different blocks',
+      ],
+      answer: 1,
+      why: 'Check (l xor r) < 2^k.',
+    },
+    {
+      prompt: 'Point update with an indexed root is…',
+      choices: ['O(n)', 'O(√n)', 'O(1)', 'O(n log n)'],
+      answer: 1,
+      why: 'Refresh prefix/suffix + index + child rebuild.',
+    },
+  ]}
+/>
+
+## Practice drills
+
+<ExerciseSet>
+<Exercise title="Block id" anchor="exercise-sqrtt-block">
+
+:::tip Activity: Block id
+Input: `i B` (0-based index, block size). Print `i // B`.
+
+<CodeExercise
+  title="Block id"
+  heading="exercise-sqrtt-block"
+  lang="python"
+  filename="main.py"
+  prompt="Which √-block contains index i?"
+  sampleLog={`(input) 7 3
+2`}
+  starter={`def block_id(i, B):
+    # TODO
+    return 0
+`}
+  wrapSuffix={`
+i, B = map(int, input().split())
+print(block_id(i, B))
+`}
+  hint="return i // B"
+  solution={`def block_id(i, B):
+    return i // B
+`}
+  sourceChecks={[
+    { name: 'divides', pattern: '//|/', must: true, hint: 'integer division by B' },
+  ]}
+  tests={[
+    { name: 'sample', stdin: '7 3', equals: '2' },
+    { name: 'start', stdin: '0 3', equals: '0' },
+    { name: 'edge', stdin: '3 3', equals: '1' },
+  ]}
+/>
+
+:::
+
+</Exercise>
+
+<Exercise title="Same block via xor" anchor="exercise-sqrtt-xor">
+
+:::tip Activity: Same block via xor
+Block size is `2^k`. Input: `l r k`. Print `YES` if `l` and `r` lie in the same block, else `NO`  
+(rule: `(l ^ r) < 2^k`).
+
+<CodeExercise
+  title="Same block via xor"
+  heading="exercise-sqrtt-xor"
+  lang="python"
+  filename="main.py"
+  prompt="Power-of-two block membership."
+  sampleLog={`(input) 39 46 4
+YES`}
+  starter={`def same_block(l, r, k):
+    # TODO: return "YES" or "NO"
+    return "NO"
+`}
+  wrapSuffix={`
+l, r, k = map(int, input().split())
+print(same_block(l, r, k))
+`}
+  hint="return 'YES' if (l ^ r) < (1 << k) else 'NO'"
+  solution={`def same_block(l, r, k):
+    return "YES" if (l ^ r) < (1 << k) else "NO"
+`}
+  sourceChecks={[
+    { name: 'xor', pattern: '\\^', must: true, hint: 'use bitwise xor' },
+  ]}
+  tests={[
+    { name: 'sample', stdin: '39 46 4', equals: 'YES' },
+    { name: 'no', stdin: '15 16 4', equals: 'NO' },
+    { name: 'tiny', stdin: '2 3 1', equals: 'YES' },
+  ]}
+/>
+
+:::
+
+</Exercise>
+
+<Exercise title="Three-piece combine" anchor="exercise-sqrtt-combine">
+
+:::tip Activity: Three-piece combine
+For `∘ = +`, input: `suf mid pref`. Print `suf + mid + pref`.
+
+<CodeExercise
+  title="Three-piece combine"
+  heading="exercise-sqrtt-combine"
+  lang="python"
+  filename="main.py"
+  prompt="suffix ∘ between ∘ prefix for sums."
+  sampleLog={`(input) 5 15 15
+35`}
+  starter={`def combine(suf, mid, pref):
+    # TODO
+    return 0
+`}
+  wrapSuffix={`
+a, b, c = map(int, input().split())
+print(combine(a, b, c))
+`}
+  hint="return suf + mid + pref"
+  solution={`def combine(suf, mid, pref):
+    return suf + mid + pref
+`}
+  sourceChecks={[
+    { name: 'adds', pattern: '\\+', must: true, hint: 'sum the three parts' },
+  ]}
+  tests={[
+    { name: 'sample', stdin: '5 15 15', equals: '35' },
+    { name: 'zeros', stdin: '0 10 0', equals: '10' },
+  ]}
+/>
+
+:::
+
+</Exercise>
+
+<Exercise title="Layer count" anchor="exercise-sqrtt-layers">
+
+:::tip Activity: Layer count
+Start with length `n`. While `n > 2`, set `n = ceil(sqrt(n))` (use integer: `isqrt` then bump if needed). Print how many shrink steps until `n ≤ 2` (tree height scale).
+
+<CodeExercise
+  title="Layer count"
+  heading="exercise-sqrtt-layers"
+  lang="python"
+  filename="main.py"
+  prompt="log log n style depth."
+  sampleLog={`(input) 9
+2`}
+  starter={`import math
+
+def layer_steps(n):
+    # TODO
+    return 0
+`}
+  wrapSuffix={`
+print(layer_steps(int(input())))
+`}
+  hint="steps=0; while n>2: n = math.isqrt(n-1)+1 if ... or use int(math.ceil(math.sqrt(n))); steps+=1"
+  solution={`import math
+
+def layer_steps(n):
+    steps = 0
+    while n > 2:
+        n = math.ceil(math.sqrt(n))
+        steps += 1
+    return steps
+`}
+  sourceChecks={[
+    { name: 'loops', pattern: 'while\\s+', must: true, hint: 'shrink until ≤ 2' },
+  ]}
+  tests={[
+    { name: 'sample', stdin: '9', equals: '2' },
+    { name: 'small', stdin: '2', equals: '0' },
+    { name: 'big', stdin: '100', equals: '3' },
+  ]}
+/>
+
+:::
+
+</Exercise>
+</ExerciseSet>
+
+## Practice problems
+
+From [CP-Algorithms](https://cp-algorithms.com/data_structures/sqrt-tree.html):
+
+- [CodeChef — SEGPROD](https://www.codechef.com/problems/SEGPROD)
+
+## Cheat sheet
+
+| Piece | Role |
+|---|---|
+| `prefixOp` / `suffixOp` | Intra-block ends |
+| `between` / `index` | Full block ranges |
+| Recursion | Handle in-block queries |
+| Height | `O(log log n)` |
+| Build | `O(n log log n)` |
+| Query | `O(1)` with bit layer pick |
+| Point update | `O(√n)` if indexed |
+| vs sparse table | Works for non-idempotent `∘` |

@@ -1,0 +1,372 @@
+---
+sidebar_position: 29
+title: Second Best MST
+---
+
+import SecondBestMstSimulator from "@site/src/components/interactive/SecondBestMstSimulator.js";
+
+# Second Best Minimum Spanning Tree
+
+A **minimum spanning tree** `T` of `G` connects all vertices with minimum total edge weight. A **second-best MST** `T'` is a spanning tree whose weight is the next-smallest among all spanning trees of `G`.
+
+This lesson follows [CP-Algorithms — Second best MST](https://cp-algorithms.com/graph/second_best_mst.html).
+
+Related: [Manhattan Distance](./19-manhattan-distance) (Manhattan MST), [0-1 BFS](./01-bfs).
+
+## Observation
+
+`T'` differs from `T` by **exactly one edge replacement**:
+
+```text
+T' = (T ∪ {e_new}) \ {e_old}
+```
+
+with `e_new ∉ T`, `e_old ∈ T`, and `T'` still a tree. Among all such swaps, minimize
+
+```text
+δ = weight(e_new) − weight(e_old)
+```
+
+(equivalently minimize the weight of `T'`). Proof sketch: see CLRS problem 23-1.
+
+## Slow approach: exclude each MST edge
+
+1. Sort edges `O(E log E)`, build MST with Kruskal `O(E α(V))`.
+2. For each of the `V−1` MST edges, **forbid** it and rebuild an MST on the rest (`O(E)` with edges already sorted).
+3. Take the lightest alternative tree.
+
+Complexity: **`O(V E)`**.
+
+## Fast approach: add each non-MST edge + LCA
+
+Do the dual:
+
+1. Build MST `T` (weight `res`).
+2. For every `e = (u,v) ∉ T`, adding `e` creates a unique cycle through `LCA(u,v)` in the rooted tree.
+3. Let `k` be the **heaviest** edge on that cycle except `e` (i.e. max weight on tree paths `u→LCA` and `v→LCA`).
+4. Candidate weight = `res + w(e) − w(k)`. Keep the minimum.
+
+With **binary lifting** that also stores path maxima (and optionally the second maximum when `w(k) = w(e)`), each query is `O(log V)`. Total **`O(E log V)`**.
+
+Example (article intuition): add edge weight `36` → cycle `36–7–2–34` → drop `34` → `δ = 2`. Other non-tree edges give larger `δ`; the minimum `δ` tree is the second-best MST.
+
+<SecondBestMstSimulator />
+
+<details>
+<summary>🧪 Kruskal MST + max-on-path swaps (toy graph)</summary>
+
+<PistonRunner
+  lang="c++"
+  height="520px"
+  code={`#include <iostream>
+#include <vector>
+#include <algorithm>
+#include <numeric>
+using namespace std;
+
+struct Edge {
+    int u, v, w;
+};
+
+int findp(vector<int>& p, int x) {
+    return p[x] == x ? x : p[x] = findp(p, p[x]);
+}
+
+bool unite(vector<int>& p, int a, int b) {
+    a = findp(p, a);
+    b = findp(p, b);
+    if (a == b) return false;
+    p[b] = a;
+    return true;
+}
+
+// max edge weight on unique tree path u..v
+int max_on_path(const vector<vector<pair<int, int>>>& adj, int u, int v) {
+    vector<int> par(adj.size(), -1), pw(adj.size(), 0);
+    vector<int> st = {u};
+    par[u] = u;
+    while (!st.empty()) {
+        int x = st.back();
+        st.pop_back();
+        for (auto [y, w] : adj[x]) {
+            if (par[y] != -1) continue;
+            par[y] = x;
+            pw[y] = w;
+            st.push_back(y);
+        }
+    }
+    int mx = 0;
+    while (v != u) {
+        mx = max(mx, pw[v]);
+        v = par[v];
+    }
+    return mx;
+}
+
+int main() {
+    int n = 4;
+    vector<Edge> edges = {
+        {1, 2, 1}, {2, 3, 2}, {3, 4, 3},
+        {1, 3, 4}, {2, 4, 5}, {1, 4, 10},
+    };
+    sort(edges.begin(), edges.end(),
+         [](const Edge& a, const Edge& b) { return a.w < b.w; });
+
+    vector<int> p(n + 1);
+    iota(p.begin(), p.end(), 0);
+    vector<vector<pair<int, int>>> adj(n + 1);
+    vector<char> in_mst(edges.size(), 0);
+    long long res = 0;
+    for (int i = 0; i < (int)edges.size(); i++) {
+        if (unite(p, edges[i].u, edges[i].v)) {
+            adj[edges[i].u].push_back({edges[i].v, edges[i].w});
+            adj[edges[i].v].push_back({edges[i].u, edges[i].w});
+            in_mst[i] = 1;
+            res += edges[i].w;
+        }
+    }
+    cout << "MST weight = " << res << endl;
+
+    long long ans = 1e18;
+    for (int i = 0; i < (int)edges.size(); i++) {
+        if (in_mst[i]) continue;
+        int k = max_on_path(adj, edges[i].u, edges[i].v);
+        long long cand = res + edges[i].w - k;
+        cout << "add " << edges[i].u << "-" << edges[i].v
+             << " w=" << edges[i].w << " drop " << k
+             << " -> " << cand << endl;
+        ans = min(ans, cand);
+    }
+    cout << "second best = " << ans << endl;
+    return 0;
+}
+`}
+/>
+
+</details>
+
+## Binary lifting sketch
+
+Root the MST. For each node store:
+
+```text
+up[v][j]  = 2ʲ-th ancestor
+dp[v][j]  = (max, second_max) edge weights on the jump v → up[v][j]
+```
+
+`combine` merges two `(max, second_max)` pairs. Query `lca(u,v)` while folding `dp` along both ascent paths → heaviest (and second-heaviest) edge on the cycle when you add `(u,v)`.
+
+When the strict maximum equals `w(e)` (degenerate), fall back to the second maximum.
+
+<details>
+<summary>Reference: combine + LCA query idea</summary>
+
+```cpp
+pair<int,int> combine(pair<int,int> a, pair<int,int> b) {
+    // return top-two distinct values among {a.first,a.second,b.first,b.second}
+}
+
+pair<int,int> path_max(int u, int v); // lift + combine along u..v in the tree
+
+// for each non-MST edge e=(s,e) with weight w:
+auto rem = path_max(s, e);
+int k = (rem.first != w) ? rem.first : rem.second;
+ans = min(ans, res + w - k);
+```
+
+Full DSU + binary-lifting listing: [CP-Algorithms](https://cp-algorithms.com/graph/second_best_mst.html).
+
+</details>
+
+## Check: second-best MST
+
+<MultipleChoice
+  id="algo-28-sbmst-basic"
+  title="Second-best MST"
+  questions={[
+    {
+      prompt: 'A second-best MST differs from the MST by…',
+      choices: [
+        'Replacing every edge',
+        'Exactly one edge swap',
+        'Only vertex deletions',
+        'Arbitrary many swaps always',
+      ],
+      answer: 1,
+      why: 'One e_new in, one e_old out on the created cycle.',
+    },
+    {
+      prompt: 'After adding e_new to the MST, e_old should be…',
+      choices: [
+        'The lightest edge on the cycle',
+        'The heaviest MST edge on the cycle',
+        'A random tree edge',
+        'Always incident to vertex 1',
+      ],
+      answer: 1,
+      why: 'Minimizes δ = w(e_new) − w(e_old).',
+    },
+    {
+      prompt: 'Exclude-each-MST-edge rebuild costs…',
+      choices: ['O(E)', 'O(V E)', 'O(1)', 'O(V² log V) only'],
+      answer: 1,
+      why: 'V−1 Kruskal passes on sorted edges.',
+    },
+    {
+      prompt: 'LCA + binary lifting approach is…',
+      choices: [
+        'O(E log V)',
+        'O(V² E)',
+        'O(E³)',
+        'Only linear in V',
+      ],
+      answer: 0,
+      why: 'One tree path-max query per non-tree edge.',
+    },
+  ]}
+/>
+
+## Practice drills
+
+<ExerciseSet>
+<Exercise title="Swap delta" anchor="exercise-sbmst-delta">
+
+:::tip Activity: Swap delta
+Input: `w_new w_old`. Print `w_new - w_old` (the weight increase of that swap).
+
+<CodeExercise
+  title="Swap delta"
+  heading="exercise-sbmst-delta"
+  lang="python"
+  filename="main.py"
+  prompt="δ for one candidate replacement."
+  sampleLog={`(input) 4 2
+2`}
+  starter={`def delta(w_new, w_old):
+    # TODO
+    return 0
+`}
+  wrapSuffix={`
+a, b = map(int, input().split())
+print(delta(a, b))
+`}
+  hint="return w_new - w_old"
+  solution={`def delta(w_new, w_old):
+    return w_new - w_old
+`}
+  sourceChecks={[
+    { name: 'subtracts', pattern: '-', must: true, hint: 'difference of weights' },
+  ]}
+  tests={[
+    { name: 'sample', stdin: '4 2', equals: '2' },
+    { name: 'big', stdin: '10 3', equals: '7' },
+    { name: 'zeroish', stdin: '5 5', equals: '0' },
+  ]}
+/>
+
+:::
+
+</Exercise>
+
+<Exercise title="Best among candidates" anchor="exercise-sbmst-best">
+
+:::tip Activity: Best among candidates
+First line: MST weight `res`. Second: `k`. Next `k` lines: `w_new w_old` for each non-tree edge (max on cycle already computed). Print the second-best tree weight = `min(res + w_new - w_old)`.
+
+<CodeExercise
+  title="Best among candidates"
+  heading="exercise-sbmst-best"
+  lang="python"
+  filename="main.py"
+  prompt="Aggregate all swap candidates."
+  sampleLog={`(input) 6
+3
+4 2
+5 3
+10 3
+8`}
+  starter={`def second_best(res, pairs):
+    # pairs: list of (w_new, w_old)
+    # TODO
+    return res
+`}
+  wrapSuffix={`
+res = int(input())
+k = int(input())
+pairs = [tuple(map(int, input().split())) for _ in range(k)]
+print(second_best(res, pairs))
+`}
+  hint="return min(res + a - b for a,b in pairs)"
+  solution={`def second_best(res, pairs):
+    return min(res + a - b for a, b in pairs)
+`}
+  sourceChecks={[
+    { name: 'uses min', pattern: 'min\\s*\\(', must: true, hint: 'take the lightest candidate' },
+  ]}
+  tests={[
+    { name: 'sample', stdin: '6\n3\n4 2\n5 3\n10 3', equals: '8' },
+    { name: 'one', stdin: '10\n1\n7 4', equals: '13' },
+  ]}
+/>
+
+:::
+
+</Exercise>
+
+<Exercise title="Max on a path list" anchor="exercise-sbmst-maxpath">
+
+:::tip Activity: Max on path
+Edge weights along the unique tree path are given (space-separated). Print the maximum. This is what LCA lifting computes for one side of the cycle.
+
+<CodeExercise
+  title="Max on path"
+  heading="exercise-sbmst-maxpath"
+  lang="python"
+  filename="main.py"
+  prompt="Heaviest edge on u→LCA or the merged cycle."
+  sampleLog={`(input) 1 2 3
+3`}
+  starter={`def path_max(weights):
+    # TODO
+    return 0
+`}
+  wrapSuffix={`
+weights = list(map(int, input().split()))
+print(path_max(weights))
+`}
+  hint="return max(weights) if weights else 0"
+  solution={`def path_max(weights):
+    return max(weights) if weights else 0
+`}
+  sourceChecks={[
+    { name: 'max', pattern: 'max\\s*\\(', must: true, hint: 'maximum weight' },
+  ]}
+  tests={[
+    { name: 'sample', stdin: '1 2 3', equals: '3' },
+    { name: 'single', stdin: '7', equals: '7' },
+    { name: 'mix', stdin: '2 34 7', equals: '34' },
+  ]}
+/>
+
+:::
+
+</Exercise>
+</ExerciseSet>
+
+## Practice problems
+
+From [CP-Algorithms](https://cp-algorithms.com/graph/second_best_mst.html):
+
+- [Codeforces — Minimum spanning tree for each edge](https://codeforces.com/problemset/problem/609/E)
+
+References: Competitive Programming 3 (Halim); [MIT notes](https://web.mit.edu/).
+
+## Cheat sheet
+
+| Idea | Takeaway |
+|---|---|
+| Structure | Second-best = MST with one edge swap |
+| Slow | Forbid each MST edge, re-Kruskal → `O(V E)` |
+| Fast | For each `e ∉ T`, drop max on cycle → `O(E log V)` with LCA |
+| Tool | Binary lifting + path max (top-two) |
+| Output | `res + min (w(e) − w(k))` |

@@ -1,0 +1,458 @@
+---
+sidebar_position: 20
+title: Manhattan Distance
+---
+
+import ManhattanDistanceSimulator from "@site/src/components/interactive/ManhattanDistanceSimulator.js";
+
+# Manhattan Distance
+
+For points `p` and `q` in the plane,
+
+```text
+d(p, q) = |xₚ − x_q| + |yₚ − y_q|
+```
+
+This is **Manhattan** (taxicab) distance: you may only move horizontally or vertically, like on a city grid. Many shortest paths can share the same length.
+
+This lesson follows [CP-Algorithms — Manhattan distance](https://cp-algorithms.com/geometry/manhattan-distance.html).
+
+Related: [Basic Geometry](./02-basic-geometry).
+
+## Farthest pair (Manhattan)
+
+Given `n` points, maximize `|xₚ−x_q| + |yₚ−y_q|`.
+
+**1D warm-up** (`y = 0`):
+
+```text
+|xₚ − x_q| = max(xₚ − x_q, −xₚ + x_q)
+```
+
+So the maximum is `max x − min x` (one sign pattern wins; the other is smaller).
+
+**`d` dimensions:** try all `2ᵈ` sign masks. For a fixed mask, each point gets a scalar
+
+```text
+cur = ±x₀ ± x₁ ± … ± x_{d−1}
+```
+
+and the mask’s contribution is `max(cur) − min(cur)`. Take the best over masks.
+
+Time: **`O(n · 2ᵈ · d)`**.
+
+```cpp
+long long ans = 0;
+for (int msk = 0; msk < (1 << d); msk++) {
+    long long mx = LLONG_MIN, mn = LLONG_MAX;
+    for (int i = 0; i < n; i++) {
+        long long cur = 0;
+        for (int j = 0; j < d; j++) {
+            if (msk & (1 << j)) cur += p[i][j];
+            else cur -= p[i][j];
+        }
+        mx = max(mx, cur);
+        mn = min(mn, cur);
+    }
+    ans = max(ans, mx - mn);
+}
+```
+
+In 2D the four masks are essentially extrema of `±x ± y` (e.g. `x+y`, `x−y`, …).
+
+<details>
+<summary>🧪 Farthest Manhattan pair (2D)</summary>
+
+<PistonRunner
+  lang="c++"
+  height="400px"
+  code={`#include <iostream>
+#include <vector>
+#include <climits>
+#include <algorithm>
+using namespace std;
+
+int main() {
+    vector<vector<long long>> p = {
+        {0, 0}, {3, 1}, {1, 4}, {5, 2}, {-1, 2}
+    };
+    int n = (int)p.size(), d = 2;
+    long long ans = 0;
+    for (int msk = 0; msk < (1 << d); msk++) {
+        long long mx = LLONG_MIN, mn = LLONG_MAX;
+        for (int i = 0; i < n; i++) {
+            long long cur = 0;
+            for (int j = 0; j < d; j++) {
+                if (msk & (1 << j)) cur += p[i][j];
+                else cur -= p[i][j];
+            }
+            mx = max(mx, cur);
+            mn = min(mn, cur);
+        }
+        ans = max(ans, mx - mn);
+    }
+    cout << "farthest = " << ans << endl;
+    return 0;
+}
+`}
+/>
+
+</details>
+
+## Rotate to Chebyshev
+
+Identity (check signs of `m`, `n`):
+
+```text
+|m| + |n| = max(|m + n|, |m − n|)
+```
+
+Applied to Manhattan:
+
+```text
+|x₁−x₂| + |y₁−y₂|
+  = max( |(x₁+y₁)−(x₂+y₂)| , |(y₁−x₁)−(y₂−x₂)| )
+```
+
+That is the **Chebyshev** (`L∞`) distance of
+
+```text
+α(x, y) = (x + y, y − x)
+```
+
+So after `α`, Manhattan problems become Chebyshev problems (axis-aligned squares instead of diamonds). Geometrically `α` is a **45°** rotation about the origin plus scale **`√2`**.
+
+## Manhattan MST — `O(n log n)`
+
+Connect all points with minimum total Manhattan edge weight (assume distinct locations).
+
+**Key fact:** it is enough to keep, for each point, its **nearest neighbor in each octant** (8 cones). For `s` and any two points `p`, `q` in the **same** octant,
+
+```text
+d(p, q) < max(d(s, p), d(s, q))
+```
+
+so an MST never needs both `s–p` and `s–q`. That yields **`O(n)`** candidate edges; then run Kruskal.
+
+### Nearest neighbor per octant
+
+Focus on the NNE octant; other directions follow by **rotating** the cloud (4 rotations suffice in the KACTL-style code — each also covers the opposite octant).
+
+Sweep by non-decreasing `x + y`. Keep an **active** set of points still waiting for a neighbor in this octant, ordered by `x`.
+
+When processing `p`:
+
+1. Walk active points with `x ≤ xₚ` from large `x` downward while `xₚ − yₚ ≤ xₛ − yₛ` (NNE condition).
+2. Each such `s` gets nearest neighbor `p` (distance `(xₚ+yₚ)−(xₛ+yₛ)`); erase them.
+3. Insert `p` into active.
+
+Amortized **`O(n log n)`** per rotation. Then Kruskal on the candidate list.
+
+```cpp
+struct point { long long x, y; };
+
+// Edges (weight, u, v) — feed to Kruskal for the Manhattan MST.
+vector<tuple<long long, int, int>> manhattan_mst_edges(vector<point> ps) {
+    vector<int> ids(ps.size());
+    iota(ids.begin(), ids.end(), 0);
+    vector<tuple<long long, int, int>> edges;
+    for (int rot = 0; rot < 4; rot++) {
+        sort(ids.begin(), ids.end(), [&](int i, int j) {
+            return (ps[i].x + ps[i].y) < (ps[j].x + ps[j].y);
+        });
+        map<int, int, greater<int>> active; // x -> id
+        for (auto i : ids) {
+            for (auto it = active.lower_bound(ps[i].x); it != active.end();
+                 active.erase(it++)) {
+                int j = it->second;
+                if (ps[i].x - ps[i].y > ps[j].x - ps[j].y) break;
+                edges.push_back({
+                    (ps[i].x - ps[j].x) + (ps[i].y - ps[j].y), i, j});
+            }
+            active[ps[i].x] = i;
+        }
+        for (auto &p : ps) { // rotate 90° steps (swap / flip)
+            if (rot & 1) p.x *= -1;
+            else swap(p.x, p.y);
+        }
+    }
+    return edges;
+}
+```
+
+<details>
+<summary>🧪 Candidate edges + Kruskal weight</summary>
+
+<PistonRunner
+  lang="c++"
+  height="520px"
+  code={`#include <iostream>
+#include <vector>
+#include <tuple>
+#include <map>
+#include <numeric>
+#include <algorithm>
+using namespace std;
+
+struct point { long long x, y; };
+
+vector<tuple<long long, int, int>> manhattan_mst_edges(vector<point> ps) {
+    vector<int> ids(ps.size());
+    iota(ids.begin(), ids.end(), 0);
+    vector<tuple<long long, int, int>> edges;
+    for (int rot = 0; rot < 4; rot++) {
+        sort(ids.begin(), ids.end(), [&](int i, int j) {
+            return (ps[i].x + ps[i].y) < (ps[j].x + ps[j].y);
+        });
+        map<int, int, greater<int>> active;
+        for (auto i : ids) {
+            for (auto it = active.lower_bound(ps[i].x); it != active.end();
+                 active.erase(it++)) {
+                int j = it->second;
+                if (ps[i].x - ps[i].y > ps[j].x - ps[j].y) break;
+                edges.push_back({
+                    (ps[i].x - ps[j].x) + (ps[i].y - ps[j].y), i, j});
+            }
+            active[ps[i].x] = i;
+        }
+        for (auto &p : ps) {
+            if (rot & 1) p.x *= -1;
+            else swap(p.x, p.y);
+        }
+    }
+    return edges;
+}
+
+struct DSU {
+    vector<int> p;
+    DSU(int n) : p(n) { iota(p.begin(), p.end(), 0); }
+    int find(int x) { return p[x] == x ? x : p[x] = find(p[x]); }
+    bool unite(int a, int b) {
+        a = find(a); b = find(b);
+        if (a == b) return false;
+        p[a] = b;
+        return true;
+    }
+};
+
+int main() {
+    vector<point> ps = {{0, 0}, {3, 1}, {1, 4}, {5, 2}, {-1, 2}};
+    auto edges = manhattan_mst_edges(ps);
+    sort(edges.begin(), edges.end());
+    DSU dsu((int)ps.size());
+    long long total = 0;
+    int used = 0;
+    for (auto [w, u, v] : edges) {
+        if (dsu.unite(u, v)) {
+            total += w;
+            used++;
+        }
+    }
+    cout << "candidate edges = " << edges.size() << endl;
+    cout << "MST edges = " << used << endl;
+    cout << "MST weight = " << total << endl;
+    return 0;
+}
+`}
+/>
+
+</details>
+
+<ManhattanDistanceSimulator />
+
+## Check: Manhattan tricks
+
+<MultipleChoice
+  id="algo-19-manhattan-basic"
+  title="Manhattan distance"
+  questions={[
+    {
+      prompt: 'd((0,0),(5,2)) under Manhattan is…',
+      choices: ['√29', '7', '5', '2'],
+      answer: 1,
+      why: '|5|+|2|=7.',
+    },
+    {
+      prompt: 'Farthest pair in d dimensions tries how many sign masks?',
+      choices: ['d', '2ᵈ', 'n', 'n² only'],
+      answer: 1,
+      why: 'Each coordinate independently ±.',
+    },
+    {
+      prompt: 'α(x,y)=(x+y, y−x) turns Manhattan into…',
+      choices: ['Euclidean', 'Chebyshev (L∞)', 'Hamming', 'Edit distance'],
+      answer: 1,
+      why: '|m|+|n|=max(|m+n|,|m−n|).',
+    },
+    {
+      prompt: 'Manhattan MST candidate edges come from…',
+      choices: [
+        'All n² pairs',
+        'Nearest neighbor in each octant (O(n) edges)',
+        'Only the convex hull',
+        'Random spanning trees',
+      ],
+      answer: 1,
+      why: 'Octant nearest neighbors suffice; then Kruskal.',
+    },
+  ]}
+/>
+
+## Practice drills
+
+<ExerciseSet>
+<Exercise title="Manhattan distance" anchor="exercise-man-dist">
+
+:::tip Activity: Manhattan distance
+Input: `x1 y1 x2 y2`. Print `|x1−x2|+|y1−y2|`.
+
+<CodeExercise
+  title="Manhattan distance"
+  heading="exercise-man-dist"
+  lang="python"
+  filename="main.py"
+  prompt="Definition."
+  sampleLog={`(input) 0 0 5 2
+7`}
+  starter={`def manhattan(x1, y1, x2, y2):
+    # TODO
+    return 0
+`}
+  wrapSuffix={`
+x1, y1, x2, y2 = map(int, input().split())
+print(manhattan(x1, y1, x2, y2))
+`}
+  hint="return abs(x1-x2)+abs(y1-y2)"
+  solution={`def manhattan(x1, y1, x2, y2):
+    return abs(x1 - x2) + abs(y1 - y2)
+`}
+  sourceChecks={[
+    { name: 'uses abs', pattern: 'abs\\s*\\(', must: true, hint: 'absolute differences' },
+  ]}
+  tests={[
+    { name: 'sample', stdin: '0 0 5 2', equals: '7' },
+    { name: 'neg', stdin: '1 1 -2 4', equals: '6' },
+    { name: 'same', stdin: '3 3 3 3', equals: '0' },
+  ]}
+/>
+
+:::
+
+</Exercise>
+
+<Exercise title="Farthest pair 2D" anchor="exercise-man-far">
+
+:::tip Activity: Farthest pair 2D
+First line: `n`. Next `n` lines: `x y`. Print the maximum Manhattan distance between any two points (use the `2²` mask method or `O(n²)` — `n` is tiny).
+
+<CodeExercise
+  title="Farthest pair 2D"
+  heading="exercise-man-far"
+  lang="python"
+  filename="main.py"
+  prompt="max over masks of max(cur)−min(cur)."
+  sampleLog={`(input) 5
+0 0
+3 1
+1 4
+5 2
+-1 2
+7`}
+  starter={`def farthest_manhattan(points):
+    # points: list of (x, y)
+    # TODO
+    return 0
+`}
+  wrapSuffix={`
+n = int(input())
+points = [tuple(map(int, input().split())) for _ in range(n)]
+print(farthest_manhattan(points))
+`}
+  hint="for each of 4 masks, track max/min of ±x±y; answer is best max-min"
+  solution={`def farthest_manhattan(points):
+    best = 0
+    for msk in range(4):
+        vals = []
+        for x, y in points:
+            cur = (x if msk & 1 else -x) + (y if msk & 2 else -y)
+            vals.append(cur)
+        best = max(best, max(vals) - min(vals))
+    return best
+`}
+  sourceChecks={[
+    { name: 'uses max/min or pairs', pattern: 'max\\s*\\(|min\\s*\\(|abs\\s*\\(', must: true, hint: 'compare extrema or all pairs' },
+  ]}
+  tests={[
+    { name: 'sample', stdin: '5\n0 0\n3 1\n1 4\n5 2\n-1 2', equals: '7' },
+    { name: 'two', stdin: '2\n0 0\n1 1', equals: '2' },
+    { name: 'line', stdin: '3\n0 0\n2 0\n5 0', equals: '5' },
+  ]}
+/>
+
+:::
+
+</Exercise>
+
+<Exercise title="Chebyshev after α" anchor="exercise-man-cheb">
+
+:::tip Activity: Chebyshev after α
+Input: `x1 y1 x2 y2`. Print Chebyshev distance between `α(p1)` and `α(p2)` where `α(x,y)=(x+y, y−x)`. (Equals Manhattan.)
+
+<CodeExercise
+  title="Chebyshev after α"
+  heading="exercise-man-cheb"
+  lang="python"
+  filename="main.py"
+  prompt="Verify the rotation identity."
+  sampleLog={`(input) 0 0 5 2
+7`}
+  starter={`def chebyshev_after_alpha(x1, y1, x2, y2):
+    # TODO
+    return 0
+`}
+  wrapSuffix={`
+x1, y1, x2, y2 = map(int, input().split())
+print(chebyshev_after_alpha(x1, y1, x2, y2))
+`}
+  hint="a1,b1=x1+y1,y1-x1; a2,b2=x2+y2,y2-x2; return max(abs(a1-a2), abs(b1-b2))"
+  solution={`def chebyshev_after_alpha(x1, y1, x2, y2):
+    a1, b1 = x1 + y1, y1 - x1
+    a2, b2 = x2 + y2, y2 - x2
+    return max(abs(a1 - a2), abs(b1 - b2))
+`}
+  sourceChecks={[
+    { name: 'transforms', pattern: '\\+|max\\s*\\(', must: true, hint: 'apply α then L∞' },
+  ]}
+  tests={[
+    { name: 'sample', stdin: '0 0 5 2', equals: '7' },
+    { name: 'neg', stdin: '1 1 -2 4', equals: '6' },
+    { name: 'same', stdin: '3 3 3 3', equals: '0' },
+  ]}
+/>
+
+:::
+
+</Exercise>
+</ExerciseSet>
+
+## Contest problems
+
+From [CP-Algorithms](https://cp-algorithms.com/geometry/manhattan-distance.html):
+
+- [AtCoder ABC178 E — Dist Max](https://atcoder.jp/contests/abc178/tasks/abc178_e)
+- [Codeforces 1093G — Multidimensional Queries](https://codeforces.com/problemset/problem/1093/G)
+- [Codeforces 944F — Game with Tokens](https://codeforces.com/problemset/problem/944/F)
+- [AtCoder CODE FESTIVAL 2017 qual A D — Four Coloring](https://atcoder.jp/contests/code-festival-2017-quala/tasks/code_festival_2017_quala_d)
+- [ICPC Asia EC 2023 Online I — J. Minimum Manhattan Distance](https://codeforces.com/gym/104857) (search gym / contest mirrors for problem J)
+- Petrozavodsk Winter 2016 Contest 4 — B. Airports (camp archive)
+
+## Cheat sheet
+
+| Idea | Takeaway |
+|---|---|
+| Definition | `|Δx| + |Δy|` |
+| Farthest | `max_mask (max cur − min cur)`, `O(n 2ᵈ d)` |
+| Identity | `|m|+|n| = max(|m+n|, |m−n|)` |
+| Map `α` | Manhattan ↔ Chebyshev |
+| MST | Octant nearest neighbors → `O(n)` edges → Kruskal |
+| Sweep | Sort by `x+y`, active set by `x`, `O(n log n)` |

@@ -1,0 +1,503 @@
+---
+sidebar_position: 15
+title: Knapsack
+---
+
+import KnapsackSimulator from "@site/src/components/interactive/KnapsackSimulator.js";
+
+# Knapsack Problem
+
+Prerequisite: [Introduction to Dynamic Programming](./13-intro-dynamic-programming).
+
+Classic packing DP: choose items under a weight limit to maximize value. This lesson follows [CP-Algorithms — Knapsack](https://cp-algorithms.com/dynamic_programming/knapsack.html) (motivated by USACO Charm Bracelet).
+
+## 0-1 Knapsack
+
+`n` distinct items, capacity `W`. Item `i` has weight `wᵢ` and value `vᵢ`. Each item is taken **at most once**. Maximize total value with total weight `≤ W`.
+
+### State
+
+`fᵢⱼ` = max value using only the first `i` items with capacity `j`.
+
+For item `i` at capacity `j`:
+
+- Skip: `fᵢ₋₁,ⱼ`
+- Take (if `j ≥ wᵢ`): `fᵢ₋₁,ⱼ₋wᵢ + vᵢ`
+
+```text
+fᵢⱼ = max(fᵢ₋₁,ⱼ,  fᵢ₋₁,ⱼ₋wᵢ + vᵢ)
+```
+
+### 1D optimization
+
+Only the previous layer is needed:
+
+```text
+fⱼ ← max(fⱼ, fⱼ₋wᵢ + vᵢ)
+```
+
+**Loop `j` from `W` down to `wᵢ`** so that `fⱼ₋wᵢ` still holds the `(i−1)`-layer value (each item once).
+
+```cpp
+for (int i = 1; i <= n; i++)
+  for (int j = W; j >= w[i]; j--)
+    f[j] = max(f[j], f[j - w[i]] + v[i]);
+```
+
+Time / memory: **`O(nW)`** / **`O(W)`**.
+
+Invariant while processing `(i,j)`: for `k > j`, `fₖ` is already updated for item `i`; for `k ≤ j` (before the update), `fₖ` is still from layer `i−1`.
+
+<details>
+<summary>🧪 0-1 knapsack tiny instance</summary>
+
+<PistonRunner
+  lang="c++"
+  height="380px"
+  code={`#include <iostream>
+#include <vector>
+#include <algorithm>
+using namespace std;
+
+int main() {
+    int W = 8;
+    vector<int> w = {0, 2, 3, 4};
+    vector<int> v = {0, 3, 4, 5};
+    int n = 3;
+    vector<int> f(W + 1, 0);
+    for (int i = 1; i <= n; i++)
+        for (int j = W; j >= w[i]; j--)
+            f[j] = max(f[j], f[j - w[i]] + v[i]);
+    cout << "0-1 answer = " << f[W] << endl;
+    cout << "f: ";
+    for (int x : f) cout << x << " ";
+    cout << endl;
+    return 0;
+}
+`}
+/>
+
+</details>
+
+## Complete Knapsack
+
+Same as 0-1, except each item may be taken **unlimited** times.
+
+Naive: try count `k = 0,1,2,…` → `O(n²W)`. Better recurrence:
+
+```text
+fᵢⱼ = max(fᵢ₋₁,ⱼ,  fᵢ,ⱼ₋wᵢ + vᵢ)
+```
+
+Because `fᵢ,ⱼ₋wᵢ` already includes extra copies of item `i`.
+
+1D form is **the same assignment**, but loop **`j` from `wᵢ` up to `W`**:
+
+```cpp
+for (int i = 1; i <= n; i++)
+  for (int j = w[i]; j <= W; j++)
+    f[j] = max(f[j], f[j - w[i]] + v[i]);
+```
+
+Still **`O(nW)`**. Using the ascending loop for 0-1 is wrong — it multiplies the item.
+
+<details>
+<summary>🧪 Complete knapsack on the same items</summary>
+
+<PistonRunner
+  lang="c++"
+  height="360px"
+  code={`#include <iostream>
+#include <vector>
+#include <algorithm>
+using namespace std;
+
+int main() {
+    int W = 8;
+    vector<int> w = {0, 2, 3, 4};
+    vector<int> v = {0, 3, 4, 5};
+    int n = 3;
+    vector<int> f(W + 1, 0);
+    for (int i = 1; i <= n; i++)
+        for (int j = w[i]; j <= W; j++)
+            f[j] = max(f[j], f[j - w[i]] + v[i]);
+    cout << "complete answer = " << f[W] << endl;
+    cout << "f: ";
+    for (int x : f) cout << x << " ";
+    cout << endl;
+    return 0;
+}
+`}
+/>
+
+</details>
+
+## Interactive: loop direction matters
+
+<KnapsackSimulator />
+
+## Multiple Knapsack
+
+Item `i` may be taken at most `kᵢ` times.
+
+### Flatten to 0-1
+
+Treat as `kᵢ` identical 0-1 items → time `O(W · Σ kᵢ)`.
+
+### Binary grouping
+
+Split count `kᵢ` into bundles of sizes `1,2,4,…` plus a remainder so every total `≤ kᵢ` is achievable. Then run 0-1 on the bundles → **`O(W · Σ log kᵢ)`**.
+
+```cpp
+index = 0;
+for (int i = 1; i <= n; i++) {
+  int c = 1, p, h, k;
+  cin >> p >> h >> k; // weight, value, count
+  while (k > c) {
+    k -= c;
+    list[++index].w = c * p;
+    list[index].v = c * h;
+    c *= 2;
+  }
+  list[++index].w = p * k;
+  list[index].v = h * k;
+}
+// then 0-1 knapsack on list[1..index]
+```
+
+### Monotone queue — `O(nW)`
+
+Rewrite by residue classes mod `wᵢ`:
+
+```text
+gₓ,ᵧ = fᵢ(x·wᵢ + y)
+Gₓ,ᵧ = g'ₓ,ᵧ − vᵢ·x
+gₓ,ᵧ ← max_{k=0..kᵢ} Gₓ₋ₖ,ᵧ  + vᵢ·x
+```
+
+For fixed `y`, a sliding-window maximum (monotone deque) over `x` processes all capacities in `O(W)` per item → total **`O(nW)`**.
+
+## Mixed Knapsack
+
+Some items 0-1, some unbounded, some bounded. Dispatch by type:
+
+```text
+for each item:
+  if 0-1:     decreasing-j update
+  if complete: increasing-j update
+  if multiple: binary-group then 0-1 (or monotone queue)
+```
+
+## Check: 0-1 vs complete
+
+<MultipleChoice
+  id="algo-14-knap-basic"
+  title="0-1 and complete knapsack"
+  questions={[
+    {
+      prompt: '0-1 knapsack 1D loop must run j…',
+      choices: ['Ascending from wᵢ to W', 'Descending from W to wᵢ', 'In random order', 'Only at j=W'],
+      answer: 1,
+      why: 'Descending keeps f[j−w] from the previous item layer.',
+    },
+    {
+      prompt: 'Complete knapsack uses the same max update but…',
+      choices: [
+        'Loops j ascending',
+        'Forbids taking any item',
+        'Needs O(n²W) always',
+        'Uses only XOR',
+      ],
+      answer: 0,
+      why: 'Ascending lets f[j−w] already include more copies of i.',
+    },
+    {
+      prompt: 'Time of standard 1D 0-1 / complete is…',
+      choices: ['O(n)', 'O(nW)', 'O(2ⁿ)', 'O(W²) only'],
+      answer: 1,
+      why: 'n items × W capacities.',
+    },
+    {
+      prompt: 'fⱼ ← max(fⱼ, fⱼ₋w+v) with j↑ on a 0-1 instance…',
+      choices: [
+        'Is always correct for 0-1',
+        'Incorrectly allows multiple takes of the same item',
+        'Sorts the array',
+        'Forces W=0',
+      ],
+      answer: 1,
+      why: 'That is exactly the complete-knapsack loop.',
+    },
+  ]}
+/>
+
+## Check: multiple & mixed
+
+<MultipleChoice
+  id="algo-14-knap-multi"
+  title="Multiple and mixed knapsack"
+  questions={[
+    {
+      prompt: 'Binary grouping reduces the kᵢ copies to…',
+      choices: [
+        'O(kᵢ) new items',
+        'O(log kᵢ) bundles',
+        'One bundle only',
+        '√kᵢ bundles always',
+      ],
+      answer: 1,
+      why: 'Powers of two (plus remainder) cover every count ≤ kᵢ.',
+    },
+    {
+      prompt: 'Monotone-queue multiple knapsack achieves…',
+      choices: ['O(nW)', 'O(W Σ kᵢ)', 'O(2ⁿ)', 'O(1)'],
+      answer: 0,
+      why: 'Per item, all residues cost O(W) with a deque.',
+    },
+    {
+      prompt: 'Mixed knapsack is solved by…',
+      choices: [
+        'Always using only complete updates',
+        'Applying the matching update (or grouping) per item type',
+        'Ignoring kᵢ',
+        'Dijkstra only',
+      ],
+      answer: 1,
+      why: 'Dispatch 0-1 / complete / multiple logic per item.',
+    },
+    {
+      prompt: 'USACO Charm Bracelet style statement is…',
+      choices: [
+        '0-1 knapsack',
+        'Only complete knapsack',
+        'Sorting by density only',
+        'MST',
+      ],
+      answer: 0,
+      why: 'Each charm at most once under capacity W.',
+    },
+  ]}
+/>
+
+## Practice drills
+
+<ExerciseSet>
+<Exercise title="0-1 value" anchor="exercise-knap-01">
+
+:::tip Activity: 0-1 value
+First line: `n W`. Next `n` lines: `w v`. Print max value (0-1).
+
+<CodeExercise
+  title="0-1 value"
+  heading="exercise-knap-01"
+  lang="python"
+  filename="main.py"
+  prompt="Classic 1D descending DP."
+  sampleLog={`(input) 3 8
+2 3
+3 4
+4 5
+9`}
+  starter={`def knapsack_01(n, W, items):
+    # items: list of (w, v)
+    # TODO
+    return 0
+`}
+  wrapSuffix={`
+n, W = map(int, input().split())
+items = [tuple(map(int, input().split())) for _ in range(n)]
+print(knapsack_01(n, W, items))
+`}
+  hint="f=[0]*(W+1); for w,v in items: for j in range(W,w-1,-1): f[j]=max(f[j], f[j-w]+v)"
+  solution={`def knapsack_01(n, W, items):
+    f = [0] * (W + 1)
+    for w, v in items:
+        for j in range(W, w - 1, -1):
+            f[j] = max(f[j], f[j - w] + v)
+    return f[W]
+`}
+  sourceChecks={[
+    { name: 'desc loop', pattern: 'range\\([^)]+-1\\s*,|reversed', must: true, hint: 'loop j downward for 0-1' },
+  ]}
+  tests={[
+    { name: 'sample', stdin: '3 8\n2 3\n3 4\n4 5', equals: '9' },
+    { name: 'tight', stdin: '2 5\n6 10\n5 7', equals: '7' },
+    { name: 'empty', stdin: '1 0\n1 5', equals: '0' },
+  ]}
+/>
+
+:::
+
+</Exercise>
+
+<Exercise title="Complete value" anchor="exercise-knap-unbounded">
+
+:::tip Activity: Complete value
+Same input format. Unlimited copies of each item.
+
+<CodeExercise
+  title="Complete value"
+  heading="exercise-knap-unbounded"
+  lang="python"
+  filename="main.py"
+  prompt="Ascending j loop."
+  sampleLog={`(input) 3 8
+2 3
+3 4
+4 5
+12`}
+  starter={`def knapsack_complete(n, W, items):
+    # TODO
+    return 0
+`}
+  wrapSuffix={`
+n, W = map(int, input().split())
+items = [tuple(map(int, input().split())) for _ in range(n)]
+print(knapsack_complete(n, W, items))
+`}
+  hint="for w,v: for j in range(w,W+1): f[j]=max(f[j], f[j-w]+v)"
+  solution={`def knapsack_complete(n, W, items):
+    f = [0] * (W + 1)
+    for w, v in items:
+        for j in range(w, W + 1):
+            f[j] = max(f[j], f[j - w] + v)
+    return f[W]
+`}
+  sourceChecks={[
+    { name: 'asc loop', pattern: 'range\\(\\s*w', must: true, hint: 'loop j from w to W' },
+  ]}
+  tests={[
+    { name: 'sample', stdin: '3 8\n2 3\n3 4\n4 5', equals: '12' },
+    { name: 'one', stdin: '1 10\n3 4', equals: '12' },
+    { name: 'none', stdin: '1 2\n3 9', equals: '0' },
+  ]}
+/>
+
+:::
+
+</Exercise>
+
+<Exercise title="Binary split counts" anchor="exercise-knap-binary">
+
+:::tip Activity: Binary split
+Input `k`. Print the bundle sizes from binary grouping (powers of two then remainder), space-separated.
+
+Example: `k=13` → `1 2 4 6` because `1+2+4=7`, remainder `13-7=6`.
+
+<CodeExercise
+  title="Binary split counts"
+  heading="exercise-knap-binary"
+  lang="python"
+  filename="main.py"
+  prompt="As in the multiple-knapsack optimization."
+  sampleLog={`(input) 13
+1 2 4 6`}
+  starter={`def binary_groups(k):
+    # TODO
+    return []
+`}
+  wrapSuffix={`
+k = int(input())
+print(*binary_groups(k))
+`}
+  hint="c=1; while k>c: emit c; k-=c; c*=2; then emit k"
+  solution={`def binary_groups(k):
+    out = []
+    c = 1
+    while k > c:
+        out.append(c)
+        k -= c
+        c *= 2
+    if k:
+        out.append(k)
+    return out
+`}
+  sourceChecks={[
+    { name: 'doubles', pattern: '\\*=\\s*2|<<|\\*\\s*2', must: true, hint: 'grow c by ×2' },
+  ]}
+  tests={[
+    { name: '13', stdin: '13', equals: '1 2 4 6' },
+    { name: '7', stdin: '7', equals: '1 2 4' },
+    { name: '1', stdin: '1', equals: '1' },
+  ]}
+/>
+
+:::
+
+</Exercise>
+
+<Exercise title="Subset sum feasible" anchor="exercise-knap-subset">
+
+:::tip Activity: Subset sum
+`n T` then `n` weights. Print `YES` if some subset sums to `T` (0-1 knapsack feasibility).
+
+<CodeExercise
+  title="Subset sum feasible"
+  heading="exercise-knap-subset"
+  lang="python"
+  filename="main.py"
+  prompt="Boolean DP: can we make sum j?"
+  sampleLog={`(input) 4 13
+2 3 5 7
+YES`}
+  starter={`def can_make(nums, T):
+    # TODO
+    return False
+`}
+  wrapSuffix={`
+n, T = map(int, input().split())
+nums = list(map(int, input().split()))
+print("YES" if can_make(nums, T) else "NO")
+`}
+  hint="ok[0]=True; for w in nums: for j from T down to w: ok[j] |= ok[j-w]"
+  solution={`def can_make(nums, T):
+    ok = [False] * (T + 1)
+    ok[0] = True
+    for w in nums:
+        for j in range(T, w - 1, -1):
+            ok[j] = ok[j] or ok[j - w]
+    return ok[T]
+`}
+  sourceChecks={[
+    { name: 'desc', pattern: 'range\\([^)]+-1', must: true, hint: '0-1 style descending loop' },
+  ]}
+  tests={[
+    { name: 'yes', stdin: '4 13\n2 3 5 7', equals: 'YES' },
+    { name: 'no', stdin: '3 11\n2 4 6', equals: 'NO' },
+    { name: 'zero', stdin: '2 0\n5 9', equals: 'YES' },
+  ]}
+/>
+
+:::
+
+</Exercise>
+</ExerciseSet>
+
+## Contest problems
+
+From [CP-Algorithms](https://cp-algorithms.com/dynamic_programming/knapsack.html):
+
+<ExerciseSet>
+<Exercise title="AtCoder / LeetCode / CSES / DMOJ" anchor="exercise-knap-contest">
+
+- [AtCoder DP Contest — Knapsack 1](https://atcoder.jp/contests/dp/tasks/dp_d)
+- [AtCoder DP Contest — Knapsack 2](https://atcoder.jp/contests/dp/tasks/dp_e)
+- [LeetCode 494 — Target Sum](https://leetcode.com/problems/target-sum/)
+- [LeetCode 416 — Partition Equal Subset Sum](https://leetcode.com/problems/partition-equal-subset-sum/)
+- [LeetCode 474 — Ones and Zeroes](https://leetcode.com/problems/ones-and-zeroes/)
+- [CSES Book Shop II](https://cses.fi/problemset/task/1159) (multiple / binary grouping)
+- [DMOJ Knapsack 3](https://dmoj.ca/problem/knapsack3)
+- [DMOJ Knapsack 4](https://dmoj.ca/problem/knapsack4)
+
+</Exercise>
+</ExerciseSet>
+
+## Cheat sheet
+
+| Variant | Extra rule | 1D loop |
+|---|---|---|
+| 0-1 | ≤ 1 copy | `j = W … w` |
+| Complete | unlimited | `j = w … W` |
+| Multiple | ≤ `kᵢ` | binary groups + 0-1, or monotone queue |
+| Mixed | per-item type | dispatch matching update |
+| Complexity | — | usually `O(nW)` (or `O(W Σ log kᵢ)` with binary split) |

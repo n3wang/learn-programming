@@ -273,14 +273,15 @@ const config = {
               if (item.type === 'category' && Array.isArray(item.items)) {
                 return {...item, items: decorate(item.items)};
               }
-              if (item.type === 'doc' && String(item.id).includes('computer-engineering/')) {
-                const pos = byId.get(item.id)?.sidebarPosition;
-                if (
-                  typeof pos === 'number' &&
-                  item.label &&
-                  !/^\d+\s*-\s*/.test(item.label)
-                ) {
-                  return {...item, label: `${pos} - ${item.label}`};
+              if (
+                item.type === 'doc' &&
+                String(item.id).includes('computer-engineering/')
+              ) {
+                const meta = byId.get(item.id);
+                const pos = meta?.sidebarPosition;
+                const title = item.label || meta?.title;
+                if (typeof pos === 'number' && title && !/^\d+\s*-\s*/.test(title)) {
+                  return {...item, label: `${pos} - ${title}`};
                 }
               }
               return item;
@@ -297,6 +298,11 @@ const config = {
   themeConfig:
     /** @type {import('@docusaurus/preset-classic').ThemeConfig} */
     ({
+      docs: {
+        sidebar: {
+          hideable: true,
+        },
+      },
       navbar: {
         title: 'learn.l0l.in',
         logo: {

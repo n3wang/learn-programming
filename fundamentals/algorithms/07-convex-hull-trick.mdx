@@ -1,0 +1,622 @@
+---
+sidebar_position: 8
+title: Convex Hull Trick
+---
+
+import ConvexHullTrickSimulator from "@site/src/components/interactive/ConvexHullTrickSimulator.js";
+
+# Convex Hull Trick & Li Chao Tree
+
+Many DP transitions look like
+
+```text
+dp[i] = min_{j < i} ( cost[j] · x[i] + dp[j] ) + toll[i]
+```
+
+That is exactly: maintain lines `y = k·x + b` and query the **minimum** at `x = x[i]`.
+
+Naive enumeration is `O(n²)`. With the **convex hull trick (CHT)** or a **Li Chao tree** you get `O(n log n)` (or `O(n)` amortized when slopes are monotone).
+
+This lesson follows [CP-Algorithms — Convex hull trick and Li Chao tree](https://cp-algorithms.com/geometry/convex_hull_trick.html).
+
+## Motivating DP
+
+`n` cities on a line at positions `x₁ < … < xₙ`. Gas costs `costₖ` in city `k`; entering city `k` costs `tollₖ`. One liter per kilometer, tank starts empty:
+
+```text
+dp[i] = toll[i] + min_{j < i} ( cost[j] · (x[i] − x[j]) + dp[j] )
+```
+
+Rewrite as lines: for each previous `j`, the candidate is
+
+```text
+y = cost[j] · x + (dp[j] − cost[j] · x[j])
+```
+
+evaluated at `x = x[i]`. Insert line after finishing `i`, then query at the next position.
+
+## Convex hull trick
+
+Treat line `kx + b` as point `(k, b)`. Minimizing `kx + b` at a fixed `x` is the same as finding the point with **least dot product** against `(x, 1)`. That optimum lies on the **lower convex envelope** of the points.
+
+### When CHT is easy
+
+| Scenario | Structure |
+|---|---|
+| Slopes `k` inserted **monotone** | Deque / vector hull, `O(1)` amortized insert |
+| Offline: all lines first, then queries | Sort + hull, then binary search |
+| Online arbitrary slopes | Balanced BST of hull edges (harder) or √ rebuild |
+| Fully online, any lines | Prefer **Li Chao tree** |
+
+### Insert (increasing `k`, minimize)
+
+Keep hull points and inward normals of edges. While the last turn is not counter-clockwise (dot of last normal with `new − last < 0`), pop. Then push the new point.
+
+```cpp
+typedef long long ftype;
+typedef complex<ftype> point;
+#define x real
+#define y imag
+
+ftype dot(point a, point b) { return (conj(a) * b).x(); }
+ftype cross(point a, point b) { return (conj(a) * b).y(); }
+
+vector<point> hull, vecs;
+
+void add_line(ftype k, ftype b) {
+    point nw = {k, b};
+    while (!vecs.empty() && dot(vecs.back(), nw - hull.back()) < 0) {
+        hull.pop_back();
+        vecs.pop_back();
+    }
+    if (!hull.empty())
+        vecs.push_back(point(0, 1) * (nw - hull.back())); // rotate 90°
+    hull.push_back(nw);
+}
+```
+
+(Use `1i * (nw - hull.back())` in C++ as in the article.)
+
+### Query
+
+Binary-search the first normal directed counter-clockwise from `(x, 1)`. The left endpoint of that edge is optimal:
+
+```cpp
+ftype get(ftype x0) {
+    point query = {x0, 1};
+    auto it = lower_bound(vecs.begin(), vecs.end(), query,
+        [](point a, point b) { return cross(a, b) > 0; });
+    return dot(query, hull[it - vecs.begin()]);
+}
+```
+
+If query `x` is also monotone, walk a pointer on the hull instead of `lower_bound` → overall `O(n)`.
+
+<details>
+<summary>🧪 CHT: insert increasing slopes, query min</summary>
+
+<PistonRunner
+  lang="c++"
+  height="480px"
+  code={`#include <iostream>
+#include <vector>
+#include <complex>
+#include <algorithm>
+using namespace std;
+
+typedef long long ftype;
+typedef complex<ftype> point;
+#define x real
+#define y imag
+
+ftype dot(point a, point b) { return (conj(a) * b).x(); }
+ftype cross(point a, point b) { return (conj(a) * b).y(); }
+
+vector<point> hull, vecs;
+
+void add_line(ftype k, ftype b) {
+    point nw = {k, b};
+    while (!vecs.empty() && dot(vecs.back(), nw - hull.back()) < 0) {
+        hull.pop_back();
+        vecs.pop_back();
+    }
+    if (!hull.empty())
+        vecs.push_back(point(0, 1) * (nw - hull.back()));
+    hull.push_back(nw);
+}
+
+ftype get(ftype x0) {
+    point query = {x0, 1};
+    auto it = lower_bound(vecs.begin(), vecs.end(), query,
+        [](point a, point b) { return cross(a, b) > 0; });
+    return dot(query, hull[it - vecs.begin()]);
+}
+
+int main() {
+    // lines: y = -3x+10, y = x+2, y = 2x+1  (increasing k)
+    add_line(-3, 10);
+    add_line(1, 2);
+    add_line(2, 1);
+    cout << "hull size = " << hull.size() << endl;
+    for (auto p : hull)
+        cout << "  line " << p.x() << " x + " << p.y() << endl;
+    for (int xv : {0, 1, 2, 3, 5})
+        cout << "min at x=" << xv << " -> " << get(xv) << endl;
+    return 0;
+}
+`}
+/>
+
+</details>
+
+## Interactive CHT
+
+Watch lines with increasing slopes join the lower envelope, then evaluate `min` at several `x`.
+
+<ConvexHullTrickSimulator />
+
+## Check: CHT
+
+<MultipleChoice
+  id="algo-07-cht"
+  title="Convex hull trick"
+  questions={[
+    {
+      prompt: 'dp[i] = min_j (k[j]·x[i] + b[j]) is solved by…',
+      choices: [
+        'Only Dijkstra',
+        'Maintaining lines and querying min at x[i]',
+        'Sorting alone',
+        'Union-find',
+      ],
+      answer: 1,
+      why: 'That is exactly the CHT / Li Chao interface.',
+    },
+    {
+      prompt: 'Lower convex hull of points (k,b) optimizes…',
+      choices: [
+        'Maximum of kx+b',
+        'Minimum of kx+b (dot with (x,1))',
+        'Only integer k',
+        'GCD of slopes',
+      ],
+      answer: 1,
+      why: 'Min dot product against (x,1) lies on the lower envelope.',
+    },
+    {
+      prompt: 'Classic deque CHT needs…',
+      choices: [
+        'Arbitrary online slopes',
+        'Monotone slopes (or offline sorting)',
+        'Negative weights only',
+        'A Fenwick tree',
+      ],
+      answer: 1,
+      why: 'Monotone k lets you maintain the hull with a stack/deque.',
+    },
+    {
+      prompt: 'If query x is also monotone, query cost becomes…',
+      choices: [
+        'O(n) per query',
+        'Amortized O(1) with a moving pointer',
+        'Impossible',
+        'Always O(n²)',
+      ],
+      answer: 1,
+      why: 'The optimum hull index only moves forward.',
+    },
+  ]}
+/>
+
+## Li Chao tree
+
+Assume any two functions intersect **at most once** (true for distinct lines). Keep a segment tree on the `x`-domain. Each node stores **one** function such that on every root-to-leaf path, some stored function is optimal at that leaf.
+
+### Insert `f_new` at node `[l, r)`
+
+Let `f_old` be stored. Let `m = ⌊(l+r)/2⌋`. Compare `f_new` and `f_old` at `l` and `m` to see which half contains the intersection. Keep the **lower** function at `m` in this node; recurse into the other half with the upper one.
+
+```cpp
+typedef long long ftype;
+typedef complex<ftype> point;
+#define x real
+#define y imag
+
+ftype dot(point a, point b) { return (conj(a) * b).x(); }
+ftype f(point a, ftype xv) { return dot(a, {xv, 1}); }
+
+const int maxn = 2e5;
+point line[4 * maxn]; // init to 0·x + ∞
+
+void add_line(point nw, int v = 1, int l = 0, int r = maxn) {
+    int m = (l + r) / 2;
+    bool lef = f(nw, l) < f(line[v], l);
+    bool mid = f(nw, m) < f(line[v], m);
+    if (mid) swap(line[v], nw);
+    if (r - l == 1) return;
+    if (lef != mid) add_line(nw, 2 * v, l, m);
+    else add_line(nw, 2 * v + 1, m, r);
+}
+
+ftype get(int xv, int v = 1, int l = 0, int r = maxn) {
+    int m = (l + r) / 2;
+    if (r - l == 1) return f(line[v], xv);
+    if (xv < m) return min(f(line[v], xv), get(xv, 2 * v, l, m));
+    return min(f(line[v], xv), get(xv, 2 * v + 1, m, r));
+}
+```
+
+Complexity: `O(log (C/ε))` per insert/query. For huge coordinates or doubles, use a **dynamic** segment tree.
+
+Li Chao works **online** with arbitrary insertion order — ideal when CHT’s monotone-slope assumption fails (or for tree DP with segment-tree merges).
+
+## Choosing a tool
+
+| Need | Use |
+|---|---|
+| Slopes & queries monotone | Deque CHT — `O(n)` |
+| Slopes monotone, queries offline/arbitrary | Vector CHT + binary search |
+| Arbitrary lines, online | Li Chao |
+| Lines on a tree / mergeable | Li Chao + small-to-large or segtree merge |
+
+## Check: Li Chao
+
+<MultipleChoice
+  id="algo-07-lichao"
+  title="Li Chao tree"
+  questions={[
+    {
+      prompt: 'Li Chao assumes pairs of functions…',
+      choices: [
+        'Never intersect',
+        'Intersect at most once',
+        'Are always parallel',
+        'Have slope 0',
+      ],
+      answer: 1,
+      why: 'One intersection splits the segment into two dominance regions.',
+    },
+    {
+      prompt: 'On insert, the function kept at the node is…',
+      choices: [
+        'Always the new one',
+        'The one lower at the midpoint m',
+        'The one with larger slope',
+        'Deleted immediately',
+      ],
+      answer: 1,
+      why: 'Keep the better at m; push the worse into the half that still needs fixing.',
+    },
+    {
+      prompt: 'Query at x returns…',
+      choices: [
+        'Only the leaf function',
+        'Min of all functions on the root-to-leaf path',
+        'Sum of functions on the path',
+        'The root only',
+      ],
+      answer: 1,
+      why: 'Invariant: some path function is optimal at that leaf.',
+    },
+    {
+      prompt: 'Prefer Li Chao over deque CHT when…',
+      choices: [
+        'Slopes are sorted and queries are monotone',
+        'Lines arrive online with arbitrary slopes',
+        'n ≤ 10',
+        'You only need sorting',
+      ],
+      answer: 1,
+      why: 'Li Chao does not need monotone insertion order.',
+    },
+  ]}
+/>
+
+## Practice drills
+
+<ExerciseSet>
+<Exercise title="Eval line" anchor="exercise-eval-line">
+
+:::tip Activity: Eval line
+`k b x` → print `k*x + b`.
+
+<CodeExercise
+  title="Eval line"
+  heading="exercise-eval-line"
+  lang="python"
+  filename="main.py"
+  prompt="Print k*x + b for integers k, b, x."
+  sampleLog={`(input) -3 10 2
+4`}
+  starter={`def eval_line(k, b, x):
+    # TODO
+    return 0
+`}
+  wrapSuffix={`
+k, b, x = map(int, input().split())
+print(eval_line(k, b, x))
+`}
+  hint="return k * x + b"
+  solution={`def eval_line(k, b, x):
+    return k * x + b
+`}
+  sourceChecks={[
+    { name: 'multiplies', pattern: '\\*|k', must: true, hint: 'compute k*x + b' },
+  ]}
+  tests={[
+    { name: 'sample', stdin: '-3 10 2', equals: '4' },
+    { name: 'zero', stdin: '0 5 100', equals: '5' },
+    { name: 'pos slope', stdin: '2 1 3', equals: '7' },
+  ]}
+/>
+
+:::
+
+</Exercise>
+
+<Exercise title="Min over lines" anchor="exercise-min-lines">
+
+:::tip Activity: Min over lines
+First line: `n x`. Next `n` lines: `k b`. Print `min (k*x + b)`.
+
+<CodeExercise
+  title="Min over lines"
+  heading="exercise-min-lines"
+  lang="python"
+  filename="main.py"
+  prompt="Brute-force query — baseline before CHT."
+  sampleLog={`(input) 3 2
+-3 10
+-1 6
+1 2
+4`}
+  starter={`def min_at(lines, x):
+    # TODO: lines is list of (k, b)
+    return 0
+`}
+  wrapSuffix={`
+n, x = map(int, input().split())
+lines = [tuple(map(int, input().split())) for _ in range(n)]
+print(min_at(lines, x))
+`}
+  hint="min(k*x + b for k,b in lines)"
+  solution={`def min_at(lines, x):
+    return min(k * x + b for k, b in lines)
+`}
+  sourceChecks={[
+    { name: 'uses min', pattern: 'min\\s*\\(', must: true, hint: 'take minimum over lines' },
+  ]}
+  tests={[
+    { name: 'sample', stdin: '3 2\n-3 10\n-1 6\n1 2', equals: '4' },
+    { name: 'x=0', stdin: '2 0\n1 5\n-2 3', equals: '3' },
+    { name: 'x=5', stdin: '2 5\n1 0\n0 10', equals: '5' },
+  ]}
+/>
+
+:::
+
+</Exercise>
+
+<Exercise title="Hull insert (increasing k)" anchor="exercise-cht-insert">
+
+:::tip Activity: Hull insert
+Lines arrive with **non-decreasing** `k`. Maintain lower hull; after all inserts print hull size, then `k b` for each hull line left-to-right.
+
+Use cross product of points `(k,b)`: pop while last three make a non-left turn (`cross ≤ 0`).
+
+<CodeExercise
+  title="Build lower hull"
+  heading="exercise-cht-insert"
+  lang="python"
+  filename="main.py"
+  prompt="Input n, then n lines k b sorted by k. Print hull size and lines."
+  sampleLog={`(input) 5
+-3 10
+-1 6
+0 4
+1 2
+2 1
+3
+-3 10
+1 2
+2 1`}
+  starter={`def build_hull(lines):
+    # TODO: return list of (k,b) on lower hull
+    return lines
+`}
+  wrapSuffix={`
+n = int(input())
+lines = [tuple(map(int, input().split())) for _ in range(n)]
+hull = build_hull(lines)
+print(len(hull))
+for k, b in hull:
+    print(k, b)
+`}
+  hint="while len>=2 and cross(h[-2], h[-1], nw) <= 0: pop"
+  solution={`def cross(o, a, b):
+    return (a[0] - o[0]) * (b[1] - o[1]) - (a[1] - o[1]) * (b[0] - o[0])
+
+def build_hull(lines):
+    hull = []
+    for line in lines:
+        while len(hull) >= 2 and cross(hull[-2], hull[-1], line) <= 0:
+            hull.pop()
+        hull.append(line)
+    return hull
+`}
+  sourceChecks={[
+    { name: 'pops', pattern: 'pop|while', must: true, hint: 'pop while turn is wrong' },
+  ]}
+  tests={[
+    {
+      name: 'five lines',
+      stdin: '5\n-3 10\n-1 6\n0 4\n1 2\n2 1',
+      equals: '3\n-3 10\n1 2\n2 1',
+    },
+    {
+      name: 'two lines',
+      stdin: '2\n0 5\n1 0',
+      equals: '2\n0 5\n1 0',
+    },
+  ]}
+/>
+
+:::
+
+</Exercise>
+
+<Exercise title="CHT query on hull" anchor="exercise-cht-query">
+
+:::tip Activity: CHT query
+Same hull as above (already built). Given hull lines (increasing `k`) and `x`, print min value. Binary search or linear scan is fine for small hulls.
+
+<CodeExercise
+  title="Query hull"
+  heading="exercise-cht-query"
+  lang="python"
+  filename="main.py"
+  prompt="First m, then m lines of hull, then x. Print min kx+b."
+  sampleLog={`(input) 3
+-3 10
+1 2
+2 1
+2
+4`}
+  starter={`def query(hull, x):
+    # TODO
+    return 0
+`}
+  wrapSuffix={`
+m = int(input())
+hull = [tuple(map(int, input().split())) for _ in range(m)]
+x = int(input())
+print(query(hull, x))
+`}
+  hint="min(k*x+b for k,b in hull) — or ternary/binary search on hull index"
+  solution={`def query(hull, x):
+    return min(k * x + b for k, b in hull)
+`}
+  sourceChecks={[
+    { name: 'evaluates', pattern: '\\*|min', must: true, hint: 'evaluate each hull line' },
+  ]}
+  tests={[
+    { name: 'x=2', stdin: '3\n-3 10\n1 2\n2 1\n2', equals: '4' },
+    { name: 'x=0', stdin: '3\n-3 10\n1 2\n2 1\n0', equals: '1' },
+    { name: 'x=5', stdin: '3\n-3 10\n1 2\n2 1\n5', equals: '-5' },
+  ]}
+/>
+
+:::
+
+</Exercise>
+</ExerciseSet>
+
+## Contest problems
+
+<ExerciseSet>
+<Exercise title="Kalila and Dimna" anchor="exercise-cf-319c">
+
+### C. Kalila and Dimna in the Logging Industry
+
+**Judge:** [Codeforces 319C](https://codeforces.com/problemset/problem/319/C)
+
+Cut trees with monotone heights/`b` costs. Classic `dp[i] = min_j dp[j] + b[j]·a[i]` → CHT with decreasing slopes.
+
+:::tip Why this lesson?
+Textbook monotone CHT DP.
+:::
+
+</Exercise>
+<Exercise title="Escape Through Leaf" anchor="exercise-cf-932f">
+
+### F. Escape Through Leaf
+
+**Judge:** [Codeforces 932F](https://codeforces.com/problemset/problem/932/F)
+
+Tree DP: `f[x] = min_u (a[x]·b[u] + f[u])` over subtree. Li Chao (or CHT) + small-to-large / segtree merge.
+
+:::tip Why this lesson?
+Online lines from subtrees — Li Chao shines.
+:::
+
+</Exercise>
+<Exercise title="Product Sum" anchor="exercise-cf-631e">
+
+### E. Product Sum
+
+**Judge:** [Codeforces 631E](https://codeforces.com/problemset/problem/631/E)
+
+Move one element once to maximize `Σ i·aᵢ`. Prefix tricks + CHT.
+
+:::tip Why this lesson?
+Optimization reduces to max of linear functions of prefixes.
+:::
+
+</Exercise>
+<Exercise title="Bear and Bowling 4" anchor="exercise-cf-660f">
+
+### F. Bear and Bowling 4
+
+**Judge:** [Codeforces 660F](https://codeforces.com/problemset/problem/660/F)
+
+Cancel a prefix and a suffix; maximize weighted roll score. CHT on prefix sums.
+
+:::tip Why this lesson?
+Another “max of lines from prefixes” pattern.
+:::
+
+</Exercise>
+<Exercise title="Squared Ends" anchor="exercise-csa-squared">
+
+### Squared Ends
+
+**Judge:** [CS Academy — Squared Ends](https://csacademy.com/contest/archive/task/squared-ends/)
+
+Partition an array minimizing sum of squared endpoint differences — CHT DP.
+
+:::tip Why this lesson?
+Quadratic cost that rewrites as linear queries.
+:::
+
+</Exercise>
+<Exercise title="Commando" anchor="exercise-apio-commando">
+
+### APIO 2010 — Commando
+
+**Judge:** [oj.uz — APIO10_commando](https://oj.uz/problem/view/APIO10_commando)
+
+Split a sequence with quadratic cost `a·x² + b·x + c`. Famous CHT application.
+
+:::tip Why this lesson?
+Historical “must-know” CHT DP from APIO.
+:::
+
+</Exercise>
+<Exercise title="Polynomials" anchor="exercise-codechef-poly">
+
+### POLY — Polynomials
+
+**Judge:** [CodeChef POLY](https://www.codechef.com/problems/POLY)
+
+Query min of many polynomials at given `x` — Li Chao / CHT over functions.
+
+:::tip Why this lesson?
+Same “insert functions, query point” interface beyond plain lines.
+:::
+
+</Exercise>
+</ExerciseSet>
+
+## Cheat sheet
+
+| Goal | Tool |
+|---|---|
+| `min_j kⱼ x + bⱼ` | CHT / Li Chao |
+| Monotone `k` & `x` | Deque — `O(n)` |
+| Monotone `k`, any `x` | Hull + `lower_bound` |
+| Arbitrary online lines | Li Chao `O(log C)` |
+| √n rebuild | Simple online CHT without BST |
+
+**Previous:** [Continued Fractions](./06-continued-fractions) · [Basic Geometry](./02-basic-geometry)
+
+**Source:** [CP-Algorithms — Convex hull trick and Li Chao tree](https://cp-algorithms.com/geometry/convex_hull_trick.html)

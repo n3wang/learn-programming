@@ -1,0 +1,638 @@
+---
+sidebar_position: 9
+title: Offline Deletions
+---
+
+import OfflineDeletionSimulator from "@site/src/components/interactive/OfflineDeletionSimulator.js";
+
+# Offline Deletions in $O(T(n)\log n)$
+
+Suppose you have a structure that supports **insert** in true $O(T(n))$ (not amortized). You want **delete** as well, but only **offline**.
+
+Trick: build a **segment tree over time**, place each element on the $O(\log n)$ nodes covering its lifetime, DFS the tree while inserting on enter and **rolling back** on leave.
+
+Total: each insert/delete pair costs $O(T(n)\log n)$.
+
+This lesson follows [CP-Algorithms — Deleting from a data structure in $O(T(n)\log n)$](https://cp-algorithms.com/data_structures/deleting_in_log_n.html).
+
+## The idea
+
+1. Every element is alive on one or more time intervals `[L, R)`.
+2. Segment-tree the timeline of queries. Cover each lifetime with $O(\log T)$ nodes; store the element on those nodes.
+3. Put “ask something” operations in the corresponding **leaves**.
+4. DFS the segment tree:
+   - **Enter** node → insert all elements stored there (push undo records).
+   - **Leaf** → answer the query from the current structure.
+   - Recurse to children.
+   - **Leave** node → rollback exactly the inserts from this node.
+
+If insert changes the structure in $O(T(n))$ and is **reversible**, rollback is also $O(T(n))$ via a change stack.
+
+:::warning Amortized inserts break
+Path compression, splay, etc. are amortized. After rollback you cannot rely on the amortized bound. Prefer **union by rank** without path compression for DSU-with-rollback.
+:::
+
+## Classic use: dynamic connectivity
+
+Operations: add edge, remove edge, query number of connected components (or “are $u,v$ connected?”).
+
+- DSU with **union by rank** + **rollback stack** (no path compression, or store full parent snapshots).
+- Each edge’s lifetime `[add_time, remove_time)` goes onto the time segment tree.
+- At each leaf that asks “how many components?”, read `dsu.comps`.
+
+## Interactive walkthrough
+
+3 vertices. Edge **A** = $(0,1)$ alive on $[0,3)$; edge **B** = $(1,2)$ alive only at $t=1$. Step the DFS: add → query → rollback.
+
+<OfflineDeletionSimulator />
+
+## DSU with rollbacks
+
+```cpp
+struct dsu_save {
+    int v, rnkv, u, rnku;
+};
+
+struct dsu_with_rollbacks {
+    vector<int> p, rnk;
+    int comps;
+    stack<dsu_save> op;
+
+    dsu_with_rollbacks(int n) {
+        p.resize(n);
+        rnk.assign(n, 0);
+        iota(p.begin(), p.end(), 0);
+        comps = n;
+    }
+
+    int find_set(int v) {
+        return v == p[v] ? v : find_set(p[v]); // no compression
+    }
+
+    bool unite(int v, int u) {
+        v = find_set(v);
+        u = find_set(u);
+        if (v == u) return false;
+        comps--;
+        if (rnk[v] > rnk[u]) swap(v, u);
+        op.push({v, rnk[v], u, rnk[u]});
+        p[v] = u;
+        if (rnk[u] == rnk[v]) rnk[u]++;
+        return true;
+    }
+
+    void rollback() {
+        auto x = op.top();
+        op.pop();
+        comps++;
+        p[x.v] = x.v;
+        rnk[x.v] = x.rnkv;
+        rnk[x.u] = x.rnku;
+    }
+};
+```
+
+## Time segment tree (query tree)
+
+```cpp
+struct query {
+    int v, u;
+    bool united = false;
+};
+
+struct QueryTree {
+    vector<vector<query>> t;
+    dsu_with_rollbacks dsu;
+    int T;
+
+    QueryTree(int _T, int n) : T(_T), dsu(n) {
+        t.resize(4 * T + 4);
+    }
+
+    void add_to_tree(int v, int l, int r, int ul, int ur, query q) {
+        if (ul > ur) return;
+        if (l == ul && r == ur) {
+            t[v].push_back(q);
+            return;
+        }
+        int mid = (l + r) / 2;
+        add_to_tree(2 * v, l, mid, ul, min(ur, mid), q);
+        add_to_tree(2 * v + 1, mid + 1, r, max(ul, mid + 1), ur, q);
+    }
+
+    void add_edge_lifetime(query q, int l, int r) {
+        add_to_tree(1, 0, T - 1, l, r, q); // alive on [l, r]
+    }
+
+    void dfs(int v, int l, int r, vector<int>& ans) {
+        for (query& q : t[v])
+            q.united = dsu.unite(q.v, q.u);
+        if (l == r)
+            ans[l] = dsu.comps;
+        else {
+            int mid = (l + r) / 2;
+            dfs(2 * v, l, mid, ans);
+            dfs(2 * v + 1, mid + 1, r, ans);
+        }
+        for (query& q : t[v])
+            if (q.united) dsu.rollback();
+    }
+
+    vector<int> solve() {
+        vector<int> ans(T);
+        dfs(1, 0, T - 1, ans);
+        return ans;
+    }
+};
+```
+
+Complexity: `O((n + q) · T_dsu · log q)` with `T_dsu = O(log n)`.
+
+<details>
+<summary>🧪 DSU rollback + tiny offline connectivity</summary>
+
+<PistonRunner
+  lang="c++"
+  height="520px"
+  code={`#include <iostream>
+#include <vector>
+#include <stack>
+#include <numeric>
+using namespace std;
+
+struct dsu_save { int v, rnkv, u, rnku; };
+
+struct dsu_with_rollbacks {
+    vector<int> p, rnk;
+    int comps;
+    stack<dsu_save> op;
+
+    dsu_with_rollbacks(int n) {
+        p.resize(n);
+        rnk.assign(n, 0);
+        iota(p.begin(), p.end(), 0);
+        comps = n;
+    }
+    int find_set(int v) {
+        return v == p[v] ? v : find_set(p[v]);
+    }
+    bool unite(int v, int u) {
+        v = find_set(v); u = find_set(u);
+        if (v == u) return false;
+        comps--;
+        if (rnk[v] > rnk[u]) swap(v, u);
+        op.push({v, rnk[v], u, rnk[u]});
+        p[v] = u;
+        if (rnk[u] == rnk[v]) rnk[u]++;
+        return true;
+    }
+    void rollback() {
+        auto x = op.top(); op.pop();
+        comps++;
+        p[x.v] = x.v;
+        rnk[x.v] = x.rnkv;
+        rnk[x.u] = x.rnku;
+    }
+};
+
+int main() {
+    dsu_with_rollbacks dsu(4); // components 0,1,2,3
+    cout << "start comps = " << dsu.comps << endl;
+
+    bool u1 = dsu.unite(0, 1);
+    cout << "unite(0,1) did_merge=" << u1
+         << " comps=" << dsu.comps << endl;
+    bool u2 = dsu.unite(2, 3);
+    cout << "unite(2,3) did_merge=" << u2
+         << " comps=" << dsu.comps << endl;
+    bool u3 = dsu.unite(1, 2);
+    cout << "unite(1,2) did_merge=" << u3
+         << " comps=" << dsu.comps << endl;
+
+    dsu.rollback(); // undo 1-2
+    cout << "rollback -> comps=" << dsu.comps << endl;
+    dsu.rollback(); // undo 2-3
+    cout << "rollback -> comps=" << dsu.comps << endl;
+    dsu.rollback(); // undo 0-1
+    cout << "rollback -> comps=" << dsu.comps << endl;
+    return 0;
+}
+`}
+/>
+
+</details>
+
+## Check: technique
+
+<MultipleChoice
+  id="algo-08-offline-del"
+  title="Offline deletions"
+  questions={[
+    {
+      prompt: 'This technique makes deletions…',
+      choices: [
+        'Online in O(1)',
+        'Offline in O(T(n) log n) given reversible inserts',
+        'Impossible',
+        'Only for arrays',
+      ],
+      answer: 1,
+      why: 'Segment tree over time + rollback DFS.',
+    },
+    {
+      prompt: 'An element alive on [L,R) is stored on…',
+      choices: [
+        'Exactly one leaf',
+        'O(log T) segment-tree nodes covering [L,R)',
+        'All nodes of the tree',
+        'Only the root',
+      ],
+      answer: 1,
+      why: 'Standard range decomposition into O(log) canonical segments.',
+    },
+    {
+      prompt: 'Why avoid path compression in rollback DSU?',
+      choices: [
+        'It is illegal in C++',
+        'Amortized analysis breaks under undo',
+        'It never finds the root',
+        'Ranks become negative',
+      ],
+      answer: 1,
+      why: 'Rollbacks invalidate the amortization argument.',
+    },
+    {
+      prompt: 'On leaving a segment-tree node you should…',
+      choices: [
+        'Insert again',
+        'Rollback exactly the unites done on enter',
+        'Clear the whole DSU',
+        'Rebuild from scratch',
+      ],
+      answer: 1,
+      why: 'Restore the parent state before exploring the sibling.',
+    },
+  ]}
+/>
+
+## Beyond DSU
+
+Same skeleton works whenever you can **insert + undo**:
+
+| Structure | Offline deletes for… |
+|---|---|
+| DSU + rollback | Dynamic connectivity, bipartiteness |
+| Convex hull / Li Chao (with undo) | Lines present on intervals |
+| Segment tree / fenwick snapshots | Rare; usually rebuild |
+| Linear basis with undo | XOR span over time |
+
+The “alive interval → $O(\log)$ nodes” idea also appears outside DS problems (divide-and-conquer on time).
+
+## Check: complexity & uses
+
+<MultipleChoice
+  id="algo-08-offline-apps"
+  title="Applications"
+  questions={[
+    {
+      prompt: 'Dynamic connectivity offline is typically…',
+      choices: [
+        'Dijkstra',
+        'Time segment tree + DSU with rollbacks',
+        'Only Kruskal',
+        'Binary lifting alone',
+      ],
+      answer: 1,
+      why: 'Edges become intervals; DSU answers connectivity at leaves.',
+    },
+    {
+      prompt: 'If T(n) is cost of one insert, total with this method is…',
+      choices: [
+        'O(T(n))',
+        'O(T(n) log n) per lifetime (roughly)',
+        'O(n²) always',
+        'O(1)',
+      ],
+      answer: 1,
+      why: 'Each element is inserted O(log n) times along the DFS.',
+    },
+    {
+      prompt: 'Queries that need the structure go into…',
+      choices: [
+        'Internal nodes only',
+        'Leaves of the time segment tree',
+        'A separate Fenwick tree only',
+        'The change stack',
+      ],
+      answer: 1,
+      why: 'At a leaf the set of alive elements is exactly the current time.',
+    },
+    {
+      prompt: 'unite must return whether it changed state so that…',
+      choices: [
+        'You only rollback successful merges',
+        'Ranks stay amortized',
+        'DFS skips children',
+        'Leaves are ignored',
+      ],
+      answer: 0,
+      why: 'Failed unites push nothing — do not pop the stack for them.',
+    },
+  ]}
+/>
+
+## Practice drills
+
+<ExerciseSet>
+<Exercise title="Cover interval" anchor="exercise-cover-interval">
+
+:::tip Activity: Cover interval
+Timeline length `T` (times `0..T-1`). Cover half-open `[L, R)` with $O(\log T)$ nodes of a segment tree on `[0, T)`.
+
+Print the number of nodes, then each node as `l r` (inclusive ranges in this drill), sorted by `l` then `r`.
+
+Canonical cover: recurse; if the query fully covers a node, take it.
+
+<CodeExercise
+  title="Cover interval"
+  heading="exercise-cover-interval"
+  lang="python"
+  filename="main.py"
+  prompt="Input: T L R. Output canonical segment-tree cover of [L,R) on [0,T)."
+  sampleLog={`(input) 8 2 6
+2
+2 3
+4 5`}
+  starter={`def cover(T, L, R):
+    # TODO: return list of (l, r) inclusive segments
+    return []
+`}
+  wrapSuffix={`
+T, L, R = map(int, input().split())
+segs = cover(T, L, R)
+segs.sort()
+print(len(segs))
+for a, b in segs:
+    print(a, b)
+`}
+  hint="def rec(l,r): if query empty return; if [l,r] inside query: take; else split mid"
+  solution={`def cover(T, L, R):
+    out = []
+    def rec(l, r, ql, qr):
+        if ql >= qr or l >= r:
+            return
+        if ql <= l and r <= qr:
+            out.append((l, r - 1))
+            return
+        mid = (l + r) // 2
+        if ql < mid:
+            rec(l, mid, ql, min(qr, mid))
+        if qr > mid:
+            rec(mid, r, max(ql, mid), qr)
+    rec(0, T, L, R)
+    return out
+`}
+  sourceChecks={[
+    { name: 'recurses / splits', pattern: 'mid|//\\s*2|rec', must: true, hint: 'split the segment tree range' },
+  ]}
+  tests={[
+    { name: 'mid block', stdin: '8 2 6', equals: '2\n2 3\n4 5' },
+    { name: 'full', stdin: '4 0 4', equals: '1\n0 3' },
+    { name: 'single', stdin: '8 3 4', equals: '1\n3 3' },
+  ]}
+/>
+
+:::
+
+</Exercise>
+
+<Exercise title="Rollback stack" anchor="exercise-rollback">
+
+:::tip Activity: Rollback stack
+Simulate DSU unites with undo. Commands:
+
+- `U u v` — unite (0-index), print `1` if merged else `0`
+- `R` — rollback last successful unite (ignore if none)
+- `C` — print current component count
+
+Start with `n` components.
+
+<CodeExercise
+  title="DSU rollback"
+  heading="exercise-rollback"
+  lang="python"
+  filename="main.py"
+  prompt="Process U/R/C operations as specified."
+  sampleLog={`(input) 3 5
+U 0 1
+C
+U 1 2
+C
+R
+C
+1
+2
+1
+1
+2`}
+  starter={`def run(n, ops):
+    # TODO: return list of printed lines as strings
+    return []
+`}
+  wrapSuffix={`
+n, q = map(int, input().split())
+ops = [input().split() for _ in range(q)]
+print("\\n".join(run(n, ops)))
+`}
+  hint="find without compression; stack stores (child, parent, old_rank_parent, old_comps)"
+  solution={`def run(n, ops):
+    p = list(range(n))
+    rnk = [0] * n
+    comps = n
+    stack = []
+    out = []
+
+    def find(v):
+        while v != p[v]:
+            v = p[v]
+        return v
+
+    for op in ops:
+        if op[0] == 'U':
+            u, v = int(op[1]), int(op[2])
+            u, v = find(u), find(v)
+            if u == v:
+                out.append('0')
+                continue
+            if rnk[u] > rnk[v]:
+                u, v = v, u
+            stack.append((u, v, rnk[v], comps))
+            p[u] = v
+            if rnk[u] == rnk[v]:
+                rnk[v] += 1
+            comps -= 1
+            out.append('1')
+        elif op[0] == 'R':
+            if not stack:
+                continue
+            u, v, old_rank, old_comps = stack.pop()
+            p[u] = u
+            rnk[v] = old_rank
+            comps = old_comps
+        else:
+            out.append(str(comps))
+    return out
+`}
+  sourceChecks={[
+    { name: 'has stack', pattern: 'stack|append|pop', must: true, hint: 'keep an undo stack' },
+  ]}
+  tests={[
+    {
+      name: 'sample',
+      stdin: '3 5\nU 0 1\nC\nU 1 2\nC\nR\nC',
+      equals: '1\n2\n1\n1\n2',
+    },
+    {
+      name: 'no-op unite',
+      stdin: '2 4\nU 0 1\nU 0 1\nC\nR\nC',
+      equals: '1\n0\n1\n2',
+    },
+  ]}
+/>
+
+:::
+
+</Exercise>
+
+<Exercise title="Lifetimes to answers" anchor="exercise-lifetimes">
+
+:::tip Activity: Small dynamic connectivity
+`n` vertices, then `m` edge lifetimes `u v L R` (alive on `[L,R)`), then `q` query times `t` (print components at time `t`).
+
+Constraints small: $n,m,q \\le 20$, times $< 50$. Brute or segment-tree DFS both OK.
+
+<CodeExercise
+  title="Offline connectivity"
+  heading="exercise-lifetimes"
+  lang="python"
+  filename="main.py"
+  prompt="For each query time, print #connected components."
+  sampleLog={`(input) 3 2 3
+0 1 0 3
+1 2 1 2
+0
+1
+2
+2
+1
+2`}
+  starter={`def solve(n, edges, queries):
+    # edges: (u,v,L,R); queries: list of t
+    # TODO
+    return [n] * len(queries)
+`}
+  wrapSuffix={`
+n, m, q = map(int, input().split())
+edges = [tuple(map(int, input().split())) for _ in range(m)]
+queries = [int(input()) for _ in range(q)]
+print("\\n".join(map(str, solve(n, edges, queries))))
+`}
+  hint="For each query t, unite all edges with L <= t < R using a fresh DSU."
+  solution={`def solve(n, edges, queries):
+    ans = []
+    for t in queries:
+        p = list(range(n))
+        def find(x):
+            while x != p[x]:
+                x = p[x]
+            return x
+        comps = n
+        for u, v, L, R in edges:
+            if L <= t < R:
+                u, v = find(u), find(v)
+                if u != v:
+                    p[u] = v
+                    comps -= 1
+        ans.append(comps)
+    return ans
+`}
+  sourceChecks={[
+    { name: 'checks lifetime', pattern: 'L|R|<=|t', must: true, hint: 'only edges alive at t' },
+  ]}
+  tests={[
+    {
+      name: 'sample',
+      stdin: '3 2 3\n0 1 0 3\n1 2 1 2\n0\n1\n2',
+      equals: '2\n1\n2',
+    },
+    {
+      name: 'no edges',
+      stdin: '4 0 1\n0',
+      equals: '4',
+    },
+  ]}
+/>
+
+:::
+
+</Exercise>
+</ExerciseSet>
+
+## Contest problems
+
+<ExerciseSet>
+<Exercise title="Connect and Disconnect" anchor="exercise-cf-connect">
+
+### Connect and Disconnect
+
+**Judge:** [Codeforces Gym 100551A](https://codeforces.com/gym/100551/problem/A)
+
+Add/delete edges offline; answer connectivity queries. The article’s reference problem for dynamic connectivity.
+
+:::tip Why this lesson?
+Textbook time segment tree + DSU with rollbacks.
+:::
+
+</Exercise>
+<Exercise title="Addition on Segments" anchor="exercise-cf-981e">
+
+### E. Addition on Segments
+
+**Judge:** [Codeforces 981E](https://codeforces.com/contest/981/problem/E)
+
+Updates add a value on a segment for a time interval; queries ask reachable sums. Same “element alive on $[L,R)$” reduction with a reversible structure (bitset / DSU-like undo).
+
+:::tip Why this lesson?
+Shows the pattern beyond graphs.
+:::
+
+</Exercise>
+<Exercise title="Extending Set of Points" anchor="exercise-cf-1140f">
+
+### F. Extending Set of Points
+
+**Judge:** [Codeforces 1140F](https://codeforces.com/contest/1140/problem/F)
+
+Toggle points; after each update output $|E(S)|$ for the rectangle-closure of $S$. DSU on rows/columns + rollbacks + time segment tree.
+
+:::tip Why this lesson?
+Heavier state on the same DFS-add / rollback skeleton.
+:::
+
+</Exercise>
+</ExerciseSet>
+
+## Cheat sheet
+
+| Step | Action |
+|---|---|
+| Lifetimes | Map each add/delete to `[L,R)` |
+| Segment tree | Store element on $O(\\log T)$ nodes |
+| DFS enter | Insert + push undo |
+| Leaf | Answer query |
+| DFS leave | Rollback |
+| DSU | Rank + stack; no path compression |
+
+**Previous:** [Convex Hull Trick](./07-convex-hull-trick) · [Centroid Decomposition](./05-centroid-decomposition)
+
+**Source:** [CP-Algorithms — Deleting from a data structure in $O(T(n)\\log n)$](https://cp-algorithms.com/data_structures/deleting_in_log_n.html)

@@ -1,0 +1,646 @@
+---
+sidebar_position: 5
+title: Bit Manipulation
+---
+
+import BitManipulationSimulator from "@site/src/components/interactive/BitManipulationSimulator.js";
+
+# Bit Manipulation
+
+Computers store integers in binary. Many competitive and systems problems become fast or elegant once you think in **bits**: set/clear flags, count ones, test powers of two, or represent subsets as integers.
+
+This lesson follows [CP-Algorithms — Bit Manipulation](https://cp-algorithms.com/algebra/bit-manipulation.html).
+
+## Binary numbers
+
+A binary number `(aₖ aₖ₋₁ … a₁ a₀)₂` represents
+
+```text
+aₖ·2ᵏ + aₖ₋₁·2ᵏ⁻¹ + … + a₁·2¹ + a₀·2⁰
+```
+
+Example: `1101₂ = 8 + 4 + 0 + 1 = 13`.
+
+A bit is **set** if it is `1`, **cleared** if it is `0`.
+
+```cpp
+unsigned int u = 13;
+assert(u == 0b1101);
+
+int positive = 13;
+assert(positive == 0b1101);
+
+int negative = -13; // two's complement on typical 32-bit int
+assert(negative == 0b1111'1111'1111'1111'1111'1111'1111'0011);
+```
+
+CPUs execute fixed-width bit ops in roughly constant time — often faster than division.
+
+## Bitwise operators
+
+| Op | Name | Rule |
+|---|---|---|
+| `&` | AND | `1` only if both bits are `1` |
+| `\|` | OR | `1` if either bit is `1` |
+| `^` | XOR | `1` if bits differ |
+| `~` | NOT | flip every bit |
+
+Example with `n = 01011000₂`:
+
+```text
+n         = 01011000
+n-1       = 01010111
+--------------------
+n & (n-1) = 01010000   ← clears rightmost set bit
+n | (n-1) = 01011111
+n ^ (n-1) = 00001111
+~n        = 10100111
+```
+
+## Shift operators
+
+| Op | Meaning |
+|---|---|
+| `>> k` | Shift right by `k` (integer divide by `2ᵏ` for unsigned) |
+| `<< k` | Shift left by `k` (multiply by `2ᵏ`; drops high bits on fixed width) |
+
+Examples: `5 >> 2 = 1`, `5 << 3 = 40`.
+
+## Interactive playground
+
+Step through **Brian Kernighan's** popcount or inspect classic bit tricks on 8-bit examples.
+
+<BitManipulationSimulator />
+
+## Useful tricks
+
+### Set / flip / clear bit `x`
+
+`1 << x` has only bit `x` set. `~(1 << x)` has every bit set **except** `x`.
+
+```text
+n |  (1 << x)   set bit x
+n ^  (1 << x)   flip bit x
+n & ~(1 << x)   clear bit x
+```
+
+### Test if bit `x` is set
+
+```cpp
+bool is_set(unsigned int n, int x) {
+    return (n >> x) & 1;
+}
+```
+
+### Divisible by `2ᵏ`?
+
+`n & (2ᵏ − 1) == 0`. Example: even ⇔ `n & 1 == 0`.
+
+```cpp
+bool isDivisibleByPowerOf2(int n, int k) {
+    int mask = (1 << k) - 1;
+    return (n & mask) == 0;
+}
+```
+
+`2ᵏ − 1` is `k` low ones; divisibility by `2ᵏ` forces those bits to zero.
+
+### Power of two?
+
+A power of two has exactly one set bit. Its predecessor has that bit cleared and all lower bits set, so they share no `1` bits:
+
+```cpp
+bool isPowerOfTwo(unsigned int n) {
+    return n && !(n & (n - 1));
+}
+```
+
+(`0` fails the `n &&` guard.)
+
+### Clear rightmost set bit
+
+`n & (n - 1)` turns off the lowest `1`. Example: `52 = 00110100₂ → 00110000₂`.
+
+### Brian Kernighan's popcount
+
+Count set bits by repeatedly clearing the rightmost one:
+
+```cpp
+int countSetBits(int n) {
+    int count = 0;
+    while (n) {
+        n = n & (n - 1);
+        count++;
+    }
+    return count;
+}
+```
+
+Runs once per set bit — `O(popcount(n))`.
+
+<details>
+<summary>🧪 Bit tricks in action</summary>
+
+<PistonRunner
+  lang="c++"
+  height="420px"
+  code={`#include <iostream>
+#include <bitset>
+using namespace std;
+
+bool is_set(unsigned n, int x) { return (n >> x) & 1; }
+bool isPowerOfTwo(unsigned n) { return n && !(n & (n - 1)); }
+int countSetBits(int n) {
+    int c = 0;
+    while (n) { n &= n - 1; c++; }
+    return c;
+}
+
+int main() {
+    unsigned n = 52; // 00110100
+    cout << "n = " << n << " = " << bitset<8>(n) << endl;
+    cout << "bit 2 set? " << is_set(n, 2) << endl;
+    cout << "bit 4 set? " << is_set(n, 4) << endl;
+    cout << "clear rightmost 1: " << (n & (n - 1))
+         << " = " << bitset<8>(n & (n - 1)) << endl;
+    cout << "lowest set bit: " << (n & -n)
+         << " = " << bitset<8>(n & -n) << endl;
+    cout << "popcount(52) = " << countSetBits(52) << endl;
+    cout << "isPowerOfTwo(16)? " << isPowerOfTwo(16) << endl;
+    cout << "isPowerOfTwo(18)? " << isPowerOfTwo(18) << endl;
+
+    cout << endl << "subsets of {0,1,2}:" << endl;
+    for (int m = 0; m < (1 << 3); m++) {
+        cout << "  mask " << bitset<3>(m) << " -> {";
+        bool first = true;
+        for (int i = 0; i < 3; i++) if (m & (1 << i)) {
+            if (!first) cout << ",";
+            cout << i;
+            first = false;
+        }
+        cout << "}" << endl;
+    }
+    return 0;
+}
+`}
+/>
+
+</details>
+
+### Count set bits up to `n` (fast)
+
+Summing Kernighan on every `1..n` is too slow. Use: for numbers `< 2ˣ`, total set bits = `x · 2^(x−1)`. Recurse on the remainder after stripping the top block.
+
+### More identities
+
+| Expression | Effect |
+|---|---|
+| `n & (n + 1)` | clear trailing ones |
+| `n \| (n + 1)` | set last cleared bit |
+| `n & -n` | isolate lowest set bit |
+
+## Check: operators & tricks
+
+<MultipleChoice
+  id="algo-04-bit-ops"
+  title="Bit operators"
+  questions={[
+    {
+      prompt: 'n & (n - 1) does what (for n > 0)?',
+      choices: [
+        'Sets all bits to 1',
+        'Clears the rightmost set bit',
+        'Doubles n',
+        'Returns n mod 2',
+      ],
+      answer: 1,
+      why: 'n-1 flips trailing bits including the lowest 1; AND clears that 1.',
+    },
+    {
+      prompt: 'isPowerOfTwo(n) uses…',
+      choices: [
+        'n % 2 == 0',
+        'n && !(n & (n - 1))',
+        'n ^ n == 0',
+        'n >> 1 == 0',
+      ],
+      answer: 1,
+      why: 'Powers of two are exactly the numbers with a single set bit.',
+    },
+    {
+      prompt: 'n & -n extracts…',
+      choices: [
+        'The highest set bit only',
+        'The lowest set bit only',
+        'All bits flipped',
+        'Always zero',
+      ],
+      answer: 1,
+      why: 'Two’s complement makes -n flip low bits; AND isolates the lowest 1.',
+    },
+    {
+      prompt: 'n is even iff…',
+      choices: [
+        'n & 1 == 1',
+        'n & 1 == 0',
+        'n >> 1 == 0',
+        'n ^ 1 == 0',
+      ],
+      answer: 1,
+      why: 'The least significant bit is 0 for even numbers.',
+    },
+    {
+      prompt: '5 << 3 equals…',
+      choices: [
+        '15',
+        '40',
+        '8',
+        '2',
+      ],
+      answer: 1,
+      why: 'Left shift by 3 multiplies by 2³ = 8; 5·8 = 40.',
+    },
+  ]}
+/>
+
+## Subsets as integers
+
+With `n ≤ 20` objects, an `n`-bit mask represents a subset: bit `i` is `1` if object `i` is chosen. Iterate all masks with `for (int m = 0; m < (1 << n); m++)`. This pattern appears in DP and brute force.
+
+## Language support
+
+**C++20** `<bit>`: `popcount`, `countl_zero`, `has_single_bit`, `bit_floor`, `bit_ceil`, `rotl`, `rotr`, …
+
+**GCC builtins** (also useful pre-C++20):
+
+| Builtin | Meaning |
+|---|---|
+| `__builtin_popcount(x)` | number of set bits |
+| `__builtin_ffs(x)` | index of lowest set bit (1-based) |
+| `__builtin_clz(x)` | leading zeros |
+| `__builtin_ctz(x)` | trailing zeros |
+| `__builtin_parity(x)` | parity of popcount |
+
+Some targets need `#pragma GCC target("popcnt")` for fast hardware popcount.
+
+## Check: applications
+
+<MultipleChoice
+  id="algo-04-bit-apps"
+  title="Bit applications"
+  questions={[
+    {
+      prompt: 'Brian Kernighan popcount loop runs…',
+      choices: [
+        'Once per bit width (32 times always)',
+        'Once per set bit in n',
+        'O(log n) regardless of bits',
+        'Only on powers of two',
+      ],
+      answer: 1,
+      why: 'Each iteration removes exactly one set bit.',
+    },
+    {
+      prompt: 'To set bit x in n you write…',
+      choices: [
+        'n & (1 << x)',
+        'n | (1 << x)',
+        'n ^ x',
+        'n >> x',
+      ],
+      answer: 1,
+      why: 'OR with a mask that has only bit x set.',
+    },
+    {
+      prompt: 'Fedor-style “armies differ in ≤ k bits” compares…',
+      choices: [
+        'popcount(a + b)',
+        'popcount(a ^ b)',
+        'popcount(a & b)',
+        'a - b',
+      ],
+      answer: 1,
+      why: 'XOR is 1 exactly where bits differ; popcount counts differences.',
+    },
+    {
+      prompt: 'Raising Bacteria (reach exactly x) needs minimum adds equal to…',
+      choices: [
+        'x / 2',
+        'popcount(x)',
+        'number of zeros in binary x',
+        'log₂(x)',
+      ],
+      answer: 1,
+      why: 'Each 1 in binary x is one manual add; doublings fill the gaps.',
+    },
+  ]}
+/>
+
+## Practice drills
+
+<ExerciseSet>
+<Exercise title="Popcount" anchor="exercise-popcount">
+
+:::tip Activity: Popcount
+Count set bits in nonnegative `n` using `n &= n - 1` (Brian Kernighan). Do not use `bin(n).count`.
+
+<CodeExercise
+  title="Popcount"
+  heading="exercise-popcount"
+  lang="python"
+  filename="main.py"
+  prompt="Return the number of 1-bits in n."
+  sampleLog={`(input) 52
+3`}
+  starter={`def popcount(n):
+    # TODO: Brian Kernighan
+    return 0
+`}
+  wrapSuffix={`
+n = int(input())
+print(popcount(n))
+`}
+  hint="while n: n &= n-1; count++"
+  solution={`def popcount(n):
+    count = 0
+    while n:
+        n &= n - 1
+        count += 1
+    return count
+`}
+  sourceChecks={[
+    { name: 'uses and minus one', pattern: 'n\\s*&=\\s*n\\s*-\\s*1|&\\s*\\(\\s*n\\s*-\\s*1\\s*\\)', must: true, hint: 'clear lowest set bit each iteration' },
+  ]}
+  tests={[
+    { name: '52 = 00110100', stdin: '52', equals: '3' },
+    { name: 'power of 2', stdin: '32', equals: '1' },
+    { name: 'zero', stdin: '0', equals: '0' },
+  ]}
+/>
+
+:::
+
+</Exercise>
+
+<Exercise title="Power of two" anchor="exercise-power2">
+
+:::tip Activity: Power of two
+Return `true`/`false` whether `n > 0` is a power of two. No loops over all bits required.
+
+<CodeExercise
+  title="Power of two"
+  heading="exercise-power2"
+  lang="python"
+  filename="main.py"
+  prompt="Print true/false."
+  sampleLog={`(input) 32
+true`}
+  starter={`def is_power_of_two(n):
+    # TODO
+    return False
+`}
+  wrapSuffix={`
+n = int(input())
+print("true" if is_power_of_two(n) else "false")
+`}
+  hint="n && !(n & (n-1))"
+  solution={`def is_power_of_two(n):
+    return n > 0 and (n & (n - 1)) == 0
+`}
+  sourceChecks={[
+    { name: 'uses n-1 trick', pattern: 'n\\s*-\\s*1|n\\s*&', must: true, hint: 'n & (n-1) == 0 for powers of two' },
+  ]}
+  tests={[
+    { name: '32', stdin: '32', equals: 'true' },
+    { name: '31', stdin: '31', equals: 'false' },
+    { name: '0', stdin: '0', equals: 'false' },
+  ]}
+/>
+
+:::
+
+</Exercise>
+
+<Exercise title="Get bit" anchor="exercise-get-bit">
+
+:::tip Activity: Get bit
+Return bit `x` (0 = LSB) of `n` as 0 or 1.
+
+<CodeExercise
+  title="Get bit"
+  heading="exercise-get-bit"
+  lang="python"
+  filename="main.py"
+  prompt="Input: n x. Print 0 or 1."
+  sampleLog={`(input) 52 2
+1`}
+  starter={`def get_bit(n, x):
+    # TODO
+    return 0
+`}
+  wrapSuffix={`
+n, x = map(int, input().split())
+print(get_bit(n, x))
+`}
+  hint="(n >> x) & 1"
+  solution={`def get_bit(n, x):
+    return (n >> x) & 1
+`}
+  sourceChecks={[
+    { name: 'shift and mask', pattern: '>>|\\&', must: true, hint: 'shift right then AND 1' },
+  ]}
+  tests={[
+    { name: '52 bit 2', stdin: '52 2', equals: '1' },
+    { name: '52 bit 0', stdin: '52 0', equals: '0' },
+    { name: '13 bit 0', stdin: '13 0', equals: '1' },
+  ]}
+/>
+
+:::
+
+</Exercise>
+
+<Exercise title="Set bit" anchor="exercise-set-bit">
+
+:::tip Activity: Set bit
+Return `n` with bit `x` set to 1 (other bits unchanged).
+
+<CodeExercise
+  title="Set bit"
+  heading="exercise-set-bit"
+  lang="python"
+  filename="main.py"
+  prompt="Input: n x. Print the new integer."
+  sampleLog={`(input) 8 0
+9`}
+  starter={`def set_bit(n, x):
+    # TODO
+    return n
+`}
+  wrapSuffix={`
+n, x = map(int, input().split())
+print(set_bit(n, x))
+`}
+  hint="n | (1 << x)"
+  solution={`def set_bit(n, x):
+    return n | (1 << x)
+`}
+  sourceChecks={[
+    { name: 'uses or shift', pattern: '\\|\\s*\\(\\s*1\\s*<<|<<', must: true, hint: 'OR with 1<<x' },
+  ]}
+  tests={[
+    { name: '8 set bit 0', stdin: '8 0', equals: '9' },
+    { name: '0 set bit 3', stdin: '0 3', equals: '8' },
+    { name: 'already set', stdin: '9 0', equals: '9' },
+  ]}
+/>
+
+:::
+
+</Exercise>
+
+<Exercise title="XOR distance" anchor="exercise-xor-dist">
+
+:::tip Activity: XOR distance
+Two armies are `a` and `b`. Print how many soldier **types** differ (Hamming distance).
+
+<CodeExercise
+  title="XOR distance"
+  heading="exercise-xor-dist"
+  lang="python"
+  filename="main.py"
+  prompt="popcount(a ^ b). Input two integers."
+  sampleLog={`(input) 5 7
+1`}
+  starter={`def diff_bits(a, b):
+    # TODO: count bits in a ^ b
+    return 0
+`}
+  wrapSuffix={`
+a, b = map(int, input().split())
+print(diff_bits(a, b))
+`}
+  hint="xor then popcount (Kernighan or built-in loop)"
+  solution={`def diff_bits(a, b):
+    x = a ^ b
+    count = 0
+    while x:
+        x &= x - 1
+        count += 1
+    return count
+`}
+  sourceChecks={[
+    { name: 'uses xor', pattern: '\\^', must: true, hint: 'a ^ b marks differing bits' },
+  ]}
+  tests={[
+    { name: '5 vs 7', stdin: '5 7', equals: '1' },
+    { name: 'same', stdin: '12 12', equals: '0' },
+    { name: '1 vs 0', stdin: '1 0', equals: '1' },
+  ]}
+/>
+
+:::
+
+</Exercise>
+</ExerciseSet>
+
+## Contest problems
+
+<ExerciseSet>
+<Exercise title="Raising Bacteria" anchor="exercise-cf-bacteria">
+
+### A. Raising Bacteria
+
+**Judge:** [Codeforces 579A — Raising Bacteria](https://codeforces.com/problemset/problem/579/A)
+
+Each morning add any number of bacteria; each night every bacterium doubles. What is the **minimum** number of bacteria you must add (across mornings) to reach exactly `x`?
+
+:::tip Why this lesson?
+Each `1` in binary `x` is one manual add; overnight doubling fills gaps between them. Answer = **popcount(x)**.
+:::
+
+**Sample**
+
+```text
+Input
+5
+
+Output
+2
+```
+
+(`101₂` has two ones.)
+
+</Exercise>
+<Exercise title="Fedor and New Game" anchor="exercise-cf-fedor">
+
+### B. Fedor and New Game
+
+**Judge:** [Codeforces 467B — Fedor and New Game](https://codeforces.com/problemset/problem/467/B)
+
+`n` soldier types (bits `0..n-1`). Each player's army is a bitmask. Fedor (player `m+1`) counts friends whose army differs in **at most `k` bits**.
+
+:::tip Why this lesson?
+`popcount(x_fedor ^ x_i) ≤ k`. With `n ≤ 20` you can brute-force masks or precompute; the core is XOR + popcount.
+:::
+
+**Sample**
+
+```text
+Input
+3 3 3
+1
+2
+3
+4
+
+Output
+3
+```
+
+</Exercise>
+<Exercise title="And Then There Were K" anchor="exercise-cf-k">
+
+### A. And Then There Were K
+
+**Judge:** [Codeforces 1527A — And Then There Were K](https://codeforces.com/problemset/problem/1527/A)
+
+Given `n`, find the largest `k` such that `n & (n-1) & … & k = 0`.
+
+:::tip Why this lesson?
+The MSB of `n` is the last bit to become zero as you AND downward. Answer = `2^(msb_index) - 1`.
+:::
+
+**Sample**
+
+```text
+Input
+2
+1
+5
+
+Output
+0
+4
+```
+
+</Exercise>
+</ExerciseSet>
+
+## Cheat sheet
+
+| Goal | Trick |
+|---|---|
+| Clear lowest 1 | `n & (n-1)` |
+| Popcount | Kernighan loop |
+| Power of two? | `n && !(n & (n-1))` |
+| Lowest 1 | `n & -n` |
+| Set bit `x` | `n \| (1<<x)` |
+| Clear bit `x` | `n & ~(1<<x)` |
+| Bit `x` of `n` | `(n>>x) & 1` |
+| Diff count | `popcount(a^b)` |
+| Subset mask | `1<<n` masks, loop `m` |
+
+**Previous:** [Binary Search](./03-binary-search) · [Basic Geometry](./02-basic-geometry)
+
+**Source:** [CP-Algorithms — Bit Manipulation](https://cp-algorithms.com/algebra/bit-manipulation.html)

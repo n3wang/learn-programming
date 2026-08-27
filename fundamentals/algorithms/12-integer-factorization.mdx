@@ -1,0 +1,682 @@
+---
+sidebar_position: 13
+title: Integer Factorization
+---
+
+import IntegerFactorizationSimulator from "@site/src/components/interactive/IntegerFactorizationSimulator.js";
+
+# Integer Factorization
+
+Several algorithms factor integers — some are fast on “nice” inputs and painfully slow on others.
+
+**Important:** if `n` is prime, Fermat / Pollard `p−1` / Pollard ρ tend to crawl. Run a fast primality test first.
+
+This lesson follows [CP-Algorithms — Integer factorization](https://cp-algorithms.com/algebra/factorization.html).
+
+## Trial division — `O(√n)`
+
+At least one prime factor of a composite `n` is `≤ √n`. Test `d = 2 … ⌊√n⌋`, peel factors, and if nothing divides, `n` itself is prime.
+
+```cpp
+vector<long long> trial_division1(long long n) {
+    vector<long long> factorization;
+    for (long long d = 2; d * d <= n; d++) {
+        while (n % d == 0) {
+            factorization.push_back(d);
+            n /= d;
+        }
+    }
+    if (n > 1)
+        factorization.push_back(n);
+    return factorization;
+}
+```
+
+Pseudo-polynomial: polynomial in the **value** of `n`, exponential in the bit-length.
+
+## Wheel factorization
+
+Skip even `d` after removing factors of 2 (~50% fewer checks):
+
+```cpp
+vector<long long> trial_division2(long long n) {
+    vector<long long> factorization;
+    while (n % 2 == 0) {
+        factorization.push_back(2);
+        n /= 2;
+    }
+    for (long long d = 3; d * d <= n; d += 2) {
+        while (n % d == 0) {
+            factorization.push_back(d);
+            n /= d;
+        }
+    }
+    if (n > 1)
+        factorization.push_back(n);
+    return factorization;
+}
+```
+
+After removing 2 and 3, only residues `1` and `5` mod `6` remain (~33%). Extending to primes `{2,3,5}` uses a stride table:
+
+```cpp
+vector<long long> trial_division3(long long n) {
+    vector<long long> factorization;
+    for (int d : {2, 3, 5}) {
+        while (n % d == 0) {
+            factorization.push_back(d);
+            n /= d;
+        }
+    }
+    static array<int, 8> increments = {4, 2, 4, 2, 4, 6, 2, 6};
+    int i = 0;
+    for (long long d = 7; d * d <= n; d += increments[i++]) {
+        while (n % d == 0) {
+            factorization.push_back(d);
+            n /= d;
+        }
+        if (i == 8)
+            i = 0;
+    }
+    if (n > 1)
+        factorization.push_back(n);
+    return factorization;
+}
+```
+
+### Precomputed primes
+
+Ultimate wheel: sieve primes up to `√n` and only try those.
+
+```cpp
+vector<long long> primes; // filled by sieve up to sqrt(max n)
+
+vector<long long> trial_division4(long long n) {
+    vector<long long> factorization;
+    for (long long d : primes) {
+        if (d * d > n)
+            break;
+        while (n % d == 0) {
+            factorization.push_back(d);
+            n /= d;
+        }
+    }
+    if (n > 1)
+        factorization.push_back(n);
+    return factorization;
+}
+```
+
+<details>
+<summary>🧪 Trial division + 2/3/5 wheel on 123456789</summary>
+
+<PistonRunner
+  lang="c++"
+  height="420px"
+  code={`#include <iostream>
+#include <vector>
+#include <array>
+using namespace std;
+
+vector<long long> trial_division3(long long n) {
+    vector<long long> factorization;
+    for (int d : {2, 3, 5}) {
+        while (n % d == 0) {
+            factorization.push_back(d);
+            n /= d;
+        }
+    }
+    static array<int, 8> increments = {4, 2, 4, 2, 4, 6, 2, 6};
+    int i = 0;
+    for (long long d = 7; d * d <= n; d += increments[i++]) {
+        while (n % d == 0) {
+            factorization.push_back(d);
+            n /= d;
+        }
+        if (i == 8) i = 0;
+    }
+    if (n > 1) factorization.push_back(n);
+    return factorization;
+}
+
+int main() {
+    long long n = 123456789LL;
+    auto f = trial_division3(n);
+    cout << n << " =";
+    for (auto p : f) cout << " " << p;
+    cout << endl;
+    return 0;
+}
+`}
+/>
+
+</details>
+
+## Fermat’s method
+
+Odd composite `n = p·q` is a difference of squares:
+
+```text
+n = ((p+q)/2)² − ((p−q)/2)²
+```
+
+Guess `a ≥ ceil(√n)` until `a² − n = b²`, then factors are `a−b` and `a+b`. Runtime `O(|p−q|)` — great when factors are close, terrible when they are far. Rarely the first tool in practice (though modular filters on possible `a` help a bit).
+
+```cpp
+int fermat(int n) {
+    int a = ceil(sqrt(n));
+    int b2 = a * a - n;
+    int b = round(sqrt(b2));
+    while (b * b != b2) {
+        a = a + 1;
+        b2 = a * a - n;
+        b = round(sqrt(b2));
+    }
+    return a - b;
+}
+```
+
+## Pollard’s `p − 1`
+
+Often some prime factor `p` has `p−1` **B-powersmooth** (every prime-power factor `≤ B`) for modest `B`.
+
+By Fermat’s little theorem, if `p−1 | M` then `aᴹ ≡ 1 (mod p)`, so `p | gcd(aᴹ − 1, n)`.
+
+Take `M = lcm(1…B)` (equivalently product of maximal prime powers `≤ B`). Raise a random `a` to those powers mod `n`, computing `gcd` along the way. Grow `B` if needed.
+
+Complexity ~ `O(B log B log² n)` per iteration; probabilistic — may fail to find a factor.
+
+```cpp
+// needs: primes[], power(a,e,mod), gcd
+long long pollards_p_minus_1(long long n) {
+    int B = 10;
+    long long g = 1;
+    while (B <= 1000000 && g < n) {
+        long long a = 2 + rand() % (n - 3);
+        g = gcd(a, n);
+        if (g > 1)
+            return g;
+        for (int p : primes) {
+            if (p >= B) continue;
+            long long p_power = 1;
+            while (p_power * p <= B)
+                p_power *= p;
+            a = power(a, p_power, n);
+            g = gcd(a - 1, n);
+            if (g > 1 && g < n)
+                return g;
+        }
+        B *= 2;
+    }
+    return 1;
+}
+```
+
+## Pollard’s ρ
+
+Let `n = p·q`. Walk a polynomial sequence `xᵢ₊₁ = f(xᵢ) mod n`, usually `f(x) = x² + c`. The sequence **mod `p`** lives in a small set and forms a ρ-shaped cycle after expected `O(√p)` steps (`O(n¹ᐟ⁴)` if `p ≤ √n`).
+
+A collision `xₛ ≡ xₜ (mod p)` means `p | gcd(|xₛ − xₜ|, n)` — without knowing `p`.
+
+### Floyd (tortoise & hare)
+
+One pointer advances once per step, the other twice. Meet in `O(λ + μ)`. Overall Pollard ρ with Floyd: about `O(n¹ᐟ⁴ log n)`.
+
+```cpp
+long long mult(long long a, long long b, long long mod) {
+    long long result = 0;
+    while (b) {
+        if (b & 1)
+            result = (result + a) % mod;
+        a = (a + a) % mod;
+        b >>= 1;
+    }
+    return result;
+}
+
+long long f(long long x, long long c, long long mod) {
+    return (mult(x, x, mod) + c) % mod;
+}
+
+long long rho(long long n, long long x0 = 2, long long c = 1) {
+    long long x = x0, y = x0, g = 1;
+    while (g == 1) {
+        x = f(x, c, n);
+        y = f(y, c, n);
+        y = f(y, c, n);
+        g = abs(x - y);
+        // gcd below
+        long long a = g, b = n;
+        while (b) { long long t = a % b; a = b; b = t; }
+        g = a;
+    }
+    return g;
+}
+```
+
+If the algorithm returns `n`, retry with different `x₀` / `c` (e.g. `25` fails for `x₀=c=1` but factors with `c=2`).
+
+<details>
+<summary>🧪 Pollard ρ on 2206637</summary>
+
+<PistonRunner
+  lang="c++"
+  height="400px"
+  code={`#include <iostream>
+#include <cstdlib>
+using namespace std;
+
+long long mult(long long a, long long b, long long mod) {
+    long long result = 0;
+    while (b) {
+        if (b & 1) result = (result + a) % mod;
+        a = (a + a) % mod;
+        b >>= 1;
+    }
+    return result;
+}
+
+long long f(long long x, long long c, long long mod) {
+    return (mult(x, x, mod) + c) % mod;
+}
+
+long long gcdll(long long a, long long b) {
+    a = abs(a); b = abs(b);
+    while (b) { long long t = a % b; a = b; b = t; }
+    return a;
+}
+
+long long rho(long long n, long long x0 = 2, long long c = 1) {
+    long long x = x0, y = x0, g = 1;
+    while (g == 1) {
+        x = f(x, c, n);
+        y = f(y, c, n);
+        y = f(y, c, n);
+        g = gcdll(x - y, n);
+    }
+    return g;
+}
+
+int main() {
+    long long n = 2206637;
+    long long g = rho(n);
+    cout << "n = " << n << endl;
+    cout << "factor = " << g << endl;
+    cout << "cofactor = " << n / g << endl;
+    return 0;
+}
+`}
+/>
+
+</details>
+
+### Brent’s cycle detection
+
+Advance the hare in power-of-two blocks. Same asymptotics, fewer `f` evaluations. Batch `gcd` every `m` steps (multiply differences, backtrack if `gcd = n`).
+
+```cpp
+long long brent(long long n, long long x0 = 2, long long c = 1) {
+    long long x = x0, g = 1, q = 1, xs = 0, y = 0;
+    int m = 128, l = 1;
+    while (g == 1) {
+        y = x;
+        for (int i = 1; i < l; i++)
+            x = f(x, c, n);
+        int k = 0;
+        while (k < l && g == 1) {
+            xs = x;
+            for (int i = 0; i < m && i < l - k; i++) {
+                x = f(x, c, n);
+                q = mult(q, abs(y - x), n);
+            }
+            g = gcdll(q, n);
+            k += m;
+        }
+        l *= 2;
+    }
+    if (g == n) {
+        do {
+            xs = f(xs, c, n);
+            g = gcdll(xs - y, n);
+        } while (g == 1);
+    }
+    return g;
+}
+```
+
+**Practical combo:** trial-divide small primes, then Brent–Pollard ρ on the cofactor.
+
+## Interactive walkthrough
+
+<IntegerFactorizationSimulator />
+
+## Check: trial & Fermat
+
+<MultipleChoice
+  id="algo-12-fact-trial"
+  title="Trial division and Fermat"
+  questions={[
+    {
+      prompt: 'Why only test d up to √n in trial division?',
+      choices: [
+        'Larger primes never divide n',
+        'A composite always has a prime factor ≤ √n',
+        'Floating point fails beyond √n',
+        'Sieve requires it',
+      ],
+      answer: 1,
+      why: 'If all prime factors exceeded √n, the product would exceed n.',
+    },
+    {
+      prompt: 'Wheel factorization after removing 2 mainly skips…',
+      choices: ['Odds', 'Evens', 'Primes', 'Powers of 10'],
+      answer: 1,
+      why: 'Even candidates cannot divide an odd cofactor.',
+    },
+    {
+      prompt: 'Fermat factorization is fast when…',
+      choices: [
+        'p and q are far apart',
+        'p and q are close',
+        'n is a power of two',
+        'n is prime',
+      ],
+      answer: 1,
+      why: 'Runtime scales with |p−q|.',
+    },
+    {
+      prompt: 'Before Pollard-style methods you should…',
+      choices: [
+        'Always sort n',
+        'Run a primality test',
+        'Convert to binary only',
+        'Use FFT',
+      ],
+      answer: 1,
+      why: 'Primes make ρ / p−1 / Fermat extremely slow.',
+    },
+  ]}
+/>
+
+## Check: Pollard methods
+
+<MultipleChoice
+  id="algo-12-fact-pollard"
+  title="Pollard p−1 and ρ"
+  questions={[
+    {
+      prompt: 'Pollard p−1 targets factors p where…',
+      choices: [
+        'p+1 is smooth',
+        'p−1 is B-powersmooth for small B',
+        'p = 2',
+        'p > √n always',
+      ],
+      answer: 1,
+      why: 'Then p−1 | M for M = lcm(1..B)-style products.',
+    },
+    {
+      prompt: 'In Pollard ρ, gcd(|x−y|, n) > 1 detects…',
+      choices: [
+        'A birthday collision mod p',
+        'That n is prime',
+        'Overflow',
+        'That f is linear',
+      ],
+      answer: 0,
+      why: 'x ≡ y (mod p) ⇔ p divides the difference.',
+    },
+    {
+      prompt: 'Floyd’s tortoise/hare advances…',
+      choices: [
+        'Both by 1',
+        'One by 1 and one by 2',
+        'Both by powers of two only',
+        'Randomly',
+      ],
+      answer: 1,
+      why: 'Classic cycle detection with unequal speeds.',
+    },
+    {
+      prompt: 'If ρ returns n itself…',
+      choices: [
+        'n is always prime',
+        'Retry with different x₀ / c',
+        'Give up forever',
+        'Output 1',
+      ],
+      answer: 1,
+      why: 'Parameter failure; e.g. 25 needs another c.',
+    },
+  ]}
+/>
+
+## Practice drills
+
+<ExerciseSet>
+<Exercise title="Trial factor list" anchor="exercise-fact-trial">
+
+:::tip Activity: Trial factor list
+Read `n`. Print prime factors in non-decreasing order separated by spaces (with multiplicity).
+
+<CodeExercise
+  title="Trial factor list"
+  heading="exercise-fact-trial"
+  lang="python"
+  filename="main.py"
+  prompt="Basic trial division factorization."
+  sampleLog={`(input) 60
+2 2 3 5`}
+  starter={`def factorize(n):
+    # TODO: return list of prime factors
+    return []
+`}
+  wrapSuffix={`
+n = int(input())
+print(*factorize(n))
+`}
+  hint="for d in 2..sqrt: while n%d==0 append and divide; if n>1 append n"
+  solution={`def factorize(n):
+    out = []
+    d = 2
+    while d * d <= n:
+        while n % d == 0:
+            out.append(d)
+            n //= d
+        d += 1
+    if n > 1:
+        out.append(n)
+    return out
+`}
+  sourceChecks={[
+    { name: 'loops', pattern: 'while|for', must: true, hint: 'trial-divide in a loop' },
+  ]}
+  tests={[
+    { name: 'sample', stdin: '60', equals: '2 2 3 5' },
+    { name: 'prime', stdin: '17', equals: '17' },
+    { name: 'square', stdin: '49', equals: '7 7' },
+  ]}
+/>
+
+:::
+
+</Exercise>
+
+<Exercise title="Odd-only wheel" anchor="exercise-fact-odd">
+
+:::tip Activity: Odd-only wheel
+Same as trial list, but after stripping factors of 2, only try odd `d`.
+
+<CodeExercise
+  title="Odd-only wheel"
+  heading="exercise-fact-odd"
+  lang="python"
+  filename="main.py"
+  prompt="trial_division2 style."
+  sampleLog={`(input) 90
+2 3 3 5`}
+  starter={`def factorize_odd_wheel(n):
+    # TODO
+    return []
+`}
+  wrapSuffix={`
+n = int(input())
+print(*factorize_odd_wheel(n))
+`}
+  hint="peel 2s; then d=3,5,7,... with d+=2"
+  solution={`def factorize_odd_wheel(n):
+    out = []
+    while n % 2 == 0:
+        out.append(2)
+        n //= 2
+    d = 3
+    while d * d <= n:
+        while n % d == 0:
+            out.append(d)
+            n //= d
+        d += 2
+    if n > 1:
+        out.append(n)
+    return out
+`}
+  sourceChecks={[
+    { name: 'odd step', pattern: '\\+=\\s*2|range\\([^)]*2', must: true, hint: 'step odd divisors by 2' },
+  ]}
+  tests={[
+    { name: 'sample', stdin: '90', equals: '2 3 3 5' },
+    { name: 'odd', stdin: '105', equals: '3 5 7' },
+    { name: 'pow2', stdin: '16', equals: '2 2 2 2' },
+  ]}
+/>
+
+:::
+
+</Exercise>
+
+<Exercise title="Fermat one factor" anchor="exercise-fact-fermat">
+
+:::tip Activity: Fermat one factor
+Odd composite `n`. Return the smaller Fermat factor `a−b` (positive).
+
+<CodeExercise
+  title="Fermat one factor"
+  heading="exercise-fact-fermat"
+  lang="python"
+  filename="main.py"
+  prompt="a starts at ceil(sqrt(n)); grow until a*a-n is square."
+  sampleLog={`(input) 15
+3`}
+  starter={`import math
+
+def fermat_factor(n):
+    # TODO
+    return 1
+`}
+  wrapSuffix={`
+n = int(input())
+print(fermat_factor(n))
+`}
+  hint="a=ceil(sqrt(n)); while True: b2=a*a-n; b=isqrt(b2); if b*b==b2: return a-b; a+=1"
+  solution={`import math
+
+def fermat_factor(n):
+    a = math.ceil(math.sqrt(n))
+    while True:
+        b2 = a * a - n
+        b = int(math.isqrt(b2))
+        if b * b == b2:
+            return a - b
+        a += 1
+`}
+  sourceChecks={[
+    { name: 'uses sqrt', pattern: 'sqrt|isqrt', must: true, hint: 'need squares / isqrt' },
+  ]}
+  tests={[
+    { name: '15', stdin: '15', equals: '3' },
+    { name: '21', stdin: '21', equals: '3' },
+    { name: '35', stdin: '35', equals: '5' },
+  ]}
+/>
+
+:::
+
+</Exercise>
+
+<Exercise title="gcd collision" anchor="exercise-fact-gcd">
+
+:::tip Activity: ρ step check
+`n x y` → print `gcd(abs(x-y), n)`.
+
+<CodeExercise
+  title="gcd collision"
+  heading="exercise-fact-gcd"
+  lang="python"
+  filename="main.py"
+  prompt="Core Pollard ρ test."
+  sampleLog={`(input) 2206637 2193080 2088470
+317`}
+  starter={`import math
+
+def rho_gcd(n, x, y):
+    # TODO
+    return 1
+`}
+  wrapSuffix={`
+n, x, y = map(int, input().split())
+print(rho_gcd(n, x, y))
+`}
+  hint="return math.gcd(abs(x-y), n)"
+  solution={`import math
+
+def rho_gcd(n, x, y):
+    return math.gcd(abs(x - y), n)
+`}
+  sourceChecks={[
+    { name: 'gcd', pattern: 'gcd', must: true, hint: 'use math.gcd' },
+  ]}
+  tests={[
+    { name: 'sample', stdin: '2206637 2193080 2088470', equals: '317' },
+    { name: 'one', stdin: '91 10 3', equals: '1' },
+    { name: 'seven', stdin: '91 14 0', equals: '7' },
+  ]}
+/>
+
+:::
+
+</Exercise>
+</ExerciseSet>
+
+## Contest problems
+
+From [CP-Algorithms](https://cp-algorithms.com/algebra/factorization.html):
+
+<ExerciseSet>
+<Exercise title="SPOJ FACT0 / FACT1 / FACT2" anchor="exercise-fact-spoj">
+
+- [SPOJ FACT0](https://www.spoj.com/problems/FACT0/)
+- [SPOJ FACT1](https://www.spoj.com/problems/FACT1/)
+- [SPOJ FACT2](https://www.spoj.com/problems/FACT2/)
+
+:::info Tip
+Small primes by trial / wheel; hard cofactors with Brent–Pollard ρ (+ primality test).
+:::
+
+</Exercise>
+
+<Exercise title="GCPC 15 — Divisions" anchor="exercise-fact-gcpc">
+
+Search: **GCPC 2015 Divisions** (factorization / counting divisors from prime factors).
+
+</Exercise>
+</ExerciseSet>
+
+## Cheat sheet
+
+| Method | When | Cost (typical) |
+|---|---|---|
+| Trial / wheel | Small `n` or small factors | `O(√n)` / better constants |
+| Sieve primes | Many factorizations | Precompute + trial primes |
+| Fermat | `p ≈ q` | `O(|p−q|)` |
+| Pollard `p−1` | `p−1` smooth | Depends on `B` |
+| Pollard ρ / Brent | General hard composites | ~`O(n¹ᐟ⁴ log n)` |
+| Pipeline | Always | Primality → trial small → ρ |

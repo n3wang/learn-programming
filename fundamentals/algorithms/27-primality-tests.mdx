@@ -1,0 +1,469 @@
+---
+sidebar_position: 28
+title: Primality Tests
+---
+
+import PrimalityTestsSimulator from "@site/src/components/interactive/PrimalityTestsSimulator.js";
+
+# Primality Tests
+
+Algorithms to decide whether an integer is **prime**. From exact trial division to fast probabilistic / deterministic Miller–Rabin.
+
+This lesson follows [CP-Algorithms — Primality tests](https://cp-algorithms.com/algebra/primality_tests.html).
+
+Related: [Integer Factorization](./12-integer-factorization), [Montgomery Multiplication](./23-montgomery-multiplication), [Divisor Functions](./24-divisor-functions).
+
+## Trial division
+
+A composite `n` has a divisor `d` with `2 ≤ d ≤ √n` (because if every proper divisor were `> √n`, the cofactor would be `< √n`). Scan `d = 2 … ⌊√n⌋`; any hit ⇒ composite.
+
+```cpp
+bool isPrime(int x) {
+    for (int d = 2; d * d <= x; d++) {
+        if (x % d == 0)
+            return false;
+    }
+    return x >= 2;
+}
+```
+
+Optimize by special-casing `2` and only testing odd `d` (or a wheel) — same ideas as in [Integer Factorization](./12-integer-factorization).
+
+<details>
+<summary>🧪 Trial division demo</summary>
+
+<PistonRunner
+  lang="c++"
+  height="320px"
+  code={`#include <iostream>
+using namespace std;
+
+bool isPrime(long long x) {
+    if (x < 2) return false;
+    for (long long d = 2; d * d <= x; d++) {
+        if (x % d == 0) return false;
+    }
+    return true;
+}
+
+int main() {
+    for (long long x : {1LL, 2LL, 91LL, 97LL, 561LL}) {
+        cout << x << (isPrime(x) ? " prime" : " composite") << endl;
+    }
+    return 0;
+}
+`}
+/>
+
+</details>
+
+## Fermat primality test
+
+**Fermat’s little theorem:** if `p` is prime and `gcd(a,p)=1`, then
+
+```text
+a^{p−1} ≡ 1  (mod p)
+```
+
+Pick `2 ≤ a ≤ n−2`. If `a^{n−1} ≢ 1 (mod n)`, then `a` is a **Fermat witness** — `n` is composite.
+
+If the congruence holds, `n` is only **probably** prime: `a` might be a **Fermat liar**. Repeat with random bases.
+
+```cpp
+bool probablyPrimeFermat(int n, int iter = 5) {
+    if (n < 4)
+        return n == 2 || n == 3;
+    for (int i = 0; i < iter; i++) {
+        int a = 2 + rand() % (n - 3);
+        if (binpower(a, n - 1, n) != 1)
+            return false;
+    }
+    return true;
+}
+```
+
+Use [binary exponentiation](https://cp-algorithms.com/algebra/binary-exp.html) for `a^{n−1} mod n`.
+
+### Carmichael numbers
+
+Some composites satisfy `a^{n−1} ≡ 1 (mod n)` for **every** `a` coprime to `n` — e.g. **`561 = 3·11·17`**. Fermat catches them only if you luck into `gcd(a,n) ≠ 1`. There are only **646** Carmichael numbers below `10⁹`, so Fermat is still used when you need raw speed.
+
+## Miller–Rabin
+
+Write odd `n−1 = 2^s · d` with `d` odd. Factor Fermat’s congruence:
+
+```text
+a^{n−1} − 1 = (a^{2^{s−1}d} + 1) ⋯ (a^d + 1)(a^d − 1)
+```
+
+If `n` is prime it must divide one factor. For base `a`, check whether
+
+```text
+a^d ≡ 1 (mod n)
+```
+
+or
+
+```text
+a^{2^r d} ≡ −1 (mod n)   for some  0 ≤ r ≤ s−1
+```
+
+If neither holds, `a` is a **witness** (proven composite). Otherwise `a` is a **strong liar** / `n` is a strong probable prime.
+
+Unlike Carmichael numbers, **at most 1/4** of bases can be strong liars. Each random iteration has **≥ 75%** chance to catch a composite.
+
+<details>
+<summary>🧪 Deterministic Miller–Rabin (64-bit bases)</summary>
+
+<PistonRunner
+  lang="c++"
+  height="520px"
+  code={`#include <iostream>
+#include <cstdint>
+using namespace std;
+
+using u64 = uint64_t;
+using u128 = __uint128_t;
+
+u64 binpower(u64 base, u64 e, u64 mod) {
+    u64 result = 1;
+    base %= mod;
+    while (e) {
+        if (e & 1)
+            result = (u128)result * base % mod;
+        base = (u128)base * base % mod;
+        e >>= 1;
+    }
+    return result;
+}
+
+bool check_composite(u64 n, u64 a, u64 d, int s) {
+    u64 x = binpower(a, d, n);
+    if (x == 1 || x == n - 1)
+        return false;
+    for (int r = 1; r < s; r++) {
+        x = (u128)x * x % n;
+        if (x == n - 1)
+            return false;
+    }
+    return true;
+}
+
+bool MillerRabin(u64 n) {
+    if (n < 2)
+        return false;
+    int r = 0;
+    u64 d = n - 1;
+    while ((d & 1) == 0) {
+        d >>= 1;
+        r++;
+    }
+    for (u64 a : {2ULL, 3ULL, 5ULL, 7ULL, 11ULL, 13ULL, 17ULL,
+                   19ULL, 23ULL, 29ULL, 31ULL, 37ULL}) {
+        if (n == a)
+            return true;
+        if (check_composite(n, a, d, r))
+            return false;
+    }
+    return true;
+}
+
+int main() {
+    for (u64 n : {2ULL, 91ULL, 97ULL, 221ULL, 561ULL, 1000000007ULL}) {
+        cout << n << (MillerRabin(n) ? " prime" : " composite") << endl;
+    }
+    return 0;
+}
+`}
+/>
+
+</details>
+
+### Speed tip
+
+Before MR, trial-divide by the first few primes. About **88%** of integers have a prime factor `< 100`.
+
+## Deterministic Miller–Rabin
+
+Miller: bases `≤ O((ln n)²)` suffice. Bach: `a ≤ 2 (ln n)²`.
+
+Practical tables (no randomness):
+
+| Range | Bases |
+|---|---|
+| 32-bit | `2, 3, 5, 7` (smallest fail: `3 215 031 751`) |
+| 64-bit | first 12 primes: `2…37` |
+| 64-bit (7 bases) | `2, 325, 9375, 28178, 450775, 9780504, 1795265022` — also exclude prime factors of those bases |
+
+```cpp
+bool MillerRabin(u64 n) {
+    if (n < 2) return false;
+    int r = 0;
+    u64 d = n - 1;
+    while ((d & 1) == 0) { d >>= 1; r++; }
+    for (int a : {2, 3, 5, 7, 11, 13, 17, 19, 23, 29, 31, 37}) {
+        if (n == a) return true;
+        if (check_composite(n, a, d, r)) return false;
+    }
+    return true;
+}
+```
+
+<PrimalityTestsSimulator />
+
+## Check: primality tests
+
+<MultipleChoice
+  id="algo-27-primality-basic"
+  title="Primality tests"
+  questions={[
+    {
+      prompt: 'Trial division only needs to check divisors up to…',
+      choices: ['n/2', '√n', 'log n', 'n−1'],
+      answer: 1,
+      why: 'A composite always has a factor ≤ √n.',
+    },
+    {
+      prompt: 'If a^{n−1} ≢ 1 (mod n) for some a…',
+      choices: [
+        'n is definitely prime',
+        'n is definitely composite',
+        'n is Carmichael',
+        'The test crashed',
+      ],
+      answer: 1,
+      why: 'That base is a Fermat witness.',
+    },
+    {
+      prompt: 'Carmichael numbers…',
+      choices: [
+        'Fail Fermat for every base',
+        'Pass Fermat for all a coprime to n',
+        'Are always prime',
+        'Cannot exist below 10⁶',
+      ],
+      answer: 1,
+      why: '561 is the classic example.',
+    },
+    {
+      prompt: 'Miller–Rabin on a composite: a random base is a witness with probability…',
+      choices: ['0%', '≥ 75%', 'Exactly 50%', '100% always'],
+      answer: 1,
+      why: 'At most 1/4 of bases are strong liars.',
+    },
+    {
+      prompt: 'For all 64-bit n, deterministic MR can use…',
+      choices: [
+        'Only base 2',
+        'The 12 prime bases 2…37',
+        'All a < n',
+        'No bases needed',
+      ],
+      answer: 1,
+      why: 'Standard verified witness set.',
+    },
+  ]}
+/>
+
+## Practice drills
+
+<ExerciseSet>
+<Exercise title="Trial is-prime" anchor="exercise-prime-trial">
+
+:::tip Activity: Trial is-prime
+Input: integer `n` (`0 ≤ n ≤ 10⁶`). Print `1` if prime, else `0`.
+
+<CodeExercise
+  title="Trial is-prime"
+  heading="exercise-prime-trial"
+  lang="python"
+  filename="main.py"
+  prompt="Loop d while d*d <= n."
+  sampleLog={`(input) 97
+1`}
+  starter={`def is_prime(n):
+    # TODO
+    return 0
+`}
+  wrapSuffix={`
+print(is_prime(int(input())))
+`}
+  hint="if n < 2: return 0; for d in range(2, ...): if n % d == 0: return 0"
+  solution={`def is_prime(n):
+    if n < 2:
+        return 0
+    d = 2
+    while d * d <= n:
+        if n % d == 0:
+            return 0
+        d += 1
+    return 1
+`}
+  sourceChecks={[
+    { name: 'loops', pattern: 'for\\s+|while\\s+', must: true, hint: 'scan divisors' },
+  ]}
+  tests={[
+    { name: 'sample', stdin: '97', equals: '1' },
+    { name: 'composite', stdin: '91', equals: '0' },
+    { name: 'one', stdin: '1', equals: '0' },
+    { name: 'two', stdin: '2', equals: '1' },
+  ]}
+/>
+
+:::
+
+</Exercise>
+
+<Exercise title="Factor n−1 = 2^s · d" anchor="exercise-prime-split">
+
+:::tip Activity: Factor n−1
+Odd `n ≥ 3`. Write `n−1 = 2^s · d` with `d` odd. Print `s` and `d`.
+
+<CodeExercise
+  title="Factor n−1"
+  heading="exercise-prime-split"
+  lang="python"
+  filename="main.py"
+  prompt="Peel factors of 2 from n-1."
+  sampleLog={`(input) 221
+2 55`}
+  starter={`def split_n1(n):
+    # TODO: return (s, d)
+    return (0, n - 1)
+`}
+  wrapSuffix={`
+n = int(input())
+s, d = split_n1(n)
+print(s, d)
+`}
+  hint="d = n-1; s = 0; while d % 2 == 0: d //= 2; s += 1"
+  solution={`def split_n1(n):
+    d = n - 1
+    s = 0
+    while d % 2 == 0:
+        d //= 2
+        s += 1
+    return (s, d)
+`}
+  sourceChecks={[
+    { name: 'peels 2', pattern: '%\\s*2|//\\s*2|>>=|>>', must: true, hint: 'divide out twos' },
+  ]}
+  tests={[
+    { name: 'sample', stdin: '221', equals: '2 55' },
+    { name: '561', stdin: '561', equals: '4 35' },
+    { name: 'prime', stdin: '97', equals: '5 3' },
+  ]}
+/>
+
+:::
+
+</Exercise>
+
+<Exercise title="Fermat one base" anchor="exercise-prime-fermat">
+
+:::tip Activity: Fermat one base
+Input: `n a` with `2 ≤ a ≤ n−2`. Print `PASS` if `pow(a, n-1, n) == 1`, else `FAIL`.
+
+<CodeExercise
+  title="Fermat one base"
+  heading="exercise-prime-fermat"
+  lang="python"
+  filename="main.py"
+  prompt="One round of the Fermat test."
+  sampleLog={`(input) 561 2
+PASS`}
+  starter={`def fermat_round(n, a):
+    # TODO: return "PASS" or "FAIL"
+    return "FAIL"
+`}
+  wrapSuffix={`
+n, a = map(int, input().split())
+print(fermat_round(n, a))
+`}
+  hint="return 'PASS' if pow(a, n - 1, n) == 1 else 'FAIL'"
+  solution={`def fermat_round(n, a):
+    return "PASS" if pow(a, n - 1, n) == 1 else "FAIL"
+`}
+  sourceChecks={[
+    { name: 'modpow', pattern: 'pow\\(|%', must: true, hint: 'modular exponentiation' },
+  ]}
+  tests={[
+    { name: 'carmichael liar', stdin: '561 2', equals: 'PASS' },
+    { name: '91 witness', stdin: '91 2', equals: 'FAIL' },
+    { name: '97', stdin: '97 5', equals: 'PASS' },
+  ]}
+/>
+
+:::
+
+</Exercise>
+
+<Exercise title="MR check_composite" anchor="exercise-prime-mr">
+
+:::tip Activity: Strong witness?
+Input: `n a`. Assume `n` odd `> 2`. Implement Miller–Rabin `check_composite`: print `1` if `a` witnesses compositeness, else `0`.
+
+<CodeExercise
+  title="MR check_composite"
+  heading="exercise-prime-mr"
+  lang="python"
+  filename="main.py"
+  prompt="a^d then square s−1 times looking for −1."
+  sampleLog={`(input) 221 2
+1`}
+  starter={`def check_composite(n, a):
+    # TODO
+    return 0
+`}
+  wrapSuffix={`
+n, a = map(int, input().split())
+print(check_composite(n, a))
+`}
+  hint="split n-1; x=pow(a,d,n); if x in (1,n-1): return 0; square and look for n-1"
+  solution={`def check_composite(n, a):
+    d = n - 1
+    s = 0
+    while d % 2 == 0:
+        d //= 2
+        s += 1
+    x = pow(a, d, n)
+    if x == 1 or x == n - 1:
+        return 0
+    for _ in range(1, s):
+        x = (x * x) % n
+        if x == n - 1:
+            return 0
+    return 1
+`}
+  sourceChecks={[
+    { name: 'pow/square', pattern: 'pow\\(|\\*\\s*x|\\*\\*', must: true, hint: 'modular power then squares' },
+  ]}
+  tests={[
+    { name: '221 wit', stdin: '221 2', equals: '1' },
+    { name: '221 liar', stdin: '221 174', equals: '0' },
+    { name: '97', stdin: '97 2', equals: '0' },
+    { name: '561', stdin: '561 2', equals: '1' },
+  ]}
+/>
+
+:::
+
+</Exercise>
+</ExerciseSet>
+
+## Practice problems
+
+From [CP-Algorithms](https://cp-algorithms.com/algebra/primality_tests.html):
+
+- [SPOJ — Prime or Not (PON)](https://www.spoj.com/problems/PON/)
+- [Project Euler — Investigating a Prime Pattern](https://projecteuler.net/problem=146)
+
+## Cheat sheet
+
+| Test | Kind | Notes |
+|---|---|---|
+| Trial division | Deterministic | `O(√n)`; fine for small `n` |
+| Fermat | Probabilistic | Fast; Carmichael liars |
+| Miller–Rabin | Probabilistic | Error `≤ 4^{−k}` with `k` rounds |
+| MR + fixed bases | Deterministic | 32/64-bit tables |
+| Pre-filter | — | Trial tiny primes first |

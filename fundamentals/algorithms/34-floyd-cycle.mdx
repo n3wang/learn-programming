@@ -1,0 +1,393 @@
+---
+sidebar_position: 35
+title: Floyd Cycle Finding
+---
+
+import FloydCycleSimulator from "@site/src/components/interactive/FloydCycleSimulator.js";
+
+# Floyd's Linked List Cycle Finding
+
+Given a linked list that may contain a cycle, detect the cycle and find its **entry** (node `C` where the loop begins).
+
+**Floyd’s cycle algorithm** (tortoise and hare) does this in **`O(n)` time** and **`O(1)` extra memory**.
+
+This lesson follows [CP-Algorithms — Floyd’s cycle finding](https://cp-algorithms.com/others/tortoise_and_hare.html).
+
+Related: [Simulated Annealing](./29-simulated-annealing) (also uses a “ρ” / tortoise–hare idea in Pollard ρ — see [Integer Factorization](./12-integer-factorization)).
+
+## Phase 1 — Does a cycle exist?
+
+- `slow` and `fast` both start at `head`.
+- Each step: `slow = slow.next`, `fast = fast.next.next`.
+- If they ever point to the **same** node → cycle.
+- If `fast` hits `null` → acyclic.
+
+```java
+public boolean hasCycle(ListNode head) {
+    ListNode slow = head, fast = head;
+    while (fast != null && fast.next != null) {
+        slow = slow.next;
+        fast = fast.next.next;
+        if (slow == fast) return true;
+    }
+    return false;
+}
+```
+
+Fast covers twice the distance of slow; the gap grows by 1 each iteration. Once both are in a cycle of length `L`, they meet after a finite number of steps (the lead is a multiple of `L` mod `L`).
+
+## Phase 2 — Where does the cycle start?
+
+After they meet at `G` inside the cycle:
+
+1. Reset `slow = head` (leave `fast` at `G`).
+2. Advance **both one step** at a time.
+3. Their next meeting point is **`C`**, the cycle entry.
+
+```java
+// slow, fast already meet inside the cycle
+slow = head;
+while (slow != fast) {
+    slow = slow.next;
+    fast = fast.next;
+}
+return slow; // entry C
+```
+
+## Why phase 2 works
+
+Let:
+
+- `a` = steps from head to `C`
+- `b` = steps from `C` to first meeting `G`
+- `L` = cycle length
+
+At the first meeting:
+
+```text
+slowDist = a + x L + b
+fastDist = a + y L + b
+fastDist = 2 · slowDist
+```
+
+⇒ `a = (y − 2x) L − b`
+
+So walking `a` steps from head reaches `C`, and walking `a` steps from `G` (already `b` into the cycle) also wraps to `C`. Moving both one-by-one, they meet at the entry.
+
+<FloydCycleSimulator />
+
+<details>
+<summary>🧪 Tortoise & hare on an array “next” list</summary>
+
+<PistonRunner
+  lang="c++"
+  height="420px"
+  code={`#include <iostream>
+#include <vector>
+using namespace std;
+
+// next[i] = successor; -1 = null
+// 0→1→2→3→4→5→3  (entry = 3)
+int findCycleEntry(const vector<int>& nxt) {
+    int slow = 0, fast = 0;
+    auto step1 = [&](int x) { return x < 0 ? -1 : nxt[x]; };
+    auto step2 = [&](int x) {
+        x = step1(x);
+        return x < 0 ? -1 : step1(x);
+    };
+
+    while (true) {
+        slow = step1(slow);
+        fast = step2(fast);
+        if (fast < 0) return -1; // no cycle
+        if (slow == fast) break;
+    }
+
+    slow = 0;
+    while (slow != fast) {
+        slow = step1(slow);
+        fast = step1(fast);
+    }
+    return slow;
+}
+
+int main() {
+    vector<int> nxt = {1, 2, 3, 4, 5, 3};
+    cout << "entry = " << findCycleEntry(nxt) << endl;
+
+    vector<int> line = {1, 2, 3, -1};
+    cout << "acyclic -> " << findCycleEntry(line) << endl;
+    return 0;
+}
+`}
+/>
+
+</details>
+
+## Check: Floyd cycle finding
+
+<MultipleChoice
+  id="algo-34-floyd-basic"
+  title="Floyd cycle finding"
+  questions={[
+    {
+      prompt: 'In phase 1, fast moves…',
+      choices: ['1 step', '2 steps', 'L steps', 'Randomly'],
+      answer: 1,
+      why: 'Twice the speed of slow.',
+    },
+    {
+      prompt: 'slow == fast in phase 1 means…',
+      choices: [
+        'The list is empty',
+        'A cycle exists',
+        'No cycle',
+        'You found the entry already',
+      ],
+      answer: 1,
+      why: 'They can only collide inside a loop (or both null — guarded).',
+    },
+    {
+      prompt: 'To find the entry C after meeting at G…',
+      choices: [
+        'Reset slow to head; both move +1 until they meet',
+        'Only move fast',
+        'Reverse the list',
+        'Count all nodes',
+      ],
+      answer: 0,
+      why: 'Distance a from head equals a from G to C.',
+    },
+    {
+      prompt: 'Extra memory of Floyd’s algorithm is…',
+      choices: ['O(n)', 'O(1)', 'O(n log n)', 'O(L²)'],
+      answer: 1,
+      why: 'Two pointers only.',
+    },
+  ]}
+/>
+
+## Practice drills
+
+<ExerciseSet>
+<Exercise title="One tortoise step" anchor="exercise-floyd-step">
+
+:::tip Activity: One tortoise step
+`next` is given as a list (`-1` = null). Input: `i`. Print `next[i]` (or `-1` if `i < 0`).
+
+<CodeExercise
+  title="One tortoise step"
+  heading="exercise-floyd-step"
+  lang="python"
+  filename="main.py"
+  prompt="slow = slow.next"
+  sampleLog={`(input) 2
+3`}
+  starter={`NEXT = [1, 2, 3, 4, 5, 3]
+
+def step(i):
+    # TODO
+    return -1
+`}
+  wrapSuffix={`
+print(step(int(input())))
+`}
+  hint="if i < 0: return -1; return NEXT[i]"
+  solution={`NEXT = [1, 2, 3, 4, 5, 3]
+
+def step(i):
+    if i < 0:
+        return -1
+    return NEXT[i]
+`}
+  sourceChecks={[
+    { name: 'indexes', pattern: 'NEXT\\s*\\[', must: true, hint: 'look up NEXT[i]' },
+  ]}
+  tests={[
+    { name: 'sample', stdin: '2', equals: '3' },
+    { name: 'loop', stdin: '5', equals: '3' },
+    { name: 'neg', stdin: '-1', equals: '-1' },
+  ]}
+/>
+
+:::
+
+</Exercise>
+
+<Exercise title="Hare double step" anchor="exercise-floyd-hare">
+
+:::tip Activity: Hare double step
+Same `NEXT`. Input: `i`. Print the node two steps ahead, or `-1` if you fall off.
+
+<CodeExercise
+  title="Hare double step"
+  heading="exercise-floyd-hare"
+  lang="python"
+  filename="main.py"
+  prompt="fast = fast.next.next"
+  sampleLog={`(input) 0
+2`}
+  starter={`NEXT = [1, 2, 3, 4, 5, 3]
+
+def step2(i):
+    # TODO
+    return -1
+`}
+  wrapSuffix={`
+print(step2(int(input())))
+`}
+  hint="j = step(i); return step(j)"
+  solution={`NEXT = [1, 2, 3, 4, 5, 3]
+
+def step(i):
+    if i < 0:
+        return -1
+    return NEXT[i]
+
+def step2(i):
+    return step(step(i))
+`}
+  sourceChecks={[
+    { name: 'two hops', pattern: 'NEXT|step', must: true, hint: 'follow next twice' },
+  ]}
+  tests={[
+    { name: 'sample', stdin: '0', equals: '2' },
+    { name: 'from3', stdin: '3', equals: '5' },
+    { name: 'from4', stdin: '4', equals: '3' },
+  ]}
+/>
+
+:::
+
+</Exercise>
+
+<Exercise title="Detect meeting" anchor="exercise-floyd-meet">
+
+:::tip Activity: Detect meeting
+Simulate phase 1 from head `0` on `NEXT = [1,2,3,4,5,3]`. Print the first node where `slow == fast`, or `-1` if none.
+
+<CodeExercise
+  title="Detect meeting"
+  heading="exercise-floyd-meet"
+  lang="python"
+  filename="main.py"
+  prompt="Phase 1 collision node G."
+  sampleLog={`(input)
+3`}
+  starter={`NEXT = [1, 2, 3, 4, 5, 3]
+
+def first_meeting():
+    # TODO
+    return -1
+`}
+  wrapSuffix={`
+print(first_meeting())
+`}
+  hint="slow=fast=0; loop step1/step2 until equal or fast falls off"
+  solution={`NEXT = [1, 2, 3, 4, 5, 3]
+
+def step(i):
+    if i < 0:
+        return -1
+    return NEXT[i]
+
+def first_meeting():
+    slow = 0
+    fast = 0
+    while True:
+        slow = step(slow)
+        fast = step(step(fast))
+        if fast < 0:
+            return -1
+        if slow == fast:
+            return slow
+`}
+  sourceChecks={[
+    { name: 'loops', pattern: 'while\\s+', must: true, hint: 'iterate until meet' },
+  ]}
+  tests={[
+    { name: 'sample', stdin: '', equals: '3' },
+  ]}
+/>
+
+:::
+
+</Exercise>
+
+<Exercise title="Find entry C" anchor="exercise-floyd-entry">
+
+:::tip Activity: Find entry C
+Same list. After detecting a cycle, find the entry. Print `C`.
+
+<CodeExercise
+  title="Find entry C"
+  heading="exercise-floyd-entry"
+  lang="python"
+  filename="main.py"
+  prompt="Phase 2: reset slow to head."
+  sampleLog={`(input)
+3`}
+  starter={`NEXT = [1, 2, 3, 4, 5, 3]
+
+def cycle_entry():
+    # TODO
+    return -1
+`}
+  wrapSuffix={`
+print(cycle_entry())
+`}
+  hint="meet in phase1; slow=0; while slow!=fast: both step1; return slow"
+  solution={`NEXT = [1, 2, 3, 4, 5, 3]
+
+def step(i):
+    if i < 0:
+        return -1
+    return NEXT[i]
+
+def cycle_entry():
+    slow = 0
+    fast = 0
+    while True:
+        slow = step(slow)
+        fast = step(step(fast))
+        if fast < 0:
+            return -1
+        if slow == fast:
+            break
+    slow = 0
+    while slow != fast:
+        slow = step(slow)
+        fast = step(fast)
+    return slow
+`}
+  sourceChecks={[
+    { name: 'resets', pattern: 'slow\\s*=\\s*0', must: true, hint: 'reset slow to head' },
+  ]}
+  tests={[
+    { name: 'sample', stdin: '', equals: '3' },
+  ]}
+/>
+
+:::
+
+</Exercise>
+</ExerciseSet>
+
+## Practice problems
+
+From [CP-Algorithms](https://cp-algorithms.com/others/tortoise_and_hare.html) / common LC mirrors:
+
+- [Linked List Cycle](https://leetcode.com/problems/linked-list-cycle/) (Easy)
+- [Happy Number](https://leetcode.com/problems/happy-number/) (Easy)
+- [Find the Duplicate Number](https://leetcode.com/problems/find-the-duplicate-number/) (Medium)
+- [Linked List Cycle II](https://leetcode.com/problems/linked-list-cycle-ii/) (entry point)
+
+## Cheat sheet
+
+| Phase | Action |
+|---|---|
+| 1 | slow +1, fast +2 until equal or null |
+| Meet | Proves a cycle; node is some `G` in the loop |
+| 2 | `slow = head`; both +1 until equal → entry `C` |
+| Why | `a ≡ −b (mod L)` from `fast = 2·slow` |
+| Cost | `O(n)` time, `O(1)` memory |
