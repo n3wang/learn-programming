@@ -1,0 +1,129 @@
+---
+sidebar_position: 7
+title: Explicit Parallelism
+---
+
+# Explicit Parallelism
+
+> **Adapted from:** Jason Gregory, *Game Engine Architecture*, 3rd ed. (CRC Press, 2018), Chapter 4, Section 4.3 — rewritten and condensed for teaching.
+
+[Implicit Parallelism](./implicit-parallelism) sped up a *single* instruction stream transparently to the programmer — the code stays single-threaded, and the hardware quietly does more work per cycle underneath it. **Explicit parallelism** takes the opposite approach: duplicate hardware so more than one instruction stream can run at the same time, for real. This is the hardware that makes genuinely concurrent *software* — multiple threads coordinating over shared data — actually run faster rather than just interleaving on one core. This lesson works through the spectrum of explicit-parallel designs, from the most fine-grained (inside a single CPU core) to the most coarse-grained (whole machines cooperating over a network).
+
+---
+
+## Hyperthreading
+
+[Out-of-order execution](./implicit-parallelism#stalls-and-dependencies) lets a CPU look ahead in its instruction stream and slot an independent instruction into a pipeline bubble left by a stalled one. But with only one instruction stream to pick from, the CPU's options for filling that bubble are limited — sometimes there just isn't anything independent nearby to issue.
+
+A **hyperthreaded (HT)** core solves this by giving the out-of-order scheduler *two* instruction streams to choose from instead of one. Concretely, an HT core duplicates the **front end** — the fetch/decode unit and register file — once per hardware thread, but keeps a single shared **back end**: one set of ALUs/FPUs, one memory controller, one L1 cache, and one out-of-order scheduler. The scheduler pulls ready instructions from *either* thread to fill the shared back end's pipeline every cycle.
+
+This buys two genuinely independent threads of execution for far fewer transistors than a full second core would cost — the back end, the most hardware-expensive part, isn't duplicated at all. The trade-off is direct: both hyperthreads contend for that shared back end, so an HT core delivers noticeably less combined throughput than a true dual-core design would, even though it exposes two logical cores to software.
+
+## Multicore CPUs
+
+A **core** is any self-contained unit capable of executing at least one instruction stream on its own — every CPU design covered in the previous lesson (scalar, pipelined, superscalar, VLIW, hyperthreaded) qualifies as one core. Put more than one core on a single die, and you have a **multicore CPU**. Each core can internally be any of those designs — nothing stops a multicore chip from also being superscalar and hyperthreaded, all at once.
+
+Both eighth-generation consoles shipped multicore CPUs built as an **accelerated processing unit (APU)** — CPU cores, a GPU, memory controller, and video codec fused onto one die:
+
+| Console | CPU cores | Notes |
+|---|---|---|
+| PlayStation 4 | 8× AMD Jaguar (two quad-core modules) | 7 cores available to games; roughly half the bandwidth of the 7th is reserved for the OS |
+| Xbox One | 8× AMD Jaguar (two quad-core modules) | same core layout as PS4 |
+| Xbox One X | 8-core APU | proprietary cores co-developed with AMD, not stock Jaguar |
+
+### Check: hyperthreading and multicore CPUs
+
+<MultipleChoice
+  id="ge-ch4-hyperthread-multicore"
+  title="Hyperthreading vs. multicore"
+  questions={[
+    {
+      prompt: 'What does a hyperthreaded core duplicate, and what does it leave shared?',
+      choices: [
+        'It duplicates everything, making it identical to a second core',
+        'It duplicates the front end (fetch/decode unit and register file) per thread, but shares a single back end (ALUs, FPUs, memory controller, L1 cache, and out-of-order scheduler) between both threads',
+        'It duplicates only the L1 cache and shares everything else',
+        'It duplicates nothing — hyperthreading is purely a software scheduling trick',
+      ],
+      answer: 1,
+      why: 'The shared back end is exactly what makes hyperthreading cheaper in transistors than a real second core — and also why it delivers less throughput than one.',
+    },
+    {
+      prompt: 'Why does a hyperthreaded core generally deliver less combined throughput than an equivalent dual-core CPU?',
+      choices: [
+        'Hyperthreading always runs slower than a single-threaded core',
+        'Both hardware threads contend for the same shared back-end resources (ALUs, FPUs, memory controller), unlike a dual-core design where each core has its own dedicated back end',
+        'Hyperthreading disables the out-of-order scheduler entirely',
+        'There is no throughput difference between hyperthreading and true dual-core designs',
+      ],
+      answer: 1,
+      why: 'Sharing the expensive back-end hardware is the entire cost/benefit trade of hyperthreading: cheaper in transistors, but throughput-limited by contention.',
+    },
+  ]}
+/>
+
+---
+
+## Symmetric vs. Asymmetric Multiprocessing
+
+Once a machine has multiple cores, the operating system has to decide how to treat them — and that decision falls into one of two categories.
+
+**Symmetric multiprocessing (SMP)** treats every available core — from hyperthreading, multicore CPUs, or multiple physical CPUs on one motherboard — as **homogeneous**: identical design, identical ISA, and interchangeable from the OS scheduler's point of view. Any thread can run on any core (though a program can request an *affinity* for a particular core, making it more likely — or guaranteed — to be scheduled there). Both the PS4 and Xbox One are SMP designs: eight identical Jaguar cores, seven available to games, and the application is free to run any thread on any of them.
+
+**Asymmetric multiprocessing (AMP)** doesn't assume homogeneous cores. One "master" core typically runs the full operating system, while the remaining cores act as "slaves," receiving workloads distributed to them by the master rather than being scheduled symmetrically. The PS3's **Cell Broadband Engine** is the canonical AMP example: a PowerPC-based **PPU** running the OS and orchestrating work, alongside eight **SPU** coprocessors built around a completely different ISA — covered in more depth as a NUMA case study in [Memory Architectures](./memory-architectures#spu-local-stores-on-the-ps3). An SPU can't be scheduled the way the PPU is; code has to be explicitly written and shipped to run on it.
+
+:::note Worth remembering
+SMP vs. AMP is an OS-level policy question ("does the scheduler treat these cores the same?"), while NUMA vs. UMA (covered in the previous lesson on memory architectures) is a *memory* question ("does every core see memory the same way?"). The PS3 happens to be both AMP and NUMA at once — its SPUs are neither scheduled like the PPU, nor do they share a uniform view of memory — but the two ideas are independent in general.
+:::
+
+## Distributed Computing
+
+Parallelism doesn't have to stay inside one machine. **Distributed computing** achieves it by coordinating multiple stand-alone computers on one problem — via computer clusters, grid computing, or cloud computing, each with different trade-offs around latency, fault tolerance, and how tightly the machines need to cooperate. Game engines occasionally touch this world (build farms, dedicated server fleets, distributed asset baking), but it's a large enough topic on its own that it sits outside the scope of this series, which focuses on parallelism within a single machine.
+
+### Check: multiprocessing models
+
+<MultipleChoice
+  id="ge-ch4-smp-amp"
+  title="SMP, AMP, and distributed computing"
+  questions={[
+    {
+      prompt: 'What is the defining characteristic of symmetric multiprocessing (SMP)?',
+      choices: [
+        'Only one core in the system is allowed to execute instructions',
+        'All available cores are treated as homogeneous and interchangeable by the OS scheduler — any thread can run on any core',
+        'SMP requires every core to use a different instruction set',
+        'SMP is only possible with exactly two cores',
+      ],
+      answer: 1,
+      why: 'SMP specifically means the OS sees the cores as equivalent and can freely schedule any thread onto any of them, as on the PS4 and Xbox One.',
+    },
+    {
+      prompt: 'Why is the PS3\'s Cell Broadband Engine (PPU + SPUs) considered an asymmetric multiprocessing (AMP) design rather than SMP?',
+      choices: [
+        'Because it only has one core total',
+        'Because the PPU (running the OS, PowerPC-based) and the SPUs (a completely different ISA, receiving work distributed by the PPU rather than being scheduled symmetrically) are not homogeneous or interchangeable',
+        'Because the PS3 has no CPU at all, only a GPU',
+        'Because AMP and SMP are the exact same thing under different names',
+      ],
+      answer: 1,
+      why: 'AMP is defined by heterogeneous cores treated unequally by the OS — exactly the PPU/SPU relationship on the PS3, in contrast to the PS4/Xbox One\'s homogeneous SMP design.',
+    },
+  ]}
+/>
+
+---
+
+:::important Key takeaways
+- Explicit parallelism runs *genuinely separate* instruction streams simultaneously — hyperthreading (shared back end, duplicated front end) is the finest-grained form, followed by multicore, then multiprocessing, then distributed computing across whole machines.
+- Hyperthreading is cheaper than a real second core in transistors, but delivers less combined throughput because both threads contend for the same shared execution hardware.
+- **SMP** treats all cores as homogeneous and interchangeable (PS4, Xbox One); **AMP** has a master core distributing work to heterogeneous "slave" cores (PS3's PPU + SPUs) — this is an OS-scheduling distinction, independent of whether the memory architecture is UMA or NUMA.
+- Distributed computing (clusters, grid, cloud) extends parallelism beyond a single machine, but is out of scope for this series' focus on single-machine hardware.
+:::
+
+## Further Reading
+
+- Jason Gregory — *Game Engine Architecture*, 3rd ed. (CRC Press, 2018), Chapter 4, Section 4.3
+- [Implicit Parallelism](./implicit-parallelism) — this series' previous lesson: pipelining, superscalar CPUs, and VLIW
+- [Memory Architectures](./memory-architectures#nonuniform-memory-access-numa) — this series' earlier lesson on UMA/NUMA and the PS3's SPU local stores
+- [Operating System Fundamentals](./operating-system-fundamentals) — this series' next lesson: how the kernel schedules threads across the cores described here
+- [Multiprocessor Scheduling](/fundamentals/computer-engineering/virtualization/multiprocessor-scheduling) — this site's deeper dive into how an OS scheduler handles multiple cores

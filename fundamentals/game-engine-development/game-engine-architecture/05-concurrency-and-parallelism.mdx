@@ -1,0 +1,211 @@
+---
+sidebar_position: 5
+title: Concurrency and Parallelism
+---
+
+# Concurrency and Parallelism
+
+> **Adapted from:** Jason Gregory, *Game Engine Architecture*, 3rd ed. (CRC Press, 2018), Chapter 4, Section 4.1 — rewritten and condensed for teaching.
+
+Computing throughput has improved at a staggering, remarkably consistent pace for four decades. In the late 1970s, the Intel 8087 floating-point co-processor managed roughly 50 kFLOPS; a Cray-1 supercomputer of the same era — the size of a large refrigerator — hit about 160 MFLOPS. A PlayStation 4/Xbox One-class CPU produces roughly 100 GFLOPS. China's Sunway TaihuLight supercomputer has scored 93 PFLOPS (9.3×10¹⁶ FLOPS) on LINPACK. That's roughly **seven** orders of magnitude of improvement for consumer hardware, and **eight** for supercomputers.
+
+Early gains came from shrinking transistors and raising clock speed. But since the 1990s, hardware manufacturers have leaned increasingly on a different lever: **parallelism** — building hardware that does more than one thing at once. Writing software that correctly and efficiently exploits that hardware is a fundamentally different discipline than writing serial code, and it starts with getting two closely related — but *not* identical — terms straight: **concurrency** and **parallelism**.
+
+---
+
+## Concurrency
+
+Software is **concurrent** when it uses multiple flows of control — threads within one process, cooperating processes, fibers, coroutines — to work on a problem together. But having multiple flows of control isn't, by itself, what makes something concurrent in the sense that matters for correctness.
+
+The distinguishing factor is **shared data**. Two flows of control that each operate on their own, totally independent block of data aren't concurrent in any interesting sense — they're just "happening to run at the same time." Real concurrency shows up specifically when multiple flows of control **read and/or write the same data**.
+
+That's where the central hazard of concurrent programming lives: a **data race**, where two or more flows of control compete to read, modify, and write a shared piece of data, and the outcome depends on timing that's outside the programmer's control. Identifying and eliminating data races is *the* core problem concurrent programming exists to solve — a topic this series returns to once explicit parallelism and synchronization primitives are on the table.
+
+:::note Worth remembering
+Two loops running on two cores, each only ever touching its own private array, are running *in parallel* but are **not concurrent** in the sense that matters here — there's no shared state to race over. The moment they both touch the same array, that changes completely.
+:::
+
+## Parallelism
+
+In computer engineering, **parallelism** describes any situation where two or more distinct hardware components operate simultaneously — parallel hardware can do more than one thing at a time; serial hardware can only ever do one thing at a time. Before 1989, consumer computing was exclusively serial (the MOS 6502, the Intel 8086/80286/80386). Today parallel hardware is everywhere, from multicore CPUs down to a single CPU with multiple ALUs, up to whole clusters of machines cooperating on one problem.
+
+### Implicit vs. Explicit Parallelism
+
+It's useful to split hardware parallelism by *what problem it's solving*:
+
+- **Implicit parallelism** (a.k.a. **instruction-level parallelism**, ILP) speeds up a *single* instruction stream using parallel hardware under the hood — the program still looks single-threaded, but the hardware executes it with internal parallelism. Pipelining, superscalar designs, and VLIW architectures are all implicit parallelism — covered in depth in [Implicit Parallelism](./implicit-parallelism). GPUs lean on this heavily too.
+- **Explicit parallelism** uses *duplicated* hardware components to run more than one instruction stream at the same time — hyperthreaded CPUs, multicore CPUs, multiprocessor machines, clusters, grid computing, and cloud computing. This is the hardware that makes genuinely concurrent *software* run faster, and it's the subject of later lessons in this series.
+
+### Task vs. Data Parallelism
+
+A second, orthogonal way to categorize parallel work looks at *what kind* of work is being duplicated:
+
+- **Task parallelism** — different, heterogeneous operations run at the same time. Running animation on one core while collision detection runs on another is task parallelism.
+- **Data parallelism** — the *same* operation runs across multiple data items at once. Computing 1,000 skinning matrices by splitting the work 250-per-core across four cores is data parallelism.
+
+Most real engine code uses a mix of both.
+
+### Check: concurrency and parallelism basics
+
+<MultipleChoice
+  id="ge-ch4-concurrency-basics"
+  title="Concurrency, parallelism, and their subtypes"
+  questions={[
+    {
+      prompt: 'Two threads each loop over their own separate, private array and never touch each other\'s data. Why is this NOT an example of concurrency in the sense that matters for correctness?',
+      choices: [
+        'Because threads cannot run on more than one core',
+        'Because concurrency specifically concerns multiple flows of control that read and/or write shared data — with no shared data, there is nothing to race over',
+        'Because arrays cannot be processed by multiple threads under any circumstances',
+        'Because concurrency requires at least three threads',
+      ],
+      answer: 1,
+      why: 'Concurrency is defined by contention over shared data; independent data streams running "at the same time" are just parallel, not concurrent in the sense that creates data races.',
+    },
+    {
+      prompt: 'What is the key difference between implicit and explicit parallelism?',
+      choices: [
+        'Implicit parallelism only exists in software, never in hardware',
+        'Implicit parallelism speeds up a single instruction stream using internal hardware parallelism (e.g. pipelining); explicit parallelism duplicates hardware to run multiple independent instruction streams at once (e.g. multicore)',
+        'Explicit parallelism is always faster than implicit parallelism',
+        'They are two names for the exact same hardware feature',
+      ],
+      answer: 1,
+      why: 'Implicit parallelism (ILP) is transparent to a single thread of execution; explicit parallelism requires genuinely separate instruction streams, which is what lets concurrent software actually run in parallel.',
+    },
+    {
+      prompt: 'Running collision detection on one CPU core while animation blending runs on another core, at the same time, is an example of:',
+      choices: [
+        'Data parallelism',
+        'Task parallelism — two different (heterogeneous) operations running simultaneously',
+        'Implicit parallelism',
+        'A data race',
+      ],
+      answer: 1,
+      why: 'Task parallelism is defined as different operations executing in parallel; data parallelism would instead apply the *same* operation across many data items.',
+    },
+  ]}
+/>
+
+---
+
+## Flynn's Taxonomy
+
+Michael Flynn (Stanford, 1966) proposed classifying parallel hardware along two axes: how many **instruction streams** are running, and how many **data streams** each instruction operates on. That gives four quadrants:
+
+| | Single data | Multiple data |
+|---|---|---|
+| **Single instruction** | **SISD** — one ALU processes one instruction stream on one pair of inputs at a time | **SIMD** — one instruction stream, but each instruction applies to *several* pairs of inputs at once (a vector/VPU) |
+| **Multiple instruction** | **MISD** — multiple instruction streams operate on the *same* data (rare; mainly used for fault-tolerant redundancy) | **MIMD** — multiple independent instruction streams, each on its own data (true multicore) |
+
+A concrete way to see the difference: imagine computing a multiply (`a × b`) followed by a divide (`c / d`).
+
+- **SISD** — a single ALU does the multiply, then the divide, one after another.
+- **MIMD** — two ALUs run two *independent* instruction streams in parallel (or, in a time-sliced variant, one ALU alternates between the two streams — still MIMD, since there are still two logically distinct instruction streams).
+- **SIMD** — a single wide VPU does the multiply, then the divide, but each instruction operates on a whole 4-element vector of inputs at once, producing a 4-element vector of outputs.
+- **MISD** — two ALUs both execute the *same* instruction stream (multiply, then divide) on the same data and are expected to produce identical results — useful specifically for redundancy: if one ALU fails, the system can fail over to the other as a "hot spare."
+
+### SIMT: A Fifth Category for GPUs
+
+A more recent addition, **SIMT** (single instruction, multiple thread), describes GPU design — a hybrid of SIMD (one instruction, many data lanes) and MIMD (multiple instruction streams sharing hardware via time-slicing). NVIDIA coined the term, but it's used generically for GPU architectures now. This gives rise to a useful vocabulary distinction: **manycore** describes a SIMT design (many small, lightweight SIMD cores — a GPU), while **multicore** describes a MIMD design (fewer, heavier, general-purpose cores — a CPU).
+
+### Check: Flynn's Taxonomy
+
+<MultipleChoice
+  id="ge-ch4-flynn"
+  title="Flynn's Taxonomy and SIMT"
+  questions={[
+    {
+      prompt: 'A vector processing unit (VPU) executes one multiply instruction that operates on two 4-element input vectors at once, producing a 4-element output. This is an example of:',
+      choices: [
+        'MIMD',
+        'SIMD — a single instruction stream operating on multiple data streams simultaneously',
+        'MISD',
+        'SISD',
+      ],
+      answer: 1,
+      why: 'SIMD applies one instruction to multiple data elements in parallel — exactly what a VPU does with packed vector operations.',
+    },
+    {
+      prompt: 'Why is MISD (multiple instruction streams operating on the same data) primarily used for fault tolerance rather than performance?',
+      choices: [
+        'Because MISD hardware does not actually exist',
+        'Because having multiple units redundantly execute the same instruction stream and compare results lets one act as a "hot spare" if the other fails, rather than speeding up the computation itself',
+        'Because MISD is a subtype of SIMD',
+        'Because MISD only works with floating-point math',
+      ],
+      answer: 1,
+      why: 'Since both units process the same instructions on the same data, there\'s no computational speedup — the value comes from redundancy and failure detection instead.',
+    },
+    {
+      prompt: 'What does the term "manycore" typically refer to, in contrast to "multicore"?',
+      choices: [
+        'Manycore and multicore are interchangeable synonyms',
+        'Manycore refers to a SIMT design with many lightweight SIMD cores (typical of GPUs); multicore refers to a MIMD design with fewer, heavier general-purpose cores (typical of CPUs)',
+        'Manycore only applies to single-core CPUs',
+        'Manycore refers exclusively to cloud computing clusters',
+      ],
+      answer: 1,
+      why: 'The terms track the SIMT-vs-MIMD architectural distinction: many small SIMD lanes (GPU) versus fewer general-purpose cores (CPU).',
+    },
+  ]}
+/>
+
+---
+
+## Concurrency and Parallelism Are Orthogonal
+
+It's tempting to treat "concurrent" and "parallel" as synonyms, but they answer different questions: concurrency is about *software structure* (multiple flows of control coordinating over shared data); parallelism is about *hardware capability* (multiple things physically happening at once). Neither implies the other:
+
+- A concurrent, multithreaded program can run correctly on a single serial CPU core via **preemptive multitasking** — the OS time-slices between threads, so there's real concurrency (shared-data coordination is still required) without any true simultaneous execution.
+- Implicit parallelism (pipelining, superscalar, VLIW) speeds up a *single* thread — it benefits sequential code just as much as concurrent code, with no concurrency involved at all.
+
+As long as a system has multiple readers and/or writers of shared data, it's concurrent — whether that concurrency is realized through true parallel execution or through time-slicing on serial hardware, the coordination techniques you need (covered in later lessons in this series) are the same either way.
+
+### Check: orthogonality
+
+<MultipleChoice
+  id="ge-ch4-orthogonality"
+  title="Why concurrency and parallelism are independent concepts"
+  questions={[
+    {
+      prompt: 'A multithreaded program runs on a single-core CPU, with the OS time-slicing between threads via preemptive multitasking. Is this program concurrent, parallel, both, or neither?',
+      choices: [
+        'Neither — a single core cannot run concurrent software',
+        'Concurrent but not (truly) parallel — multiple flows of control coordinate over shared data, but only one instruction stream actually executes at any given physical instant',
+        'Parallel but not concurrent',
+        'Both concurrent and parallel, by definition, whenever there is more than one thread',
+      ],
+      answer: 1,
+      why: 'Concurrency depends on software structure (coordinating shared data across flows of control), which can exist even without true simultaneous hardware execution.',
+    },
+    {
+      prompt: 'Why does instruction-level parallelism (e.g. pipelining) benefit purely sequential, single-threaded programs, even though it is a form of hardware parallelism?',
+      choices: [
+        'It does not — ILP only ever benefits concurrent multithreaded code',
+        'ILP is designed to be transparent to the programmer and speeds up the execution of a single instruction stream, regardless of whether that program uses any concurrency at all',
+        'ILP secretly converts sequential programs into multithreaded ones',
+        'ILP requires the programmer to manually write concurrent code to see any benefit',
+      ],
+      answer: 1,
+      why: 'Implicit parallelism operates beneath the level of the instruction stream itself, so it speeds up any single-threaded program without requiring — or implying — any concurrency.',
+    },
+  ]}
+/>
+
+---
+
+:::important Key takeaways
+- **Concurrency** is about coordinating multiple flows of control over **shared data** — without shared data, "running at the same time" isn't concurrency in the sense that creates data races.
+- **Parallelism** is a hardware property: multiple components genuinely operating simultaneously. **Implicit** parallelism speeds up one instruction stream (pipelining, superscalar, VLIW); **explicit** parallelism runs multiple independent instruction streams (multicore, clusters, cloud).
+- **Task parallelism** runs different operations at once; **data parallelism** runs the same operation across many data items at once — most real programs use both.
+- **Flynn's Taxonomy** (SISD/SIMD/MISD/MIMD, plus GPU-oriented **SIMT**) classifies hardware by how many instruction streams and how many data streams are active simultaneously.
+- Concurrency and parallelism are **orthogonal**: a concurrent program can run on serial hardware via preemptive multitasking, and parallel hardware (ILP) can speed up code with no concurrency in it at all.
+:::
+
+## Further Reading
+
+- Jason Gregory — *Game Engine Architecture*, 3rd ed. (CRC Press, 2018), Chapter 4, Section 4.1
+- [Implicit Parallelism](./implicit-parallelism) — this series' next lesson: pipelining, superscalar CPUs, and VLIW in depth
+- [CPU Pipeline Stages](/fundamentals/computer-engineering/virtualization/cpu-pipeline) and [Branch Prediction](/fundamentals/computer-engineering/virtualization/branch-prediction) — this site's deeper dive into pipeline hazards and predictor design
+- Michael J. Flynn — "Very High-Speed Computing Systems," *Proceedings of the IEEE* (1966), the original taxonomy paper

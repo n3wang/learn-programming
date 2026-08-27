@@ -1,0 +1,566 @@
+---
+sidebar_position: 4
+title: Memory Architectures
+---
+
+# Memory Architectures
+
+> **Adapted from:** Jason Gregory, *Game Engine Architecture*, 3rd ed. (CRC Press, 2018), Chapter 3, Section 3.5 — rewritten and condensed for teaching.
+
+The simple mental model of memory — "one giant flat array of bytes, all equally fast to touch" — is a convenient fiction. Real hardware carves memory into regions with wildly different purposes and performance characteristics: some addresses are actually joypad registers, some pages might not exist in physical RAM at all until you touch them, and the RAM you *do* have gets slower and slower the further it sits from the CPU core. Understanding why memory is architected this way — and how the engine can work with it rather than against it — is one of the highest-leverage things a performance-minded engine programmer can know, because it explains *why* a "correct" piece of code can run 50× slower than a differently-organized version doing the exact same work.
+
+---
+
+## Memory Mapping
+
+An `n`-bit address bus gives the CPU a theoretical address space of `2ⁿ` bytes. Any single physical memory chip is always addressed as one contiguous block, so a computer's full address space is carved up into contiguous segments, each assigned — or **mapped** — to a particular physical device. On the Apple II, for instance, addresses `0xC100`–`0xFFFF` were wired to ROM chips holding the firmware, while `0x0000`–`0xBFFF` went to RAM.
+
+Modern address buses are enormous relative to installed memory — a 64-bit bus can theoretically address 16 EiB, far beyond anything actually populated — so large swaths of the address space are simply left unmapped.
+
+### Memory-Mapped I/O
+
+Not every address range needs to point at memory at all. **Memory-mapped I/O** maps a range of addresses to a peripheral device — a joypad, a network card — instead of RAM. Special circuitry watches for reads/writes in that range and redirects them to the device, so from the CPU's point of view, talking to hardware looks exactly like reading or writing ordinary memory. The Apple II mapped `0xC000`–`0xC0FF` this way, letting a program control bank-switched RAM or read a game-controller pin just by touching an address.
+
+The alternative is **port-mapped I/O**, where the CPU talks to devices through dedicated **port** registers instead of regular addresses — the approach Arduino microcontrollers use to expose direct control over their digital pins.
+
+### Video RAM
+
+A display device reads a fixed range of memory to determine what to draw — pixel colors for raster displays, ASCII glyphs for old character-based terminals. That range is **video RAM (VRAM)**.
+
+On early machines (Apple II, early IBM PCs) and on consoles with unified memory (PS4, Xbox One), VRAM is just regular memory the CPU and GPU both touch directly. On a typical PC, though, the GPU lives on a separate card with its own dedicated VRAM, reachable only over an expansion bus (PCI, AGP, PCIe). That physical separation — and the cost of shuttling data across the bus — is one of the biggest reasons rendering engines and graphics APIs are as complex as they are.
+
+### Case Study: The Apple II Memory Map
+
+The Apple II's 16-bit address bus gave it a 64 KiB address space, split across ROM, RAM, memory-mapped I/O, and two flavors of VRAM:
+
+```
+0xC100 - 0xFFFF  ROM (Firmware)
+0xC000 - 0xC0FF  Memory-Mapped I/O
+0x6000 - 0xBFFF  General-purpose RAM
+0x4000 - 0x5FFF  High-res video RAM (page 2)
+0x2000 - 0x3FFF  High-res video RAM (page 1)
+0x0C00 - 0x1FFF  General-purpose RAM
+0x0800 - 0x0BFF  Text/lo-res video RAM (page 2)
+0x0400 - 0x07FF  Text/lo-res video RAM (page 1)
+0x0200 - 0x03FF  General-purpose and reserved RAM
+0x0100 - 0x01FF  Program stack
+0x0000 - 0x00FF  Zero page (mostly reserved for DOS)
+```
+
+Every one of these addresses corresponded directly to a physical chip on the motherboard. Today's operating systems add a layer of indirection on top of this — which is exactly what virtual memory is for.
+
+### Check: memory mapping and I/O
+
+<MultipleChoice
+  id="ge-ch3-memory-mapping"
+  title="Memory mapping, MMIO, and video RAM"
+  questions={[
+    {
+      prompt: 'What does it mean for an address range to be "mapped" to a device?',
+      choices: [
+        'The address range is permanently reserved and can never be read or written',
+        'That range of the CPU\'s address space is assigned to a specific physical device — reads and writes to those addresses are routed to that device rather than to general-purpose RAM',
+        'It means the address range only exists in virtual memory, never in hardware',
+        'It means the CPU refuses to generate any address in that range',
+      ],
+      answer: 1,
+      why: 'Mapping is exactly the assignment of a contiguous address range to a particular physical device — ROM, RAM, or a peripheral — as the Apple II example shows concretely.',
+    },
+    {
+      prompt: 'What is the defining idea behind memory-mapped I/O?',
+      choices: [
+        'I/O devices communicate with the CPU only through a dedicated cable, never through addresses',
+        'Special circuitry redirects reads/writes on a specific address range to a peripheral device instead of RAM, so the CPU can control hardware using the exact same load/store instructions it uses for ordinary memory',
+        'It means video RAM and main RAM must always be on the same physical chip',
+        'It only works on CPUs with more than one core',
+      ],
+      answer: 1,
+      why: 'The whole point of MMIO is that "reading/writing an address" and "talking to a peripheral" become indistinguishable at the instruction level.',
+    },
+    {
+      prompt: 'Why did the physical separation of VRAM from main RAM (a GPU on its own expansion card) become such a significant source of rendering-engine and graphics-API complexity?',
+      choices: [
+        'It did not — VRAM has always been on the same chip as main RAM',
+        'Moving data between main RAM and a physically separate VRAM requires crossing an expansion bus (PCI/AGP/PCIe), which is comparatively slow — a lot of rendering engine and API design exists specifically to minimize and manage that data movement',
+        'VRAM cannot be addressed by the CPU under any circumstances',
+        'Expansion buses are always faster than on-die memory access',
+      ],
+      answer: 1,
+      why: 'The cost of shuttling data across the expansion bus is precisely why consoles with unified memory (PS4/Xbox One) sidestep an entire class of complexity that PC rendering engines have to manage explicitly.',
+    },
+  ]}
+/>
+
+---
+
+## Virtual Memory
+
+Modern CPUs and OSes remap every address a program uses through a lookup table before it ever reaches a physical chip. The address the program works with is a **virtual address**; the bit pattern that actually goes out over the address bus is a **physical address**. A virtual address might resolve to a real RAM cell, to a block of data sitting on disk, or to nothing at all.
+
+This indirection buys two big things: programs can address more memory than is physically installed (the overflow lives on disk), and each program gets its own private view of memory, unable to stomp on another process's — or the OS's — memory.
+
+### Virtual Memory Pages
+
+The whole addressable space is conceptually divided into equal, power-of-two-sized chunks called **pages** — commonly 4 KiB or 8 KiB. A 32-bit address space with a 4 KiB page size splits into 1,048,576 pages, numbered `0x0` through `0xFFFFF`:
+
+| From address | To address | Page index |
+|---|---|---|
+| `0x00000000` | `0x00000FFF` | Page `0x0` |
+| `0x00001000` | `0x00001FFF` | Page `0x1` |
+| `0x00002000` | `0x00002FFF` | Page `0x2` |
+| … | … | … |
+| `0xFFFFF000` | `0xFFFFFFFF` | Page `0xFFFFF` |
+
+Virtual-to-physical remapping always happens at page granularity — you can't remap half a page.
+
+### Virtual-to-Physical Address Translation
+
+When the CPU touches memory, it splits the virtual address into a **page index** and a **byte offset** within that page. For a 4 KiB page, the offset is just the low 12 bits, and the page index is everything above that. For example, `0x1A7C6310` splits into offset `0x310` and page index `0x1A7C6`.
+
+The **memory management unit (MMU)** looks that page index up in a **page table** (maintained by the OS, stored in RAM) mapping virtual page indices to physical ones. If page `0x1A7C6` happens to map to physical page `0x73BB9`, the MMU shifts that physical index into place and ORs it with the original offset — producing the final physical address `0x73BB9310`, which is what actually goes out over the bus.
+
+:::tip Activity: split a virtual address by hand
+Assuming an 8 KiB page size (13-bit offset), split the virtual address `0x2000A1F4` into its page index and byte offset. (Answer: offset = low 13 bits = `0x01F4`; page index = the rest = `0x10005`.)
+:::
+
+### Handling Page Faults
+
+If the page table says a page isn't backed by physical RAM — never allocated, or previously swapped to disk — the MMU raises an interrupt called a **page fault**, and the OS steps in:
+
+- **Never-allocated page:** the OS typically kills the program and produces a core dump.
+- **Swapped-out page:** the OS suspends the program, reads the page back from the swap file into physical RAM, redoes the address translation, and resumes execution — invisibly to the program, which never knows whether a page was resident or had to be pulled in from disk.
+
+The OS tries to swap out only the least-recently-used pages, to avoid a program **thrashing** — repeatedly paging the same data in and out because too little physical RAM is available for its working set.
+
+### The Translation Lookaside Buffer (TLB)
+
+Because pages are small relative to total addressable memory, a full page table can be huge — scanning it on every single memory access would be far too slow. The **translation lookaside buffer (TLB)** is a small, fast cache living inside the MMU (right on the CPU die) that holds the virtual-to-physical mappings for the most recently used pages. It works exactly like the memory cache hierarchies discussed below, just specialized for caching page-table entries instead of general data.
+
+:::note Key insight
+Virtual memory is itself built on the same idea as everything else in this lesson: put a small, fast structure (the TLB) in front of a large, slow one (the full page table) and exploit the fact that real programs reuse a small set of pages over and over.
+:::
+
+<CodeExercise
+  title="Split a virtual address"
+  heading="exercise-split-address"
+  lang="cpp"
+  filename="main.cpp"
+  prompt="Given a virtual address and a page size (a power of two), compute the byte offset within the page and the page index — the exact split the MMU performs on every memory access."
+  sampleLog={`(input) 444359440 4096
+offset=0x310 pageIndex=0x1A7C6`}
+  starter={`#include <cstdio>
+#include <cstdint>
+using namespace std;
+
+void SplitAddress(uint32_t address, uint32_t pageSize, uint32_t& offset, uint32_t& pageIndex) {
+    // TODO: offset = the low bits of 'address' within one page.
+    // TODO: pageIndex = everything above that.
+    // pageSize is always a power of two (e.g. 4096 for a 4 KiB page).
+    offset = 0;
+    pageIndex = 0;
+}
+
+int main() {
+    uint32_t address, pageSize;
+    scanf("%u %u", &address, &pageSize);
+    uint32_t offset, pageIndex;
+    SplitAddress(address, pageSize, offset, pageIndex);
+    printf("offset=0x%X pageIndex=0x%X\\n", offset, pageIndex);
+    return 0;
+}
+`}
+  hint="offset = address & (pageSize - 1); pageIndex = address / pageSize; (equivalently address >> log2(pageSize), but division works for any power-of-two pageSize without computing the log)"
+  solution={`#include <cstdio>
+#include <cstdint>
+using namespace std;
+
+void SplitAddress(uint32_t address, uint32_t pageSize, uint32_t& offset, uint32_t& pageIndex) {
+    offset = address & (pageSize - 1);
+    pageIndex = address / pageSize;
+}
+
+int main() {
+    uint32_t address, pageSize;
+    scanf("%u %u", &address, &pageSize);
+    uint32_t offset, pageIndex;
+    SplitAddress(address, pageSize, offset, pageIndex);
+    printf("offset=0x%X pageIndex=0x%X\\n", offset, pageIndex);
+    return 0;
+}
+`}
+  sourceChecks={[
+    { name: 'masks off the offset bits', pattern: '&', must: true, hint: 'use a bitwise AND with (pageSize - 1) to isolate the low bits' },
+  ]}
+  tests={[
+    { name: '0x1A7C6310 with a 4 KiB page (this lesson\'s own example)', stdin: '444359440 4096', equals: 'offset=0x310 pageIndex=0x1A7C6' },
+    { name: 'address 0, any page size', stdin: '0 4096', equals: 'offset=0x0 pageIndex=0x0' },
+    { name: 'exactly one page size (8 KiB)', stdin: '8192 8192', equals: 'offset=0x0 pageIndex=0x1' },
+  ]}
+/>
+
+### Check: virtual memory, paging, and the TLB
+
+<MultipleChoice
+  id="ge-ch3-virtual-memory"
+  title="Pages, the MMU, page faults, and the TLB"
+  questions={[
+    {
+      prompt: 'What does the memory management unit (MMU) actually do on every memory access?',
+      choices: [
+        'It physically moves data between RAM chips',
+        'It splits the virtual address into a page index and an offset, looks the page index up in the page table to find the corresponding physical page, and combines that with the original offset to produce the physical address placed on the bus',
+        'It compresses the data being read or written',
+        'It only activates when a page fault occurs, otherwise it is bypassed entirely',
+      ],
+      answer: 1,
+      why: 'This split-lookup-recombine sequence runs on every single memory access, not just on faults — the TLB exists specifically to make the "lookup" step fast.',
+    },
+    {
+      prompt: 'What is the difference in how the OS responds to a page fault on a never-allocated page versus a page that was previously swapped to disk?',
+      choices: [
+        'The OS responds identically in both cases',
+        'A never-allocated page typically crashes the program with a core dump; a swapped-out page is transparently read back from disk into physical RAM, with execution resuming as if nothing happened',
+        'Both cases always crash the program immediately',
+        'A never-allocated page always succeeds silently by allocating zeroed memory',
+      ],
+      answer: 1,
+      why: 'The distinction matters because one represents a genuine programming error, while the other is expected, normal virtual-memory behavior that the program never even observes.',
+    },
+    {
+      prompt: 'Why does the translation lookaside buffer (TLB) exist, given that the OS already maintains a full page table?',
+      choices: [
+        'The page table is not actually necessary once the TLB exists',
+        'Scanning the full page table on every single memory access would be far too slow — the TLB caches recently-used virtual-to-physical mappings in a small, fast structure right on the CPU die, exploiting the fact that programs tend to reuse a small set of pages',
+        'The TLB replaces the MMU entirely',
+        'The TLB only matters for programs that never access memory',
+      ],
+      answer: 1,
+      why: 'The TLB is a cache specifically for page-table entries — same idea as a general-purpose cache, but scoped to address translation.',
+    },
+  ]}
+/>
+
+---
+
+## Memory Architectures for Latency Reduction
+
+**Memory access latency** is the time between the CPU requesting data and actually receiving it. Three things drive it:
+
+1. the underlying **cell technology** — SRAM is much lower-latency than DRAM, but needs more transistors per bit, so it costs more (in dollars and in die area);
+2. the number of **read/write ports** — a single-ported cell only permits one access at a time, while multi-ported RAM allows simultaneous accesses at the cost of more transistors per bit; and
+3. the **physical distance** between the memory cell and the CPU core, since signals — even traveling near light-speed — still take measurable time, and every switching circuit along the way adds more.
+
+### The Memory Gap
+
+In the earliest computers, executing an instruction and fetching from main memory took roughly comparable time — on the Intel 8086, both were around 2–4 cycles. Since then, CPU throughput has improved far faster than memory latency: a modern Core i7 can execute a register instruction in 1–10 cycles, but a main-RAM access can take **around 500 cycles**. This widening gulf is called the **memory gap**, and it's the single biggest reason performance-sensitive code spends so much effort on data layout.
+
+Three strategies address it:
+
+1. **reduce average latency** by putting small, fast memory closer to the core (register files, caches — covered below);
+2. **hide latency** by giving the CPU other useful work to do while a memory request is in flight (out-of-order execution, prefetching, multithreading); or
+3. **minimize accesses** by arranging a program's data so the CPU touches main memory as rarely as possible for the work it's doing.
+
+This lesson focuses on strategy 1; strategies 2 and 3 come up again once we get to CPU pipelines and data-oriented design.
+
+### Register Files
+
+A CPU's register file is the most extreme latency-reduction design there is: multi-ported SRAM, sitting immediately next to the ALU that uses it, with dedicated read and write ports so operations can happen in parallel. Registers skip virtual address translation, the cache hierarchy, cache coherence, and the address/data buses entirely — the ALU reaches them almost directly. That's why they're so fast, and also why register RAM is disproportionately expensive relative to general-purpose RAM: it's justified because registers are the single most frequently accessed memory in the whole machine, and there are only ever a handful of them.
+
+### Check: the memory gap and register files
+
+<MultipleChoice
+  id="ge-ch3-memory-gap"
+  title="Memory access latency and the memory gap"
+  questions={[
+    {
+      prompt: 'Which three factors primarily determine a memory device\'s access latency?',
+      choices: [
+        'Only the manufacturer and price',
+        'The underlying cell technology (e.g. SRAM vs. DRAM), the number of read/write ports, and the physical distance between the memory cell and the CPU core',
+        'Only the color of the memory chip\'s packaging',
+        'Only the operating system\'s memory management policy',
+      ],
+      answer: 1,
+      why: 'Cell technology, port count, and physical distance are exactly the three factors this lesson walks through — each with a direct latency/cost trade-off.',
+    },
+    {
+      prompt: 'What is the "memory gap," and why has it gotten worse over time?',
+      choices: [
+        'The physical space between the CPU and the motherboard',
+        'The widening disparity between how fast CPUs can execute instructions (a handful of cycles) and how long a main-RAM access takes (hundreds of cycles) — CPU throughput has improved much faster than memory latency over the past few decades',
+        'A gap that only exists in mobile devices, never in desktops or consoles',
+        'The difference between a CPU\'s advertised and actual clock speed',
+      ],
+      answer: 1,
+      why: 'On early CPUs like the 8086, instruction execution and memory access took comparable time; on a modern Core i7, a main-RAM access can cost roughly 500 cycles versus 1-10 for a register operation.',
+    },
+    {
+      prompt: 'Why are register files disproportionately expensive (per bit) compared to general-purpose main RAM?',
+      choices: [
+        'Registers are actually cheaper than main RAM per bit',
+        'Registers use multi-ported SRAM sitting immediately next to the ALU, skipping the cache hierarchy and buses entirely — that proximity and parallel-access design costs more transistors per bit, but is justified because registers are the single most frequently accessed memory in the machine',
+        'Register cost has nothing to do with their design, it is purely a marketing decision',
+        'There are actually more registers than main RAM cells in a typical CPU',
+      ],
+      answer: 1,
+      why: 'The cost is justified by access frequency and criticality, not by capacity — there are only a handful of registers, but they are touched constantly.',
+    },
+  ]}
+/>
+
+---
+
+## Memory Cache Hierarchies
+
+A **cache hierarchy** is the primary tool for taming the memory gap in real hardware. A small, very fast **level 1 (L1) cache** sits right on the CPU die, with latency close to the register file. A larger, slower **L2 cache** sits a bit further out (often shared across cores), and some systems add L3 or even L4. These caches automatically keep copies of frequently-touched data so accesses to slow main RAM stay rare.
+
+- **Cache hit** — the requested data is already in the cache; served in tens of cycles.
+- **Cache miss** — it isn't; the CPU has to reach into main RAM, at a cost of hundreds of cycles.
+
+### Cache Lines
+
+Caching exploits two patterns real programs exhibit, known together as **locality of reference**:
+
+1. **Spatial locality** — touching address `N` makes it likely you'll soon touch `N+1`, `N+2`, etc. (iterating an array is the textbook example).
+2. **Temporal locality** — touching address `N` makes it likely you'll touch that *same* address again soon (read-modify-write on a variable).
+
+To exploit this, caches move data in contiguous **cache lines**, not individual bytes. Reading one member of a struct triggers a fetch of a whole surrounding block — so if the struct's other members happen to live in that same block, they're now cheap to read too, purely as a side effect.
+
+### Mapping Cache Lines to Main RAM Addresses
+
+The cache's address space maps onto main RAM's in a repeating pattern. Worked example: a 32 KiB cache with 128-byte lines holds 256 lines (`256 × 128 = 32,768 B`). Against 256 MiB of main RAM, that's `(256×1024)/32 = 8192` — so main RAM is 8192× the size of the cache, meaning every single cache line corresponds to 8192 different line-sized chunks scattered across main RAM. Given any main-RAM address, you find its cache slot by taking that address **modulo the cache size**.
+
+### Addressing the Cache
+
+The cache can only be addressed in whole lines. For a cache with `2ⁿ`-byte lines, the low `n` bits of a main-RAM address are the **offset** within the line — strip those off to get a line-sized address, then split what's left into:
+
+- the **line index** — which slot in the cache this could occupy, and
+- the **tag** — which cache-sized block of main RAM the data actually came from (since many blocks compete for the same line index).
+
+The full read sequence: split the address into offset/index/tag → look up the tag stored at that line index → if it matches the requested tag, **hit** (use the offset to grab the byte from the cached line) → if it doesn't match, **miss** (load the whole line from main RAM, store the new tag, then proceed as a hit).
+
+<CodeExercise
+  title="Decode a cache address"
+  heading="exercise-cache-address"
+  lang="cpp"
+  filename="main.cpp"
+  prompt="For this lesson's own 32 KiB / 128-byte-line cache, split a main-RAM address into its tag, line index, and byte offset."
+  sampleLog={`(input) 515
+tag=0 index=4 offset=3`}
+  starter={`#include <cstdio>
+#include <cstdint>
+using namespace std;
+
+const uint32_t kCacheSize = 32768; // 32 KiB
+const uint32_t kLineSize  = 128;   // bytes per line
+
+void DecodeCacheAddress(uint32_t address, uint32_t& tag, uint32_t& index, uint32_t& offset) {
+    // TODO: offset = the byte's position within its line.
+    // TODO: index  = which of the cache's lines this could occupy.
+    // TODO: tag    = which cache-sized block of main RAM this line actually came from.
+    offset = 0;
+    index = 0;
+    tag = 0;
+}
+
+int main() {
+    uint32_t address;
+    scanf("%u", &address);
+    uint32_t tag, index, offset;
+    DecodeCacheAddress(address, tag, index, offset);
+    printf("tag=%u index=%u offset=%u\\n", tag, index, offset);
+    return 0;
+}
+`}
+  hint="offset = address % kLineSize; uint32_t lineAddress = address / kLineSize; uint32_t numLines = kCacheSize / kLineSize; index = lineAddress % numLines; tag = lineAddress / numLines;"
+  solution={`#include <cstdio>
+#include <cstdint>
+using namespace std;
+
+const uint32_t kCacheSize = 32768; // 32 KiB
+const uint32_t kLineSize  = 128;   // bytes per line
+
+void DecodeCacheAddress(uint32_t address, uint32_t& tag, uint32_t& index, uint32_t& offset) {
+    offset = address % kLineSize;
+    uint32_t lineAddress = address / kLineSize;
+    uint32_t numLines = kCacheSize / kLineSize;
+    index = lineAddress % numLines;
+    tag = lineAddress / numLines;
+}
+
+int main() {
+    uint32_t address;
+    scanf("%u", &address);
+    uint32_t tag, index, offset;
+    DecodeCacheAddress(address, tag, index, offset);
+    printf("tag=%u index=%u offset=%u\\n", tag, index, offset);
+    return 0;
+}
+`}
+  sourceChecks={[
+    { name: 'derives offset from the address', pattern: 'offset\\s*=', must: true, hint: 'compute offset, index, and tag from the address and the two cache constants' },
+  ]}
+  tests={[
+    { name: '0x203 (this lesson\'s own "maps to cache line 4" example)', stdin: '515', equals: 'tag=0 index=4 offset=3' },
+    { name: '0x8203 -- same line and offset, different tag (address aliasing)', stdin: '33283', equals: 'tag=1 index=4 offset=3' },
+    { name: 'address 0', stdin: '0', equals: 'tag=0 index=0 offset=0' },
+  ]}
+/>
+
+### Set Associativity and Replacement Policy
+
+The scheme above — one main-RAM block maps to exactly one cache line — is a **direct-mapped cache**. Its weakness: two unrelated memory blocks that happen to map to the same line can end up repeatedly evicting each other (**thrashing**), even while the rest of the cache sits idle.
+
+A **set-associative** cache fixes this by letting each address map to *several* lines ("ways") instead of just one — a 2-way, 4-way, 8-way, or higher associative cache. More ways means better average performance, at the cost of a more complex (and more power-hungry) lookup.
+
+With multiple ways, the controller needs a **replacement policy** to decide which way to evict on a miss:
+
+| Policy | Idea |
+|---|---|
+| FIFO | evict whichever way was filled longest ago (the only option for a direct-mapped cache) |
+| LRU | evict the least-recently-used way |
+| LFU | evict the least-frequently-used way |
+| NMRU | keep the most-recently-used way; evict among the rest |
+| Pseudorandom | evict a randomly chosen way |
+
+### Multilevel Caches
+
+There's a fundamental trade-off between cache size and latency: bigger caches have higher hit rates, but can't physically sit as close to the core, so they're slower. Most systems resolve this by stacking levels — check the small, fast L1 first; fall back to the larger, slower L2; only hit main RAM if both miss. Some PCs go as far as L3/L4 given how expensive a full main-RAM round trip has become.
+
+### Instruction Cache and Data Cache
+
+Code gets cached too. The **instruction cache (I-cache, I$)** preloads machine code about to execute; the **data cache (D-cache, D$)** speeds up the data that code reads and writes. At L1, these are always physically separate caches, so an instruction fetch can never accidentally evict useful data (or vice versa). Higher levels usually stop making this distinction, since their larger size makes the collision far less likely.
+
+### Write Policy
+
+- **Write-through** — every write to the cache is immediately mirrored to main RAM. Simple, but every write pays the main-RAM cost.
+- **Write-back (copy-back)** — writes land in the cache only; the line is flushed to main RAM later, when it's evicted (if "dirty") or explicitly flushed. Faster for repeated writes to the same location, at the cost of extra bookkeeping.
+
+### Cache Coherency
+
+When multiple cores each have their own L1 cache but share main RAM (and often an L2), the system has to guarantee **cache coherency**: every core's view of memory has to *behave* as if it matches every other core's and main RAM's, even though the underlying caches aren't literally always in sync. The common protocols — **MESI**, **MOESI**, **MESIF** — track each cache line's state (modified / exclusive / shared / invalid, plus protocol-specific extras) to make that guarantee cheaply. This becomes central once we get to multicore programming, and is worth its own dedicated treatment later.
+
+### Avoiding Cache Misses
+
+The practical payoff of all of the above:
+
+- **For D-cache:** keep data small and contiguous, and walk it sequentially. Contiguous data means one miss loads everything relevant; small data means it's more likely to fit in one line (or a minimum number of them); sequential access avoids re-evicting and re-loading the same lines repeatedly.
+- **For I-cache:** keep hot loops physically small, avoid calling out to large functions from inside them, and use `inline` judiciously — inlining a small hot function is a clear win, but over-inlining bloats code size until the loop no longer fits in I-cache at all, which can make things *slower*.
+
+### Check: cache hierarchies
+
+<MultipleChoice
+  id="ge-ch3-cache-hierarchy"
+  title="Cache lines, associativity, and write policy"
+  questions={[
+    {
+      prompt: 'Why do caches move data in whole cache lines rather than individual bytes?',
+      choices: [
+        'Cache lines are a purely cosmetic detail with no performance effect',
+        'It exploits spatial locality (nearby addresses tend to be accessed together) and temporal locality — fetching a whole line means neighboring data, like other members of the same struct, is often already cached by the time it\'s needed',
+        'Caches are physically incapable of storing single bytes',
+        'It makes the cache smaller',
+      ],
+      answer: 1,
+      why: 'Line-granularity fetching is a direct bet on locality of reference — a bet that pays off constantly in real, non-random access patterns.',
+    },
+    {
+      prompt: 'What weakness does a direct-mapped cache have that a set-associative cache is specifically designed to fix?',
+      choices: [
+        'Direct-mapped caches cannot store any data at all',
+        'Two unrelated main-RAM blocks that happen to map to the same single line can repeatedly evict each other (thrashing) even while the rest of the cache sits idle; a set-associative cache gives each address multiple possible lines ("ways") to reduce this',
+        'Direct-mapped caches are always larger than set-associative ones',
+        'Set associativity eliminates the need for tags entirely',
+      ],
+      answer: 1,
+      why: 'This exact pathological ping-pong eviction case is the textbook motivation for adding associativity.',
+    },
+    {
+      prompt: 'What is the key difference between a write-through and a write-back cache?',
+      choices: [
+        'They are two names for the same thing',
+        'A write-through cache immediately mirrors every write to main RAM; a write-back cache holds writes in the cache and only flushes a line to main RAM later (on eviction or explicit flush), which is faster for repeated writes to the same location but requires extra bookkeeping',
+        'Write-back caches never actually write to main RAM',
+        'Write-through caches are always faster than write-back caches',
+      ],
+      answer: 1,
+      why: 'Write-back trades bookkeeping complexity (tracking "dirty" lines) for avoiding a main-RAM round trip on every single write.',
+    },
+  ]}
+/>
+
+---
+
+:::important Key takeaways
+- Memory-mapped I/O means "reading/writing an address" and "talking to a peripheral" can literally be the same instruction.
+- Virtual memory adds one layer of indirection (MMU + page table, sped up by the TLB) so every process gets a private, contiguous-looking address space regardless of what's physically installed or where.
+- The memory gap — main RAM latency measured in *hundreds* of cycles versus single-digit-to-low-double-digit cycles for a register op — is why cache-aware data layout is a performance technique in its own right, not a micro-optimization.
+- A cache line, not a byte, is the real unit of memory access cost — designing data structures around cache-line-sized, sequential access is the highest-leverage layout decision you can make.
+:::
+
+## Nonuniform Memory Access (NUMA)
+
+Multiprocessor systems face a choice between two memory architectures:
+
+- **Uniform memory access (UMA)** — one shared bank of main RAM, equally visible (and equally addressed) from every core, typically backed by a shared cache hierarchy. The downside is contention: cores compete for the same L2/main-RAM bandwidth. The PS4, for example, has eight cores in two clusters of four; each core has a private L1, each cluster shares an L2, and all eight share main RAM — so cores within (and across) clusters can contend for the same resources.
+- **Nonuniform memory access (NUMA)** — each core gets its own small, fast **local store**: dedicated RAM on the same die as the core, invisible to every other core. Unlike a cache, a local store isn't managed automatically — moving data into and out of it is explicit, sometimes via ordinary memory-mapped addressing, sometimes via a dedicated **DMA controller (DMAC)**.
+
+### SPU Local Stores on the PS3
+
+The PS3's Cell Broadband Architecture is a textbook NUMA design: one **PPU** (main CPU) with exclusive access to 256 MiB of system RAM, an NVIDIA RSX GPU with exclusive access to 256 MiB of VRAM, and eight **SPUs** (synergistic processing units — six available to games, one reserved for the OS, one disabled to absorb fabrication defects), each with its own private 256 KiB local store. These address spaces are completely isolated: the PPU can't touch VRAM or any SPU's local store, and an SPU can only see its own local store — nothing else, not even another SPU's. Everything else moves via DMA.
+
+### PS2 Scratchpad (SPR)
+
+The PS2's main CPU (the **emotion engine**, EE) had a 16 KiB **scratchpad (SPR)** alongside its regular L1 I-cache and D-cache. The scratchpad is memory-mapped — it looks to a programmer like an ordinary range of main-RAM addresses — but it's uncached, so accesses bypass the L1 cache entirely and go direct.
+
+The scratchpad's real value wasn't its low latency (comparable to L1 anyway) — it was that CPU accesses to it **don't use the system bus at all**. That let the EE crunch data sitting in scratchpad while a completely separate DMA transfer moved data between main RAM and the PS2's two vector units, all in parallel, without any of that traffic contending with the CPU's own memory accesses. It's an early, concrete example of a strategy every subsequent NUMA-style console design has leaned on: give the CPU somewhere fast to work that doesn't compete for the same wires everything else is using.
+
+### Check: UMA vs. NUMA
+
+<MultipleChoice
+  id="ge-ch3-numa"
+  title="Uniform vs. nonuniform memory access"
+  questions={[
+    {
+      prompt: 'What is the core difference between a UMA and a NUMA memory architecture?',
+      choices: [
+        'UMA machines have no main RAM at all',
+        'In UMA, every core shares one bank of main RAM, equally visible to all, typically via a shared cache hierarchy; in NUMA, each core additionally gets its own small, fast local store that other cores cannot see, and moving data into/out of it is explicit rather than automatic',
+        'NUMA only exists on desktop PCs, never on game consoles',
+        'UMA and NUMA are two names for the same architecture',
+      ],
+      answer: 1,
+      why: 'The visibility and explicitness of the local store is the defining NUMA trait — contrast this with a cache, which is automatic and transparent.',
+    },
+    {
+      prompt: 'Why is the PS3\'s Cell Broadband Architecture (PPU + SPUs) a textbook NUMA example?',
+      choices: [
+        'Because the PPU and SPUs all share one identical, uniformly-visible bank of RAM',
+        'Because each SPU has its own private 256 KiB local store, completely isolated from the PPU, the GPU\'s VRAM, and every other SPU\'s local store — everything has to move explicitly via DMA',
+        'Because the PS3 only has one processing unit total',
+        'Because the PS3 uses a single shared cache for all its cores',
+      ],
+      answer: 1,
+      why: 'The complete isolation between the PPU, GPU VRAM, and each SPU\'s local store is exactly what makes this a NUMA design rather than a UMA one.',
+    },
+    {
+      prompt: 'What was the PS2 scratchpad\'s real performance advantage over just using the L1 cache?',
+      choices: [
+        'The scratchpad had lower latency than the L1 cache by a huge margin',
+        'CPU accesses to the scratchpad bypassed the system bus entirely, so the EE could work on scratchpad data at the same time as an unrelated DMA transfer was using the system bus for something else, with zero contention between the two',
+        'The scratchpad could store more data than main RAM',
+        'The scratchpad automatically cached whatever data the CPU touched, exactly like the L1 cache',
+      ],
+      answer: 1,
+      why: 'The lesson text is explicit about this: the scratchpad\'s value wasn\'t latency (comparable to L1 anyway) but avoiding system-bus contention entirely.',
+    },
+  ]}
+/>
+
+---
+
+## Further Reading
+
+- Jason Gregory — *Game Engine Architecture*, 3rd ed. (CRC Press, 2018), Chapter 3, Section 3.5
+- Ulrich Drepper — ["What Every Programmer Should Know About Memory"](https://www.akkadia.org/drepper/cpumemory.pdf)
+- John L. Hennessy & David A. Patterson — *Computer Architecture: A Quantitative Approach*

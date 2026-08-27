@@ -1,0 +1,371 @@
+---
+sidebar_position: 6
+title: Implicit Parallelism
+---
+
+# Implicit Parallelism
+
+> **Adapted from:** Jason Gregory, *Game Engine Architecture*, 3rd ed. (CRC Press, 2018), Chapter 4, Section 4.2 — rewritten and condensed for teaching.
+
+[Concurrency and Parallelism](./concurrency-and-parallelism) introduced **implicit parallelism**: hardware parallelism that speeds up a *single* instruction stream, transparently to the programmer. CPU manufacturers started leaning on this in the late 1980s specifically to make existing single-threaded code run faster on each new hardware generation, with no source changes required. The three big techniques are **pipelining**, **superscalar** execution, and **VLIW** — this lesson works through all three, plus the dependency problems that keep them from delivering their theoretical best case.
+
+---
+
+## Pipelining, Briefly Recapped
+
+Every machine instruction passes through multiple stages on its way to completion — fetch, decode, execute, memory access, register write-back (exact staging varies by CPU, but this basic shape recurs everywhere; see [CPU Pipeline Stages](/fundamentals/computer-engineering/virtualization/cpu-pipeline) for the full stage-by-stage breakdown and hazard taxonomy). In a **non-pipelined** CPU, one instruction fully finishes all five stages before the next one starts — meaning that at any given moment, four of the five stages are sitting idle.
+
+**Pipelining** fixes this the way a laundromat handles many loads of laundry: you don't wait for one load to finish washing *and* drying before starting the next — you start load two's wash cycle the moment load one moves to the dryer. A pipelined CPU begins a new instruction on *every* clock cycle, so multiple instructions are "in flight" simultaneously, each at a different stage.
+
+In principle, a CPU with an N-stage pipeline can run a program up to N times faster than an equivalent non-pipelined design, at the same clock speed — real pipelines fall short of this ideal because of dependencies between instructions, covered below.
+
+## Latency vs. Throughput
+
+Two numbers describe a pipeline's performance, and they answer different questions:
+
+- **Latency** — the total time for *one* instruction to travel from the first stage to the last. It's just the sum of every stage's latency: `T_pipeline = ΣT_i` across all N stages.
+- **Throughput** (bandwidth) — how many instructions the pipeline *completes* per unit time. It's capped by the **slowest** stage, the same way a chain is only as strong as its weakest link: `throughput = 1 / max(T_i)`.
+
+A deep pipeline can have high latency (an instruction takes a while to fully traverse it) while *still* having excellent throughput (a new instruction finishes every single cycle once the pipeline is full) — these are genuinely different measurements, and conflating them is a common source of confused performance reasoning.
+
+### Choosing a Pipeline Depth
+
+If one stage is much slower than the others, that stage becomes the bottleneck — the other stages just sit idle waiting for it. The fix is to split the slow stage into two or more shorter stages, evening out the per-stage latency and raising overall throughput. But this can't continue forever: more stages means a longer path for any *one* instruction to travel (higher latency), and — as covered next — a costlier penalty every time the pipeline has to be flushed and restarted. Real CPU pipelines land somewhere between 4–5 stages (simple designs) and roughly 30 stages (aggressive high-clock-speed designs), balancing these two pressures against each other.
+
+### Check: pipelining, latency, and throughput
+
+<MultipleChoice
+  id="ge-ch4-pipeline-basics"
+  title="Pipelining, latency, and throughput"
+  questions={[
+    {
+      prompt: 'A pipeline\'s throughput is determined by which of its stages?',
+      choices: [
+        'The fastest stage',
+        'The slowest stage — throughput is capped at 1 / max(T_i), the same way a chain is only as strong as its weakest link',
+        'The average of all stage latencies',
+        'Only the fetch stage, regardless of the others',
+      ],
+      answer: 1,
+      why: 'Every stage must wait on the slowest one each cycle, so overall throughput is bottlenecked by the single slowest stage.',
+    },
+    {
+      prompt: 'Why can\'t CPU designers simply keep adding more, ever-shorter pipeline stages indefinitely to maximize throughput?',
+      choices: [
+        'Hardware physically cannot have more than 5 stages',
+        'More stages increases the total latency for any single instruction to traverse the pipeline, and increases the cost (in wasted cycles) of a pipeline flush when a stall or misprediction occurs',
+        'Adding stages has no downsides, it is purely beneficial',
+        'More stages makes the CPU incompatible with its own instruction set',
+      ],
+      answer: 1,
+      why: 'Latency and flush cost both scale with pipeline depth, so there is a real trade-off against throughput gains — real designs land between roughly 4 and 30 stages.',
+    },
+  ]}
+/>
+
+---
+
+## Stalls and Dependencies
+
+Sometimes the CPU can't issue a new instruction on a given cycle — a **stall**. The stalled stage sits idle, and that "bubble" of idle time propagates one stage further down the pipeline every subsequent cycle (sometimes called a *delay slot*). Stalls come from three kinds of dependency between nearby instructions: **data**, **control** (branch), and **structural** (resource) dependencies.
+
+### Data Dependencies
+
+Consider:
+
+```asm
+mov  ebx, 5     ; load 5 into EBX
+imul eax, 10    ; multiply EAX by 10 (result in EAX)
+add  eax, 7     ; add 7 to EAX (result in EAX)
+```
+
+Ideally these three instructions enter the pipeline on three consecutive cycles. But `add` needs the result `imul` just produced — the CPU must wait for `imul` to fully clear the pipeline before `add` can safely issue. On a 5-stage pipeline, that's several wasted cycles waiting on a value that isn't ready yet.
+
+**Instruction reordering** mitigates this: find other, independent instructions from nearby in the program and slot them in between the dependent pair, filling the bubble with useful work instead of nothing. Optimizing compilers do this automatically and are quite good at it — but it's still worth spot-checking a hot function's disassembly rather than blindly trusting it, keeping the 80/20 rule in mind (only the hottest fraction of your code is worth this scrutiny).
+
+**Out-of-order execution** takes this further: the CPU itself looks ahead in the instruction stream at runtime, detects register dependencies, and dynamically issues a *different*, independent instruction out of program order to keep the pipeline busy while the dependent one is still in flight. The practical implication: you cannot assume the CPU executes instructions in the order you (or the compiler) wrote them — both the compiler's optimizer and the CPU's out-of-order logic work hard to make this invisible for *single-threaded* correctness, but as covered in later lessons on concurrent programming, these same reorderings can introduce real bugs once multiple threads start sharing data.
+
+### Branch (Control) Dependencies
+
+Conditional branches create a different kind of dependency. Take:
+
+```cpp
+int SafeIntegerDivide(int a, int b, int defaultVal) {
+    return (b != 0) ? a / b : defaultVal;
+}
+```
+
+Which might compile to something like:
+
+```asm
+mov  eax, dword ptr [defaultVal]
+mov  esi, dword ptr [b]
+cmp  esi, 0          ; check (b != 0)
+jz   SkipDivision    ; branch depends on cmp's result
+mov  eax, dword ptr [a]
+cdq
+idiv esi
+SkipDivision:
+ret
+```
+
+The `jz` (jump if zero) instruction can't be issued until `cmp` has resolved — the CPU doesn't yet know which instruction should even be fetched next. This is a **branch** (or **control**) **dependency**.
+
+### Speculative Execution
+
+CPUs handle branch dependencies with **speculative execution** (branch prediction): guess which side of the branch will execute, and keep issuing instructions from the guessed path *before* the branch actually resolves. If the guess was right, no cycles were lost. If it was wrong, everything speculatively issued has to be discarded and the pipeline refilled from the correct address — a **branch penalty**.
+
+Simple static strategies exist ("assume branches are never taken" is I-cache-friendly; "assume backward branches are taken, forward branches aren't" exploits the fact that loop-closing branches are backward and common), but real hardware branch predictors track per-branch history dynamically and get dramatically more accurate over time. This site covers predictor design (1-bit, 2-bit saturating counters, tournament, TAGE) in much more depth in [Branch Prediction](/fundamentals/computer-engineering/virtualization/branch-prediction) — worth reading in full if speculative execution is new to you. One historical data point worth knowing: the PS3's Cell processor had notoriously weak branch prediction, which is exactly why PS3-era engine programmers put so much effort into avoiding "branchy" code — a pain point the PS4/Xbox One generation's far stronger predictors mostly erased.
+
+### Check: stalls and dependencies
+
+<MultipleChoice
+  id="ge-ch4-dependencies"
+  title="Data, control, and structural dependencies"
+  questions={[
+    {
+      prompt: 'In the `mov`/`imul`/`add` example, why must the CPU delay issuing the `add` instruction?',
+      choices: [
+        'The CPU can never issue two arithmetic instructions in a row',
+        '`add` reads the result that `imul` is still in the process of producing (a data dependency) — issuing it early would use a stale or incorrect value',
+        '`add` and `imul` require different clock speeds',
+        'The `mov` instruction blocks all subsequent instructions permanently',
+      ],
+      answer: 1,
+      why: 'This is a classic data dependency (specifically read-after-write): the dependent instruction must wait until the value it needs has actually been produced.',
+    },
+    {
+      prompt: 'What is the difference between instruction reordering (done by a compiler) and out-of-order execution (done by the CPU)?',
+      choices: [
+        'They are the same technique performed at different times: reordering happens statically at compile time, while out-of-order execution dynamically reorders instructions at runtime based on the actual instruction stream and dependencies it observes',
+        'Instruction reordering is illegal in optimized builds',
+        'Out-of-order execution only works on branch instructions, never on data dependencies',
+        'Compilers cannot reorder instructions under any circumstances',
+      ],
+      answer: 0,
+      why: 'Both aim to fill dependency-caused pipeline bubbles with useful work; the compiler does it ahead of time on the whole visible program, while the CPU does it live using a limited look-ahead window.',
+    },
+    {
+      prompt: 'Why does a branch misprediction cost more the deeper a CPU\'s pipeline is?',
+      choices: [
+        'It does not — pipeline depth is unrelated to misprediction cost',
+        'A deeper pipeline means more instructions from the wrong path have already been spectulatively issued and must be flushed before the pipeline can restart at the correct address',
+        'Deeper pipelines cannot support branch prediction at all',
+        'Misprediction cost depends only on clock speed, never on pipeline depth',
+      ],
+      answer: 1,
+      why: 'Every additional pipeline stage is another stage\'s worth of wrongly-speculated instructions that have to be discarded on a misprediction, directly increasing the flush-and-refill penalty.',
+    },
+  ]}
+/>
+
+---
+
+## Predication: Avoiding the Branch Entirely
+
+An alternative to *predicting* a branch is to avoid branching altogether — a technique called **predication**. Take a floating-point version of the same safe-divide idea:
+
+```cpp
+float SafeFloatDivide(float a, float b, float d) {
+    return (b != 0.0f) ? a / b : d;
+}
+```
+
+Instead of branching on `b != 0.0f`, predication computes **both** possible answers unconditionally, then uses a bitmask derived from the condition to select the correct one — no branch, no misprediction risk. Here's the idea (as pseudocode — masking a `float` directly requires reinterpreting its bits as an integer via a `union`, since you can't bitwise-AND a `float` and an `unsigned` directly):
+
+```cpp
+// Illustrative only — see the note above about reinterpreting bits via a union.
+float SafeFloatDivide_pred(float a, float b, float d) {
+    const unsigned condition = (unsigned)(b != 0.0f);  // 1u or 0u
+    const unsigned mask = 0u - condition;              // 0xFFFFFFFF or 0x00000000
+
+    const float q = a / b;   // computed unconditionally; yields QNaN if b == 0
+
+    // select q when mask is all-ones, d when mask is all-zeros:
+    const float result = (q & mask) | (d & ~mask);
+    return result;
+}
+```
+
+Walking through it: the comparison `b != 0.0f` becomes `1u` or `0u`; subtracting that from `0u` produces either `0xFFFFFFFF` (all-ones, from `0 - 1` wrapping around in unsigned arithmetic) or `0x00000000` (all-zeros). ANDing `q` with the mask keeps `q`'s bits only when the mask is all-ones; ANDing `d` with the *complement* of the mask keeps `d`'s bits only when the mask is all-zeros; ORing the two together selects exactly one of them. This masked-select pattern is sometimes just called a **select operation**.
+
+Two important caveats:
+
+1. **Predication only works when both paths are safe to execute unconditionally.** This is exactly why the example uses `float`, not `int` — a floating-point divide-by-zero quietly produces a **QNaN** (quiet not-a-number), but an *integer* divide-by-zero throws a hardware exception that will crash your program if uncaught. You cannot predicate around a genuinely unsafe operation.
+2. **Predication trades a possible branch misprediction for guaranteed extra work** (both paths always execute) — whether that's a win depends entirely on your target hardware. It shines brightest when the ISA offers a dedicated select instruction: the PowerPC ISA (used in the PS3's Cell processor) provides `isel` (integer select), `fsel` (float select), and `vecsel` (SIMD vector select) specifically for this.
+
+<CodeExercise
+  title="Build a reusable branchless select"
+  heading="exercise-branchless-select"
+  lang="cpp"
+  filename="main.cpp"
+  prompt="Implement SelectI32 using the same mask-and-select trick as SafeFloatDivide_pred above (no if, no ?: anywhere), then use it to implement BranchlessMin — the smaller of two ints, with zero branches."
+  sampleLog={`(input) 7 3
+3`}
+  starter={`#include <cstdio>
+using namespace std;
+
+int SelectI32(bool condition, int a, int b) {
+    // TODO: return a if condition is true, b otherwise -- with no
+    // if statement and no ?: ternary. Use the same "mask = 0u - condition"
+    // trick as SafeFloatDivide_pred above.
+    return 0;
+}
+
+int BranchlessMin(int a, int b) {
+    // TODO: use SelectI32 to return whichever of a, b is smaller.
+    return 0;
+}
+
+int main() {
+    int a, b;
+    scanf("%d %d", &a, &b);
+    printf("%d\\n", BranchlessMin(a, b));
+    return 0;
+}
+`}
+  hint="int SelectI32(bool condition, int a, int b) { unsigned mask = 0u - (unsigned)condition; return (int)((a & mask) | (b & ~mask)); } int BranchlessMin(int a, int b) { return SelectI32(a < b, a, b); }"
+  solution={`#include <cstdio>
+using namespace std;
+
+int SelectI32(bool condition, int a, int b) {
+    unsigned mask = 0u - (unsigned)condition;
+    return (int)((a & mask) | (b & ~mask));
+}
+
+int BranchlessMin(int a, int b) {
+    return SelectI32(a < b, a, b);
+}
+
+int main() {
+    int a, b;
+    scanf("%d %d", &a, &b);
+    printf("%d\\n", BranchlessMin(a, b));
+    return 0;
+}
+`}
+  sourceChecks={[
+    { name: 'no if statement', pattern: '\\\\bif\\\\s*\\\\(', must: false, hint: 'no if statements allowed -- this has to be branchless' },
+    { name: 'no ternary operator', pattern: '\\\\?[^:\\\\n]*:', must: false, hint: "no ?: ternary allowed -- that's still a branch under the hood on most CPUs" },
+    { name: 'uses bitwise masking', pattern: '&', must: true, hint: 'select between a and b using a bitmask, the same way SafeFloatDivide_pred selects between q and d' },
+  ]}
+  tests={[
+    { name: 'a > b', stdin: '7 3', equals: '3' },
+    { name: 'a < b', stdin: '3 7', equals: '3' },
+    { name: 'negative values', stdin: '-5 2', equals: '-5' },
+    { name: 'equal values', stdin: '4 4', equals: '4' },
+  ]}
+/>
+
+### Check: predication
+
+<MultipleChoice
+  id="ge-ch4-predication"
+  title="Predication and its trade-offs"
+  questions={[
+    {
+      prompt: 'Why does the SafeFloatDivide predication example use float division rather than integer division?',
+      choices: [
+        'Predication is impossible with integers for unrelated syntactic reasons',
+        'Predication requires unconditionally executing both code paths, and integer divide-by-zero throws a hardware exception (crashing the program), while floating-point divide-by-zero safely produces a quiet NaN',
+        'Floats are always faster than integers on every CPU',
+        'Integer division cannot be masked with a bitmask under any circumstances',
+      ],
+      answer: 1,
+      why: 'Predication executes both branches unconditionally, so the "unsafe" branch must not be able to crash the program — floating-point division by zero degrades gracefully to QNaN, integer division does not.',
+    },
+    {
+      prompt: 'What is the fundamental trade-off predication makes compared to a normal conditional branch?',
+      choices: [
+        'Predication is strictly better in every case with no downsides',
+        'Predication avoids branch-misprediction risk entirely, but pays for it by unconditionally computing both possible results every time, even the one that gets discarded',
+        'Predication only works on CPUs without a status/flags register',
+        'Predication eliminates the need for a comparison instruction altogether',
+      ],
+      answer: 1,
+      why: 'Predication removes a branch (and its misprediction risk) at the cost of guaranteed wasted computation on whichever result is ultimately not selected — a win only when that wasted work is cheaper than the branch would have been.',
+    },
+  ]}
+/>
+
+---
+
+## Superscalar CPUs
+
+A pipelined CPU that issues at most one new instruction per clock cycle is a **scalar** processor — multiple instructions are in flight, but only one *starts* per cycle. A **superscalar** CPU duplicates the pipeline's stage hardware so that two (or more) instructions can be fetched and dispatched on the *same* clock cycle, from the *same* single instruction stream.
+
+This isn't as simple as pasting two CPU cores side by side — both pipelines still pull from one instruction stream, so dispatch logic has to look ahead, detect dependencies between the instructions it's considering issuing together, and reorder them (much like out-of-order execution) to keep both pipelines fed.
+
+Superscalar designs introduce a third kind of dependency beyond data and control: a **structural** (or **resource**) **dependency**, which happens when two nearby instructions both need the *same* functional unit. A CPU with two integer ALUs but only one FPU can dispatch two integer instructions per cycle without issue — but two floating-point instructions back to back can't both issue on the same cycle, because there's only one FPU to serve them. This makes superscalar dispatch logic considerably more complex than a purely scalar out-of-order design.
+
+Because doubling up pipeline stages roughly doubles the silicon needed, most superscalar CPUs are **RISC** (reduced instruction set computer) designs — a small, tightly-focused instruction set frees up transistor budget for the extra dispatch hardware. **CISC** (complex instruction set computer) designs, by contrast, offer a much richer instruction set, each instruction capable of more, but at a higher per-instruction hardware cost.
+
+## VLIW: Pushing Scheduling to the Compiler
+
+Superscalar dispatch logic is expensive in both silicon and CPU design complexity — and the CPU can only ever look a limited distance ahead in the instruction stream when hunting for independent instructions to co-issue. **VLIW** (very long instruction word) architectures take a different approach: keep multiple compute units on-chip (multiple ALUs, FPUs, VPUs), but hand the entire job of deciding what runs in parallel to the *compiler* (or the programmer), at compile time — when the whole function is visible, not just a small look-ahead window.
+
+To make this work, the instruction word itself is widened to contain multiple "slots" — one per compute unit. A CPU with two integer ALUs and two FPUs would need a VLIW instruction wide enough to encode two integer operations and two floating-point operations, packed side by side, dispatched together every cycle.
+
+The PlayStation 2 is a concrete, real example: its two vector-unit co-processors (VU0 and VU1) each dispatched two instructions per cycle via a **low** slot and a **high** slot in every instruction word. Filling both slots well by hand, in assembly, was genuinely difficult — tooling was built specifically to help convert straightforward one-instruction-per-cycle code into an efficient two-slot VLIW form.
+
+VLIW trades away all of superscalar's expensive runtime scheduling, out-of-order logic, and branch prediction hardware — meaning a VLIW chip can be simpler and, in principle, exploit more parallelism per transistor. The cost shows up on the software side: transforming ordinary serial code into a form that keeps every VLIW slot busy is a genuinely hard compiler (or programmer) problem, which is exactly why VLIW designs never fully displaced superscalar CPUs in general-purpose computing.
+
+### Check: superscalar and VLIW
+
+<MultipleChoice
+  id="ge-ch4-superscalar-vliw"
+  title="Superscalar CPUs and VLIW"
+  questions={[
+    {
+      prompt: 'A superscalar CPU has two integer ALUs but only one FPU. What happens if two floating-point instructions appear back to back in the instruction stream?',
+      choices: [
+        'Both issue on the same cycle without any problem',
+        'They cannot both issue on the same clock cycle — this is a structural (resource) dependency, since both instructions need the single shared FPU',
+        'The CPU automatically converts one of them to an integer operation',
+        'The program will fail to compile',
+      ],
+      answer: 1,
+      why: 'A structural dependency arises whenever two instructions compete for the same physical functional unit, regardless of whether their data actually depends on each other.',
+    },
+    {
+      prompt: 'What is the key difference in *where* instruction scheduling decisions are made between a superscalar CPU and a VLIW CPU?',
+      choices: [
+        'There is no difference, they use identical scheduling hardware',
+        'A superscalar CPU schedules instructions dynamically at runtime using on-chip dispatch logic; a VLIW CPU pushes that decision to the compiler (or programmer) at compile time, using a much wider view of the program',
+        'VLIW CPUs schedule instructions using a neural network',
+        'Superscalar CPUs cannot execute more than one instruction per cycle under any circumstances',
+      ],
+      answer: 1,
+      why: 'This is the defining trade-off: superscalar keeps scheduling in hardware (limited look-ahead, more silicon), VLIW moves it to software (full-function visibility, simpler hardware, harder compiler problem).',
+    },
+    {
+      prompt: 'Why are most superscalar CPUs built as RISC rather than CISC designs?',
+      choices: [
+        'CISC instructions cannot be pipelined at all',
+        'Duplicating pipeline-stage hardware for superscalar dispatch roughly doubles silicon cost, and a smaller, simpler RISC instruction set frees up transistor budget to afford that duplication',
+        'RISC and CISC are unrelated to superscalar design entirely',
+        'CISC CPUs are always slower regardless of design',
+      ],
+      answer: 1,
+      why: 'The extra silicon cost of superscalar dispatch is easier to absorb alongside a simpler, more uniform RISC instruction set than alongside a large, complex CISC one.',
+    },
+  ]}
+/>
+
+---
+
+:::important Key takeaways
+- **Latency** (time for one instruction to fully traverse the pipeline) and **throughput** (instructions completed per unit time, capped by the slowest stage) are different measurements — a deep pipeline can have high latency and still excellent throughput.
+- Pipeline depth is a trade-off: more stages evens out per-stage latency and raises throughput, but increases per-instruction latency and the cost of flushing on a stall or misprediction.
+- **Data dependencies** stall the pipeline when one instruction needs another's not-yet-ready result; **instruction reordering** (compiler) and **out-of-order execution** (CPU) both exist to hide this by finding independent work to fill the gap.
+- **Branch dependencies** are handled with **speculative execution** (predict and go, flush and retry if wrong) or sidestepped entirely with **predication** (compute both outcomes, mask-select the right one) — predication only works when both paths are safe to execute unconditionally.
+- **Superscalar** CPUs duplicate pipeline hardware to issue multiple instructions per cycle from one stream, at the cost of complex dynamic scheduling and a new class of **structural (resource) dependency**.
+- **VLIW** achieves similar multi-issue parallelism with much simpler hardware, by pushing the scheduling problem onto the compiler/programmer at compile time — powerful, but genuinely harder to program well (as PS2 VU0/VU1 developers learned firsthand).
+:::
+
+## Further Reading
+
+- Jason Gregory — *Game Engine Architecture*, 3rd ed. (CRC Press, 2018), Chapter 4, Section 4.2
+- [Concurrency and Parallelism](./concurrency-and-parallelism) — this series' previous lesson, covering the conceptual foundations (Flynn's Taxonomy, task/data parallelism)
+- [CPU Pipeline Stages](/fundamentals/computer-engineering/virtualization/cpu-pipeline) — the classic 5-stage pipeline and hazard taxonomy in full detail
+- [Branch Prediction](/fundamentals/computer-engineering/virtualization/branch-prediction) — predictor algorithms (1-bit, 2-bit saturating counters, tournament, TAGE) and the Spectre side-channel

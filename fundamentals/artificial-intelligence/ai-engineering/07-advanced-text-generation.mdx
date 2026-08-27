@@ -1,0 +1,607 @@
+---
+sidebar_position: 7
+title: Advanced Text Generation Techniques and Tools
+---
+
+# Advanced Text Generation Techniques and Tools
+
+> **Adapted from:** Jay Alammar & Maarten Grootendorst, *Hands-On Large Language Models* (O'Reilly, 2024), Chapter 7 — rewritten and condensed for teaching, with code examples adapted from the original.
+
+Prompt engineering gets you a long way toward purposeful, accurate output without ever touching a model's weights. This lesson keeps pulling on that same thread: what else can be bolted *onto* an LLM, rather than trained *into* it, to make it more useful?
+
+Four building blocks show up again and again in real LLM systems:
+
+| Building block | What it adds |
+|---|---|
+| **Model I/O** | Loading and talking to an LLM through a consistent interface |
+| **Chains** | Wiring prompts, models, and other components together into pipelines |
+| **Memory** | Giving a fundamentally stateless model some notion of "what we already discussed" |
+| **Agents** | Letting the LLM decide *which* actions to take and *when*, using external tools |
+
+This lesson uses **LangChain** to demonstrate all four — one of the earliest frameworks built around this idea of composable LLM components (newer alternatives worth knowing about include DSPy and Haystack). None of these techniques are LangChain-specific ideas; the framework just gives us a convenient, consistent way to wire them together. Each block is useful in isolation, but the real payoff shows up once they're combined into a single system.
+
+---
+
+## Model I/O: Loading a Quantized Model
+
+Every previous lesson loaded Phi-3 through `transformers`. Here we'll swap in a **GGUF** variant — a version of the same model that has been **quantized**: compressed by reducing how many bits are used to represent each parameter.
+
+### Why quantization works
+
+A bit pattern with more bits can represent a wider range of values, but costs more memory to store. Quantization deliberately gives up some of that precision to save memory and speed up inference, betting that most of it wasn't needed anyway.
+
+:::tip A clock-time analogy
+If someone asks the time, "14:16" is a perfectly useful answer — you don't lose anything important by leaving off "and 12 seconds." Quantization is the same trade: drop the precision that doesn't change the outcome (seconds), keep the precision that does (hours and minutes). A quantized model's parameters are stored with fewer bits, but retain most of what made the original weights useful.
+:::
+
+We'll use an 8-bit GGUF build of Phi-3 rather than the original 16-bit version — roughly half the memory footprint for very little quality loss. As a rule of thumb, **4-bit is about the lowest you want to go**: 3-bit and 2-bit quantizations exist, but the accuracy drop becomes noticeable enough that you're usually better off picking a smaller model at higher precision instead.
+
+### Loading the model with LangChain
+
+```python
+from langchain import LlamaCpp
+
+# Make sure the model path is correct for your system!
+llm = LlamaCpp(
+    model_path="Phi-3-mini-4k-instruct-fp16.gguf",
+    n_gpu_layers=-1,
+    max_tokens=500,
+    n_ctx=2048,
+    seed=42,
+    verbose=False
+)
+```
+
+LangChain calls its generation method `invoke` rather than treating the model like a `pipeline`:
+
+```python
+llm.invoke("Hi! My name is Maarten. What is 1 + 1?")
+```
+
+```
+''
+```
+
+Nothing comes back. Unlike `transformers.pipeline`, `LlamaCpp` does **not** automatically apply Phi-3's chat template for us — we have to supply it explicitly. Rather than retyping that template by hand every time, the next section shows how LangChain's **chains** solve exactly this problem.
+
+:::important Any model works here
+Every example in this lesson runs equally well with Phi-3, ChatGPT, Llama 3, or anything else LangChain can wrap — including hosted APIs like `ChatOpenAI`, which handle their own prompt formatting internally and don't need a manual template at all. Phi-3 is just this lesson's running example; check a leaderboard for open models before committing to one in a real project, since the best small model changes often.
+:::
+
+### Check: quantization
+
+<MultipleChoice
+  id="ai-eng-ch7-quantization"
+  title="Quantized models"
+  questions={[
+    {
+      prompt: 'What is the core trade-off that quantization makes?',
+      choices: [
+        'It makes a model larger in exchange for higher accuracy',
+        'It represents model parameters with fewer bits, trading some precision for a smaller memory footprint and faster inference',
+        'It retrains the model from scratch on a smaller dataset',
+        'It removes layers from the transformer architecture entirely',
+      ],
+      answer: 1,
+      why: 'Quantization keeps the same architecture and (approximately) the same learned values, just stored with less precision — smaller and faster, with a small accuracy cost.',
+    },
+    {
+      prompt: 'Why did calling llm.invoke(...) on the raw LlamaCpp model return an empty string?',
+      choices: [
+        'The model file was corrupted',
+        'LlamaCpp requires a GPU and none was available',
+        'Phi-3 expects a specific chat template, and unlike transformers.pipeline, LangChain\'s LlamaCpp wrapper does not apply one automatically',
+        'Quantized models cannot generate text at all',
+      ],
+      answer: 2,
+      why: 'transformers.pipeline applies the chat template behind the scenes; calling the raw LlamaCpp model directly skips that step, so the model receives an unformatted prompt it was not trained to handle well.',
+    },
+  ]}
+/>
+
+---
+
+## Chains: Composing Prompts and Models
+
+LangChain takes its name from its central idea: connect an LLM to other components — a prompt template, another chain, an external tool — into a **chain**. The simplest possible chain links one prompt template to one model.
+
+### A single link: the prompt template
+
+Phi-3's template has four pieces: `<s>` marks the start, `<|user|>` opens the user's turn, `<|assistant|>` opens the model's turn, and `<|end|>` closes a turn. We can bake this into a reusable `PromptTemplate` and chain it directly to the LLM with the `|` operator:
+
+```python
+from langchain import PromptTemplate
+
+# Create a prompt template with the "input_prompt" variable
+template = """<s><|user|>
+{input_prompt}<|end|>
+<|assistant|>"""
+prompt = PromptTemplate(
+    template=template,
+    input_variables=["input_prompt"]
+)
+
+basic_chain = prompt | llm
+```
+
+```python
+# Use the chain
+basic_chain.invoke({"input_prompt": "Hi! My name is Maarten. What is 1 + 1?"})
+```
+
+```
+The answer to 1 + 1 is 2. It's a basic arithmetic operation where you add one
+unit to another, resulting in two units altogether.
+```
+
+Now the template only has to be written once. Anything that varies between calls — the product name in `"Create a funny name for a business that sells {product}."` — becomes an `input_variable`, and the chain stays reusable across every call.
+
+### Chaining multiple prompts together
+
+Some tasks are easier to get right as several small prompts than one big one. Consider generating a short story with a title, a description of the main character, and a summary: cramming all three requirements into one prompt makes it easy for the model to shortchange one of them. Splitting it into a **sequential chain** — where each step's output feeds the next step's input — keeps each individual prompt focused, and leaves you with clean intermediate outputs (the title on its own, without having to parse it back out of a wall of text).
+
+```python
+from langchain import LLMChain
+
+# Step 1: generate a title from a one-line summary
+template = """<s><|user|>
+Create a title for a story about {summary}. Only return the title.<|end|>
+<|assistant|>"""
+title_prompt = PromptTemplate(template=template, input_variables=["summary"])
+title = LLMChain(llm=llm, prompt=title_prompt, output_key="title")
+```
+
+```python
+# Step 2: describe the main character, now using both the summary and the title
+template = """<s><|user|>
+Describe the main character of a story about {summary} with the title {title}.
+Use only two sentences.<|end|>
+<|assistant|>"""
+character_prompt = PromptTemplate(
+    template=template, input_variables=["summary", "title"]
+)
+character = LLMChain(llm=llm, prompt=character_prompt, output_key="character")
+```
+
+```python
+# Step 3: write the story itself, using everything generated so far
+template = """<s><|user|>
+Create a story about {summary} with the title {title}. The main character is:
+{character}. Only return the story and it cannot be longer than one paragraph.<|end|>
+<|assistant|>"""
+story_prompt = PromptTemplate(
+    template=template, input_variables=["summary", "title", "character"]
+)
+story = LLMChain(llm=llm, prompt=story_prompt, output_key="story")
+
+# Link all three steps into a single chain
+llm_chain = title | character | story
+llm_chain.invoke("a girl that lost her mother")
+```
+
+A single call now produces a title, a character sketch built from that title, and a story built from both — each an independently usable value, not something we have to fish out of one big generated blob.
+
+### Check: chains
+
+<MultipleChoice
+  id="ai-eng-ch7-chains"
+  title="Chains"
+  questions={[
+    {
+      prompt: 'What problem does chaining a PromptTemplate directly to an LLM (prompt | llm) solve?',
+      choices: [
+        'It makes the model run faster',
+        'It removes the need to retype or reconstruct the model\'s expected prompt format on every call',
+        'It permanently fine-tunes the model on the template',
+        'It disables sampling automatically',
+      ],
+      answer: 1,
+      why: 'The chain bundles the template with the model so callers only need to supply the variable parts (like input_prompt) — the formatting boilerplate is handled once, inside the chain.',
+    },
+    {
+      prompt: 'In the title -> character -> story sequential chain, why is the character-description prompt given both {summary} and {title} as inputs?',
+      choices: [
+        'Because LangChain requires at least two input variables per step',
+        'So the character description can be grounded in both the original idea and the title generated in the previous step, rather than being written blind',
+        'To make the prompt intentionally harder for the model to follow',
+        '{title} is unused and included only by convention',
+      ],
+      answer: 1,
+      why: 'Sequential chains pass forward everything generated so far, so each later step can build on (and stay consistent with) the earlier steps\' outputs.',
+    },
+  ]}
+/>
+
+---
+
+## Memory: Helping LLMs Remember Conversations
+
+LLMs are **stateless**: nothing said in one call carries over into the next unless we explicitly put it there. Ask `basic_chain` your name in one call, then ask it "What is my name?" in the next, and it has no idea — the two calls share no connection at all.
+
+To fix this, LangChain offers several memory strategies that inject prior conversation into the prompt automatically. We'll look at three, in increasing order of sophistication.
+
+### Conversation buffer: remember everything
+
+The simplest fix is the most literal one: paste the entire conversation history back into the prompt every time. First, extend the template with a `chat_history` slot:
+
+```python
+template = """<s><|user|>Current conversation:{chat_history}
+{input_prompt}<|end|>
+<|assistant|>"""
+prompt = PromptTemplate(
+    template=template,
+    input_variables=["input_prompt", "chat_history"]
+)
+```
+
+Then attach `ConversationBufferMemory`, which accumulates every turn under that key:
+
+```python
+from langchain.memory import ConversationBufferMemory
+
+memory = ConversationBufferMemory(memory_key="chat_history")
+llm_chain = LLMChain(prompt=prompt, llm=llm, memory=memory)
+
+llm_chain.invoke({"input_prompt": "Hi! My name is Maarten. What is 1 + 1?"})
+llm_chain.invoke({"input_prompt": "What is my name?"})
+```
+
+```
+{'input_prompt': 'What is my name?',
+ 'chat_history': "Human: Hi! My name is Maarten. What is 1 + 1?\nAI:  Hello
+Maarten! The answer to 1 + 1 is 2. Hope you're having a great day!",
+ 'text': ' Your name is Maarten.'}
+```
+
+It works — but the chat history keeps growing, unbounded, with every turn. Eventually it eats the whole context window.
+
+### Windowed conversation buffer: remember the last *k* turns
+
+`ConversationBufferWindowMemory` caps the history at the last `k` exchanges, dropping older ones as new ones arrive:
+
+```python
+from langchain.memory import ConversationBufferWindowMemory
+
+# Retain only the last 2 conversations in memory
+memory = ConversationBufferWindowMemory(k=2, memory_key="chat_history")
+llm_chain = LLMChain(prompt=prompt, llm=llm, memory=memory)
+```
+
+Ask for a name given in turn 1, and an age also given in turn 1, after three total turns have passed (`k=2`): the name (given more recently, still inside the window) comes back correctly, but the age — pushed out of the window by newer turns — does not. The model isn't wrong to say it doesn't know; that information genuinely isn't in the prompt anymore.
+
+### Conversation summary: compress instead of truncate
+
+Windowing avoids unbounded growth but throws information away outright. `ConversationSummaryMemory` takes a different approach: after every turn, it uses an LLM call to **rewrite the running history as a compressed summary**, so old details survive (in condensed form) instead of being dropped.
+
+```python
+summary_prompt_template = """<s><|user|>Summarize the conversations and update
+with the new lines.
+Current summary:
+{summary}
+new lines of conversation:
+{new_lines}
+New summary:<|end|>
+<|assistant|>"""
+summary_prompt = PromptTemplate(
+    input_variables=["new_lines", "summary"],
+    template=summary_prompt_template
+)
+```
+
+```python
+from langchain.memory import ConversationSummaryMemory
+
+memory = ConversationSummaryMemory(
+    llm=llm,
+    memory_key="chat_history",
+    prompt=summary_prompt
+)
+llm_chain = LLMChain(prompt=prompt, llm=llm, memory=memory)
+```
+
+Every call now triggers *two* model invocations: one to answer the user's question, another to fold that exchange into the running summary. Asking "What was the first question I asked?" several turns later still succeeds — the model has to infer the phrasing from a summary rather than reading it verbatim, but the underlying fact survived.
+
+| Memory type | Pros | Cons |
+|---|---|---|
+| **Conversation buffer** | Simplest to implement; zero information loss within the context window | Grows without bound; eventually exceeds the context window on long conversations |
+| **Windowed buffer** | Bounded size; no compression cost | Only the last *k* turns are available — anything older is gone, not summarized |
+| **Conversation summary** | Frees up tokens; supports very long conversations | Needs an extra LLM call per turn (slower); quality depends entirely on how well the model summarizes; exact wording can be lost |
+
+There's no universally "best" option here — it's a genuine trade-off between latency, token budget, and fidelity, and the right choice depends on how long your conversations run and how exact the recall needs to be.
+
+### Check: memory strategies
+
+<MultipleChoice
+  id="ai-eng-ch7-memory"
+  title="Memory strategies"
+  questions={[
+    {
+      prompt: 'Why are LLMs described as "stateless" in this context?',
+      choices: [
+        'Because they cannot generate text at all without internet access',
+        'Because each call is independent by default — nothing from a previous call carries over unless the conversation history is explicitly re-supplied in the prompt',
+        'Because their weights change permanently after every conversation',
+        'Because they can only be run once per session',
+      ],
+      answer: 1,
+      why: 'Without memory, every invoke() call is processed from scratch; the model has no built-in notion of "the previous message" unless that context is manually included.',
+    },
+    {
+      prompt: 'What is the key difference between ConversationBufferWindowMemory and ConversationSummaryMemory?',
+      choices: [
+        'They are functionally identical, just named differently',
+        'Windowed memory drops everything outside the last k turns outright; summary memory compresses older turns into a shorter form instead of deleting them',
+        'Summary memory requires no additional LLM calls, while windowed memory does',
+        'Windowed memory can only be used with OpenAI models',
+      ],
+      answer: 1,
+      why: 'Windowing keeps the last k turns exactly but discards everything older; summarization sacrifices some exactness but retains a compressed trace of the entire conversation.',
+    },
+    {
+      prompt: 'What is the practical cost of using ConversationSummaryMemory compared to a plain buffer?',
+      choices: [
+        'It requires no LLM at all',
+        'It requires an additional LLM call on every turn to regenerate the summary, trading latency for a smaller prompt',
+        'It cannot be combined with a prompt template',
+        'It always produces longer prompts than a plain buffer',
+      ],
+      answer: 1,
+      why: 'Summarizing the conversation is itself a generation task, so ConversationSummaryMemory needs a second model call per turn — slower, but keeps token usage from growing unbounded.',
+    },
+  ]}
+/>
+
+<details>
+<summary>🧪 Simulating a windowed memory buffer</summary>
+
+<PistonRunner
+  lang="python"
+  interactive={false}
+  height="320px"
+  code={`# A stand-in for ConversationBufferWindowMemory(k=2):
+# only the last k exchanges are kept, oldest ones are evicted first.
+
+def add_turn(history, k, human, ai):
+    history.append((human, ai))
+    if len(history) > k:
+        evicted = history.pop(0)
+        print(f"  (evicted from memory: {evicted})")
+    return history
+
+history = []
+k = 2
+
+turns = [
+    ("Hi! My name is Maarten and I am 33 years old.", "Nice to meet you, Maarten!"),
+    ("What is 3 + 3?", "3 + 3 is 6."),
+    ("What is my name?", "Your name is Maarten."),
+]
+
+for human, ai in turns:
+    history = add_turn(history, k, human, ai)
+    print(f"After turn -> memory window: {history}")
+    print()
+
+print("Notice: by the last turn, the very first message (with the age) is long gone.")
+`}
+/>
+
+</details>
+
+---
+
+## Agents: Systems That Choose Their Own Actions
+
+Everything so far follows a fixed, human-designed sequence of steps. **Agents** flip that: instead of us deciding what happens next, the LLM itself decides which action to take, in what order, based on the problem in front of it.
+
+An agent adds two things on top of what we've already built:
+
+- **Tools** — capabilities the LLM can invoke but doesn't have natively, like a calculator or a web search
+- **An agent type** — the strategy the LLM uses to decide which tool to reach for and when
+
+This matters because LLMs are famously unreliable at things like arithmetic, but reliable at recognizing *when arithmetic is needed* and *how to phrase a query for a calculator*. Give the model access to a real calculator instead of asking it to compute the answer itself, and the unreliable part of the task is handed off to something that's actually good at it.
+
+### ReAct: reasoning and acting, interleaved
+
+The dominant framework behind agent behavior is **ReAct** (Reasoning and Acting). It has the model repeat a three-step loop until it has enough information to answer:
+
+1. **Thought** — reason, in plain text, about what to do next and why
+2. **Action** — invoke a tool based on that thought
+3. **Observation** — read back the tool's result and decide what to do with it
+
+Each observation can trigger another round of thought, so the loop continues — searching, calculating, re-searching — until the model decides it has what it needs and produces a final answer. Reasoning shapes which action gets taken; the result of that action then shapes the next round of reasoning.
+
+:::tip Worked example
+Imagine asking an agent: *"What's the current price of a MacBook Pro in USD, and what would that be in EUR?"* A ReAct agent might reason that it needs a current price (thought), search the web for it (action), read the result (observation), then reason that it now needs a currency conversion (thought), invoke a calculator (action), and read back the converted amount (observation) — before finally answering.
+:::
+
+### Building a ReAct agent in LangChain
+
+ReAct-style tool selection asks a lot of a model — it needs to follow a fairly intricate instruction format reliably. The small quantized Phi-3 we've used throughout this lesson isn't strong enough for it, so this example switches to a hosted model:
+
+```python
+import os
+from langchain_openai import ChatOpenAI
+
+os.environ["OPENAI_API_KEY"] = "MY_KEY"
+openai_llm = ChatOpenAI(model_name="gpt-3.5-turbo", temperature=0)
+```
+
+The ReAct prompt template spells out the loop explicitly, including a placeholder for the tools available and the agent's running scratchpad of thoughts/actions/observations so far:
+
+```python
+from langchain import PromptTemplate
+
+react_template = """Answer the following questions as best you can. You have
+access to the following tools:
+
+{tools}
+
+Use the following format:
+
+Question: the input question you must answer
+Thought: you should always think about what to do
+Action: the action to take, should be one of [{tool_names}]
+Action Input: the input to the action
+Observation: the result of the action
+... (this Thought/Action/Action Input/Observation can repeat N times)
+Thought: I now know the final answer
+Final Answer: the final answer to the original input question
+Begin!
+
+Question: {input}
+Thought:{agent_scratchpad}"""
+
+prompt = PromptTemplate(
+    template=react_template,
+    input_variables=["tools", "tool_names", "input", "agent_scratchpad"]
+)
+```
+
+Next, we give the agent real tools to invoke — a web search and a basic calculator:
+
+```python
+from langchain.agents import load_tools, Tool
+from langchain.tools import DuckDuckGoSearchResults
+
+search = DuckDuckGoSearchResults()
+search_tool = Tool(
+    name="duckduck",
+    description="A web search engine. Use this as a search engine for general queries.",
+    func=search.run,
+)
+
+tools = load_tools(["llm-math"], llm=openai_llm)
+tools.append(search_tool)
+```
+
+Finally, we assemble the agent and the executor that runs its thought/action/observation loop:
+
+```python
+from langchain.agents import AgentExecutor, create_react_agent
+
+agent = create_react_agent(openai_llm, tools, prompt)
+agent_executor = AgentExecutor(
+    agent=agent,
+    tools=tools,
+    verbose=True,
+    handle_parsing_errors=True
+)
+
+agent_executor.invoke({
+    "input": "What is the current price of a MacBook Pro in USD? "
+             "How much would it cost in EUR if the exchange rate is 0.85 EUR for 1 USD."
+})
+```
+
+```
+{'input': 'What is the current price of a MacBook Pro in USD? How much would
+it cost in EUR if the exchange rate is 0.85 EUR for 1 USD?',
+ 'output': 'The current price of a MacBook Pro in USD is $2,249.00. It would
+cost approximately 1911.65 EUR with an exchange rate of 0.85 EUR for 1 USD.'}
+```
+
+With `verbose=True`, you can watch the intermediate Thought → Action → Observation steps as they happen — useful both for debugging and for sanity-checking that the agent reached for the right tool at the right time.
+
+:::caution No human in the loop
+An agent chooses and sequences its own actions without anyone checking each intermediate step. That autonomy is exactly what makes agents powerful, but it also means a wrong intermediate result (a bad search hit, a misread number) can silently propagate into the final answer with nobody catching it. Careful system design — e.g., having the agent cite its sources, or asking it to double-check its own output at each step — matters a lot more here than in a fixed, human-authored chain.
+:::
+
+### Check: agents and ReAct
+
+<MultipleChoice
+  id="ai-eng-ch7-agents-react"
+  title="Agents and the ReAct framework"
+  questions={[
+    {
+      prompt: 'What fundamentally distinguishes an agent from the chains built earlier in this lesson?',
+      choices: [
+        'Agents cannot use prompt templates',
+        'In a chain, the sequence of steps is fixed by the developer in advance; an agent uses the LLM itself to decide which actions to take and in what order',
+        'Agents never call an LLM at all',
+        'Chains can only be used with quantized models',
+      ],
+      answer: 1,
+      why: 'Chains follow a predetermined pipeline; agents let the model reason about the task and choose (and sequence) its own tool calls dynamically.',
+    },
+    {
+      prompt: 'In the ReAct loop, what is the purpose of the "Observation" step?',
+      choices: [
+        'It is where the user manually inspects the output before continuing',
+        'It feeds the result of the most recent action back to the model, so it can decide what to think or do next based on that result',
+        'It permanently stores the conversation in a database',
+        'It replaces the need for any tools entirely',
+      ],
+      answer: 1,
+      why: 'Observation closes the loop: the tool\'s output becomes part of what the model reasons about in its next Thought, letting actions influence subsequent reasoning.',
+    },
+    {
+      prompt: 'Why does this lesson switch from the small quantized Phi-3 model to GPT-3.5 for the ReAct agent example?',
+      choices: [
+        'Phi-3 cannot be loaded through LangChain at all',
+        'GPT-3.5 is free to use, unlike Phi-3',
+        'ReAct requires reliably following a fairly intricate structured instruction format, which is a harder ask than the smaller local model handles well',
+        'Agents can only ever use closed-source models',
+      ],
+      answer: 2,
+      why: 'Following the Thought/Action/Action Input/Observation format correctly, turn after turn, demands strong instruction-following — something the small model used elsewhere in the lesson struggles with.',
+    },
+  ]}
+/>
+
+<details>
+<summary>🧪 A tiny ReAct-style loop, simulated</summary>
+
+<PistonRunner
+  lang="python"
+  interactive={false}
+  height="360px"
+  code={`# A toy stand-in for a ReAct agent: no real LLM or web search,
+# just enough logic to show the Thought -> Action -> Observation shape.
+
+def calculator_tool(expression):
+    return str(eval(expression))
+
+def fake_search_tool(query):
+    # Pretend this always finds the same "price" for demo purposes.
+    if "macbook" in query.lower():
+        return "The MacBook Pro costs $2249.00 USD."
+    return "No results found."
+
+def react_loop(question):
+    print(f"Question: {question}\\n")
+
+    print("Thought: I need to find the current USD price first.")
+    print("Action: search('MacBook Pro price')")
+    observation = fake_search_tool("MacBook Pro price")
+    print(f"Observation: {observation}\\n")
+
+    print("Thought: Now I need to convert 2249.00 USD to EUR at a rate of 0.85.")
+    print("Action: calculator('2249.00 * 0.85')")
+    result = calculator_tool("2249.00 * 0.85")
+    print(f"Observation: {result}\\n")
+
+    print("Thought: I now know the final answer.")
+    print(f"Final Answer: The MacBook Pro costs $2249.00 USD, or about {result} EUR.")
+
+react_loop("What is the price of a MacBook Pro in EUR?")
+`}
+/>
+
+</details>
+
+---
+
+## Chapter Summary
+
+:::important Key takeaways
+
+1. **Model I/O** in LangChain means loading an LLM (including quantized GGUF variants that trade a little precision for much lower memory use) through a consistent `invoke`-based interface — but note that not every wrapper applies a chat template automatically the way `transformers.pipeline` does.
+2. **Chains** connect a prompt template to an LLM (or several LLMs to each other) so common prompt formatting doesn't need to be rewritten on every call, and complex tasks can be split into smaller, sequential, independently-checkable steps.
+3. **Memory** compensates for LLMs being fundamentally stateless. A full **conversation buffer** loses nothing but grows unbounded; a **windowed buffer** caps growth but forgets anything outside the window; **conversation summarization** trades an extra LLM call per turn for unbounded conversation length without a hard token ceiling.
+4. **Agents** hand control over *which action to take next* to the LLM itself, combining tools (a calculator, a search engine) with the **ReAct** framework's Thought → Action → Observation loop to let reasoning and acting shape each other iteratively.
+5. Agent autonomy is a double-edged sword: without a human checking each intermediate step, a single bad observation can quietly corrupt the final answer — careful tool design and self-checking prompts matter more here than in a fixed chain.
+
+:::
+
+Every technique in this lesson still relies on the LLM's own internal knowledge — plus whatever a tool call happens to return. The next lesson tackles a more targeted version of that problem: how do we get an LLM to answer accurately using information from *your own documents*, rather than whatever it happened to memorize during training? That's where retrieval and search-augmented generation come in.

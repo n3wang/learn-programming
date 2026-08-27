@@ -1,0 +1,852 @@
+---
+sidebar_position: 11
+title: Fine-Tuning Representation Models for Classification
+---
+
+# Fine-Tuning Representation Models for Classification
+
+> **Adapted from:** Jay Alammar & Maarten Grootendorst, *Hands-On Large Language Models* (O'Reilly, 2024), Chapter 11 — rewritten and condensed for teaching, with code examples adapted from the original.
+
+The text classification lesson used pretrained representation models exactly as released — frozen, untouched, just queried. That leaves an obvious question: what happens if we actually update those weights for the task at hand? This lesson works through four ways to do that, in roughly increasing sophistication: full supervised fine-tuning, few-shot fine-tuning with barely any labels, continued pretraining on domain-specific text, and fine-tuning for token-level (rather than document-level) classification. All four stay in **non-generative** territory — fine-tuning generative models is its own lesson, later in this course.
+
+---
+
+## Supervised Classification
+
+The text classification lesson kept every model **frozen**: a task-specific model was used as-is, and an embedding model fed a *separately trained* classifier bolted on top. This time, both the pretrained BERT model itself and its classification head get updated together, jointly, in a single training run — a backward pass starts at the classification head and flows all the way back through BERT's own layers.
+
+:::tip Why joint training tends to win
+A frozen embedding model produces the same representation no matter what task you're using it for — it has no way to know your classifier cares specifically about, say, sentiment. Letting gradients flow back into BERT itself lets the model reshape its internal representations around exactly the task at hand, instead of relying on general-purpose representations to happen to be good enough.
+:::
+
+### Fine-tuning a pretrained BERT model
+
+This uses the same Rotten Tomatoes dataset (5,331 positive and 5,331 negative movie reviews) as the text classification lesson, so the results are directly comparable:
+
+```python
+from datasets import load_dataset
+
+# Prepare data and splits
+tomatoes = load_dataset("rotten_tomatoes")
+train_data, test_data = tomatoes["train"], tomatoes["test"]
+```
+
+The base model is `bert-base-cased`, pretrained on English Wikipedia plus a large book corpus. Because we're adding a classification head, the number of output labels has to be specified up front:
+
+```python
+from transformers import AutoTokenizer, AutoModelForSequenceClassification
+
+# Load model and tokenizer
+model_id = "bert-base-cased"
+model = AutoModelForSequenceClassification.from_pretrained(model_id, num_labels=2)
+tokenizer = AutoTokenizer.from_pretrained(model_id)
+```
+
+Tokenization looks like any other Hugging Face pipeline, plus a `DataCollator` that pads each batch to its longest sequence rather than a fixed global length:
+
+```python
+from transformers import DataCollatorWithPadding
+
+# Pad to the longest sequence in the batch
+data_collator = DataCollatorWithPadding(tokenizer=tokenizer)
+
+def preprocess_function(examples):
+    """Tokenize input data"""
+    return tokenizer(examples["text"], truncation=True)
+
+# Tokenize train/test data
+tokenized_train = train_data.map(preprocess_function, batched=True)
+tokenized_test = test_data.map(preprocess_function, batched=True)
+```
+
+An evaluation metric ties it together — F1 here, so overfitting shows up as train/eval divergence during training:
+
+```python
+import numpy as np
+from datasets import load_metric
+
+def compute_metrics(eval_pred):
+    """Calculate F1 score"""
+    logits, labels = eval_pred
+    predictions = np.argmax(logits, axis=-1)
+    load_f1 = load_metric("f1")
+    f1 = load_f1.compute(predictions=predictions, references=labels)["f1"]
+    return {"f1": f1}
+```
+
+`TrainingArguments` defines the hyperparameters; `Trainer` runs the actual loop:
+
+```python
+from transformers import TrainingArguments, Trainer
+
+# Training arguments for parameter tuning
+training_args = TrainingArguments(
+   "model",
+   learning_rate=2e-5,
+   per_device_train_batch_size=16,
+   per_device_eval_batch_size=16,
+   num_train_epochs=1,
+   weight_decay=0.01,
+   save_strategy="epoch",
+   report_to="none"
+)
+
+# Trainer which executes the training process
+trainer = Trainer(
+   model=model,
+   args=training_args,
+   train_dataset=tokenized_train,
+   eval_dataset=tokenized_test,
+   tokenizer=tokenizer,
+   data_collator=data_collator,
+   compute_metrics=compute_metrics,
+)
+```
+
+```python
+trainer.evaluate()
+```
+
+```
+{'eval_loss': 0.3663691282272339,
+ 'eval_f1': 0.8492366412213741,
+ 'eval_runtime': 4.5792,
+ 'eval_samples_per_second': 232.791,
+ 'eval_steps_per_second': 14.631,
+ 'epoch': 1.0}
+```
+
+An F1 of **0.85** — noticeably higher than the frozen task-specific model's 0.80 from the text classification lesson, for a single epoch of training that only took a couple of minutes. Actually letting the model adapt to the task beats relying on general-purpose pretrained representations alone.
+
+### Freezing layers
+
+Fine-tuning the whole model is expensive when it's large. It's worth seeing directly what freezing different amounts of the network costs in accuracy, so the trade-off isn't just theoretical.
+
+Every parameter in the model has a name that reveals its position in the architecture:
+
+```python
+# Load model and tokenizer
+model = AutoModelForSequenceClassification.from_pretrained(model_id, num_labels=2)
+tokenizer = AutoTokenizer.from_pretrained(model_id)
+
+# Print layer names
+for name, param in model.named_parameters():
+    print(name)
+```
+
+```
+bert.embeddings.word_embeddings.weight
+bert.embeddings.position_embeddings.weight
+bert.embeddings.token_type_embeddings.weight
+bert.embeddings.LayerNorm.weight
+bert.embeddings.LayerNorm.bias
+bert.encoder.layer.0.attention.self.query.weight
+bert.encoder.layer.0.attention.self.query.bias
+...
+bert.encoder.layer.11.output.LayerNorm.weight
+bert.encoder.layer.11.output.LayerNorm.bias
+bert.pooler.dense.weight
+bert.pooler.dense.bias
+classifier.weight
+classifier.bias
+```
+
+`bert-base-cased` has 12 encoder blocks (indices 0–11), an embeddings layer, a pooler, and — on top of all that — the classification head we added.
+
+**Freezing everything except the classification head** means only the small feedforward network at the very top ever updates:
+
+```python
+for name, param in model.named_parameters():
+    # Trainable classification head
+    if name.startswith("classifier"):
+        param.requires_grad = True
+    # Freeze everything else
+    else:
+        param.requires_grad = False
+```
+
+```python
+trainer.train()
+trainer.evaluate()
+```
+
+```
+{'eval_loss': 0.6821751594543457,
+ 'eval_f1': 0.6331058020477816,
+ 'eval_runtime': 4.0175,
+ 'eval_samples_per_second': 265.337,
+ 'eval_steps_per_second': 16.677,
+ 'epoch': 1.0}
+```
+
+Training is noticeably faster — but F1 drops all the way to **0.63**, down from 0.85. The classification head alone, working from BERT's un-adapted general-purpose representations, just can't recover what fine-tuning the full model gave up.
+
+A middle ground: freeze only the first 10 of 12 encoder blocks (block 11 starts at parameter index 165 in this model), leaving the last two blocks plus the classification head trainable.
+
+```python
+# Load model
+model_id = "bert-base-cased"
+model = AutoModelForSequenceClassification.from_pretrained(model_id, num_labels=2)
+tokenizer = AutoTokenizer.from_pretrained(model_id)
+
+# Encoder block 11 starts at index 165 and
+# we freeze everything before that block
+for index, (name, param) in enumerate(model.named_parameters()):
+    if index < 165:
+        param.requires_grad = False
+
+trainer.train()
+trainer.evaluate()
+```
+
+```
+{'eval_loss': 0.40812647342681885,
+ 'eval_f1': 0.8,
+ 'eval_runtime': 3.7125,
+ 'eval_samples_per_second': 287.137,
+ 'eval_steps_per_second': 18.047,
+ 'epoch': 1.0}
+```
+
+F1 climbs back to **0.80** — most of the way to fully fine-tuning, at a fraction of the compute. Systematically sweeping how many blocks get frozen shows that unfreezing even just the last five blocks gets performance nearly to the fully-unfrozen ceiling — the returns to unfreezing more and more of the network diminish quickly, which matters more the longer training runs, since the time savings from freezing compound across every additional epoch.
+
+### Check: fine-tuning and layer freezing
+
+<MultipleChoice
+  id="ai-eng-ch11-supervised"
+  title="Supervised fine-tuning and freezing layers"
+  questions={[
+    {
+      prompt: 'What is the key architectural difference between this lesson\'s fine-tuning approach and the frozen embedding-model approach from the text classification lesson?',
+      choices: [
+        'There is no difference — both freeze the entire pretrained model',
+        'Here, gradients flow back through the entire pretrained BERT model as well as the classification head, so both are updated jointly, instead of only training a separate classifier on top of fixed, frozen embeddings',
+        'Fine-tuning never uses a classification head at all',
+        'The frozen approach always outperforms fine-tuning',
+      ],
+      answer: 1,
+      why: 'The defining change is that the backward pass now reaches all the way into BERT\'s own parameters, letting the base model\'s representations adapt specifically to the classification task rather than staying general-purpose.',
+    },
+    {
+      prompt: 'Why did freezing everything except the classification head cause such a large drop in F1 (0.85 to 0.63)?',
+      choices: [
+        'Because the classification head is incapable of learning anything at all',
+        'Because a small classifier working on top of BERT\'s un-adapted, general-purpose representations has much less capacity to shape those representations toward the task compared to fine-tuning the full network',
+        'Because freezing layers always causes training to fail entirely',
+        'Because the dataset became invalid when layers were frozen',
+      ],
+      answer: 1,
+      why: 'With almost the entire network frozen, only a small feedforward layer is doing any learning at all — it has to work with whatever general representations BERT already produces, without being able to reshape them.',
+    },
+    {
+      prompt: 'What does the experiment of progressively unfreezing more encoder blocks (freezing 10 of 12, then testing fewer frozen blocks) demonstrate?',
+      choices: [
+        'Freezing any layers always hurts performance equally, regardless of how many',
+        'There are diminishing returns to unfreezing more of the network — a relatively small number of trainable blocks can recover most of full fine-tuning\'s performance, which matters most when compute is limited or training runs for many epochs',
+        'Freezing layers has no effect on training speed',
+        'Only the very first encoder block ever needs to be trainable',
+      ],
+      answer: 1,
+      why: 'The experiment shows performance climbing quickly as more blocks are unfrozen, then leveling off well before all 12 blocks are trainable — a practical trade-off between compute cost and accuracy.',
+    },
+  ]}
+/>
+
+---
+
+## Few-Shot Classification
+
+Full fine-tuning assumes you have enough labeled data to make it worthwhile. **Few-shot classification** targets the opposite situation: a handful of labeled examples per class — sometimes as few as a dozen or two — and a need for a classifier that still performs competitively.
+
+### SetFit: efficient fine-tuning with few examples
+
+**SetFit** builds on `sentence-transformers` to make few-shot classification practical, using a three-step pipeline:
+
+1. **Sample training data** — generate positive (same-class) and negative (different-class) sentence pairs from the few labeled examples available
+2. **Fine-tune embeddings** — fine-tune a pretrained embedding model on those generated pairs
+3. **Train a classifier** — train a lightweight classifier (logistic regression, by default) on the fine-tuned embeddings
+
+The clever part is step 1: your original data isn't labeled as "pairs," but SetFit manufactures pairs from it anyway. With 16 labeled sentences in one class, every possible pairing within that class — `16 * 15 / 2 = 120` pairs — becomes a **positive** pair; pairing sentences from *different* classes generates **negative** pairs.
+
+Step 2 fine-tunes the embedding model on those pairs using the same **contrastive learning** covered when discussing CLIP's training in the multimodal lesson — the same underlying idea of pulling matched pairs together and pushing mismatched pairs apart, just applied to text-only embeddings here instead of text/image pairs.
+
+Step 3 is now straightforward: with an embedding model that's been specifically tuned to make this classification task's classes separable, a simple classifier trained on top of those embeddings can do the rest.
+
+:::tip Why this works with so little labeled data
+The trick is turning a small number of *labeled documents* into a much larger number of *labeled pairs*. 16 examples per class isn't much to fine-tune a classifier on directly, but the 120+ pairs generated from just one class give the embedding model plenty of contrastive signal to learn from.
+:::
+
+### Fine-tuning for few-shot classification
+
+Where the earlier example used all ~8,500 training reviews, this one samples just 16 per class — 32 documents total:
+
+```python
+from setfit import sample_dataset
+
+# We simulate a few-shot setting by sampling 16 examples per class
+sampled_train_data = sample_dataset(tomatoes["train"], num_samples=16)
+```
+
+```python
+from setfit import SetFitModel
+
+# Load a pretrained SentenceTransformer model
+model = SetFitModel.from_pretrained("sentence-transformers/all-mpnet-base-v2")
+```
+
+```python
+from setfit import TrainingArguments as SetFitTrainingArguments
+from setfit import Trainer as SetFitTrainer
+
+# Define training arguments
+args = SetFitTrainingArguments(
+    num_epochs=3,        # The number of epochs to use for contrastive learning
+    num_iterations=20    # The number of text pairs to generate
+)
+args.eval_strategy = args.evaluation_strategy
+
+# Create trainer
+trainer = SetFitTrainer(
+    model=model,
+    args=args,
+    train_dataset=sampled_train_data,
+    eval_dataset=test_data,
+    metric="f1"
+)
+
+# Training loop
+trainer.train()
+```
+
+```
+***** Running training *****
+  Num unique pairs = 1280
+  Batch size = 16
+  Num epochs = 3
+  Total optimization steps = 240
+```
+
+That 1,280 comes from 20 pair combinations generated per sample × 32 samples = 640, doubled to 1,280 to account for both positive and negative pairs — a substantial contrastive training set generated from just 32 labeled sentences.
+
+```python
+# Evaluate the model on our test data
+trainer.evaluate()
+```
+
+```
+{'f1': 0.8363988383349468}
+```
+
+**F1 of 0.84**, using 32 labeled documents — comparable to a logistic regression classifier trained on embeddings of the *entire* ~8,500-document training set in the text classification lesson. That's the payoff of labeling a small number of high-quality examples well, rather than labeling everything.
+
+:::tip Beyond few-shot: zero-shot with SetFit
+SetFit also supports **zero-shot** classification — no labeled examples at all. It generates synthetic training sentences directly from label names (e.g., turning the labels "happy" and "sad" into synthetic sentences like "This example is happy" and "This example is sad") and trains on those instead.
+:::
+
+### Check: SetFit and few-shot classification
+
+<MultipleChoice
+  id="ai-eng-ch11-setfit"
+  title="Few-shot classification with SetFit"
+  questions={[
+    {
+      prompt: 'How does SetFit generate enough training signal from only a handful of labeled examples per class?',
+      choices: [
+        'It requires manually labeling every possible pair of sentences',
+        'It converts a small number of labeled documents into a much larger number of positive (same-class) and negative (different-class) sentence pairs, giving contrastive learning plenty of signal to work with',
+        'It ignores the labels entirely and clusters the data unsupervised',
+        'It only works if every class has exactly one example',
+      ],
+      answer: 1,
+      why: 'The combinatorial explosion of possible pairs (16 examples per class producing 120 same-class pairs, for example) turns a small labeled set into a much larger contrastive training set.',
+    },
+    {
+      prompt: 'What is the role of contrastive learning in SetFit\'s pipeline?',
+      choices: [
+        'It trains the final logistic regression classifier directly',
+        'It fine-tunes the embedding model itself, so the resulting embeddings are specifically shaped to separate this task\'s classes, before a lightweight classifier is trained on top',
+        'It is only used for generating synthetic data, not for training anything',
+        'It replaces the need for a classifier entirely',
+      ],
+      answer: 1,
+      why: 'SetFit\'s step 2 fine-tunes the embedding model using the same pull-together/push-apart contrastive objective seen with CLIP, tailoring the embedding space to this specific classification task before any classifier is trained.',
+    },
+  ]}
+/>
+
+<details>
+<summary>🧪 Simulating SetFit's pair generation</summary>
+
+<PistonRunner
+  lang="python"
+  interactive={false}
+  height="340px"
+  code={`from itertools import combinations
+
+classes = {
+    "pets": ["I have a cat", "My dog loves walks", "The parrot can talk"],
+    "programming": ["Python is great for scripting", "I fixed a bug today", "Recursion is elegant"],
+}
+
+def generate_pairs(classes):
+    positive_pairs, negative_pairs = [], []
+    class_names = list(classes.keys())
+
+    # Positive pairs: same class
+    for name, sentences in classes.items():
+        for a, b in combinations(sentences, 2):
+            positive_pairs.append((a, b))
+
+    # Negative pairs: different classes
+    for i in range(len(class_names)):
+        for j in range(i + 1, len(class_names)):
+            for a in classes[class_names[i]]:
+                for b in classes[class_names[j]]:
+                    negative_pairs.append((a, b))
+
+    return positive_pairs, negative_pairs
+
+positive, negative = generate_pairs(classes)
+
+print(f"From {sum(len(v) for v in classes.values())} labeled sentences across {len(classes)} classes:")
+print(f"  {len(positive)} positive pairs generated")
+print(f"  {len(negative)} negative pairs generated\\n")
+
+print("Sample positive pair:", positive[0])
+print("Sample negative pair:", negative[0])
+`}
+/>
+
+</details>
+
+---
+
+## Continued Pretraining with Masked Language Modeling
+
+Every example so far follows the same two-step recipe: start with a model someone else pretrained on general data (Wikipedia, books), then fine-tune it on the target task. That recipe struggles when your domain's vocabulary and phrasing diverge a lot from that general pretraining data — medical text, legal text, or just an organization's internal jargon.
+
+**Continued pretraining** inserts a step in the middle: keep training the pretrained BERT model with **masked language modeling (MLM)** — the same objective it was originally pretrained with — but on data from your target domain, *before* fine-tuning it for the actual task. It's the same idea behind going from general BERT, to a domain-specialized variant like BioBERT, to a further fine-tuned BioBERT tuned for a specific classification task.
+
+### Continuing pretraining on Rotten Tomatoes
+
+Same Rotten Tomatoes data, but now used unsupervised — MLM doesn't need labels at all:
+
+```python
+from transformers import AutoTokenizer, AutoModelForMaskedLM
+
+# Load model for masked language modeling (MLM)
+model = AutoModelForMaskedLM.from_pretrained("bert-base-cased")
+tokenizer = AutoTokenizer.from_pretrained("bert-base-cased")
+```
+
+```python
+def preprocess_function(examples):
+    return tokenizer(examples["text"], truncation=True)
+
+# Tokenize data
+tokenized_train = train_data.map(preprocess_function, batched=True)
+tokenized_train = tokenized_train.remove_columns("label")
+tokenized_test = test_data.map(preprocess_function, batched=True)
+tokenized_test = tokenized_test.remove_columns("label")
+```
+
+Instead of padding, the `DataCollator` here actively masks tokens — hiding a random subset and asking the model to predict them back. `mlm_probability=0.15` masks about 15% of tokens per sentence:
+
+```python
+from transformers import DataCollatorForLanguageModeling
+
+# Masking Tokens
+data_collator = DataCollatorForLanguageModeling(
+    tokenizer=tokenizer,
+    mlm=True,
+    mlm_probability=0.15
+)
+```
+
+:::tip Token masking vs. whole-word masking
+Randomly masking 15% of *tokens* can end up masking only part of a word (e.g. masking `##r` out of `home` + `##r`, without masking `home`). **Whole-word masking** masks every sub-token of a chosen word together, which is a harder — and generally more effective — prediction task, at the cost of slower convergence. `DataCollatorForWholeWordMask` swaps in for this; the example here sticks with plain token masking for faster training.
+:::
+
+```python
+# Training arguments for parameter tuning
+training_args = TrainingArguments(
+   "model",
+   learning_rate=2e-5,
+   per_device_train_batch_size=16,
+   per_device_eval_batch_size=16,
+   num_train_epochs=10,
+   weight_decay=0.01,
+   save_strategy="epoch",
+   report_to="none"
+)
+
+# Initialize Trainer
+trainer = Trainer(
+    model=model,
+    args=training_args,
+    train_dataset=tokenized_train,
+    eval_dataset=tokenized_test,
+    tokenizer=tokenizer,
+    data_collator=data_collator
+)
+```
+
+The tokenizer itself doesn't change during MLM training, so it only needs saving once; the model needs saving after training completes:
+
+```python
+# Save pre-trained tokenizer
+tokenizer.save_pretrained("mlm")
+# Train model
+trainer.train()
+# Save updated model
+model.save_pretrained("mlm")
+```
+
+### Checking what changed
+
+The clearest way to see the effect of continued pretraining is to compare mask predictions before and after, on the same sentence:
+
+```python
+from transformers import pipeline
+
+# Load and create predictions
+mask_filler = pipeline("fill-mask", model="bert-base-cased")
+preds = mask_filler("What a horrible [MASK]!")
+
+# Print results
+for pred in preds:
+    print(f">>> {pred['sequence']}")
+```
+
+```
+>>> What a horrible idea!
+>>> What a horrible dream!
+>>> What a horrible thing!
+>>> What a horrible day!
+>>> What a horrible thought!
+```
+
+```python
+# Load and create predictions
+mask_filler = pipeline("fill-mask", model="mlm")
+preds = mask_filler("What a horrible [MASK]!")
+
+for pred in preds:
+    print(f">>> {pred['sequence']}")
+```
+
+```
+>>> What a horrible movie!
+>>> What a horrible film!
+>>> What a horrible mess!
+>>> What a horrible comedy!
+>>> What a horrible story!
+```
+
+The base model reaches for generic concepts (idea, dream, day); the continued-pretrained model, having spent extra training time immersed in movie reviews, reaches for movie-specific vocabulary instead — direct evidence the model actually absorbed something about the domain, not just memorized labels. From here, loading `"mlm"` into `AutoModelForSequenceClassification` and fine-tuning it for classification, exactly as in the first section, gives the full three-step pipeline: pretrain → continue pretraining on your domain → fine-tune for the task.
+
+### Check: continued pretraining
+
+<MultipleChoice
+  id="ai-eng-ch11-continued-pretraining"
+  title="Continued pretraining with MLM"
+  questions={[
+    {
+      prompt: 'Why might a generically pretrained BERT model underperform on a highly domain-specific classification task, even after fine-tuning?',
+      choices: [
+        'BERT models cannot be fine-tuned on domain-specific data at all',
+        'The model\'s underlying representations were shaped by general text (e.g. Wikipedia), which may not capture domain-specific vocabulary or phrasing well, and fine-tuning alone may not fully correct that gap',
+        'Domain-specific tasks always require training a model completely from scratch',
+        'Fine-tuning removes all of the model\'s pretrained knowledge',
+      ],
+      answer: 1,
+      why: 'Continued pretraining exists specifically to address this: it lets the model absorb domain vocabulary and patterns via more MLM training before the final task-specific fine-tuning step.',
+    },
+    {
+      prompt: 'What does masked language modeling ask the model to do, and why does it not require labeled data?',
+      choices: [
+        'It asks the model to classify entire documents into predefined categories, which requires labels',
+        'It hides a subset of tokens in the input and asks the model to predict them from context — the "label" for each masked position is just the original token that was already there, requiring no external annotation',
+        'It requires human annotators to manually mask tokens for each sentence',
+        'It only works on already-labeled classification datasets',
+      ],
+      answer: 1,
+      why: 'MLM is self-supervised: the original text itself supplies the correct answer for each masked position, so no separate labeling effort is needed — any raw text in the target domain works as training data.',
+    },
+    {
+      prompt: 'What did comparing mask predictions from bert-base-cased versus the continued-pretrained "mlm" model demonstrate?',
+      choices: [
+        'That the two models produce identical predictions, proving continued pretraining had no effect',
+        'That the continued-pretrained model shifted toward movie-related vocabulary specifically, showing it absorbed patterns from the domain-specific data it continued training on',
+        'That continued pretraining breaks the model\'s ability to fill in masks',
+        'That mask prediction is unrelated to how well a model will perform after fine-tuning',
+      ],
+      answer: 1,
+      why: 'The continued-pretrained model\'s predictions shifted concretely toward movie-review vocabulary (movie, film, comedy) versus the base model\'s generic completions — direct, inspectable evidence that continued pretraining changed what the model "knows" about.',
+    },
+  ]}
+/>
+
+---
+
+## Named-Entity Recognition
+
+Every task so far classified an entire document at once. **Named-entity recognition (NER)** operates at a finer grain: classifying individual tokens within a sequence — useful for pulling out people, organizations, and locations, and a common building block for de-identification and anonymization of sensitive text.
+
+The architecture is nearly identical to document classification — same pretrained BERT backbone — but instead of pooling all token representations into one document-level prediction, the model predicts a label **for every token independently**.
+
+### Preparing NER data
+
+The CoNLL-2003 dataset provides roughly 14,000 training examples labeled for person, organization, location, and miscellaneous entities:
+
+```python
+# The CoNLL-2003 dataset for NER
+dataset = load_dataset("conll2003", trust_remote_code=True)
+```
+
+```python
+example = dataset["train"][848]
+example
+```
+
+```
+{'id': '848',
+ 'tokens': ['Dean', 'Palmer', 'hit', 'his', '30th', 'homer', 'for', 'the', 'Rangers', '.'],
+ 'pos_tags': [22, 22, 38, 29, 16, 21, 15, 12, 23, 7],
+ 'chunk_tags': [11, 12, 21, 11, 12, 12, 13, 11, 12, 0],
+ 'ner_tags': [1, 2, 0, 0, 0, 0, 0, 0, 3, 0]}
+```
+
+The `ner_tags` map to a small label set, with a `B-`/`I-` prefix scheme:
+
+```python
+label2id = {
+    "O": 0, "B-PER": 1, "I-PER": 2, "B-ORG": 3, "I-ORG": 4,
+    "B-LOC": 5, "I-LOC": 6, "B-MISC": 7, "I-MISC": 8
+}
+id2label = {index: label for label, index in label2id.items()}
+```
+
+`B-` (beginning) marks the *start* of an entity phrase; `I-` (inside) marks tokens continuing that same phrase. In the example above, `Dean` is tagged `B-PER` and `Palmer` is tagged `I-PER` — together, that's how the model knows "Dean Palmer" is *one* person, not two separate entities.
+
+### Aligning labels with subword tokens
+
+The dataset's labels are per-*word*, but BERT's tokenizer splits some words into multiple sub-tokens (`homer` → `home` + `##r`). Labels have to be aligned to the resulting sub-tokens, not just copied over word-for-word:
+
+```python
+from transformers import AutoModelForTokenClassification
+
+# Load tokenizer
+tokenizer = AutoTokenizer.from_pretrained("bert-base-cased")
+# Load model
+model = AutoModelForTokenClassification.from_pretrained(
+    "bert-base-cased",
+    num_labels=len(id2label),
+    id2label=id2label,
+    label2id=label2id
+)
+```
+
+```python
+# Split individual tokens into sub-tokens
+token_ids = tokenizer(example["tokens"], is_split_into_words=True)["input_ids"]
+sub_tokens = tokenizer.convert_ids_to_tokens(token_ids)
+sub_tokens
+```
+
+```
+['[CLS]', 'Dean', 'Palmer', 'hit', 'his', '30th', 'home', '##r', 'for', 'the', 'Rangers', '.', '[SEP]']
+```
+
+Consider a name like "Maarten" tagged `B-PER`, tokenized into `Ma`, `##arte`, `##n`. Giving all three sub-tokens the label `B-PER` would incorrectly imply three separate people; instead, only the *first* sub-token of a split word keeps the original `B-` label, and any continuation sub-tokens get the corresponding `I-` label:
+
+```python
+def align_labels(examples):
+    token_ids = tokenizer(examples["tokens"], truncation=True, is_split_into_words=True)
+    labels = examples["ner_tags"]
+
+    updated_labels = []
+    for index, label in enumerate(labels):
+        # Map tokens to their respective word
+        word_ids = token_ids.word_ids(batch_index=index)
+        previous_word_idx = None
+        label_ids = []
+        for word_idx in word_ids:
+            # The start of a new word
+            if word_idx != previous_word_idx:
+                previous_word_idx = word_idx
+                updated_label = -100 if word_idx is None else label[word_idx]
+                label_ids.append(updated_label)
+            # Special token is -100
+            elif word_idx is None:
+                label_ids.append(-100)
+            # If the label is B-XXX we change it to I-XXX
+            else:
+                updated_label = label[word_idx]
+                if updated_label % 2 == 1:
+                    updated_label += 1
+                label_ids.append(updated_label)
+
+        updated_labels.append(label_ids)
+    token_ids["labels"] = updated_labels
+    return token_ids
+
+tokenized = dataset.map(align_labels, batched=True)
+```
+
+Special tokens like `[CLS]` and `[SEP]` get the sentinel label `-100`, which the loss function is configured to ignore entirely — those positions never contribute to training or evaluation:
+
+```python
+print(f"Original: {example['ner_tags']}")
+print(f"Updated: {tokenized['train'][848]['labels']}")
+```
+
+```
+Original: [1, 2, 0, 0, 0, 0, 0, 0, 3, 0]
+Updated: [-100, 1, 2, 0, 0, 0, 0, 0, 0, 0, 3, 0, -100]
+```
+
+### Evaluating at the token level
+
+Since predictions now happen per-token rather than per-document, evaluation needs to flatten every document's token-level predictions before scoring:
+
+```python
+import evaluate
+
+# Load sequential evaluation
+seqeval = evaluate.load("seqeval")
+
+def compute_metrics(eval_pred):
+    logits, labels = eval_pred
+    predictions = np.argmax(logits, axis=2)
+
+    true_predictions = []
+    true_labels = []
+
+    # Document-level iteration
+    for prediction, label in zip(predictions, labels):
+        # Token-level iteration
+        for token_prediction, token_label in zip(prediction, label):
+            # We ignore special tokens
+            if token_label != -100:
+                true_predictions.append([id2label[token_prediction]])
+                true_labels.append([id2label[token_label]])
+
+    results = seqeval.compute(predictions=true_predictions, references=true_labels)
+    return {"f1": results["overall_f1"]}
+```
+
+### Fine-tuning for NER
+
+The one meaningful change from earlier in this lesson: `DataCollatorForTokenClassification` replaces `DataCollatorWithPadding`, since padding now has to account for per-token labels alongside per-token inputs.
+
+```python
+from transformers import DataCollatorForTokenClassification
+
+# Token-classification DataCollator
+data_collator = DataCollatorForTokenClassification(tokenizer=tokenizer)
+```
+
+```python
+training_args = TrainingArguments(
+   "model",
+   learning_rate=2e-5,
+   per_device_train_batch_size=16,
+   per_device_eval_batch_size=16,
+   num_train_epochs=1,
+   weight_decay=0.01,
+   save_strategy="epoch",
+   report_to="none"
+)
+
+trainer = Trainer(
+    model=model,
+    args=training_args,
+    train_dataset=tokenized["train"],
+    eval_dataset=tokenized["test"],
+    tokenizer=tokenizer,
+    data_collator=data_collator,
+    compute_metrics=compute_metrics,
+)
+trainer.train()
+trainer.evaluate()
+```
+
+With training complete, saving the model and running it through an inference pipeline confirms it in practice:
+
+```python
+from transformers import pipeline
+
+# Save our fine-tuned model
+trainer.save_model("ner_model")
+
+# Run inference on the fine-tuned model
+token_classifier = pipeline("token-classification", model="ner_model")
+token_classifier("My name is Maarten.")
+```
+
+```
+[{'entity': 'B-PER', 'score': 0.99534035, 'index': 4, 'word': 'Ma', 'start': 11, 'end': 13},
+ {'entity': 'I-PER', 'score': 0.9928328, 'index': 5, 'word': '##arte', 'start': 13, 'end': 17},
+ {'entity': 'I-PER', 'score': 0.9954301, 'index': 6, 'word': '##n', 'start': 17, 'end': 18}]
+```
+
+All three sub-tokens of "Maarten" get correctly tagged as a person — `B-PER` on the first, `I-PER` continuing through the rest — exactly the label-alignment scheme set up during preprocessing, now working end-to-end at inference time.
+
+### Check: named-entity recognition
+
+<MultipleChoice
+  id="ai-eng-ch11-ner"
+  title="Named-entity recognition"
+  questions={[
+    {
+      prompt: 'What is the fundamental difference between document classification and NER, in terms of what the model predicts?',
+      choices: [
+        'There is no difference; they are the same task with different names',
+        'Document classification produces one label for an entire input; NER produces a separate label for every individual token in the input',
+        'NER only works on single-word inputs',
+        'Document classification requires a larger model than NER',
+      ],
+      answer: 1,
+      why: 'NER\'s defining characteristic is per-token prediction rather than a single pooled prediction for the whole sequence, which is why it needs its own data collator, label alignment, and evaluation approach.',
+    },
+    {
+      prompt: 'Why does a word like "Maarten" being tokenized into "Ma", "##arte", "##n" create a labeling problem, and how is it resolved?',
+      choices: [
+        'It isn\'t a problem; all three sub-tokens simply get discarded',
+        'The original label is per-word, but the model predicts per-token — the fix is to give only the first sub-token the B- (beginning) label and give continuation sub-tokens the corresponding I- (inside) label, so they\'re not mistaken for separate entities',
+        'BERT refuses to tokenize names, so this situation never occurs',
+        'All sub-tokens of a split word are simply given the label "O" (no entity)',
+      ],
+      answer: 1,
+      why: 'Without this alignment step, giving every sub-token the same B- label would incorrectly suggest each sub-token is the start of its own separate entity, rather than all being part of one entity.',
+    },
+    {
+      prompt: 'Why is the label -100 assigned to special tokens like [CLS] and [SEP], and to non-first sub-tokens in some configurations?',
+      choices: [
+        'It is a valid entity class meaning "special token"',
+        'It is a sentinel value that the loss function is configured to ignore, so these positions do not contribute to training or evaluation at all',
+        'It causes the model to always predict "O" for those positions',
+        'It is a bug that has no real effect on training',
+      ],
+      answer: 1,
+      why: '-100 is the conventional ignore-index for Hugging Face\'s loss functions — it excludes those token positions from both the loss computation and, in this lesson\'s compute_metrics, from evaluation.',
+    },
+  ]}
+/>
+
+---
+
+## Chapter Summary
+
+:::important Key takeaways
+
+1. **Supervised fine-tuning** lets gradients flow through the entire pretrained model, not just a classification head — this generally outperforms frozen-model approaches, at the cost of more compute.
+2. **Layer freezing** trades some accuracy for significantly less compute. Freezing everything except the classification head loses a lot of performance; freezing all but the last few encoder blocks recovers most of it, since the returns to unfreezing additional layers diminish quickly.
+3. **SetFit** makes few-shot classification practical by manufacturing a large number of positive/negative sentence pairs from a small labeled dataset, then using contrastive learning to fine-tune an embedding model specifically for the target task before training a lightweight classifier on top.
+4. **Continued pretraining** with masked language modeling adapts a generically pretrained model to a specific domain's vocabulary *before* task-specific fine-tuning, without needing any labeled data — MLM's "labels" are just the original tokens that were masked.
+5. **Named-entity recognition** classifies individual tokens rather than whole documents, which requires aligning word-level labels to BERT's sub-token tokenization (via `B-`/`I-` prefixes) and evaluating at the token level rather than the document level.
+
+:::
+
+Every fine-tuning technique in this lesson targeted **representation models** — models that classify or embed, but don't generate free-form text. The next lesson shifts to fine-tuning **generative** models: first teaching a model to follow instructions, then aligning it toward the kinds of responses people actually prefer.

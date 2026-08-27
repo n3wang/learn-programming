@@ -1,0 +1,677 @@
+---
+sidebar_position: 1
+title: Fundamentals of Software Engineering for Games
+---
+
+# Fundamentals of Software Engineering for Games
+
+> **Inspired by:** Jason Gregory, *Game Engine Architecture* (3rd ed., CRC Press), Chapter 3 — rewritten and condensed for teaching, with original code examples and exercises.
+
+Before touching a renderer, a physics solver, or a scripting VM, a professional game programmer needs a shared toolkit: solid object-oriented design instincts, working knowledge of how the C++ language has evolved (and which parts of it are actually worth using), and a disciplined approach to catching bugs before players do. None of this is glamorous — but a AAA engine runs for years across dozens of programmers, and the difference between a codebase that stays maintainable and one that collapses under its own weight almost always traces back to these fundamentals.
+
+C++ remains the dominant language in the game industry, mostly because it gives you both high-level abstraction *and* the low-level control needed to hit a 16.6ms (or tighter) frame budget. Everything below is framed in C++, but the underlying ideas — encapsulation, composition over inheritance, defensive error handling — transfer to whatever language you end up shipping in.
+
+---
+
+## Object-Oriented Programming, Briefly Revisited
+
+If you've written object-oriented code before, this is a fast refresher tuned toward the parts that matter most in engine code. If any of it is new to you, it's worth pausing here — everything else in engine architecture builds on top of it.
+
+### Classes, Objects, and Encapsulation
+
+A **class** bundles data (attributes) and behavior (methods) into one coherent unit; an **object** is a specific instance of that class. `Enemy` is a class; the goblin currently chasing the player is an object.
+
+**Encapsulation** means a class exposes only what callers need and hides the rest. This isn't about secrecy — it's about reducing the surface area another programmer has to understand, and letting you change the internals later without breaking every caller. A `Transform` class that hides its internal matrix representation behind `GetPosition()` / `SetPosition()` can switch from a 4x4 matrix to a quaternion+vector pair without anyone outside the class noticing.
+
+### Inheritance: "Is-A" Relationships
+
+**Inheritance** lets a derived class extend a base class's data and behavior. `Circle` deriving from `Shape` expresses "a circle *is a* shape." This is the right tool when every derived-class instance is genuinely usable anywhere the base class is expected (the *Liskov substitution* idea, even if nobody says it out loud on a game team).
+
+Most C++ codebases in games avoid **multiple inheritance** (a class with more than one direct base) outside of narrow, deliberate cases. The classic failure mode is the **diamond problem**: if `Amphibious` and `Land` both derive from `Vehicle`, and `Duck` derives from both, does `Duck` contain one `Vehicle` subobject or two? C++ lets you resolve this with `virtual` inheritance, but it adds real complexity — extra indirection, subtler object layout, and casting that has to shift pointers depending on which base you're viewing the object through. Most studios permit multiple inheritance only for small, state-free **mix-in** classes (e.g., a `Serializable` or `Debuggable` mix-in that adds one capability without participating in a "real" hierarchy).
+
+### Polymorphism: One Interface, Many Behaviors
+
+**Polymorphism** lets code manipulate a collection of different types through one common interface, without needing to know which concrete type it's holding. Contrast a type-tag `switch` against a virtual function:
+
+```cpp
+// Without polymorphism: every caller needs to know every concrete type.
+enum ShapeType { CIRCLE, RECTANGLE, TRIANGLE };
+
+struct Shape {
+    ShapeType type;
+    // ... shape-specific data crammed in here somehow
+};
+
+void drawShapes(const std::vector<Shape*>& shapes) {
+    for (Shape* s : shapes) {
+        switch (s->type) {
+            case CIRCLE:    /* draw circle */    break;
+            case RECTANGLE: /* draw rectangle */ break;
+            case TRIANGLE:  /* draw triangle */  break;
+        }
+    }
+}
+```
+
+Every time someone adds a new shape, they have to hunt down every switch statement like this one across the codebase and add a case. Virtual functions push that responsibility onto the new class instead:
+
+```cpp
+struct Shape {
+    virtual void Draw() const = 0;   // pure virtual — no default implementation
+    virtual ~Shape() = default;      // ALWAYS make base-class destructors virtual
+};
+
+struct Circle : Shape {
+    void Draw() const override { /* draw as a circle */ }
+};
+
+struct Rectangle : Shape {
+    void Draw() const override { /* draw as a rectangle */ }
+};
+
+void drawShapes(const std::vector<Shape*>& shapes) {
+    for (Shape* s : shapes) {
+        s->Draw();   // dispatches to the correct override automatically
+    }
+}
+```
+
+`drawShapes` never needs to change again. Adding `Triangle` means writing a new `Triangle : Shape` class — `drawShapes` doesn't even need to be recompiled.
+
+:::caution Never forget the virtual destructor
+If `Shape`'s destructor isn't `virtual` and you `delete` a `Circle*` through a `Shape*` pointer, only `~Shape()` runs — `~Circle()` never fires, and any resources `Circle` owns leak. This is one of the most common real bugs in C++ inheritance hierarchies.
+:::
+
+### Composition and Aggregation: "Has-A" / "Uses-A"
+
+**Composition** builds complex objects out of simpler ones — a `Spaceship` *has an* `Engine`, which *has a* `FuelTank`. New programmers often reach for inheritance when composition would produce a simpler, more testable design. A `Window` class that needs rectangle math should generally *contain* a `Rectangle` (has-a) rather than *derive from* one (is-a) — a window isn't a kind of rectangle, it just uses rectangle math internally. Composition keeps classes focused and lets you swap out or mock a component without disturbing the class that owns it.
+
+### Check: OOP fundamentals
+
+<MultipleChoice
+  id="ge-ch3-oop-basics"
+  title="Classes, inheritance, and polymorphism"
+  questions={[
+    {
+      prompt: 'Why do most game codebases avoid or heavily restrict multiple inheritance?',
+      choices: [
+        'C++ does not actually support it',
+        'It turns a simple class tree into a graph, introducing problems like the diamond problem and complicating pointer casting between bases',
+        'It makes compilation infinitely slow',
+        'It is only useful for mix-in classes and nothing else',
+      ],
+      answer: 1,
+      why: 'Multiple inheritance can create ambiguous shared base subobjects (the diamond problem) and complicates casting, since an object may have multiple vtable pointers.',
+    },
+    {
+      prompt: 'In the Shape/Circle/Rectangle example, what is the main benefit of using a virtual Draw() function instead of a type-tag switch statement?',
+      choices: [
+        'It runs faster on every possible CPU',
+        'Adding a new shape type no longer requires modifying every switch statement scattered across the codebase',
+        'It removes the need for a base class entirely',
+        'It automatically parallelizes the drawing loop',
+      ],
+      answer: 1,
+      why: 'Polymorphism moves the responsibility for "what to do for this type" onto the type itself, so callers like drawShapes never need to change when new types are added.',
+    },
+    {
+      prompt: 'Why should a base class with any virtual functions almost always have a virtual destructor?',
+      choices: [
+        'It is required for the class to compile at all',
+        'Without it, deleting a derived object through a base-class pointer skips the derived destructor, leaking any resources it owns',
+        'It makes the base class impossible to instantiate',
+        'It has no real effect, it is just a style convention',
+      ],
+      answer: 1,
+      why: 'A non-virtual base destructor means `delete basePtr` only calls the base destructor, silently skipping derived-class cleanup — a common source of leaks and bugs.',
+    },
+    {
+      prompt: 'A Window class needs to do rectangle math. Why would `Window` containing a `Rectangle` member usually be preferred over `Window : public Rectangle`?',
+      choices: [
+        'C++ does not allow inheriting from utility classes',
+        'A window is not conceptually "a kind of" rectangle — composition (has-a) keeps both classes simpler, more focused, and easier to test than a forced is-a relationship',
+        'Composition is always faster than inheritance at runtime',
+        'Rectangle cannot have public methods if used this way',
+      ],
+      answer: 1,
+      why: 'Inheritance should model genuine is-a relationships; when a class merely uses another\'s functionality, composition (has-a) produces a cleaner, more flexible design.',
+    },
+  ]}
+/>
+
+---
+
+### Design Patterns You'll See Constantly in Engines
+
+A handful of general-purpose design patterns show up over and over in engine code:
+
+- **Singleton** — ensures a class has exactly one instance and provides global access to it. Used (sometimes overused) for engine-wide managers like a `RenderDevice` or `AudioSystem`.
+- **Iterator** — walks a collection's elements without exposing how that collection is actually stored internally.
+- **Abstract Factory** — creates families of related objects without the caller needing to know the concrete types being constructed (useful for swapping a whole rendering backend, for instance).
+
+One pattern deserves special attention because it quietly prevents an entire category of bugs: **RAII**.
+
+#### RAII: Resource Acquisition Is Initialization
+
+The idea: tie a resource's *acquisition* to a constructor and its *release* to the matching destructor. Construct a local object to acquire the resource; let it fall out of scope to release it — automatically, even if an exception is thrown or an early `return` fires partway through the function. Some studios call these classes **janitors**, because they clean up after you whether you remember to or not.
+
+```cpp
+class AllocatorScope {
+public:
+    explicit AllocatorScope(AllocatorId id) : m_id(id) {
+        PushAllocator(m_id);   // acquire: push this allocator as "current"
+    }
+    ~AllocatorScope() {
+        PopAllocator();        // release: always pops, no matter how we exit scope
+    }
+private:
+    AllocatorId m_id;
+};
+
+void LoadLevel() {
+    {
+        AllocatorScope scope(AllocatorId::kSingleFrame);
+        // every allocation in this block uses the single-frame allocator
+        Buffer* temp = AllocateBuffer(4096);
+        // ... use temp ...
+    } // scope's destructor pops the allocator here — even if AllocateBuffer() had thrown
+}
+```
+
+Without RAII, every early-exit path (an early `return`, a thrown exception, a `break` out of a loop) is a place someone can forget to release the resource. With RAII, there's nothing to forget — the compiler calls the destructor for you.
+
+### Check: design patterns and RAII
+
+<MultipleChoice
+  id="ge-ch3-raii"
+  title="Design patterns and RAII"
+  questions={[
+    {
+      prompt: 'What problem does the RAII pattern solve?',
+      choices: [
+        'It makes classes run faster by skipping constructors',
+        'It ties resource release to object destruction, so cleanup happens automatically on every exit path (normal return, early return, or exception) instead of relying on the programmer to remember',
+        'It eliminates the need for destructors entirely',
+        'It only works for memory, not for other resource types like files or locks',
+      ],
+      answer: 1,
+      why: 'RAII binds acquisition to construction and release to destruction, so the language guarantees cleanup runs on scope exit — no matter which path caused the exit.',
+    },
+    {
+      prompt: 'What is the main risk associated with the Singleton pattern in a large engine codebase?',
+      choices: [
+        'It cannot be implemented in C++',
+        'Overuse turns it into a form of uncontrolled global state, making dependencies between systems implicit and harder to test or reason about',
+        'It always causes memory leaks',
+        'It prevents a class from ever having member functions',
+      ],
+      answer: 1,
+      why: 'Singletons are convenient but easy to overuse — they hide dependencies as invisible global access rather than explicit parameters, which can make systems harder to test in isolation.',
+    },
+  ]}
+/>
+
+### Practice: build a janitor
+
+Fill in `LogScope` so that entering the scope prints `"> enter: <name>"` and leaving it — no matter how the block exits — prints `"< exit: <name>"`. This is the same shape as the `AllocatorScope` example above, minus the real allocator calls.
+
+<CodeExercise
+  title="RAII log scope"
+  heading="exercise-log-scope"
+  lang="cpp"
+  filename="main.cpp"
+  prompt="Implement LogScope's constructor and destructor so scope entry/exit are logged automatically, even when the function returns early."
+  sampleLog={`(input) 1
+> enter: work
+< exit: work`}
+  starter={`#include <iostream>
+#include <string>
+using namespace std;
+
+class LogScope {
+public:
+    explicit LogScope(const string& name) : m_name(name) {
+        // TODO: print "> enter: " + m_name
+    }
+    ~LogScope() {
+        // TODO: print "< exit: " + m_name
+    }
+private:
+    string m_name;
+};
+`}
+  wrapSuffix={`
+void doWork(bool bailEarly) {
+    LogScope scope("work");
+    if (bailEarly) {
+        return; // the destructor must still fire here
+    }
+}
+
+int main() {
+    int bail;
+    cin >> bail;
+    doWork(bail != 0);
+    return 0;
+}
+`}
+  hint='In the constructor: cout << "> enter: " << m_name << "\\n"; In the destructor: cout << "< exit: " << m_name << "\\n";'
+  solution={`#include <iostream>
+#include <string>
+using namespace std;
+
+class LogScope {
+public:
+    explicit LogScope(const string& name) : m_name(name) {
+        cout << "> enter: " << m_name << "\\n";
+    }
+    ~LogScope() {
+        cout << "< exit: " << m_name << "\\n";
+    }
+private:
+    string m_name;
+};
+`}
+  sourceChecks={[
+    { name: 'has destructor', pattern: '~LogScope', must: true, hint: 'define ~LogScope() to release/log on scope exit' },
+  ]}
+  tests={[
+    { name: 'bail early (1)', stdin: '1', equals: '> enter: work\n< exit: work' },
+    { name: 'run to end (0)', stdin: '0', equals: '> enter: work\n< exit: work' },
+  ]}
+/>
+
+---
+
+## The C++ Standard Keeps Moving
+
+C++ was standardized in 1998 (**C++98**), refined in **C++03**, and then began evolving quickly: **C++11**, **C++14**, **C++17**, **C++20**, and beyond, each adding features aimed at making the language safer, more expressive, or more efficient. A few highlights that show up constantly in modern engine code:
+
+| Standard | Notable additions |
+|---|---|
+| C++11 | `nullptr`, `auto`/`decltype`, `override`/`final`, move semantics & rvalue references, lambdas, `constexpr`, strongly-typed `enum class` |
+| C++14 | return-type deduction for functions, generic lambdas, relaxed `constexpr` (loops/branches allowed) |
+| C++17 | structured bindings (`auto [a, b] = pair;`), guaranteed copy elision, `if constexpr`, `[[fallthrough]]` |
+| C++20 | concepts, ranges, coroutines, modules |
+
+A few of these are worth knowing cold because they directly replace error-prone older patterns:
+
+- **`nullptr`** replaces the `NULL` macro (which was really just `0`, and could silently convert to an integer in surprising overload-resolution scenarios).
+- **`override`** documents intent and catches typos at compile time — misspell a virtual function's signature in a derived class without `override`, and you silently get a *new*, non-overriding function instead of a compile error.
+- **Move semantics** (`T&&`, move constructors) let a function return large objects (a `std::vector`, a `std::string`) without a full deep copy, by "stealing" the temporary's internal buffer instead.
+
+### Which Features Should You Actually Use?
+
+New language features are tempting, but adopting them isn't free. Three practical constraints show up at every studio:
+
+1. **Compiler/platform support.** Console toolchains and older compilers lag behind the latest standard. A feature you use has to actually be supported everywhere your game ships.
+2. **Switching cost.** Migrating an existing multi-million-line codebase to a new standard is a real, non-trivial cost — most studios pick a standard for the life of a project rather than chasing the newest one mid-development.
+3. **Readability vs. cleverness.** Some features are win-win (`nullptr` — just use it). Others trade off: `auto` is convenient, but a file where *every* variable is declared `auto` becomes as hard to skim as a dynamically-typed language, defeating one of the main advantages of a statically-typed language in the first place. Many studios restrict `auto` to iterators, template code where no other option works, or places where it clearly improves readability — and require explicit types everywhere else.
+
+Heavy template metaprogramming is a similar story: powerful, but it can produce code that's genuinely difficult for another engineer to debug under time pressure — a real cost on a team where anyone might need to jump into unfamiliar code during a crunch or a live outage.
+
+:::tip A simple heuristic
+Ask: does this feature make the code easier for *the next programmer* to read, debug, and modify — not just faster for you to write today? "Because it's new" is not sufficient justification on its own for a shared, long-lived codebase.
+:::
+
+### Coding Standards That Actually Matter
+
+Coding standards debates can get religious fast, but a few principles are close to universally useful:
+
+- **Clean interfaces.** Keep header files minimal and well-documented — the interface is what everyone else has to understand; the implementation is yours alone.
+- **Names that explain intent.** A good name saves every future reader a trip to the implementation.
+- **Don't pollute the global namespace.** Use namespaces (without nesting them too deeply) to avoid symbol collisions, especially once you're linking multiple libraries together.
+- **Consistency over personal preference.** Match whatever convention already exists in a file you're editing, even if it's not your favorite.
+- **Make errors visible.** Code that makes a common mistake *look wrong* at a glance is more valuable than code that merely looks tidy.
+
+### Check: C++ evolution and standards
+
+<MultipleChoice
+  id="ge-ch3-cpp-standards"
+  title="C++ standards and coding conventions"
+  questions={[
+    {
+      prompt: 'What specific bug does the `override` keyword help catch at compile time?',
+      choices: [
+        'Memory leaks in the base class',
+        'A derived class function that was meant to override a virtual function but has a mismatched signature, silently becoming a separate non-overriding function instead of an error',
+        'Infinite recursion in virtual calls',
+        'Missing include statements',
+      ],
+      answer: 1,
+      why: 'Without `override`, a typo in a virtual function\'s signature compiles fine as a new, unrelated function — `override` forces the compiler to verify it actually overrides something.',
+    },
+    {
+      prompt: 'Why might a studio deliberately restrict heavy use of `auto` in their runtime codebase, even though it is a legal and modern C++ feature?',
+      choices: [
+        'auto is deprecated in current C++ standards',
+        'Overusing auto for nearly every variable can make code as hard to skim for types as a dynamically-typed language, undermining a key benefit of static typing',
+        'auto cannot be used with iterators',
+        'auto only works in single-threaded code',
+      ],
+      answer: 1,
+      why: 'auto is genuinely useful in some contexts (iterators, template code) but overusing it everywhere obscures types that would otherwise be visible at a glance.',
+    },
+    {
+      prompt: 'What is the most practical reason a studio might avoid adopting the newest C++ standard immediately, even if some new features are appealing?',
+      choices: [
+        'Newer standards are always slower at runtime',
+        'Full support may not exist across every target compiler/platform yet, and switching an existing large codebase to a new standard has a real, non-trivial migration cost',
+        'Newer C++ standards remove basic language features like classes',
+        'It is illegal to use unratified standards in commercial software',
+      ],
+      answer: 1,
+      why: 'Compiler/platform support lags the newest standard, and migrating a large existing codebase has genuine cost — most teams pick a standard and stick with it for a project\'s duration.',
+    },
+  ]}
+/>
+
+---
+
+## Catching and Handling Errors
+
+Every non-trivial program has to deal with things going wrong. The first useful distinction is *who* caused the problem.
+
+### User Errors vs. Programmer Errors
+
+A **user error** happens when whoever is using the software does something invalid — types a bad input, points at a missing file. A **programmer error** is a bug: something the code should have handled correctly but didn't, regardless of what the "user" did.
+
+In a game studio, "user" is layered:
+
+1. **The player**, at runtime.
+2. **Other developers** on the team — artists, designers, animators — who can produce invalid *content* (a texture with the wrong format, an animation targeting the wrong skeleton).
+3. **Other programmers**, who might call your function with a null pointer or an out-of-range index.
+
+That third layer is genuinely blurry: if programmer A writes `f()` and programmer B calls it incorrectly, is that B's user error, or a bug in A's function for not validating its inputs and handling the case gracefully? Reasonable engineers disagree here, and the right answer depends on context — but it's worth explicitly deciding, rather than leaving it ambiguous, for anything resembling a public API within your own codebase.
+
+### A Different Response for Each Kind of Error
+
+The right *response* differs sharply by error type:
+
+- **Player errors** should be handled inside the fiction of the game itself — an empty-clip click sound and animation instead of a crash or a debug message the player will never understand.
+- **Content/developer errors** benefit from a middle ground: make the problem loudly, unmistakably visible (a bright placeholder object, an obvious on-screen warning) but let the rest of the team keep working. Halting the entire build over one bad texture stops every other developer from making progress — multiplied across a whole studio, that's an expensive way to enforce quality. Conversely, silently ignoring bad content risks it shipping. Visible-but-non-blocking is usually the right trade.
+- **Programmer errors (bugs)** should generally *not* be handled gracefully at all — they should stop the program loudly, as close as possible to where the invalid assumption was first violated, with enough context for a programmer to fix it immediately. This is the job of **assertions**, covered below.
+
+### Check: error philosophy
+
+<MultipleChoice
+  id="ge-ch3-error-philosophy"
+  title="Error types and handling philosophy"
+  questions={[
+    {
+      prompt: 'Why is the line between "user error" and "programmer error" often blurry in a real codebase?',
+      choices: [
+        'Because C++ cannot distinguish between the two categories',
+        'Because one programmer\'s invalid input to another programmer\'s function can be seen either as a caller mistake (user error, from the callee\'s perspective) or as the callee\'s failure to validate and handle bad input gracefully (programmer error)',
+        'Because all errors are actually the same category',
+        'Because compilers automatically convert user errors into programmer errors',
+      ],
+      answer: 1,
+      why: 'When one function calls another, whose "fault" an invalid argument is depends on context and expectations, not a hard rule.',
+    },
+    {
+      prompt: 'Why might a studio choose to display a broken/placeholder asset in-world with an obvious warning, rather than crashing the whole build when one bad asset is detected?',
+      choices: [
+        'Broken assets never cause any real problems',
+        'Crashing blocks every other developer working on the project from making progress, which is expensive at team scale; a loud but non-blocking warning keeps work moving while still surfacing the problem',
+        'It is technically impossible to detect broken assets before runtime',
+        'Placeholder assets automatically fix themselves',
+      ],
+      answer: 1,
+      why: 'The cost of halting an entire team\'s work over one asset usually outweighs the benefit versus a loud, visible, but non-blocking warning.',
+    },
+    {
+      prompt: 'Why should genuine programmer errors (bugs) generally NOT be handled with a graceful "log and continue" strategy?',
+      choices: [
+        'Because logging is always too slow to be practical',
+        'Because a violated programmer assumption means the program state may already be inconsistent — continuing can hide the bug until it causes worse damage later, whereas stopping immediately surfaces it while it\'s cheap to diagnose',
+        'Because programmer errors are impossible to detect automatically',
+        'Because gracefully handling bugs is against most licensing agreements',
+      ],
+      answer: 1,
+      why: 'Bugs indicate a broken assumption; letting execution continue risks corrupting further state, while stopping immediately (as assertions do) surfaces the problem at its source.',
+    },
+  ]}
+/>
+
+---
+
+## Implementing Error Detection and Handling
+
+C++ gives you three main mechanisms for surfacing errors, each with different tradeoffs.
+
+### Error Return Codes
+
+The simplest approach: return a value (a bool, a sentinel, or better, an enum) indicating success or the specific kind of failure.
+
+```cpp
+enum class LoadResult { kSuccess, kFileNotFound, kInvalidFormat };
+
+LoadResult LoadTexture(const char* path, Texture* out);
+```
+
+This is explicit and has zero hidden control flow — but it only works if every caller in the chain actually checks the return value and either handles it or passes it along. A function 40 stack frames deep that detects a problem only the top-level game loop can meaningfully respond to means every one of those 40 functions needs to thread the error code back up manually.
+
+### Exceptions
+
+`throw` lets code that *detects* an error communicate with code that *handles* it, without every function in between needing to know or care. The runtime unwinds the stack looking for a matching `catch`, running destructors along the way (which is exactly why RAII and exceptions pair so well together — a resource acquired via RAII is guaranteed to be released during unwinding, even if you never explicitly catch anything in the functions in between).
+
+That said, many game studios disable exceptions in their runtime engine code entirely. The recurring objections:
+
+- **Invisible control flow.** A `throw` can jump out of a function that neither throws nor catches anything itself, just because it happens to sit on the call stack between two functions that do — making it hard to reason locally about what a function might do.
+- **Binary size and inlining.** The compiler has to generate unwind tables for every function that could be on the stack during an exception, which can bloat code size and discourage inlining.
+- **All-or-nothing linking.** If any linked code uses exceptions, your whole binary effectively needs exception support enabled, even in code paths that never throw.
+
+Studios that want the benefit of a third-party library that *does* use exceptions internally will often wrap every call into that library behind a thin API that catches everything at the boundary and converts it back into a return code — "sandboxing" the exceptions to one translation unit instead of letting them propagate through the whole engine.
+
+### Assertions
+
+An **assertion** checks a condition the programmer believes must always be true. If it's false, the program halts immediately with debugging information — the file, the line, and the failed expression — rather than limping onward with an already-broken assumption. Standard C/C++ gives you `assert()` via `<cassert>`, but engines commonly roll their own so they get finer control over which build configurations keep assertions and which strip them for performance:
+
+```cpp
+#if ASSERTS_ENABLED
+    void ReportAssertFailure(const char* expr, const char* file, int line);
+
+    #define ASSERT(expr) \
+        if (expr) { } \
+        else { \
+            ReportAssertFailure(#expr, __FILE__, __LINE__); \
+            std::abort(); \
+        }
+#else
+    #define ASSERT(expr)   // compiles to nothing in release builds
+#endif
+```
+
+A few details are load-bearing, not accidental:
+
+- **`if (expr) {} else { ... }`, not a bare `if (!expr) ...`.** This makes the macro safe to drop into any `if`/`else` chain without accidentally binding to the wrong `else`.
+- **`#expr`** stringizes the original expression, so the failure message can show exactly what condition failed, not just "assertion failed" with no context.
+- **`__FILE__` / `__LINE__`** are compiler-provided macros that expand to the exact source location — critical for finding the bug fast.
+- **Stripped in release builds** (via the `#if`/`#else`) because assertion checks have a real runtime cost you don't want to pay once the code is proven correct and shipping.
+
+Assertions should only ever guard against bugs — never against expected, recoverable user input. If it's fine for the program to continue past a failure, that's a case for an error return code or a graceful in-game message, not an assertion.
+
+### Compile-Time Assertions
+
+Some conditions are knowable before the program ever runs — for example, "this struct must be exactly 64 bytes to fit the platform's cache line." Modern C++ (C++11+) gives you `static_assert` directly:
+
+```cpp
+struct PackedVertex {
+    float x, y, z;
+    uint32_t color;
+};
+
+static_assert(sizeof(PackedVertex) == 16, "PackedVertex must stay 16 bytes");
+```
+
+If the condition is false, the *build itself* fails, with your custom message — nobody can accidentally ship a regression in a size-sensitive struct without the compiler stopping them.
+
+### Check: error detection mechanisms
+
+<MultipleChoice
+  id="ge-ch3-error-mechanisms"
+  title="Return codes, exceptions, and assertions"
+  questions={[
+    {
+      prompt: 'What is the main practical drawback of relying purely on error return codes for a deeply-nested call stack?',
+      choices: [
+        'Return codes cannot represent more than two states',
+        'Every function on the call stack between the error site and the code that can actually handle it must explicitly check and forward the error code',
+        'Return codes are not supported in C++',
+        'Return codes always require dynamic memory allocation',
+      ],
+      answer: 1,
+      why: 'Without exceptions, propagating an error from deep in the call stack means manually threading a return code back through every intermediate function.',
+    },
+    {
+      prompt: 'Why do RAII and exceptions work well together?',
+      choices: [
+        'They do not — RAII is incompatible with exceptions',
+        'Stack unwinding during an exception still runs destructors of local objects, so RAII-managed resources are guaranteed to be released even if an exception skips past the code that would normally release them',
+        'Exceptions disable destructors for performance reasons',
+        'RAII prevents exceptions from ever being thrown',
+      ],
+      answer: 1,
+      why: 'The stack-unwinding process triggered by a thrown exception still calls destructors for local objects in scope, which is exactly what RAII relies on for cleanup.',
+    },
+    {
+      prompt: 'In a hand-rolled ASSERT macro, why is the body written as `if (expr) {} else { ... }` instead of `if (!expr) { ... }`?',
+      choices: [
+        'It has no real purpose, it is purely stylistic',
+        'It ensures the macro expansion is always safe to drop into any existing if/else chain, without accidentally attaching to the wrong else clause',
+        'It makes the assertion run twice for extra safety',
+        'It is required for __FILE__ and __LINE__ to work',
+      ],
+      answer: 1,
+      why: 'A bare `if (!expr) action();` macro can silently bind to an unrelated outer else clause when the macro is used inside another if/else — the if(){} else{} form avoids that trap.',
+    },
+    {
+      prompt: 'What is the key difference between a runtime ASSERT() and a static_assert()?',
+      choices: [
+        'static_assert can only be used in Java, not C++',
+        'ASSERT() checks a condition while the program is running and can be stripped from release builds; static_assert is checked entirely at compile time and fails the build itself if violated',
+        'They are exactly the same mechanism with different names',
+        'static_assert always has a larger runtime performance cost than ASSERT',
+      ],
+      answer: 1,
+      why: 'static_assert conditions must be knowable at compile time (like sizeof checks) and cause a build failure; ASSERT checks runtime conditions and can be compiled out of shipping builds.',
+    },
+  ]}
+/>
+
+### Practice: write your own ASSERT macro
+
+Complete the `MY_ASSERT` macro below so that it prints `FAIL: <expr> (<file>:<line>)` and exits with a non-zero status when the condition is false, and does nothing when the condition is true. This mirrors the real engine pattern above — reporting plus a hard stop — without needing an actual attached debugger, since there's no debugger to break into here.
+
+<CodeExercise
+  title="Hand-rolled assertion macro"
+  heading="exercise-assert-macro"
+  lang="cpp"
+  filename="main.cpp"
+  prompt="Define MY_ASSERT(expr) so it reports the failed expression, file, and line, then exits(1) — but does nothing at all when expr is true."
+  sampleLog={`(input) 3
+ok: 3 > 0
+FAIL: n < 2 (main.cpp:20)`}
+  starter={`#include <cstdio>
+#include <cstdlib>
+
+// TODO: define MY_ASSERT(expr) using __FILE__ and __LINE__.
+// On failure it should print:  FAIL: <expr> (<file>:<line>)
+// then call exit(1). On success it should do nothing.
+#define MY_ASSERT(expr) /* TODO */
+`}
+  wrapSuffix={`
+int main() {
+    int n;
+    scanf("%d", &n);
+    MY_ASSERT(n > 0);
+    printf("ok: %d > 0\\n", n);
+    MY_ASSERT(n < 2);   // will fail for n >= 2
+    printf("ok: %d < 2\\n", n);
+    return 0;
+}
+`}
+  hint='#define MY_ASSERT(expr) if (expr) {} else { printf("FAIL: %s (%s:%d)\\n", #expr, __FILE__, __LINE__); exit(1); }'
+  solution={`#include <cstdio>
+#include <cstdlib>
+
+#define MY_ASSERT(expr) \\
+    if (expr) { } \\
+    else { \\
+        printf("FAIL: %s (%s:%d)\\n", #expr, __FILE__, __LINE__); \\
+        exit(1); \\
+    }
+`}
+  sourceChecks={[
+    { name: 'stringizes expr', pattern: '#expr|#\\s*expr', must: true, hint: 'use the # operator on expr to print the failing condition' },
+    { name: 'uses __LINE__', pattern: '__LINE__', must: true, hint: 'include __LINE__ in the failure report' },
+  ]}
+  tests={[
+    { name: 'passes both checks', stdin: '3', includes: ['FAIL: n < 2'] },
+    { name: 'first assert fails', stdin: '-1', includes: ['FAIL: n > 0'] },
+  ]}
+/>
+
+### Practice: compile-time size guard
+
+Add a `static_assert` that enforces `sizeof(NetPacketHeader) == 8` so a future change to the struct can never silently break the network protocol without the build failing loudly.
+
+<CodeExercise
+  title="Static assertion on struct layout"
+  heading="exercise-static-assert"
+  lang="cpp"
+  filename="main.cpp"
+  prompt="Add a static_assert enforcing that NetPacketHeader stays exactly 8 bytes, with a descriptive message."
+  sampleLog={`(no input)
+header size ok: 8`}
+  starter={`#include <cstdio>
+#include <cstdint>
+
+struct NetPacketHeader {
+    uint16_t type;
+    uint16_t length;
+    uint32_t sequence;
+};
+
+// TODO: static_assert that sizeof(NetPacketHeader) == 8
+`}
+  wrapSuffix={`
+int main() {
+    printf("header size ok: %zu\\n", sizeof(NetPacketHeader));
+    return 0;
+}
+`}
+  hint='static_assert(sizeof(NetPacketHeader) == 8, "NetPacketHeader must stay 8 bytes");'
+  solution={`#include <cstdio>
+#include <cstdint>
+
+struct NetPacketHeader {
+    uint16_t type;
+    uint16_t length;
+    uint32_t sequence;
+};
+
+static_assert(sizeof(NetPacketHeader) == 8, "NetPacketHeader must stay 8 bytes");
+`}
+  sourceChecks={[
+    { name: 'uses static_assert', pattern: 'static_assert', must: true, hint: 'add a static_assert checking sizeof(NetPacketHeader)' },
+  ]}
+  tests={[
+    { name: 'prints size', stdin: '', equals: 'header size ok: 8' },
+  ]}
+/>
+
+---
+
+## Chapter Summary
+
+:::important Key takeaways
+
+1. **Encapsulation, inheritance, and polymorphism** remain the backbone of engine design — but reach for **composition** by default, and reserve inheritance for genuine is-a relationships. Restrict multiple inheritance to small, state-free mix-ins.
+2. **RAII** — tying resource cleanup to destructors — eliminates an entire category of "forgot to release it" bugs, and pairs naturally with early returns and exceptions alike.
+3. The **C++ standard keeps evolving**, but adopting a new feature is a team decision, not an individual one: weigh compiler/platform support, migration cost, and — most importantly — whether it makes code easier for *someone else* to read and debug later.
+4. **Not all errors are the same.** Player errors belong inside the game's fiction; developer/content errors are best surfaced loudly but non-blockingly; genuine programmer bugs should generally stop execution immediately, at the source, via assertions.
+5. **Return codes, exceptions, and assertions** solve different problems: return codes for expected, recoverable failures; exceptions for separating error *detection* from error *handling* across a deep call stack (at a real cost many studios choose not to pay); assertions for catching violated programmer assumptions as early and loudly as possible — with `static_assert` catching what's knowable before the program even runs.
+
+:::

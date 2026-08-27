@@ -1,0 +1,1034 @@
+---
+sidebar_position: 2
+title: Tokens and Embeddings
+---
+
+# Tokens and Embeddings
+
+> **Adapted from:** Jay Alammar & Maarten Grootendorst, *Hands-On Large Language Models* (O'Reilly, 2024), Chapter 2 — rewritten and condensed for teaching, with code examples adapted from the original.
+
+Tokens and embeddings are two of the most central ideas behind how large language models actually work. A model never sees raw text — it sees a sequence of small chunks called **tokens**, and to do any computation on them at all, it first has to turn those tokens into numeric vectors called **embeddings**.
+
+This chapter walks through both halves of that pipeline: how tokenizers break text into tokens, and how those tokens become embeddings — first as the static, per-token vectors a model starts from, then as the richer *contextualized* vectors a trained model produces. From there we zoom out from single tokens to whole sentences and documents (the basis of things like semantic search), and then sideways, to see how the exact same embedding idea — originally popularized by **word2vec** — powers recommendation systems that have nothing to do with language at all.
+
+---
+
+## LLM Tokenization
+
+If you've used a chat-style LLM playground, you may have noticed the response doesn't appear all at once — it streams in piece by piece, one **token** at a time. That's not just an output quirk: tokens are also how the model reads its *input*. Before a prompt ever reaches the model, it passes through a **tokenizer** that chops it into pieces — sometimes whole words, sometimes fragments of words, sometimes punctuation.
+
+### Downloading and running a real tokenizer
+
+Here's what that actually looks like in code, loading a small instruction-tuned model and its paired tokenizer:
+
+```python
+from transformers import AutoModelForCausalLM, AutoTokenizer
+
+# Load model and tokenizer
+model = AutoModelForCausalLM.from_pretrained(
+    "microsoft/Phi-3-mini-4k-instruct",
+    device_map="cuda",
+    torch_dtype="auto",
+    trust_remote_code=True,
+)
+tokenizer = AutoTokenizer.from_pretrained("microsoft/Phi-3-mini-4k-instruct")
+```
+
+With both loaded, generation is a three-step dance: tokenize the prompt into IDs, hand those IDs to the model, then decode whatever IDs come back:
+
+```python
+prompt = "Write an email apologizing to Sarah for the tragic gardening mishap. Explain how it happened.<|assistant|>"
+
+# Tokenize the input prompt
+input_ids = tokenizer(prompt, return_tensors="pt").input_ids.to("cuda")
+
+# Generate the text
+generation_output = model.generate(
+    input_ids=input_ids,
+    max_new_tokens=20,
+)
+
+# Print the output
+print(tokenizer.decode(generation_output[0]))
+```
+
+Notice the model itself never receives the text prompt — it receives `input_ids`, a tensor of plain integers. Printing `input_ids` makes this obvious:
+
+```
+tensor([[    1, 14350,   385,  4876, 27746,  5281,   304, 19235,   363,   278,
+         25305,   293, 16423,   292,   286,   728,   481, 29889, 12027,  7420,
+           920,   372,  9559, 29889, 32001]], device='cuda:0')
+```
+
+Each number is the unique ID of a specific token, looked up in a table the tokenizer maintains internally — its **vocabulary**. To see what each ID actually stands for, decode them one at a time:
+
+```python
+for id in input_ids[0]:
+    print(tokenizer.decode(id))
+```
+
+```
+<s>
+Write
+an
+email
+apolog
+izing
+to
+Sarah
+for
+the
+trag
+ic
+garden
+ing
+m
+ish
+ap
+.
+Exp
+lain
+how
+it
+happened
+.
+<|assistant|>
+```
+
+A few things worth noticing:
+
+- `<s>` (ID `1`) is a **special token** marking the start of the text — it isn't "real" text at all.
+- Whole words show up as single tokens: `Write`, `an`, `email`.
+- Longer or less common words get split into fragments: `apolog` + `izing`, `trag` + `ic`.
+- Punctuation gets its own token.
+
+There's a subtlety about spaces here: the tokenizer doesn't emit a separate token for the space character. Instead, fragment tokens like `izing` and `ic` carry a hidden marker meaning "I'm glued directly onto the token before me, no space." A token *without* that marker is assumed to have a space in front of it. That's the tokenizer's way of encoding whitespace without wasting a whole token on it.
+
+Generation works the same way in reverse: the model emits token IDs one at a time (e.g. `3323` → `'Sub'`, then `622` → `'ject'`, together forming `"Subject"`), and the tokenizer's `decode` turns those back into text — you can even hand it a list of IDs at once:
+
+```python
+print(tokenizer.decode(3323))
+print(tokenizer.decode(622))
+print(tokenizer.decode([3323, 622]))
+print(tokenizer.decode(29901))
+```
+
+```
+Sub
+ject
+Subject
+:
+```
+
+### Check: how tokenization works
+
+<MultipleChoice
+  id="ai-eng-ch2-tokenization-basics"
+  title="How LLM tokenization works"
+  questions={[
+    {
+      prompt: 'What does a language model actually receive as input — the raw prompt text, or something else?',
+      choices: [
+        'The raw prompt text, unmodified',
+        'A tensor of integer token IDs produced by the tokenizer',
+        'An image representation of the text',
+        'A hash of the prompt',
+      ],
+      answer: 1,
+      why: 'The tokenizer converts the prompt into input_ids — integers referencing entries in its vocabulary — and that is what the model actually processes.',
+    },
+    {
+      prompt: 'How does a subword tokenizer typically indicate that "space before this token" is absent (i.e. this token is glued onto the previous one)?',
+      choices: [
+        'It never indicates this — spaces are always their own token',
+        'A fragment token carries a hidden marker meaning it connects directly to the preceding token; tokens without that marker are assumed to have a space before them',
+        'It inserts an underscore character visible in the decoded text',
+        'It always capitalizes the following letter',
+      ],
+      answer: 1,
+      why: 'Tokens like "izing" or "ic" carry a special leading marker signaling "no space before me" — normal tokens are assumed to have a preceding space.',
+    },
+  ]}
+/>
+
+<details>
+<summary>🧪 A tiny illustration of "token IDs → text" round-tripping</summary>
+
+<PistonRunner
+  lang="python"
+  interactive={false}
+  height="260px"
+  code={`# A miniature stand-in for a real tokenizer's vocabulary + decode logic.
+vocab = {1: "<s>", 2: "Write", 3: "an", 4: "email", 5: "apolog", 6: "izing"}
+
+def decode(ids):
+    # A real tokenizer also handles the "glued token" spacing rule;
+    # here we keep it simple and just join with spaces.
+    return " ".join(vocab[i] for i in ids)
+
+input_ids = [1, 2, 3, 4]
+print("IDs:", input_ids)
+print("Decoded:", decode(input_ids))
+
+# Fragment tokens combine into one word when decoded together
+print("Fragments 5+6 decode to:", decode([5, 6]))
+`}
+/>
+
+</details>
+
+---
+
+### How Does the Tokenizer Break Down Text?
+
+Three design decisions, made well before you ever call `.generate()`, determine exactly how a tokenizer will chop up a given piece of text:
+
+1. **The tokenization method** — chosen by the model's creators. **Byte pair encoding (BPE)** is widely used by GPT-family models; **WordPiece** is used by BERT. Both aim to find an efficient set of tokens to represent a text dataset, just via different algorithms.
+2. **Tokenizer parameters** — vocabulary size, which special tokens to include, and so on (covered in more depth below).
+3. **The training dataset** — even with identical method and parameters, a tokenizer trained on English prose will differ from one trained on source code or a multilingual corpus.
+
+Tokenizers aren't only used on the way in, either — the exact same tokenizer is used on the way *out*, translating each generated token ID back into readable text.
+
+### Word vs. Subword vs. Character vs. Byte Tokens
+
+The tokenization scheme in the walkthrough above — mixing whole words and word fragments — is called **subword tokenization**, and it's by far the most common approach today. But it's not the only option:
+
+| Scheme | How it works | Strength | Weakness |
+|---|---|---|---|
+| **Word tokens** | Each whole word is one token | Simple, was standard pre-LLM (word2vec era) | Can't handle new/unseen words; wastes vocabulary on near-duplicates like *apology*, *apologize*, *apologetic* |
+| **Subword tokens** | Mix of whole words and fragments | Handles new words by falling back to known fragments; more expressive vocabulary (one `apolog` root + reusable suffixes like `-y`, `-ize`, `-etic`) | Slightly more complex to decode (fragment-gluing rules) |
+| **Character tokens** | Every character is its own token | Never truly "unknown" — can always fall back to raw letters | Makes modeling harder (spelling out "p-l-a-y" instead of one token for "play"); wastes context length |
+| **Byte tokens** | Break text into the raw bytes behind Unicode characters | Fully general, "tokenization-free"; strong in multilingual settings (see *CANINE* and *ByT5*) | Even more tokens needed per word than character-level |
+
+Subword tokenization strikes a practical balance: for a model with a 1,024-token context window, subword tokenization typically fits roughly **3x** more actual text than character-level tokenization would, since subword tokens average about three characters each.
+
+:::note Byte-level fallback isn't the same as a byte-level tokenizer
+Some subword tokenizers — GPT-2 and RoBERTa among them — include individual bytes in their vocabulary purely as a fallback for characters they can't otherwise represent. That's different from a true byte-level ("tokenization-free") tokenizer, which uses bytes to represent *everything*, not just edge cases.
+:::
+
+### Check: tokenization schemes
+
+<MultipleChoice
+  id="ai-eng-ch2-schemes"
+  title="Word, subword, character, and byte tokens"
+  questions={[
+    {
+      prompt: 'Why did word-level tokenization fall out of favor for modern NLP models?',
+      choices: [
+        'It is too slow to compute',
+        'It cannot handle new words unseen during tokenizer training, and it wastes vocabulary space on many near-duplicate word forms',
+        'It only works for non-English languages',
+        'It requires more GPU memory than any other scheme',
+      ],
+      answer: 1,
+      why: 'Word tokenization cannot represent out-of-vocabulary words and needs separate tokens for related forms like "apology"/"apologize"/"apologetic".',
+    },
+    {
+      prompt: 'Roughly how much more text can subword tokenization fit into a fixed context length compared to character-level tokenization?',
+      choices: ['About the same amount', 'About 3x more', 'About 100x more', 'Less text, not more'],
+      answer: 1,
+      why: 'Subword tokens average about three characters each, so a fixed context length (in tokens) covers roughly three times as much raw text as character-level tokens would.',
+    },
+    {
+      prompt: 'What is the key difference between a tokenizer that merely includes bytes as a fallback (like GPT-2) and a true byte-level, "tokenization-free" tokenizer?',
+      choices: [
+        'There is no real difference',
+        'A fallback tokenizer only uses bytes for characters it cannot otherwise represent; a true byte-level tokenizer represents all text as bytes',
+        'Fallback tokenizers cannot represent emoji at all',
+        'True byte-level tokenizers never use a vocabulary',
+      ],
+      answer: 1,
+      why: 'GPT-2/RoBERTa use bytes only as an escape hatch for unrepresentable characters — most text still goes through the normal subword vocabulary.',
+    },
+  ]}
+/>
+
+<details>
+<summary>🧪 A toy BPE-style merge step</summary>
+
+Real BPE training repeatedly merges the *most frequent adjacent pair* of symbols in a corpus. Here's a stripped-down illustration of a couple of merge rounds:
+
+<PistonRunner
+  lang="python"
+  interactive={false}
+  height="320px"
+  code={`from collections import Counter
+
+# Start fully character-split, with a special end-of-word marker
+# kept as one atomic symbol (not split into < / w >).
+corpus = {"low": 5, "lower": 2, "newest": 6, "widest": 3}
+symbols = {
+    " ".join(list(word) + ["</w>"]): freq
+    for word, freq in corpus.items()
+}
+
+def get_pair_counts(symbols):
+    counts = Counter()
+    for word, freq in symbols.items():
+        parts = word.split()
+        for a, b in zip(parts, parts[1:]):
+            counts[(a, b)] += freq
+    return counts
+
+def merge_pair(pair, symbols):
+    merged = "".join(pair)
+    new_symbols = {}
+    bigram = " ".join(pair)
+    for word, freq in symbols.items():
+        new_symbols[word.replace(bigram, merged)] = freq
+    return new_symbols
+
+for step in range(3):
+    pairs = get_pair_counts(symbols)
+    best = max(pairs, key=pairs.get)
+    print(f"Merge {step + 1}: {best} (seen {pairs[best]} times) -> '{''.join(best)}'")
+    symbols = merge_pair(best, symbols)
+
+print("\\nResulting symbol sequences:")
+for word in symbols:
+    print(" ", word)
+`}
+/>
+
+</details>
+
+---
+
+### Comparing Trained LLM Tokenizers
+
+The best way to see how these design choices play out is to run the *same* text through several real, trained tokenizers and compare. A good stress-test string includes capitalization, non-English characters, emoji, code-like syntax, whitespace, and numbers:
+
+```python
+text = """
+English and CAPITALIZATION
+🎵🐦
+show_tokens False None elif == >= else: two tabs:"		" Three tabs: "			"
+12.0*50=600
+"""
+```
+
+Here's a condensed tour of what happens, from older to newer tokenizers:
+
+| Tokenizer | Method | Vocab size | Notable behavior on the test string |
+|---|---|---|---|
+| **BERT (uncased, 2018)** | WordPiece | 30,522 | Lowercases everything; drops newlines; emoji/Chinese become `[UNK]`; wraps input in `[CLS]` ... `[SEP]` |
+| **BERT (cased, 2018)** | WordPiece | 28,996 | Same as above but preserves case — "CAPITALIZATION" explodes into 8 fragment tokens (`CA`, `##PI`, `##TA`, `##L`, `##I`, `##Z`, `##AT`, `##ION`) |
+| **GPT-2 (2019)** | BPE | 50,257 | Preserves newlines and case; represents 4 spaces as 3 tokens (indentation is expensive); emoji become several undecodable-looking tokens that still round-trip correctly |
+| **Flan-T5 (2022)** | SentencePiece (BPE/unigram) | 32,100 | No newline or whitespace-run tokens at all (bad for code); emoji/Chinese both collapse to `&lt;unk&gt;` |
+| **GPT-4 (2023)** | BPE | ~100,000+ | A *single* token for runs of whitespace up to 83 characters long; `elif` gets its own token; represents most words in fewer tokens overall (code-aware) |
+| **StarCoder2 (2024)** | BPE | 49,152 | Code-focused: whitespace runs are one token; **each digit is its own token** (`600` → `6`, `0`, `0`) to help the model reason about numbers; adds `&lt;filename&gt;`/`&lt;reponame&gt;` tokens for multi-file code context |
+| **Galactica** | BPE | 50,000 | Science-focused: special tokens for citations (`[START_REF]` / `[END_REF]`), step-by-step reasoning (`&lt;work&gt;`), and more |
+| **Phi-3 / Llama 2** | BPE | 32,000 | Reuses the Llama 2 tokenizer, plus chat-role tokens: `&lt;|user|&gt;`, `&lt;|assistant|&gt;`, `&lt;|system|&gt;` |
+
+A few patterns worth internalizing from this table:
+
+- **Whitespace handling matters a lot for code.** A tokenizer that needs 3–4 tokens to represent one indentation level makes it harder for a model to track indentation depth reliably — collapsing a whitespace run into a single token is a deliberate, code-aware design choice (GPT-4, StarCoder2, Galactica all do this).
+- **Digit splitting is a deliberate choice, too.** StarCoder2 assigns each digit its own token specifically so numbers are represented consistently — compare that to GPT-2, where `870` is one token but `871` splits into two (`8` + `71`), an inconsistency that plausibly makes arithmetic harder to learn.
+- **Special tokens encode a model's intended use case.** Fill-in-the-middle tokens (`<fim_prefix>`, etc.) exist because those models are trained to complete code given both what comes *before* and *after* the cursor. Chat-role tokens exist because those models are trained for multi-turn conversation. A tokenizer's special-token list is a pretty direct readout of what the model was built to do.
+
+### Check: comparing real tokenizers
+
+<MultipleChoice
+  id="ai-eng-ch2-comparing"
+  title="Comparing trained tokenizers"
+  questions={[
+    {
+      prompt: 'Why do code-focused tokenizers like GPT-4\'s and StarCoder2\'s represent a run of whitespace (e.g. 4 spaces) as a single token, instead of one token per space?',
+      choices: [
+        'It is a bug that has not been fixed',
+        'It makes indentation cheaper and easier for the model to track, which matters a lot for languages like Python where indentation is syntactically meaningful',
+        'It only affects emoji handling',
+        'Whitespace cannot be tokenized any other way',
+      ],
+      answer: 1,
+      why: 'Collapsing whitespace runs into one token reduces the burden of tracking indentation depth across many separate tokens, improving code modeling.',
+    },
+    {
+      prompt: 'What motivated StarCoder2\'s choice to give every digit its own token (so "600" becomes three tokens: 6, 0, 0)?',
+      choices: [
+        'To save vocabulary space',
+        'To make number representation more consistent, avoiding the kind of inconsistency where "870" is one token but "871" splits into two, which could hinder arithmetic reasoning',
+        'Because digits cannot be merged with letters',
+        'It was an accident of the BPE training process with no intended benefit',
+      ],
+      answer: 1,
+      why: 'Per-digit tokenization was a deliberate choice aimed at more consistent, learnable number representations for math-heavy code tasks.',
+    },
+    {
+      prompt: 'What do a tokenizer\'s special tokens (e.g. <fim_prefix>, <|user|>, [START_REF]) tell you about the model?',
+      choices: [
+        'Nothing useful — they are arbitrary',
+        'They are a fairly direct signal of the model\'s intended use case, such as code fill-in-the-middle, multi-turn chat, or scientific citation handling',
+        'They only affect training speed, never model behavior',
+        'They indicate the model\'s parameter count',
+      ],
+      answer: 1,
+      why: 'Special tokens are added deliberately to support specific capabilities — fill-in-the-middle code completion, chat turns, citations — so they reveal what the model was designed for.',
+    },
+  ]}
+/>
+
+---
+
+### Tokenizer Properties, Recap
+
+Pulling the three design axes together:
+
+- **Tokenization method** — the algorithm (BPE, WordPiece, SentencePiece/unigram, ...) that decides how to build an efficient vocabulary from a dataset.
+- **Tokenizer parameters** — choices like **vocabulary size** (30K and 50K used to be typical; 100K+ is increasingly common), which **special tokens** to include (beginning/end-of-text, padding, unknown, classification, masking, or domain-specific ones like Galactica's `<work>`), and how to handle **capitalization**.
+- **The training dataset's domain** — the same method and parameters, trained on a different dataset, produce a meaningfully different tokenizer. A tokenizer trained on prose will tokenize indented Python code far less efficiently than one deliberately trained on a code-heavy dataset.
+
+---
+
+## Token Embeddings
+
+Tokenization solves half the problem: representing language as a sequence of discrete units. The other half is finding a good *numeric* representation for each of those units — one a model can actually compute with. That numeric representation is the **embedding**.
+
+:::caution A coherent model isn't automatically a factual one
+A model trained on enough tokens starts to capture real patterns in language — grammar, style, even facts, if its training data (like Wikipedia) contained a lot of them. But fluency and factual reliability are different things. Around early 2023, some LLMs were informally dubbed "Google killers" before users discovered that generation alone isn't a reliable substitute for search — which is a big part of why **retrieval-augmented generation (RAG)**, combining search with generation, became so popular.
+:::
+
+### A language model holds an embedding for every token in its tokenizer's vocabulary
+
+Once a tokenizer is trained, it's paired permanently with a specific language model — you can't swap in a different tokenizer for an already-trained model without retraining. Internally, the model holds one embedding vector per vocabulary entry, stored together as an **embedding matrix**. When you download a pretrained model, this matrix is part of what you're downloading.
+
+Before training begins, these vectors start out randomly initialized, exactly like the rest of the model's weights. Training is what shapes them into vectors that actually encode useful meaning.
+
+### From static to contextualized embeddings
+
+The embedding matrix gives every token a single, fixed ("static") vector, regardless of context — the word "bank" gets the same starting vector whether it's next to "river" or "account." But a trained language model can do better: as tokens pass through the model's layers, their vectors are updated based on surrounding context, producing **contextualized embeddings** that actually distinguish "river bank" from "savings bank."
+
+These contextualized vectors are the backbone of tasks like named-entity recognition and extractive summarization, and — perhaps surprisingly — the same underlying idea also powers AI image generation systems like DALL·E, Midjourney, and Stable Diffusion.
+
+Here's what producing contextualized embeddings looks like in code, using DeBERTa v3, a small and efficient model well-suited to token embeddings:
+
+```python
+from transformers import AutoModel, AutoTokenizer
+
+# Load a tokenizer
+tokenizer = AutoTokenizer.from_pretrained("microsoft/deberta-base")
+# Load a language model
+model = AutoModel.from_pretrained("microsoft/deberta-v3-xsmall")
+
+# Tokenize the sentence
+tokens = tokenizer('Hello world', return_tensors='pt')
+# Process the tokens
+output = model(**tokens)[0]
+```
+
+Checking the shape of the result:
+
+```python
+output.shape
+# torch.Size([1, 4, 384])
+```
+
+Reading that shape right to left: **384** is the size of each embedding vector, **4** is the number of tokens, and the leading **1** is the batch dimension (used when processing several inputs together — irrelevant here, since we only passed one sentence).
+
+Why four tokens for two words? Because the tokenizer wraps the input with its own special tokens:
+
+```python
+for token in tokens['input_ids'][0]:
+    print(tokenizer.decode(token))
+```
+
+```
+[CLS]
+Hello
+world
+[SEP]
+```
+
+Each of those four tokens gets its own 384-dimensional contextualized vector — the raw output a language model actually produces, and the foundation everything downstream (classification heads, similarity search, and more) is built on.
+
+### Check: token embeddings
+
+<MultipleChoice
+  id="ai-eng-ch2-token-embeddings"
+  title="Static vs. contextualized token embeddings"
+  questions={[
+    {
+      prompt: 'What is stored in a language model\'s "embedding matrix"?',
+      choices: [
+        'One vector per possible sentence the model could generate',
+        'One vector per token in the tokenizer\'s vocabulary',
+        'A single vector representing the entire training dataset',
+        'The model\'s attention weights',
+      ],
+      answer: 1,
+      why: 'The embedding matrix holds exactly one starting vector per vocabulary token — this is what the model looks up first for any input token.',
+    },
+    {
+      prompt: 'What distinguishes a "contextualized" token embedding from a "static" one?',
+      choices: [
+        'Contextualized embeddings never change, static ones do',
+        'A static embedding is the same fixed vector for a token no matter the surrounding context; a contextualized embedding is adjusted based on the specific context the token appears in',
+        'Static embeddings only exist for punctuation',
+        'There is no real difference between the two',
+      ],
+      answer: 1,
+      why: 'A static embedding is looked up once and never changes with context; a contextualized embedding is produced by running the token through the model\'s layers along with its neighbors, so meaning-sensitive distinctions (like "bank" as riverbank vs. financial bank) can emerge.',
+    },
+    {
+      prompt: 'In an output shape of torch.Size([1, 4, 384]) for the two-word input "Hello world", what does the "4" represent?',
+      choices: [
+        'The batch size',
+        'The embedding dimension',
+        'The number of tokens, including the special [CLS] and [SEP] tokens the tokenizer added',
+        'The number of attention heads',
+      ],
+      answer: 2,
+      why: '"Hello world" becomes 4 tokens once [CLS] and [SEP] are added by the tokenizer: [CLS], Hello, world, [SEP].',
+    },
+  ]}
+/>
+
+<details>
+<summary>🧪 Static vs. "contextualized" similarity, illustrated with toy vectors</summary>
+
+<PistonRunner
+  lang="python"
+  interactive={false}
+  height="300px"
+  code={`import math
+
+def cosine_sim(a, b):
+    dot = sum(x * y for x, y in zip(a, b))
+    norm_a = math.sqrt(sum(x * x for x in a))
+    norm_b = math.sqrt(sum(y * y for y in b))
+    return dot / (norm_a * norm_b)
+
+# Pretend "bank" has ONE static vector, no matter the sentence:
+bank_static = [0.5, 0.1, 0.9]
+
+# A contextualized model instead produces a DIFFERENT vector
+# depending on the sentence "bank" appeared in:
+bank_in_river_context = [0.9, 0.8, 0.1]   # shifted toward "river/water" meaning
+bank_in_money_context = [0.1, 0.2, 0.95]  # shifted toward "finance" meaning
+
+river = [0.85, 0.75, 0.05]
+finance = [0.05, 0.15, 0.9]
+
+print("Static 'bank' vs river:  ", round(cosine_sim(bank_static, river), 3))
+print("Static 'bank' vs finance:", round(cosine_sim(bank_static, finance), 3))
+print("--- with contextualization ---")
+print("River-context 'bank' vs river:    ", round(cosine_sim(bank_in_river_context, river), 3))
+print("Money-context 'bank' vs finance:  ", round(cosine_sim(bank_in_money_context, finance), 3))
+`}
+/>
+
+</details>
+
+---
+
+## Text Embeddings (for Sentences and Whole Documents)
+
+Plenty of applications don't want a vector per token — they want a single vector representing a whole sentence, paragraph, or document. This is exactly what dedicated **text embedding models** produce: feed in a chunk of text, get back one vector that captures its overall meaning.
+
+One simple way to get there is to average all of a model's token embeddings together. But the best-performing text embedding models are trained specifically for this task, using a package like `sentence-transformers`:
+
+```python
+from sentence_transformers import SentenceTransformer
+
+# Load model
+model = SentenceTransformer("sentence-transformers/all-mpnet-base-v2")
+
+# Convert text to text embeddings
+vector = model.encode("Best movie ever!")
+```
+
+```python
+vector.shape
+# (768,)
+```
+
+That's it — one 768-dimensional vector representing the entire sentence. The number of dimensions is a property of the specific embedding model, not something you choose per-call. These sentence/document vectors are the foundation for applications like semantic search, topic modeling, clustering, and retrieval-augmented generation — comparing two pieces of text becomes as simple as comparing two vectors.
+
+### Check: text embeddings
+
+<MultipleChoice
+  id="ai-eng-ch2-text-embeddings"
+  title="Sentence and document embeddings"
+  questions={[
+    {
+      prompt: 'What is the simplest way to turn a sequence of token embeddings into one embedding for the whole sentence?',
+      choices: [
+        'It is impossible without a dedicated model',
+        'Average all the token embeddings together (though purpose-trained sentence embedding models tend to perform better)',
+        'Keep only the embedding of the first token',
+        'Concatenate every token embedding into one very long vector',
+      ],
+      answer: 1,
+      why: 'Averaging token embeddings is the simplest approach; dedicated sentence-embedding models (like those from sentence-transformers) are trained specifically to do this well.',
+    },
+    {
+      prompt: 'What determines the dimensionality (e.g. 768) of a sentence embedding produced by a model like all-mpnet-base-v2?',
+      choices: [
+        'You choose it as an argument to .encode()',
+        'It is a fixed property of that particular embedding model',
+        'It equals the number of words in the input sentence',
+        'It is always 100',
+      ],
+      answer: 1,
+      why: 'Embedding dimensionality is baked into the model architecture — the same model always returns vectors of the same size, regardless of input length.',
+    },
+  ]}
+/>
+
+---
+
+## Word Embeddings Beyond LLMs
+
+Embeddings turn out to be useful for far more than text. Assigning a meaningful vector to "an object" is a pattern that shows up in recommendation systems, robotics, and beyond — and the technique that made this idea famous, well before modern LLMs, was **word2vec**.
+
+### Using pretrained word embeddings
+
+You can download pretrained word vectors (word2vec, GloVe, and others) with the `gensim` library:
+
+```python
+import gensim.downloader as api
+
+# Download embeddings (66MB, glove, trained on wikipedia, vector size: 50)
+model = api.load("glove-wiki-gigaword-50")
+```
+
+Once loaded, you can explore the embedding space directly — for instance, finding the nearest neighbors of "king":
+
+```python
+model.most_similar([model['king']], topn=11)
+```
+
+```
+[('king', 1.0000001192092896),
+ ('prince', 0.8236179351806641),
+ ('queen', 0.7839043),
+ ('ii', 0.7746230363845825),
+ ('emperor', 0.7736247777938843),
+ ('son', 0.766719400882721),
+ ('uncle', 0.7627150416374207),
+ ('kingdom', 0.7542161345481873),
+ ('throne', 0.7539914846420288),
+ ('brother', 0.7492411136627197),
+ ('ruler', 0.7434253692626953)]
+```
+
+Notably, this vector space wasn't produced by an LLM at all — it comes from word2vec, a much simpler and older method. Yet "king" landing near "queen," "prince," and "throne" shows the embedding space genuinely captured meaningful relationships between words.
+
+### The word2vec algorithm: skip-gram and negative sampling
+
+Just like an LLM, word2vec learns from examples generated out of ordinary text. Take a sentence — say, *"Thou shalt not make a machine in the likeness of a human mind."* Slide a window across it (window size 2 means "look two words to each side"), and every pass of that window generates training examples pairing the center word with each of its neighbors.
+
+The model being trained is deliberately simple: given two words, predict **1** if they tend to appear near each other, **0** if they don't. This idea — the sliding window producing (center word, neighbor word) pairs — is called **skip-gram**.
+
+There's a catch, though: if every training example is labeled "1" (they're all neighbor pairs pulled from real sentences), the model can trivially "win" by always predicting 1. To prevent that, the training set is padded with **negative examples**: pairs of words that were *not* found near each other, generated simply by picking random words from the vocabulary and labeling them 0. This works surprisingly well without needing to be clever about *which* random words to pick — the underlying idea is called **noise-contrastive estimation**. Together, skip-gram (generating positive pairs) and this random negative-sampling trick are the two core ideas behind word2vec — and behind a lot of other embedding techniques far beyond it.
+
+Concretely, training proceeds like this:
+
+1. Build a vocabulary from the corpus, make the usual tokenization decisions (capitalization, punctuation, vocabulary size).
+2. Randomly initialize an embedding vector for every vocabulary entry — a matrix of shape `vocab_size × embedding_dimensions`.
+3. Train a small neural network on millions (or billions) of (word A, word B, label) examples, where the network takes the two words' current embeddings and predicts whether they're neighbors.
+4. Every time a prediction is wrong, the training process nudges the relevant embeddings so the model does a little better next time.
+
+By the end, the embeddings for every word in the vocabulary have been shaped by millions of "are these two neighbors?" comparisons — which is exactly why semantically related words (like "king" and "throne") end up near each other in the resulting vector space.
+
+:::note This idea generalizes far beyond words
+"Take two vectors and predict whether they're related" is one of the most reusable ideas in machine learning — it's the same underlying pattern behind training language models for sentence embeddings and retrieval, and it's also central to bridging entirely different modalities (an image and a caption, predicted as "matching" or not), which is foundational to how AI image generation systems work.
+:::
+
+### Check: word2vec
+
+<MultipleChoice
+  id="ai-eng-ch2-word2vec"
+  title="word2vec: skip-gram and negative sampling"
+  questions={[
+    {
+      prompt: 'In word2vec\'s skip-gram approach, what does the sliding window over a sentence produce?',
+      choices: [
+        'A single embedding for the whole sentence',
+        'Training pairs of a center word with each of its nearby neighbor words',
+        'A list of all unique words in the corpus, unordered',
+        'A translation of the sentence into another language',
+      ],
+      answer: 1,
+      why: 'Skip-gram slides a window across text and pairs the center word with each neighbor inside the window, producing (center, neighbor) training examples.',
+    },
+    {
+      prompt: 'Why does word2vec training need negative examples (word pairs labeled as "not neighbors"), not just real neighbor pairs?',
+      choices: [
+        'Negative examples make training faster only, with no effect on quality',
+        'Without them, a model could trivially achieve high accuracy by always predicting "neighbors", since every real example would be labeled 1',
+        'Negative examples are required by the gensim library specifically',
+        'They are used only for evaluation, never for training',
+      ],
+      answer: 1,
+      why: 'If every training label were "1" (real neighbor pairs), the model could cheat by always predicting 1 — negative sampling forces it to actually learn to distinguish neighbors from non-neighbors.',
+    },
+    {
+      prompt: 'How are word2vec\'s negative examples typically generated?',
+      choices: [
+        'By carefully hand-picking semantically opposite word pairs',
+        'By randomly sampling words from the vocabulary and labeling the pair as "not neighbors" — no special care needed in the selection',
+        'By translating positive examples into another language',
+        'Negative examples are not actually needed in practice',
+      ],
+      answer: 1,
+      why: 'Random sampling from the vocabulary works well in practice (noise-contrastive estimation) — no sophisticated selection strategy is required.',
+    },
+  ]}
+/>
+
+<details>
+<summary>🧪 Generating skip-gram training pairs from a toy sentence</summary>
+
+<PistonRunner
+  lang="python"
+  interactive={false}
+  height="320px"
+  code={`import random
+
+sentence = "thou shalt not make a machine in the likeness of a human mind".split()
+window_size = 2
+
+def skip_gram_pairs(tokens, window):
+    pairs = []
+    for i, center in enumerate(tokens):
+        start = max(0, i - window)
+        end = min(len(tokens), i + window + 1)
+        for j in range(start, end):
+            if j != i:
+                pairs.append((center, tokens[j]))
+    return pairs
+
+positive_pairs = skip_gram_pairs(sentence, window_size)
+print(f"Generated {len(positive_pairs)} positive (neighbor) pairs, e.g.:")
+for pair in positive_pairs[:6]:
+    print("  ", pair, "-> label 1")
+
+# Negative sampling: pick random words that are NOT the true neighbor
+random.seed(0)
+vocab = list(set(sentence))
+print("\\nA few negative examples:")
+for center, _ in positive_pairs[:3]:
+    fake_neighbor = random.choice(vocab)
+    print("  ", (center, fake_neighbor), "-> label 0")
+`}
+/>
+
+</details>
+
+---
+
+## Embeddings for Recommendation Systems
+
+Because word2vec only cares about "sequences of tokens with neighbor relationships," it doesn't actually need those tokens to be words at all. Swap "song" in for "word" and "playlist" in for "sentence," and the exact same algorithm learns to embed *songs* based on which ones tend to show up together in human-curated playlists.
+
+Using a dataset of playlists collected from hundreds of US radio stations (compiled by Shuo Chen at Cornell), here's what the resulting recommendations look like in practice. Asking for songs similar to Michael Jackson's "Billie Jean":
+
+| Title | Artist |
+|---|---|
+| Kiss | Prince & The Revolution |
+| Wanna Be Startin' Somethin' | Michael Jackson |
+| The Way You Make Me Feel | Michael Jackson |
+| Holiday | Madonna |
+| Don't Stop 'Til You Get Enough | Michael Jackson |
+
+That's a genuinely sensible neighborhood — other Michael Jackson tracks, plus artists from the same era and genre. Trying 2Pac's "California Love" instead surfaces a similarly on-target list of 90s rap and hip-hop tracks (Nas, Notorious B.I.G., Snoop Dogg, and others) — the embedding space organizes itself by genre and era without ever being told what "genre" or "era" mean.
+
+### Training the song embedding model
+
+The training code is nearly identical to training word2vec on text — only the "sentences" are playlists and the "words" are song IDs:
+
+```python
+import pandas as pd
+from urllib import request
+
+# Get the playlist dataset file
+data = request.urlopen('https://storage.googleapis.com/maps-premium/dataset/yes_complete/train.txt')
+
+# Parse the playlist dataset file. Skip the first two lines as
+# they only contain metadata
+lines = data.read().decode("utf-8").split('\n')[2:]
+
+# Remove playlists with only one song
+playlists = [s.rstrip().split() for s in lines if len(s.split()) > 1]
+
+# Load song metadata
+songs_file = request.urlopen('https://storage.googleapis.com/maps-premium/dataset/yes_complete/song_hash.txt')
+songs_file = songs_file.read().decode("utf-8").split('\n')
+songs = [s.rstrip().split('\t') for s in songs_file]
+
+songs_df = pd.DataFrame(data=songs, columns=['id', 'title', 'artist'])
+songs_df = songs_df.set_index('id')
+```
+
+Each entry in `playlists` is just a list of song IDs — exactly analogous to a tokenized sentence:
+
+```python
+print('Playlist #1:\n', playlists[0], '\n')
+print('Playlist #2:\n', playlists[1])
+```
+
+```
+Playlist #1:
+ ['0', '1', '2', '3', '4', '5', ..., '43']
+
+Playlist #2:
+ ['78', '79', '80', '3', '62', ..., '210']
+```
+
+Training reuses `gensim`'s `Word2Vec` implementation directly — no song-specific code required:
+
+```python
+from gensim.models import Word2Vec
+
+# Train our Word2Vec model
+model = Word2Vec(
+    playlists, vector_size=32, window=20, negative=50,
+    min_count=1, workers=4,
+)
+```
+
+A minute or two later, every song has a trained embedding, queryable the same way as any word2vec vocabulary:
+
+```python
+song_id = 2172
+model.wv.most_similar(positive=str(song_id))
+```
+
+```
+[('2976', 0.9977465271949768),
+ ('3167', 0.9977430701255798),
+ ('3094', 0.9975950717926025),
+ ('2640', 0.9966474175453186),
+ ('2849', 0.9963167905807495)]
+```
+
+Song `2172` turns out to be Metallica's "Fade To Black" — and its five nearest neighbors (Van Halen, Dio, Guns N' Roses, Judas Priest) are all comfortably within the same heavy metal / hard rock neighborhood, despite the model never being told what a "genre" is. It only ever learned from co-occurrence in playlists.
+
+### Check: embeddings for recommendations
+
+<MultipleChoice
+  id="ai-eng-ch2-recommendations"
+  title="Embeddings for recommendation systems"
+  questions={[
+    {
+      prompt: 'What is the key insight that lets word2vec be reused for song recommendations instead of just words?',
+      choices: [
+        'word2vec must be retrained from scratch with entirely new mathematics for songs',
+        'word2vec only needs sequences with neighbor relationships — treating each playlist as a "sentence" and each song as a "word" lets the identical algorithm apply unchanged',
+        'Songs must first be converted into text descriptions before training',
+        'It does not actually work for songs, only approximately',
+      ],
+      answer: 1,
+      why: 'word2vec is agnostic to what the "tokens" represent — playlists of song IDs work exactly like sentences of words, so the same skip-gram + negative sampling training applies directly.',
+    },
+    {
+      prompt: 'In the song embedding example, why do genre-consistent recommendations (e.g. metal songs recommended for a Metallica track) emerge, even though the model was never given genre labels?',
+      choices: [
+        'The dataset secretly included genre labels used during training',
+        'Songs that are stylistically similar tend to be co-programmed into the same human-curated playlists, so their embeddings end up near each other purely from that co-occurrence pattern',
+        'It is a coincidence with no underlying explanation',
+        'The recommendation was manually curated afterward',
+      ],
+      answer: 1,
+      why: 'Genre never appears as a label anywhere — the embedding space organizes itself because playlist curators naturally group stylistically similar songs together, which co-occurrence-based training picks up on.',
+    },
+  ]}
+/>
+
+---
+
+## Chapter Summary
+
+:::important Key takeaways
+
+1. **Tokenizers are the first and last step of every LLM call.** Text goes in as a string, comes out as `input_ids`; generated `input_ids` get decoded back into text on the way out.
+2. **Subword tokenization** is the dominant scheme today, balancing the vocabulary-expressiveness problems of word-level tokenization against the context-length cost of character- or byte-level tokenization.
+3. **Three design choices shape any tokenizer**: the algorithm (BPE, WordPiece, SentencePiece/unigram), the parameters (vocabulary size, special tokens, capitalization handling), and the training dataset's domain (general text vs. code vs. multilingual vs. scientific).
+4. Comparing real tokenizers (BERT → GPT-2 → Flan-T5 → GPT-4 → StarCoder2 → Galactica → Phi-3) shows tokenizer design tracking a model's intended use directly — code models get cheap whitespace and per-digit numbers; chat models get role tokens; science models get citation tokens.
+5. A model's **embedding matrix** gives every vocabulary token a starting vector; as tokens flow through the model's layers, they become **contextualized embeddings** that actually reflect surrounding meaning — the basis for tasks like named-entity recognition and summarization.
+6. **Text embedding models** compress a whole sentence or document into one fixed-size vector, powering semantic search, clustering, and RAG.
+7. **word2vec** predates modern contextualized embeddings but introduced two ideas — **skip-gram** (generating neighbor pairs via a sliding window) and **negative sampling** (contrasting real neighbor pairs against random ones) — that generalize far beyond text, including to non-language domains like **song recommendation**, where "playlist" stands in for "sentence" and "song" stands in for "word."
+
+:::
+
+The next step is looking at what happens *inside* the model between tokenization and output — how transformer-based LLMs actually process a sequence of token embeddings to generate text, one token at a time.
+
+## Exercises
+
+The first two exercises run on the **real `gensim` library** — actual `Word2Vec` training, not a mock — since training on a small in-memory corpus needs no GPU, no internet access, and no pretrained model download. The rest are pure-Python implementations of the underlying math.
+
+<ExerciseSet>
+<Exercise title="Train a real Word2Vec model" anchor="exercise-word2vec-vocab">
+
+:::tip Activity: Train a real Word2Vec model
+Two toy "playlists" (lists of word-tokens) are provided, selected by an input line (`0` or `1`). Train a `Word2Vec` model on the given sentences with `vector_size=16, window=2, min_count=1, workers=1, seed=42`, and print the size of its resulting vocabulary.
+
+<CodeExercise
+  title="Train a real Word2Vec model"
+  heading="exercise-word2vec-vocab"
+  lang="python"
+  filename="main.py"
+  prompt="Train gensim's Word2Vec on `sentences` with the given hyperparameters, then return len(model.wv.index_to_key)."
+  sampleLog={`(input) 0
+9`}
+  starter={`from gensim.models import Word2Vec
+
+def train_and_get_vocab_size(sentences):
+    # TODO: train Word2Vec(sentences, vector_size=16, window=2, min_count=1,
+    # workers=1, seed=42) and return the number of words in its vocabulary
+    return 0
+`}
+  wrapSuffix={`
+CASES = {
+    "0": [["cat","sat","on","mat"], ["dog","sat","on","rug"], ["cat","and","dog","are","pets"]],
+    "1": [["a","b","c"], ["a","c","d"], ["b","d","e","f"]],
+}
+case_id = input().strip()
+sentences = CASES[case_id]
+print(train_and_get_vocab_size(sentences))
+`}
+  sourceChecks={[
+    { name: 'Uses Word2Vec', pattern: 'Word2Vec\\(', must: true, hint: 'Word2Vec(sentences, vector_size=16, window=2, min_count=1, workers=1, seed=42)' },
+  ]}
+  tests={[
+    { name: 'case 0 (9 unique words)', stdin: '0', equals: '9' },
+    { name: 'case 1 (6 unique words)', stdin: '1', equals: '6' },
+  ]}
+/>
+
+:::
+
+</Exercise>
+
+<Exercise title="BPE merge steps" anchor="exercise-bpe-merges">
+
+:::tip Activity: BPE merge steps
+Given a small corpus (already split into characters plus an end-of-word marker `</w>`), repeatedly merge the most frequent adjacent pair — real byte pair encoding. Read a number of merge steps `n`, perform exactly `n` merges, then print the resulting symbol sequence for every word (one per line, alphabetically sorted). `get_pair_counts` and `merge_pair` helpers are already provided for you.
+
+<CodeExercise
+  title="BPE merge steps"
+  heading="exercise-bpe-merges"
+  lang="python"
+  filename="main.py"
+  prompt="Repeat n times: find the most frequent pair with get_pair_counts, then apply merge_pair."
+  sampleLog={`(input) 1
+l o w </w>
+l o w e r </w>
+n e w es t </w>
+w i d es t </w>`}
+  starter={`def bpe_merge(symbols, num_merges):
+    # TODO: repeat num_merges times: find the most frequent adjacent pair
+    # (use get_pair_counts), then merge it (use merge_pair). Return the
+    # final symbols dict.
+    return symbols
+`}
+  wrapPrefix={`from collections import Counter
+
+def get_pair_counts(symbols):
+    counts = Counter()
+    for word, freq in symbols.items():
+        parts = word.split()
+        for a, b in zip(parts, parts[1:]):
+            counts[(a, b)] += freq
+    return counts
+
+def merge_pair(pair, symbols):
+    merged = "".join(pair)
+    bigram = " ".join(pair)
+    return {word.replace(bigram, merged): freq for word, freq in symbols.items()}
+
+`}
+  wrapSuffix={`
+corpus = {"low": 5, "lower": 2, "newest": 6, "widest": 3}
+symbols = {
+    " ".join(list(word) + ["</w>"]): freq
+    for word, freq in corpus.items()
+}
+n = int(input())
+result = bpe_merge(symbols, n)
+for word in sorted(result):
+    print(word)
+`}
+  tests={[
+    { name: '1 merge', stdin: '1', equals: 'l o w </w>\nl o w e r </w>\nn e w es t </w>\nw i d es t </w>' },
+    { name: '3 merges', stdin: '3', equals: 'l o w </w>\nl o w e r </w>\nn e w est</w>\nw i d est</w>' },
+  ]}
+/>
+
+:::
+
+</Exercise>
+
+<Exercise title="Cosine similarity by hand" anchor="exercise-cosine-similarity">
+
+:::tip Activity: Cosine similarity by hand
+Read two vectors (one per line, space-separated floats). Print their cosine similarity rounded to 3 decimal places — the same calculation `Word2Vec.most_similar` and zero-shot embedding classification both rely on internally.
+
+<CodeExercise
+  title="Cosine similarity by hand"
+  heading="exercise-cosine-similarity"
+  lang="python"
+  filename="main.py"
+  prompt="cosine_similarity(a, b) = dot(a, b) / (norm(a) * norm(b))"
+  sampleLog={`(input) 1 0 0
+0 1 0
+0.000`}
+  starter={`import math
+
+def cosine_similarity(a, b):
+    # TODO
+    return 0.0
+`}
+  wrapSuffix={`
+a = [float(x) for x in input().split()]
+b = [float(x) for x in input().split()]
+print(f"{cosine_similarity(a, b):.3f}")
+`}
+  sourceChecks={[
+    { name: 'Uses math.sqrt', pattern: 'math\\.sqrt', must: true, hint: 'Needed for the vector norms.' },
+  ]}
+  tests={[
+    { name: 'orthogonal', stdin: '1 0 0\n0 1 0', equals: '0.000' },
+    { name: 'identical', stdin: '1 2 3\n1 2 3', equals: '1.000' },
+    { name: 'nearly identical', stdin: '0.9 0.8 0.1\n0.85 0.75 0.05', equals: '0.999' },
+  ]}
+/>
+
+:::
+
+</Exercise>
+
+<Exercise title="Count skip-gram pairs" anchor="exercise-skipgram-count">
+
+:::tip Activity: Count skip-gram pairs
+Read a sentence (space-separated words) and a window size. Print the total number of (center, neighbor) pairs a skip-gram sliding window would generate over the whole sentence.
+
+<CodeExercise
+  title="Count skip-gram pairs"
+  heading="exercise-skipgram-count"
+  lang="python"
+  filename="main.py"
+  prompt="For each token position, count neighbors within `window` on each side (clipped at the sentence boundaries), and sum across all positions."
+  sampleLog={`(input) thou shalt not make a machine
+2
+18`}
+  starter={`def skip_gram_pair_count(tokens, window):
+    # TODO
+    return 0
+`}
+  wrapSuffix={`
+tokens = input().split()
+window = int(input())
+print(skip_gram_pair_count(tokens, window))
+`}
+  tests={[
+    { name: '6 words, window 2', stdin: 'thou shalt not make a machine\n2', equals: '18' },
+    { name: '5 words, window 1', stdin: 'a b c d e\n1', equals: '8' },
+  ]}
+/>
+
+:::
+
+</Exercise>
+</ExerciseSet>

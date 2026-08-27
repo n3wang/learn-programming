@@ -1,0 +1,395 @@
+---
+sidebar_position: 3
+title: Computer Hardware Fundamentals
+---
+
+# Computer Hardware Fundamentals
+
+> **Adapted from:** Jason Gregory, *Game Engine Architecture*, 3rd ed. (CRC Press, 2018), Chapter 3, Section 3.4 — rewritten and condensed for teaching.
+
+A high-level language like C++, C#, or Python is efficient to write *in* precisely because it hides the hardware underneath it. That's usually a feature — until you need to optimize a hot loop, reason about why two "equivalent" pieces of code run at wildly different speeds, or understand concurrency well enough to exploit the parallelism sitting inside every modern chip. All three of those skills sit directly on top of the material in this lesson: what a CPU is actually made of, how it represents and executes a program, and how it talks to memory.
+
+:::note Learning from simpler machines
+This lesson describes a generic CPU rather than any one real chip, but the ideas click faster if you can ground them in something concrete. Two historically important, deliberately *simple* CPUs are worth reading about: the **MOS 6502** (Apple II, Commodore 64, NES) and the **Intel 8086/8088** (the ancestor of the entire x86 line). Once you understand either of these, modern CPUs are just "that, plus a lot more machinery for going fast." See Further Reading below for pointers.
+:::
+
+---
+
+## Anatomy of a Computer
+
+The simplest possible computer is a **CPU** and a bank of **memory**, connected on a circuit board (the motherboard) by one or more **buses**, with I/O ports and expansion slots for talking to the outside world. This layout — first described in 1945 by John von Neumann and colleagues on the ENIAC project — is called the **von Neumann architecture**, and in one form or another it's still what every consumer computer looks like today: a CPU, memory, and buses connecting the two.
+
+## The CPU
+
+The CPU is built from several distinct functional units, all driven by a shared clock signal:
+
+- **ALU** (arithmetic/logic unit) — integer arithmetic and bitwise operations.
+- **FPU** (floating-point unit) — floating-point arithmetic, typically IEEE-754 (see [Data, Code, and Memory Layout](./data-code-and-memory-layout) for the IEEE-754 format itself).
+- **VPU** (vector processing unit) — integer and floating-point operations applied to several data items *simultaneously*.
+- **Memory controller / MMU** — the CPU's interface to on-chip and off-chip memory.
+- **Registers** — a small bank of very fast storage cells used for in-flight calculations.
+- **Control unit (CU)** — decodes instructions and routes work and data to everything above.
+
+### ALU: Integer Arithmetic and Logic
+
+The ALU handles addition, subtraction, multiplication, division, and negation, plus bitwise operations — AND, OR, XOR, complement, and shifts. It's fundamentally an *integer* unit; floating-point math needs different circuitry entirely; some CPU designs even split it further into a separate arithmetic unit (AU) and logic unit (LU).
+
+### FPU and VPU: Floating-Point and SIMD
+
+Early CPUs like the 8086/8088 shipped with **no** on-chip FPU at all — floating-point math required a separate co-processor chip (the Intel 8087). Later designs folded the FPU onto the main die.
+
+A **VPU** goes a step further: instead of one scalar input, it applies a single arithmetic operation to a whole *vector* of inputs (typically 2–16 floats, or up to 64 integers of various widths) in one instruction. This is called **SIMD** — single instruction, multiple data.
+
+Modern CPUs no longer have a distinct FPU at all — *every* floating-point calculation, even a single scalar `float`, runs on the VPU. Removing the dedicated FPU frees up transistor budget for bigger caches and fancier out-of-order execution logic instead, and an optimizing compiler will typically auto-vectorize scalar float math onto the VPU anyway.
+
+### Registers
+
+The ALU and FPU can only operate on data that's already sitting in **registers** — tiny, extremely fast, multi-ported storage cells physically on-chip, built from static RAM. A CPU's full set of registers is its **register file**.
+
+Registers don't have memory addresses — they have *names*: `R0`/`R1`/..., or historically short mnemonics (the 8086's `AX`/`BX`/`CX`/`DX`; the 6502's single accumulator `A` plus index registers `X`/`Y`).
+
+Some registers are **general-purpose (GPR)** — usable for whatever the programmer/compiler wants. Every CPU also reserves several **special-purpose registers (SPR)**:
+
+| Register | Purpose |
+|---|---|
+| **Instruction pointer (IP)** | Address of the currently executing instruction |
+| **Stack pointer (SP)** | Address of the top of the call stack |
+| **Base pointer (BP)** | Base address of the *current* function's stack frame |
+| **Status/flags register** | Bits reflecting the result of the last ALU operation (zero, carry, overflow, sign, ...) |
+
+**Stack pointer**, concretely: if the stack grows downward (the common convention), pushing an item means subtracting its size from `SP` and writing it there; popping means reading from `SP` and then adding the item's size back.
+
+**Base pointer**, concretely: a function's local variables live at fixed offsets from `BP`, so the compiler can find any local by subtracting its known offset from the value in `BP` — regardless of how deep the call stack currently is.
+
+**Status register**, concretely: if a subtraction produces zero, the **Z** (zero) bit gets set; if an addition overflows a single machine word, the **C** (carry) bit gets set. Both bits then drive conditional branches (`branch if zero`, etc.) or feed into subsequent calculations, like propagating a carry through a multi-word addition.
+
+#### Why FPU/VPU registers are separate from GPRs
+
+The FPU and VPU each keep their *own* private register sets rather than sharing the ALU's GPRs, for two reasons: proximity (closer registers are faster to access) and width. A 32-bit CPU's GPRs are 32 bits wide, but a `double` needs 64 bits, and a vector register needs to hold several packed values at once — Intel's SSE2, for example, works on either four packed 32-bit floats or two packed 64-bit doubles, so its vector registers are a full 128 bits wide.
+
+This physical separation is exactly why converting between `int` and `float` used to be expensive: the bit pattern had to be reinterpreted (two's complement ↔ IEEE-754) *and* the data had to physically move between two separate register files. Since floating-point math moved entirely onto the VPU (which natively handles both integer and float data), that cost dropped substantially — but it's still nonzero, so avoiding needless `int`/`float` conversions in a hot loop remains good practice.
+
+### Control Unit
+
+If the CPU is the computer's brain, the **control unit** is the CPU's brain. It reads the instruction stream, splits each instruction into its opcode and operands, and dispatches work to the ALU, FPU, VPU, registers, or memory controller accordingly. In modern pipelined, superscalar CPUs, the control unit also owns branch prediction and out-of-order instruction scheduling — real, deep topics covered separately in [CPU Pipeline Stages](/fundamentals/computer-engineering/virtualization/cpu-pipeline) and [Branch Prediction](/fundamentals/computer-engineering/virtualization/branch-prediction).
+
+### Check: CPU components
+
+<MultipleChoice
+  id="ge-ch3-cpu-components"
+  title="ALU, FPU/VPU, and registers"
+  questions={[
+    {
+      prompt: 'Why do modern CPUs no longer contain a dedicated FPU as a separate unit?',
+      choices: [
+        'Floating-point math was removed from all modern software',
+        'All floating-point math, including scalar operations, is now performed by the VPU, freeing transistor budget for other uses like larger caches',
+        'The ALU now handles floating-point math directly',
+        'Floating-point math is emulated entirely in software on modern CPUs',
+      ],
+      answer: 1,
+      why: 'Folding float math into the VPU (which already handles vectorized data) frees up die space previously spent on a separate FPU.',
+    },
+    {
+      prompt: 'Why are FPU/VPU registers typically wider than a CPU\'s general-purpose integer registers (GPRs)?',
+      choices: [
+        'They are not actually wider, this is a common misconception',
+        'They need to hold wider data types (e.g. 64-bit doubles) or multiple packed values at once for SIMD, unlike a GPR which holds one integer-sized value',
+        'Wider registers are cheaper to manufacture',
+        'It is an arbitrary historical accident with no technical reason',
+      ],
+      answer: 1,
+      why: 'A vector register has to hold several packed values simultaneously (e.g. four 32-bit floats for SSE2), and a double alone needs 64 bits — both wider than a typical 32-bit GPR.',
+    },
+    {
+      prompt: 'What does the stack pointer (SP) register track, assuming a stack that grows downward in memory?',
+      choices: [
+        'The address of the currently executing instruction',
+        'The address of the top of the program\'s call stack — pushing subtracts an item\'s size from SP, popping reads from SP then adds the size back',
+        'The base address of the current function\'s local variables specifically',
+        'The result of the most recent ALU operation',
+      ],
+      answer: 1,
+      why: 'SP always points at the current top of the stack; push/pop adjust it by the size of the item being moved.',
+    },
+  ]}
+/>
+
+---
+
+## The Clock
+
+Every digital circuit is a state machine, and state changes are driven by a periodic square-wave signal called the **system clock**. Each clock edge (a "cycle") lets the CPU perform at least one primitive operation — time, from the CPU's point of view, is quantized into these discrete ticks.
+
+Clock speeds have grown enormously: 1970s CPUs like the 6502 and 8086 ran at 1–2 MHz (millions of cycles/second); a modern CPU runs at 2–4+ GHz (billions of cycles/second).
+
+**One instruction does not mean one clock cycle.** Some instructions decompose internally into several micro-operations and take multiple cycles. And in a *pipelined* CPU, even the simplest instruction is broken into several stages, each taking one cycle — an N-stage pipeline has a minimum per-instruction *latency* of N cycles, even though a filled pipeline can still *retire* (complete) one instruction every cycle. Latency and throughput are different numbers, and it's easy to conflate them.
+
+### Clock Speed Isn't Processing Power
+
+"Processing power" is usually measured as **throughput** — operations completed per unit time, in MIPS (millions of instructions/second) or FLOPS (floating-point operations/second). Because different instructions take different numbers of cycles, MIPS/FLOPS are always *averages*, not something you can derive from clock frequency alone.
+
+For example: a CPU at 3 GHz where a floating-point multiply averages six cycles could reach at most 0.5 GFLOPS from clock speed alone. But pipelining, superscalar execution, vector processing, and multiple cores all change this relationship further. The only reliable way to know a CPU's real-world processing power is to **measure it** with standardized benchmarks — not to eyeball its clock speed.
+
+### Check: the clock
+
+<MultipleChoice
+  id="ge-ch3-clock"
+  title="Clock cycles, pipelining, and throughput"
+  questions={[
+    {
+      prompt: 'In a pipelined CPU with an N-stage pipeline, what is true about a single instruction traced from start to finish?',
+      choices: [
+        'It always completes in exactly 1 cycle regardless of N',
+        'It takes N cycles to move through the pipeline (latency), even though a filled pipeline can retire one instruction per cycle overall (throughput)',
+        'It takes N² cycles to complete',
+        'Pipelining has no effect on how long an individual instruction takes',
+      ],
+      answer: 1,
+      why: 'Pipelining improves throughput (steady-state completion rate), not the latency of any one instruction, which still has to traverse every stage.',
+    },
+    {
+      prompt: 'Why can\'t you reliably compute a CPU\'s MIPS or FLOPS rating directly from its clock frequency alone?',
+      choices: [
+        'Clock frequency is not a real, measurable property of a CPU',
+        'Different instructions take different numbers of cycles to complete, and factors like pipelining, superscalar execution, and vector/multicore parallelism all affect real throughput — so it must be measured, not derived',
+        'MIPS and FLOPS are the same measurement expressed in different units',
+        'Clock frequency only matters for memory access, not computation',
+      ],
+      answer: 1,
+      why: 'MIPS/FLOPS are throughput averages influenced by many microarchitectural factors beyond raw clock speed, so real benchmarking is required.',
+    },
+  ]}
+/>
+
+---
+
+## Memory
+
+Computer memory is organized as a sequence of addressable, one-byte cells, numbered from `0` to `N − 1`. It comes in two broad flavors:
+
+- **ROM** (read-only memory) — retains data with no power applied. Some types are write-once; **EEPROM** (electronically erasable programmable ROM — what flash drives use) can be reprogrammed repeatedly.
+- **RAM** (random-access memory) — readable *and* writable, but loses its contents when power is removed.
+
+RAM itself splits further:
+
+- **SRAM** (static RAM) — fast, expensive, holds its data as long as power is applied. Used for registers and caches.
+- **DRAM** (dynamic RAM) — cheaper and denser, but built from capacitors that slowly leak charge, so it must be periodically **refreshed** (read, then rewritten) or its contents decay. Main system memory is DRAM.
+
+RAM is further categorized by whether it's **multi-ported** (accessible by more than one component simultaneously), whether it's clock-**synchronized** (SDRAM) or asynchronous, and whether it supports **double data rate (DDR)** — reading/writing on both the rising *and* falling clock edge.
+
+---
+
+## Buses
+
+The CPU and memory talk to each other over a **bus** — a bundle of parallel wires ("lines"), each carrying one bit (voltage present = 1, absent = 0). A computer typically has two buses:
+
+- **Address bus** — the CPU puts a memory address here to say *which* byte(s) it wants.
+- **Data bus** — the actual data flows here, in either direction.
+
+To read: the CPU places an address on the address bus; the memory controller replies by putting that cell's contents on the data bus. To write: the CPU places both the address *and* the data to be written, and the memory controller stores it. (Some designs multiplex both functions onto one shared set of wires instead of using two physically separate buses.)
+
+### Bus Width Determines Capacity and Transfer Granularity
+
+The **address bus width** caps how much memory the CPU can ever address:
+
+| Address bus width | Max addressable memory | Address range |
+|---|---|---|
+| 16 bits | 64 KiB | `0x0000`–`0xFFFF` |
+| 32 bits | 4 GiB | `0x00000000`–`0xFFFFFFFF` |
+| 64 bits | 16 EiB (≈1.8×10¹⁹ bytes) | `0x0000000000000000`–`0xFFFFFFFFFFFFFFFF` |
+
+The **data bus width** caps how much data moves per memory operation — and typically matches the width of the CPU's general-purpose registers, though not always. An 8-bit data bus means a 16-bit value needs *two* separate memory cycles (low byte, then high byte); a 64-bit data bus can move a full 64-bit register's worth of data in one operation.
+
+Accessing a value *narrower* than the data bus still costs a full bus-width read — e.g., reading a 16-bit value on a 64-bit machine still pulls a full 64 bits off the bus, then masks and shifts out the piece you actually wanted. This mismatch cost is part of why C deliberately never pins `int` to a fixed bit width: it was meant to track whatever the target machine's "natural" word size is, for portability. (Somewhat ironically, this same policy is *why* code that quietly assumes a specific `int` width tends to be less portable in practice, not more.)
+
+### "Word" Is Ambiguous — Read It in Context
+
+"Word" has two common but conflicting meanings:
+
+1. **A fixed unit**, historically 16 bits — under this convention a "double word" is 32 bits and a "quad word" is 64 bits (this is how the Windows API uses the term).
+2. **A machine's natural size** — a CPU with 32-bit registers and a 32-bit data bus is said to have a 32-bit "word size," regardless of what any API calls a word.
+
+"**n-bit computer**" is similarly slippery: it might describe the data bus width, the register width, or the address bus width — and these don't always match. The Intel 8088 had 16-bit registers and a 16-bit address bus, but only an 8-bit data bus — internally a 16-bit machine, but behaving like an 8-bit machine for every memory access. Always check which dimension is actually meant.
+
+### Check: memory and buses
+
+<MultipleChoice
+  id="ge-ch3-buses"
+  title="Memory types and bus widths"
+  questions={[
+    {
+      prompt: 'Why does DRAM require periodic "refreshing," while SRAM does not?',
+      choices: [
+        'DRAM is a marketing term with no real technical difference from SRAM',
+        'DRAM stores each bit as charge on a capacitor that gradually leaks, so it must be read and rewritten periodically to avoid losing data; SRAM holds its state as long as power is applied',
+        'SRAM loses data on every read, so refreshing is pointless for it',
+        'DRAM only works when connected to a display',
+      ],
+      answer: 1,
+      why: 'DRAM cells are capacitor-based and leak charge over time, requiring periodic refresh cycles — SRAM does not have this issue.',
+    },
+    {
+      prompt: 'A CPU has a 32-bit address bus. What is the maximum amount of memory it can address?',
+      choices: [
+        '32 bytes',
+        '4 GiB',
+        '64 KiB',
+        '16 EiB',
+      ],
+      answer: 1,
+      why: 'An n-bit address bus can address 2^n unique byte addresses; 2^32 bytes = 4 GiB.',
+    },
+    {
+      prompt: 'Why is the Intel 8088 sometimes described as "a 16-bit CPU with an 8-bit personality"?',
+      choices: [
+        'It literally switched between two different physical CPUs',
+        'It had 16-bit registers and a 16-bit address bus, but only an 8-bit data bus, so every memory access behaved like an 8-bit machine even though its internal registers were 16 bits wide',
+        'It ran at half its rated clock speed',
+        'It could only run 8-bit software, never 16-bit software',
+      ],
+      answer: 1,
+      why: 'The 8088\'s internal 16-bit registers/addressing gave it 16-bit capabilities, but its narrower 8-bit data bus meant memory transfers behaved like an 8-bit machine.',
+    },
+  ]}
+/>
+
+---
+
+## Machine and Assembly Language
+
+To a CPU, a "program" is nothing more than a sequential stream of simple instructions — though some instructions can redirect that sequence by jumping elsewhere.
+
+### Instruction Set Architecture (ISA)
+
+A CPU's full instruction set, addressing modes, and in-memory instruction format together make up its **instruction set architecture (ISA)** — not to be confused with an **ABI** (application binary interface), which governs higher-level conventions like how function calls pass arguments. ISAs vary by manufacturer, but nearly every one supports the same broad categories of instruction:
+
+| Category | What it does |
+|---|---|
+| Move / load / store | Transfer data between registers, or between memory and a register |
+| Arithmetic | Add, subtract, multiply, divide, negate, and similar |
+| Bitwise | AND, OR, XOR, complement |
+| Shift / rotate | Shift bits left/right, or rotate them around the word |
+| Compare | Subtract two values (discarding the result) purely to set status-register flags |
+| Jump / branch | Unconditional (jump) or conditional (branch) change to the instruction pointer |
+| Push / pop | Move a register's value to/from the top of the stack |
+| Call / return | Invoke and return from a function — sometimes built from push/pop/jump instead of being a distinct instruction |
+| Interrupt | Trigger a jump to a pre-installed handler routine, often owned by the OS |
+| Other | e.g. `NOP` ("no operation") — does nothing but consume a cycle and/or align subsequent instructions in memory |
+
+### Machine Language
+
+A program encoded purely as numbers is written in **machine language (ML)** — really a different language per ISA, not one universal format. Every ML instruction breaks down into:
+
+- an **opcode** — which operation to perform,
+- zero or more **operands** — the instruction's inputs/outputs, and
+- an **options field** — addressing mode and other flags.
+
+These get packed into an **instruction word**. Some ISAs use a **fixed-width** encoding, where every instruction occupies the same number of bits — typical of RISC (reduced instruction set computer) designs. Others use **variable-width** encoding, common in CISC (complex instruction set computer) designs, where different instruction types occupy different amounts of space. At the extreme end, **VLIW** (very long instruction word) designs pack *several* operations into one very wide instruction specifically so they can be dispatched together in parallel — VLIW instructions can run to hundreds of bytes.
+
+### Assembly Language
+
+Writing raw numeric opcodes by hand is tedious and error-prone, so **assembly language** gives each instruction a human-readable **mnemonic** instead of a numeric opcode, lets you refer to registers by name (`EAX`, `R0`, ...), and lets you tag locations with labels instead of raw addresses. An **assembler** translates this text back into the numeric machine language the CPU actually runs.
+
+Here's the C snippet `if (a > b) return a + b; else return 0;`, assuming `a` is in `EAX` and `b` is in `EBX`, translated to x86 assembly:
+
+```asm
+; if (a > b)
+cmp   eax, ebx    ; compare the values
+jle   ReturnZero  ; branch if EAX <= EBX
+
+; return a + b;
+add   eax, ebx    ; EAX = EAX + EBX (return value)
+ret
+
+ReturnZero:
+; else return 0;
+xor   eax, eax    ; a fast idiom for "set EAX to zero"
+ret
+```
+
+Walking through it: `cmp` subtracts `ebx` from `eax` purely to set the status flags (the result itself is discarded). `jle` then branches to `ReturnZero` if that comparison said `eax <= ebx`; otherwise execution falls through to the `add`, which computes `a + b` directly into `eax` (the return-value register by convention) before `ret` hands control back to the caller. If the branch *was* taken, execution resumes at `ReturnZero`, where `xor eax, eax` is a classic trick for zeroing a register (any value XORed with itself is zero) — cheaper on many CPUs than loading the literal `0`.
+
+:::tip Activity: trace it by hand
+Suppose `a = 3` and `b = 7` going into the snippet above. Which path executes, and what ends up in `EAX`?
+
+`cmp` sets flags for `3 − 7` (negative → `a <= b`), so `jle` **is** taken, jumping straight to `ReturnZero`. `xor eax, eax` zeroes `EAX`, and `ret` returns `0` — matching the C `else return 0;` branch.
+:::
+
+### Addressing Modes
+
+A single instruction like "move" has many variants depending on *where* its operands actually come from — this variation is the instruction's **addressing mode**:
+
+| Mode | Meaning | Everyday analogy |
+|---|---|---|
+| **Register** | Move between two registers | `x = y;` for two local variables |
+| **Immediate** | Load a literal value into a register | `x = 5;` |
+| **Direct** | Move data to/from a fixed, literal memory address | Accessing a known global variable |
+| **Register-indirect** | The *register's contents* are used as the target address | `*ptr` — a pointer dereference |
+| **Relative (indexed)** | A base address plus an offset held in a register | `arr[i]` — indexed array access |
+
+Register-indirect and relative addressing are worth sitting with, because they're the literal hardware mechanism underneath two of the most common things you write in C/C++ every day: dereferencing a pointer, and indexing into an array. There's no additional "magic" beneath either one — just an addressing mode built into the ISA.
+
+### Check: machine and assembly language
+
+<MultipleChoice
+  id="ge-ch3-asm"
+  title="ISAs, machine language, and addressing modes"
+  questions={[
+    {
+      prompt: 'What is the key difference between a fixed-width and a variable-width instruction encoding?',
+      choices: [
+        'Fixed-width encodings cannot represent arithmetic instructions',
+        'Every instruction occupies the same number of bits in a fixed-width scheme (typical of RISC), while a variable-width scheme (typical of CISC) lets different instruction types occupy different amounts of space',
+        'Variable-width encoding is only used in 8-bit CPUs',
+        'They are two names for the exact same encoding strategy',
+      ],
+      answer: 1,
+      why: 'RISC designs favor uniform, fixed-width instructions for simpler decoding; CISC designs allow variable-width instructions to support a richer, more complex instruction set.',
+    },
+    {
+      prompt: 'In the x86 example, why does the cmp instruction not need to store its result anywhere?',
+      choices: [
+        'cmp is not a real instruction',
+        'cmp performs a subtraction purely to update the status register\'s flags (like zero and sign); the actual numeric result is discarded, since only the flags matter for the following branch',
+        'cmp always fails silently on modern CPUs',
+        'The result is stored in memory automatically',
+      ],
+      answer: 1,
+      why: 'Comparison instructions use the ALU\'s subtraction circuitry only for its side effect on the flags register; the numeric difference itself isn\'t needed.',
+    },
+    {
+      prompt: 'Which addressing mode is the direct hardware mechanism behind dereferencing a pointer in C/C++ (e.g. `*ptr`)?',
+      choices: [
+        'Immediate addressing',
+        'Register-indirect addressing — the target memory address is taken from a register\'s contents rather than being a literal in the instruction',
+        'Direct addressing',
+        'There is no hardware mechanism for pointer dereferencing, it is purely a compiler illusion',
+      ],
+      answer: 1,
+      why: 'A pointer is just an address value sitting in a register; register-indirect addressing uses that register\'s contents as the memory location to read or write.',
+    },
+  ]}
+/>
+
+---
+
+:::important Key takeaways
+- A CPU is a von Neumann-style machine: ALU/FPU/VPU for computation, registers for fast temporary storage, a control unit to orchestrate it all, connected to memory over buses.
+- Modern CPUs do **all** floating-point math — scalar or vector — on the VPU; there's no separate FPU anymore. Converting between `int` and `float` is cheaper than it used to be, but still not free.
+- Clock speed alone does not tell you a CPU's real processing power — pipelining, superscalar execution, vector width, and core count all matter, and the only reliable measurement is a benchmark.
+- Address bus width caps *how much* memory a CPU can reach; data bus width caps *how much* moves per operation — and "n-bit computer" is ambiguous about which of these (or the register width) it's even describing.
+- Machine language is just numbers (opcode + operands + addressing mode); assembly language is the same thing with human-readable mnemonics and labels, translated by an assembler.
+- Register-indirect and relative addressing modes are the literal hardware underneath pointer dereferences and array indexing in every C/C++ program you've written.
+:::
+
+## Further Reading
+
+- Jason Gregory — *Game Engine Architecture*, 3rd ed. (CRC Press, 2018), Chapter 3, Section 3.4
+- Gary B. Little — *Inside the Apple IIe*, Chapters 1–2, for an approachable introduction to 6502 assembly: [apple2scans.net/files/InsidetheIIe.pdf](http://www.apple2scans.net/files/InsidetheIIe.pdf)
+- [Yale CS421 — x86 Assembly overview](http://flint.cs.yale.edu/cs421/papers/x86-asm/asm.html)
+- Michael Abrash — *Graphics Programming Black Book*, for 8086 assembly and classic software-optimization technique
+- [Intel 64 and IA-32 Architectures Software Developer's Manuals](https://www.intel.com/content/www/us/en/developer/articles/technical/intel-sdm.html) — the full x86 ISA reference
+- [UVA CS216 — x86 Assembly Guide](https://www.cs.virginia.edu/~evans/cs216/guides/x86.html)
+- [X86 Disassembly: Functions and Stack Frames — Wikibooks](https://en.wikibooks.org/wiki/X86_Disassembly/Functions_and_Stack_Frames) — calling conventions and ABIs
+- [CPU Pipeline Stages](/fundamentals/computer-engineering/virtualization/cpu-pipeline) and [Branch Prediction](/fundamentals/computer-engineering/virtualization/branch-prediction) — this site's deeper dive into pipelined/superscalar execution

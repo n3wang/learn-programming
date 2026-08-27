@@ -1,0 +1,675 @@
+---
+sidebar_position: 10
+title: Creating Text Embedding Models
+---
+
+# Creating Text Embedding Models
+
+> **Adapted from:** Jay Alammar & Maarten Grootendorst, *Hands-On Large Language Models* (O'Reilly, 2024), Chapter 10 — rewritten and condensed for teaching, with code examples adapted from the original.
+
+Every earlier lesson in this course *used* embedding models — for classification ([Lesson 4](./04-text-classification)), for representing tokens and sentences ([Lesson 2](./02-tokens-and-embeddings)), for dense retrieval ([Lesson 8](./08-semantic-search-and-rag)) — without ever asking how those models actually get built. This lesson closes that gap: how do you train an embedding model from scratch, and — far more commonly in practice — how do you fine-tune an existing one for your own data?
+
+---
+
+## What Makes a Good Embedding, Again?
+
+Recall the core idea from [Lesson 2](./02-tokens-and-embeddings): an embedding model converts unstructured text into a numeric vector, and a *good* embedding model places semantically similar texts near each other in that vector space while pushing dissimilar texts apart.
+
+The important nuance is that "similar" isn't one fixed thing — it's defined entirely by what the model was trained to notice. A model trained to group text by topic will place two movie reviews near each other regardless of whether they're positive or negative, as long as they're both *about movies*. A model trained instead for sentiment will do the opposite: it'll pull all the negative reviews together and all the positive reviews together, even across completely different topics. Neither notion of "similar" is more correct than the other — they're just optimized for different downstream tasks. Whatever notion of similarity you want, you get there by choosing the right training examples.
+
+### Check: what "similar" means
+
+<MultipleChoice
+  id="ai-eng-ch10-similarity-purpose"
+  title="Defining similarity for an embedding model"
+  questions={[
+    {
+      prompt: 'Why might two embedding models trained on the same reviews dataset place the exact same pair of documents in very different relative positions?',
+      choices: [
+        'One of the models must be broken',
+        'The models were likely trained toward different notions of similarity (e.g. topic vs. sentiment), and each notion of "similar" comes from the training examples chosen, not from some single objective truth',
+        'Embedding models always produce identical results regardless of training data',
+        'Only one embedding model exists per dataset',
+      ],
+      answer: 1,
+      why: 'Similarity is defined by training signal — the same raw text can be embedded very differently depending on what the model was taught to treat as "similar."',
+    },
+  ]}
+/>
+
+---
+
+## Contrastive Learning
+
+The dominant technique behind training and fine-tuning embedding models is **contrastive learning**: teach the model by showing it pairs of documents labeled as similar or dissimilar, rather than trying to define "similarity" as some abstract rule up front.
+
+The intuition connects to a broader idea sometimes called *contrastive explanation*: understanding why something is the case often depends on understanding what it's being contrasted against, not just the thing in isolation. Asking a model "is this a dog?" in isolation gives it much weaker signal than asking "is this a dog, and not this cat sitting right next to it?" — the contrast is what actually teaches the model which features matter. Contrastive learning applies exactly this principle to embeddings: by repeatedly showing a model pairs that *are* alike and pairs that *aren't*, it gradually learns which features distinguish one from the other — and, just as importantly, which features to ignore.
+
+:::note word2vec was contrastive learning all along
+[Lesson 2](./02-tokens-and-embeddings#word-embeddings-beyond-llms) covered word2vec's skip-gram and negative-sampling setup — training on real neighboring-word pairs (positive) contrasted against randomly sampled words (negative). That's a textbook example of contrastive learning, applied years before the term became closely associated with sentence embeddings specifically.
+:::
+
+The most influential framework for applying contrastive learning to *sentence*-level embeddings is **sentence-transformers**.
+
+### Check: contrastive learning
+
+<MultipleChoice
+  id="ai-eng-ch10-contrastive"
+  title="Contrastive learning"
+  questions={[
+    {
+      prompt: 'What is the core mechanism contrastive learning uses to teach a model what "similar" means?',
+      choices: [
+        'Feeding the model a dictionary definition of similarity',
+        'Repeatedly showing it pairs of documents explicitly labeled similar or dissimilar, so it learns distinguishing features from the contrast itself',
+        'Training exclusively on a single document with no comparisons at all',
+        'Manually programming similarity rules into the model',
+      ],
+      answer: 1,
+      why: 'Contrastive learning relies on labeled similar/dissimilar pairs — the contrast between them is what surfaces which features actually matter.',
+    },
+    {
+      prompt: 'Why is word2vec (from Lesson 2) considered an early example of contrastive learning?',
+      choices: [
+        'It has nothing in common with contrastive learning',
+        'It trained on real neighboring-word pairs as positive examples contrasted against randomly sampled, non-neighboring words as negative examples',
+        'It only ever used positive examples, never negative ones',
+        'It was trained using image data',
+      ],
+      answer: 1,
+      why: 'Skip-gram with negative sampling is exactly the contrastive learning pattern: real positive pairs contrasted against sampled negative pairs.',
+    },
+  ]}
+/>
+
+---
+
+## SBERT: From Cross-Encoders to Bi-Encoders
+
+Before sentence-transformers, the standard way to compare two sentences with BERT was a **cross-encoder**: concatenate both sentences (separated by a special token), feed them through BERT *together*, and attach a classification head that outputs a single similarity score.
+
+Cross-encoders are accurate, but they don't scale to search or clustering at all. Comparing every pair among 10,000 sentences means `n·(n-1)/2 ≈ 50 million` forward passes — completely impractical. Worse, a cross-encoder never actually produces a reusable embedding for a single sentence on its own; it only ever scores a *pair*, together, in one pass.
+
+The alternative — simply averaging BERT's word-level outputs, or using its `[CLS]` token, to get a "sentence embedding" — turns out to perform *worse* than a much older, simpler baseline: averaging plain GloVe word vectors.
+
+### The bi-encoder fix
+
+**Sentence-transformers** (also called **SBERT**) solves this with a different architecture entirely:
+
+1. Drop the classification head.
+2. Add a **mean pooling** layer on top of BERT's token outputs, averaging them into one fixed-size vector — a real, reusable sentence embedding.
+3. Train with a **Siamese** (weight-tied) setup: two identical copies of the same BERT model — really just one model, called twice — each embed one sentence from a pair. The two resulting embeddings (plus their difference) feed into a softmax classifier during training, whose job is to predict the relationship between the two sentences.
+
+This architecture is called a **bi-encoder**: each sentence is encoded independently, so embeddings can be precomputed once and reused across any number of comparisons — the same nearest-neighbor search machinery from [Lesson 8](./08-semantic-search-and-rag) works directly on top of it. Cross-encoders generally edge out bi-encoders on raw accuracy for a single (query, document) comparison, but only a bi-encoder scales to comparing one query against a large archive.
+
+Both architectures fundamentally rely on contrastive learning — the difference is architectural (joint vs. independent encoding), not in the underlying training philosophy.
+
+### Check: cross-encoders vs. bi-encoders
+
+<MultipleChoice
+  id="ai-eng-ch10-sbert"
+  title="SBERT and the bi-encoder architecture"
+  questions={[
+    {
+      prompt: 'Why does a cross-encoder scale poorly to search over a large archive?',
+      choices: [
+        'Cross-encoders cannot process text at all',
+        'It must jointly process the query with every candidate document to produce a score, requiring a forward pass per pair rather than reusable, precomputed embeddings',
+        'Cross-encoders only work with images',
+        'They require a GPU with unlimited memory',
+      ],
+      answer: 1,
+      why: 'A cross-encoder scores one (query, document) pair per forward pass and never produces a standalone reusable embedding, so comparing against N documents needs N forward passes every time.',
+    },
+    {
+      prompt: 'What specific architectural change does sentence-transformers make to fix this, compared to a raw BERT cross-encoder?',
+      choices: [
+        'It makes the model larger',
+        'It drops the classification head and adds mean pooling over token outputs to produce one fixed-size, independently-computed embedding per sentence, using a weight-tied (Siamese) setup',
+        'It removes contrastive learning entirely',
+        'It requires two completely different, independently-trained models',
+      ],
+      answer: 1,
+      why: 'Mean pooling produces a reusable per-sentence embedding, and the Siamese/weight-tied design means the same single model encodes each sentence independently.',
+    },
+  ]}
+/>
+
+---
+
+## Creating an Embedding Model
+
+Building an embedding model from scratch needs three ingredients: labeled data that expresses similarity/dissimilarity, a base Transformer to embed individual pieces of text, and a loss function to optimize against.
+
+### Generating contrastive examples from NLI data
+
+**Natural language inference (NLI)** datasets are a convenient, ready-made source of similarity signal. Each example is a *(premise, hypothesis)* pair labeled as **entailment** (the hypothesis follows from the premise), **contradiction** (they conflict), or **neutral** (neither).
+
+For example, given the premise *"The chef seasoned the soup with fresh basil and set it to simmer,"*:
+
+- *"Basil was added to the soup while it cooked on the stove"* — **entailment** (same event, different words)
+- *"The chef refused to put any herbs in the soup"* — **contradiction**
+- *"The chef has worked in restaurants for ten years"* — **neutral** (plausible, but not implied)
+
+Entailment pairs make natural **positive** examples for contrastive learning; contradiction (and often neutral) pairs make natural **negatives**.
+
+This lesson uses the **MNLI** corpus (part of the GLUE benchmark) — 392,702 labeled sentence pairs — working with a 50,000-pair subset to keep training fast. Smaller subsets do make training less stable, so a larger slice (or the full dataset) is preferable whenever training time allows:
+
+```python
+from datasets import load_dataset
+
+# 0 = entailment, 1 = neutral, 2 = contradiction
+train_dataset = load_dataset("glue", "mnli", split="train").select(range(50_000))
+train_dataset = train_dataset.remove_columns("idx")
+```
+
+### Training with softmax loss
+
+The base Transformer here is plain `bert-base-uncased` — every layer stays trainable, since freezing layers tends to hurt final performance more than it saves compute:
+
+```python
+from sentence_transformers import SentenceTransformer
+
+embedding_model = SentenceTransformer("bert-base-uncased")
+```
+
+The original sentence-transformers paper trained with **softmax loss** — predicting the entailment/neutral/contradiction label from the two sentence embeddings:
+
+```python
+from sentence_transformers import losses
+
+train_loss = losses.SoftmaxLoss(
+    model=embedding_model,
+    sentence_embedding_dimension=embedding_model.get_sentence_embedding_dimension(),
+    num_labels=3,
+)
+```
+
+To measure progress, evaluation uses the **STSB** dataset — human-labeled sentence pairs with similarity scores from 1–5, rescaled to 0–1:
+
+```python
+from sentence_transformers.evaluation import EmbeddingSimilarityEvaluator
+
+val_sts = load_dataset("glue", "stsb", split="validation")
+evaluator = EmbeddingSimilarityEvaluator(
+    sentences1=val_sts["sentence1"],
+    sentences2=val_sts["sentence2"],
+    scores=[score / 5 for score in val_sts["label"]],
+    main_similarity="cosine",
+)
+```
+
+Training itself follows the now-familiar Hugging Face `Trainer` pattern:
+
+```python
+from sentence_transformers.training_args import SentenceTransformerTrainingArguments
+from sentence_transformers.trainer import SentenceTransformerTrainer
+
+args = SentenceTransformerTrainingArguments(
+    output_dir="base_embedding_model",
+    num_train_epochs=1,
+    per_device_train_batch_size=32,
+    per_device_eval_batch_size=32,
+    warmup_steps=100,
+    fp16=True,
+    eval_steps=100,
+    logging_steps=100,
+)
+
+trainer = SentenceTransformerTrainer(
+    model=embedding_model, args=args,
+    train_dataset=train_dataset, loss=train_loss, evaluator=evaluator,
+)
+trainer.train()
+```
+
+| Argument | What it controls |
+|---|---|
+| `num_train_epochs` | Full passes over the training data (kept at 1 here purely for speed) |
+| `per_device_train/eval_batch_size` | Samples processed together per step — higher generally means faster training/eval |
+| `warmup_steps` | Steps spent linearly ramping the learning rate up from zero |
+| `fp16` | Trains using 16-bit floats instead of 32-bit, cutting memory use and often speeding up training |
+
+Evaluating afterward (`evaluator(embedding_model)`) reports several similarity-metric variants; the headline number used throughout this lesson is **Pearson cosine** — cosine similarity between centered vectors, from 0 to 1. This softmax-trained baseline lands around **0.59–0.60** — a starting point the rest of the lesson tries to beat.
+
+### Check: NLI data and the softmax baseline
+
+<MultipleChoice
+  id="ai-eng-ch10-nli-baseline"
+  title="NLI data and training an embedding model from scratch"
+  questions={[
+    {
+      prompt: 'Why do entailment and contradiction labels in an NLI dataset make convenient contrastive-learning signal?',
+      choices: [
+        'They have nothing to do with similarity',
+        'Entailment pairs describe genuinely similar/related statements (positives), while contradiction pairs describe conflicting statements (negatives) — exactly the similar/dissimilar structure contrastive learning needs',
+        'NLI datasets contain no labels at all',
+        'Only neutral pairs are useful for training',
+      ],
+      answer: 1,
+      why: 'Entailment ≈ similar meaning (positive pair); contradiction ≈ dissimilar meaning (negative pair) — NLI labels map naturally onto contrastive pairs.',
+    },
+    {
+      prompt: 'What is the STSB evaluator used for in this training setup?',
+      choices: [
+        'It generates additional training data',
+        'It measures how well the model\'s cosine similarity scores match human-labeled similarity judgments, giving a consistent way to track and compare model quality across the whole lesson',
+        'It replaces the need for a loss function',
+        'It only works after all training is completely finished, never during',
+      ],
+      answer: 1,
+      why: 'STSB provides human similarity judgments used as a held-out benchmark — the same evaluator is reused throughout the lesson so every technique can be compared on equal footing.',
+    },
+  ]}
+/>
+
+---
+
+## Evaluating Beyond a Single Benchmark
+
+STSB alone is a narrow slice of "good at embeddings." The **Massive Text Embedding Benchmark (MTEB)** exists precisely to broaden that picture — spanning 8 task types across 58 datasets and 112 languages, with a public leaderboard for comparing models:
+
+```python
+from mteb import MTEB
+
+evaluation = MTEB(tasks=["Banking77Classification"])
+results = evaluation.run(model)
+```
+
+Beyond accuracy, MTEB also reports **evaluation time** for each task — a deliberate design choice, since embedding models used for things like real-time semantic search need to be fast, not just accurate. Running a model against the *entire* MTEB suite can take hours on typical hardware, which is exactly why this lesson sticks to the much faster STSB benchmark for every comparison that follows.
+
+---
+
+## Loss Functions
+
+Softmax loss illustrates the historical starting point, but it's not the strongest option available today. Two loss functions consistently perform well across many use cases: **cosine similarity loss** and **multiple negatives ranking (MNR) loss**.
+
+### Cosine similarity loss
+
+This loss directly compares the model's cosine similarity between two sentence embeddings against a labeled similarity score between 0 and 1 — a very direct, intuitive optimization target for semantic similarity tasks.
+
+To reuse the MNLI data with this loss, entailment gets mapped to a similarity score of 1, while both neutral and contradiction map to 0:
+
+```python
+mapping = {2: 0, 1: 0, 0: 1}  # (neutral/contradiction)=0, (entailment)=1
+train_dataset = Dataset.from_dict({
+    "sentence1": train_dataset["premise"],
+    "sentence2": train_dataset["hypothesis"],
+    "label": [float(mapping[label]) for label in train_dataset["label"]],
+})
+```
+
+```python
+train_loss = losses.CosineSimilarityLoss(model=embedding_model)
+```
+
+Training otherwise proceeds exactly as before. The result: **Pearson cosine ≈ 0.72** — a substantial jump over softmax loss's ~0.59, from changing nothing but the loss function.
+
+### Multiple negatives ranking (MNR) loss
+
+MNR loss (also known as InfoNCE or NT-Xent loss) works on **triplets**: an anchor, a genuine positive, and a negative. Rather than requiring hand-picked negatives, it builds them from **in-batch negatives** — mismatching a positive pair from one example with a positive pair from a *different* example in the same batch. Given a batch of anchors and positives, every anchor's cosine similarity gets computed against every positive in the batch (not just its own), and the whole thing is optimized as a classification problem: pick out the true match from among all the batch's candidates, via cross-entropy over the similarity scores.
+
+```python
+mnli = load_dataset("glue", "mnli", split="train").select(range(50_000))
+mnli = mnli.remove_columns("idx").filter(lambda x: x["label"] == 0)  # entailment only
+
+train_dataset = {"anchor": [], "positive": [], "negative": []}
+soft_negatives = list(mnli["hypothesis"])
+random.shuffle(soft_negatives)
+
+for row, soft_negative in zip(mnli, soft_negatives):
+    train_dataset["anchor"].append(row["premise"])
+    train_dataset["positive"].append(row["hypothesis"])
+    train_dataset["negative"].append(soft_negative)
+
+train_dataset = Dataset.from_dict(train_dataset)
+```
+
+```python
+train_loss = losses.MultipleNegativesRankingLoss(model=embedding_model)
+```
+
+Filtering down to entailment-only pairs shrinks the dataset from 50,000 to roughly 16,875 rows — but the result is the best score yet: **Pearson cosine ≈ 0.80**, clearly ahead of both softmax (0.59) and cosine similarity loss (0.72).
+
+<details>
+<summary>🧪 In-batch classification, illustrated with fixed similarity scores</summary>
+
+<PistonRunner
+  lang="python"
+  interactive={false}
+  height="260px"
+  code={`import math
+
+def softmax(xs):
+    m = max(xs)
+    exps = [math.exp(x - m) for x in xs]
+    total = sum(exps)
+    return [e / total for e in exps]
+
+# Cosine similarities between one anchor and 4 in-batch candidates.
+# Index 0 is the true positive; the rest are in-batch negatives.
+candidates = ["positive", "negative_1", "negative_2", "negative_3"]
+similarities = [0.9, 0.3, 0.5, 0.1]
+
+probs = softmax(similarities)
+for name, p in zip(candidates, probs):
+    print(f"{name:>10}: P={p:.3f}")
+
+print("Model picks:", candidates[probs.index(max(probs))])
+`}
+/>
+
+</details>
+
+MNR loss tends to benefit from **larger batch sizes** — a bigger batch means more competing candidates per anchor, which makes the classification task genuinely harder and pushes the model toward finer-grained representations.
+
+### Easy, semi-hard, and hard negatives
+
+In-batch negatives built this way are almost always **easy negatives** — usually completely unrelated to the anchor, which makes the model's job easy and caps how much it can actually learn. What helps far more is a **hard negative**: something topically very close to the correct answer, but still wrong.
+
+Take the question *"What is the population of Kyoto?"*:
+
+- **Positive:** *"Kyoto has a population of roughly 1.4 million people."*
+- **Easy negative:** *"The Eiffel Tower was completed in 1889."* — totally unrelated.
+- **Semi-hard negative:** *"Kyoto is famous for its historic temples and gardens."* — about the right city, wrong topic.
+- **Hard negative:** *"Osaka, located near Kyoto, has a population of about 2.7 million."* — same topic (population), a nearby related place, and still the wrong answer.
+
+Sourcing negatives roughly falls into three tiers of effort: **easy** (random sampling, as above), **semi-hard** (using a pretrained embedding model's cosine similarity to find topically-related-but-not-quite-right candidates), and **hard** (manual labeling, or using a generative model to construct or judge candidate pairs). Hard negatives make training genuinely harder — and that difficulty is usually what drives the largest quality gains.
+
+### Check: loss functions and negative sampling
+
+<MultipleChoice
+  id="ai-eng-ch10-losses"
+  title="Loss functions and negative sampling"
+  questions={[
+    {
+      prompt: 'Why did switching from softmax loss to cosine similarity loss improve the STSB score, using the exact same base model and dataset?',
+      choices: [
+        'It did not actually improve anything',
+        'Cosine similarity loss directly optimizes what the STSB evaluator measures (cosine similarity vs. a similarity label), aligning the training objective much more closely with the evaluation metric',
+        'Cosine similarity loss uses a completely different, unrelated dataset',
+        'Softmax loss cannot be used with BERT at all',
+      ],
+      answer: 1,
+      why: 'The closer a loss function\'s objective matches the evaluation metric, the better the model tends to score on that metric — cosine similarity loss directly targets cosine similarity.',
+    },
+    {
+      prompt: 'What makes multiple negatives ranking (MNR) loss\'s "in-batch negatives" approach efficient?',
+      choices: [
+        'It requires manually labeling every negative pair in advance',
+        'Negatives are constructed for free by mismatching positive pairs from other examples already present in the same training batch, with no extra data collection needed',
+        'It does not use any negative examples at all',
+        'It only works with a batch size of exactly one',
+      ],
+      answer: 1,
+      why: 'In-batch negatives reuse positive pairs already in the batch as free negatives for every other anchor, avoiding any separate negative-mining step.',
+    },
+    {
+      prompt: 'Why does a "hard negative" (topically very close but factually wrong) generally improve an embedding model more than an "easy negative" (completely unrelated)?',
+      choices: [
+        'Hard negatives are always incorrect and should be avoided',
+        'Distinguishing a hard negative from the true positive forces the model to learn much finer-grained, more nuanced distinctions than an easy negative — which is trivial to tell apart from the positive already',
+        'Hard negatives require no training data at all',
+        'There is no meaningful difference in training effect',
+      ],
+      answer: 1,
+      why: 'An easy negative is already obviously wrong, so the model learns little from rejecting it; a hard negative forces genuinely fine-grained discrimination, which is where most of the learning signal is.',
+    },
+  ]}
+/>
+
+---
+
+## Fine-Tuning an Embedding Model
+
+Training from a raw `bert-base-uncased` checkpoint, as above, is expensive and rarely necessary. In practice, it's far more common to start from an **already-trained** sentence-transformers model and fine-tune it toward your specific data or domain.
+
+### Supervised fine-tuning from a pretrained checkpoint
+
+The training loop is identical to the MNR loss example — only the starting checkpoint changes, from `bert-base-uncased` to a model already trained for sentence embeddings, like `all-MiniLM-L6-v2` (small, fast, and a strong general-purpose starting point):
+
+```python
+embedding_model = SentenceTransformer("sentence-transformers/all-MiniLM-L6-v2")
+train_loss = losses.MultipleNegativesRankingLoss(model=embedding_model)
+# ...same SentenceTransformerTrainingArguments and SentenceTransformerTrainer as before
+```
+
+This pushes the STSB score to **≈ 0.85** — the best result in the lesson. That said, this comparison isn't perfectly apples-to-apples: the pretrained checkpoint had already seen the *entire* MNLI dataset (and more) during its own original training, while this fine-tuning run only added 50,000 additional examples on top. Still, the workflow itself — take a strong pretrained embedding model, fine-tune on your own labeled pairs — is exactly the technique that matters most in practice.
+
+### Check: fine-tuning from a pretrained model
+
+<MultipleChoice
+  id="ai-eng-ch10-finetune-pretrained"
+  title="Fine-tuning a pretrained embedding model"
+  questions={[
+    {
+      prompt: 'What is the main practical advantage of fine-tuning a pretrained sentence-transformers model instead of training bert-base-uncased from scratch?',
+      choices: [
+        'Fine-tuning always requires more data than training from scratch',
+        'The pretrained model already encodes a lot of general sentence-representation knowledge, so fine-tuning on a comparatively small amount of domain-specific data can reach strong performance much faster and cheaper',
+        'Pretrained models cannot be fine-tuned at all',
+        'Fine-tuning removes the need for a loss function',
+      ],
+      answer: 1,
+      why: 'Starting from a strong pretrained checkpoint means fine-tuning only has to adapt existing general knowledge, rather than learning sentence representations from zero.',
+    },
+  ]}
+/>
+
+---
+
+### Augmented SBERT: Stretching a Small Labeled Dataset
+
+Real fine-tuning datasets are often far smaller than the hundreds of thousands (or billions) of pairs large embedding models are originally trained on. **Augmented SBERT** is a technique specifically for this situation — squeezing more value out of a small labeled ("gold") dataset by using it to *automatically* label a much larger set of new pairs.
+
+The process:
+
+1. **Fine-tune a cross-encoder** on the small, fully-labeled **gold dataset**. Cross-encoders are slower, but more accurate — a good fit for this one-time labeling task, since it's not being used for large-scale search.
+2. **Gather new, unlabeled sentence pairs** — real unlabeled data if you have it, or, failing that, synthetically constructed pairs (even something as simple as recombining premises and hypotheses from your existing gold set into new combinations).
+3. **Label those new pairs using the fine-tuned cross-encoder**, producing a much larger **silver dataset** — labeled, but not ground truth, since the labels come from model predictions rather than human annotation.
+4. **Train the bi-encoder** (the actual embedding model you want) on gold + silver combined.
+
+```python
+# Step 1: fine-tune a cross-encoder on the small gold dataset
+from sentence_transformers.cross_encoder import CrossEncoder
+
+cross_encoder = CrossEncoder("bert-base-uncased", num_labels=2)
+cross_encoder.fit(train_dataloader=gold_dataloader, epochs=1, warmup_steps=100)
+```
+
+```python
+# Steps 2-3: label a much larger set of pairs with the trained cross-encoder
+output = cross_encoder.predict(pairs, apply_softmax=True)
+silver["label"] = output.argmax(axis=1)
+```
+
+```python
+# Step 4: train the bi-encoder on gold + silver combined
+data = pd.concat([gold, silver], ignore_index=True).drop_duplicates(
+    subset=["sentence1", "sentence2"], keep="first"
+)
+train_dataset = Dataset.from_pandas(data, preserve_index=False)
+train_loss = losses.CosineSimilarityLoss(model=embedding_model)
+# ...train as usual
+```
+
+Using just 10,000 gold-labeled examples (20% of the 50,000 used in the cosine similarity loss example) plus their silver-augmented expansion, this reaches **≈ 0.71** — nearly matching the 0.72 achieved with 5x as much fully-labeled data. Comparing a model trained on gold-only versus gold+silver is a good way to sanity-check how much value the silver data is actually adding for your specific dataset.
+
+:::tip Picking better candidate pairs for silver labeling
+Randomly recombining premises and hypotheses to build new candidate pairs skews heavily toward *dissimilar* pairs — most random combinations just won't be related. A better approach: use a pretrained embedding model to do a rough semantic-search pass first, retrieving top-k similar candidates for each sentence, then hand those to the cross-encoder for labeling. It's still an approximation (that embedding model wasn't trained on your data), but it's a much better starting point than pure random pairing.
+:::
+
+### Check: Augmented SBERT
+
+<MultipleChoice
+  id="ai-eng-ch10-augmented-sbert"
+  title="Augmented SBERT"
+  questions={[
+    {
+      prompt: 'What problem does Augmented SBERT specifically address?',
+      choices: [
+        'Models that train too quickly',
+        'Having only a small amount of labeled data available for fine-tuning, by using it to train a cross-encoder that can then auto-label a much larger set of pairs',
+        'Embedding models that use too much GPU memory',
+        'The need to remove all negative examples from training',
+      ],
+      answer: 1,
+      why: 'Augmented SBERT is designed for label scarcity — a small gold dataset trains a cross-encoder, which then labels a much larger silver dataset for the bi-encoder to train on.',
+    },
+    {
+      prompt: 'Why is a cross-encoder used for the labeling step instead of directly using it as the final embedding model?',
+      choices: [
+        'Cross-encoders cannot be trained on a gold dataset',
+        'Cross-encoders are more accurate but don\'t scale to large-scale comparison, so its accuracy is used just once, offline, to generate labels — while the bi-encoder is what actually gets deployed and scales',
+        'Cross-encoders are always less accurate than bi-encoders',
+        'This step is unnecessary and can be skipped entirely',
+      ],
+      answer: 1,
+      why: 'Cross-encoder accuracy is spent once, in an offline labeling step (feasible since it\'s not used for live large-scale search) — the deployed model is still the scalable bi-encoder.',
+    },
+    {
+      prompt: 'Why is randomly recombining premises and hypotheses from an existing dataset a weak way to generate new candidate pairs for silver labeling?',
+      choices: [
+        'It is actually the ideal approach with no downsides',
+        'Most random combinations end up unrelated/dissimilar, heavily skewing the resulting candidate pairs away from the similar pairs that are most valuable to label',
+        'It requires a GPU to perform at all',
+        'It only works for images, not text',
+      ],
+      answer: 1,
+      why: 'Pure random pairing rarely produces genuinely similar pairs by chance — a semantic-search-based candidate selection step finds much more plausible pairs to label.',
+    },
+  ]}
+/>
+
+---
+
+## Unsupervised Learning: TSDAE
+
+Sometimes there's no labeled data at all. **TSDAE** (Transformer-based Sequential Denoising Auto-Encoder) is one of several unsupervised approaches (alongside SimCSE, Contrastive Tension, and GPL) for training an embedding model without any labels whatsoever — and it's particularly effective for domain adaptation.
+
+The idea: take a sentence, **delete a percentage of its words** to create a "damaged" version, then run the damaged sentence through an encoder (with a pooling layer) to produce a single embedding. A decoder then tries to **reconstruct the original, undamaged sentence** purely from that embedding. The core assumption: the better the embedding captures the sentence's actual meaning, the more accurately the decoder can rebuild it.
+
+This resembles masked language modeling, but instead of predicting individual masked tokens, the whole original sentence has to be reconstructed from a single compressed vector — a much harder, and in some ways more informative, target.
+
+<details>
+<summary>🧪 The noising step, concretely</summary>
+
+<PistonRunner
+  lang="python"
+  interactive={false}
+  height="240px"
+  code={`import random
+
+def add_noise(sentence, delete_ratio=0.3, seed=42):
+    random.seed(seed)
+    words = sentence.split()
+    keep_count = max(1, round(len(words) * (1 - delete_ratio)))
+    kept_indices = sorted(random.sample(range(len(words)), keep_count))
+    return " ".join(words[i] for i in kept_indices)
+
+original = "The old lighthouse keeper climbed the narrow spiral staircase every evening"
+damaged = add_noise(original, delete_ratio=0.3, seed=42)
+print("Original:", original)
+print("Damaged: ", damaged)
+`}
+/>
+
+</details>
+
+After training, only the **encoder** is kept — the decoder was purely a training aid, useful only for forcing the encoder to produce embeddings good enough to reconstruct from:
+
+```python
+from sentence_transformers.datasets import DenoisingAutoEncoderDataset
+
+flat_sentences = mnli["premise"] + mnli["hypothesis"]
+damaged_data = DenoisingAutoEncoderDataset(list(set(flat_sentences)))
+```
+
+```python
+from sentence_transformers import models, SentenceTransformer
+
+# TSDAE specifically found [CLS] pooling more effective than mean pooling,
+# since mean pooling loses positional information that [CLS] retains.
+word_embedding_model = models.Transformer("bert-base-uncased")
+pooling_model = models.Pooling(
+    word_embedding_model.get_word_embedding_dimension(), "cls"
+)
+embedding_model = SentenceTransformer(modules=[word_embedding_model, pooling_model])
+```
+
+```python
+from sentence_transformers import losses
+
+# Encoder and decoder share weights (tied), and reconstruction happens
+# without ever being told exactly where the deleted words were.
+train_loss = losses.DenoisingAutoEncoderLoss(embedding_model, tie_encoder_decoder=True)
+```
+
+Trained this way — on entirely unlabeled sentences — TSDAE reaches **≈ 0.70** on STSB, remarkably close to some of the labeled techniques covered earlier, despite using zero labels at all.
+
+### Domain adaptation
+
+TSDAE's real strength shows up in **domain adaptation**: adapting an embedding model to a new domain (legal text, medical text, internal company documents) that looks quite different from whatever it originally trained on. The standard recipe, **adaptive pretraining**, chains two of this lesson's techniques together:
+
+1. Run TSDAE (or masked language modeling) on a large pile of **unlabeled, in-domain** text — this is cheap, since it needs no labels, and it exposes the model to the target domain's vocabulary and style.
+2. **Fine-tune** that domain-adapted model using supervised training or Augmented SBERT — this data doesn't strictly need to come from the target domain itself, since the model already picked up the domain's characteristics in step 1.
+
+### Check: TSDAE and domain adaptation
+
+<MultipleChoice
+  id="ai-eng-ch10-tsdae"
+  title="TSDAE and domain adaptation"
+  questions={[
+    {
+      prompt: 'What does TSDAE\'s decoder actually try to reconstruct during training?',
+      choices: [
+        'A translation of the sentence into another language',
+        'The complete original, undamaged sentence, using only the single embedding vector produced from the damaged version',
+        'Only the specific words that were deleted, one at a time',
+        'A numeric similarity score between two sentences',
+      ],
+      answer: 1,
+      why: 'TSDAE reconstructs the whole original sentence from one compressed embedding — a stronger signal than predicting only the missing pieces.',
+    },
+    {
+      prompt: 'Why is only the encoder kept and used after TSDAE training finishes?',
+      choices: [
+        'The decoder is actually kept too, and both are used together',
+        'The decoder only exists to force the encoder to produce high-quality, information-preserving embeddings during training — once training is done, its job is finished',
+        'The encoder is discarded, and only the decoder is used',
+        'Neither component is usable after training',
+      ],
+      answer: 1,
+      why: 'The decoder is a training-time-only tool; the encoder\'s ability to embed text well is the actual product being trained.',
+    },
+    {
+      prompt: 'In adaptive pretraining for domain adaptation, why does step 1 (TSDAE/MLM on unlabeled in-domain text) happen before step 2 (supervised fine-tuning)?',
+      choices: [
+        'The order does not actually matter',
+        'Step 1 is cheap (no labels needed) and exposes the model to the target domain\'s vocabulary and style first, so that step 2\'s fine-tuning data does not strictly need to come from that same domain',
+        'Step 2 must always happen on a completely different, unrelated domain',
+        'Step 1 replaces the need for step 2 entirely',
+      ],
+      answer: 1,
+      why: 'Unlabeled domain exposure is cheap to acquire, so doing it first means the harder-to-get labeled fine-tuning data doesn\'t have to be in-domain itself.',
+    },
+  ]}
+/>
+
+---
+
+## Chapter Summary
+
+:::important Key takeaways
+
+1. An embedding model's notion of "similar" is entirely defined by its training data — the same architecture can be steered toward topic, sentiment, or any other axis just by choosing different training pairs.
+2. **Contrastive learning** — training on labeled similar/dissimilar pairs — underlies essentially every technique in this lesson, from word2vec through modern sentence embeddings.
+3. **Sentence-transformers (SBERT)** replaced the expensive cross-encoder architecture with a **bi-encoder**: mean-pooled, independently-computed, reusable sentence embeddings from a Siamese, weight-tied BERT setup.
+4. **Loss function choice matters enormously** on identical data: softmax loss (~0.59 Pearson cosine) < cosine similarity loss (~0.72) < multiple negatives ranking loss (~0.80) in this lesson's running comparison — and **hard negatives** (topically close, but wrong) teach a model far more than easy, random ones.
+5. **Fine-tuning a pretrained sentence-transformers checkpoint** is almost always more practical than training from a raw BERT checkpoint, and reached the strongest score in this lesson (~0.85).
+6. **Augmented SBERT** stretches a small labeled ("gold") dataset by using a fine-tuned cross-encoder to auto-label a much larger ("silver") dataset for bi-encoder training — recovering most of the performance of a much larger fully-labeled dataset.
+7. **TSDAE** trains a strong embedding model with **zero labels**, by corrupting sentences and learning to reconstruct them — and chaining it before supervised fine-tuning (**adaptive pretraining**) is a standard recipe for domain adaptation.
+
+:::
+
+Embedding models are only one half of the fine-tuning story. The next lesson turns to fine-tuning **representation models directly for classification** — covering both full BERT fine-tuning and the broader techniques that make adapting large pretrained models to a specific task practical.

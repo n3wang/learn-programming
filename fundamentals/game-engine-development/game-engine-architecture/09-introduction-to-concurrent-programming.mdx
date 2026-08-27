@@ -1,0 +1,334 @@
+---
+sidebar_position: 9
+title: Introduction to Concurrent Programming
+---
+
+# Introduction to Concurrent Programming
+
+> **Adapted from:** Jason Gregory, *Game Engine Architecture*, 3rd ed. (CRC Press, 2018), Chapter 4, Section 4.5 — rewritten and condensed for teaching.
+
+[Explicit parallelism](./explicit-parallelism) gives us hardware that can run more than one instruction stream at once, and [Operating System Fundamentals](./operating-system-fundamentals) gave us the processes and threads the OS schedules onto that hardware — but *using* threads correctly to solve a problem together is a separate skill: **concurrent programming**. Rob Pike (Distinguished Engineer at Google, and a designer of Go) defines concurrency as "the composition of independently executing computations." That phrasing matters: the flows of control in a concurrent program run semi-independently, but they're *composed* — they share data and synchronize with each other to solve one problem together.
+
+Concurrency shows up in more places than "multithreaded code": a piped shell command (`cat render.cpp | grep "light"`), a single process with many threads sharing memory, a GPU's thousands of cooperating threads rendering a frame, or a multiplayer game synchronizing state across machines over a network are all concurrent systems.
+
+### Why Write Concurrent Software?
+
+Two distinct motivations show up in practice, and it's worth telling them apart:
+
+1. **The problem is naturally concurrent.** Modeling it as multiple semi-independent flows of control is simply the more natural fit — a chat server handling many client connections, for instance.
+2. **The hardware rewards it.** A problem that's perfectly sequential in nature might still be restructured concurrently purely to spread the work across a multicore machine and finish faster.
+
+---
+
+## Concurrent Programming Models
+
+Cooperating threads need to communicate — sharing data and synchronizing activity. There are two fundamental ways to do that:
+
+- **Message passing** — threads exchange explicit messages (over a network, through a pipe, via an in-memory queue) to share data and coordinate. Works whether the threads live in one process, in separate processes on one machine, or on entirely separate machines.
+- **Shared memory** — two or more threads are simply given access to the *same* physical memory and operate directly on the objects living there. This only works when every participant runs on one machine with RAM every core can actually see. Threads within a single process get this for free (they already share a virtual address space); separate processes can opt in by mapping the same physical pages into each of their address spaces.
+
+Neither model is exclusive to the other underneath the hood — **distributed shared memory** fakes shared memory on top of message passing across machines, and a message queue living in shared memory implements message passing on top of shared memory. They're two views of the same coordination problem.
+
+Shared memory is the more *efficient* choice for large data, since nothing needs to be copied for transmission — but that efficiency comes at a cost: sharing anything, memory included, opens the door to the synchronization bugs this lesson (and the next two) are all about. Message passing doesn't eliminate that risk, but it tends to reduce its blast radius. Game engines are typically single-process, multithreaded programs, which is exactly why this series — like the book it's adapted from — focuses on shared-memory concurrency; the exception is networked multiplayer, which leans heavily on message passing instead. Once shared-memory concurrency clicks, message passing is comparatively easy to pick up.
+
+### Check: concurrency models
+
+<MultipleChoice
+  id="ge-ch4-concprog-models"
+  title="Concurrency, and message passing vs. shared memory"
+  questions={[
+    {
+      prompt: 'According to Rob Pike\'s definition, what specifically makes a set of independently executing computations "concurrent," rather than just "happening at the same time"?',
+      choices: [
+        'The fact that they run on different CPU cores',
+        'The fact that they are composed — they share data and/or synchronize their operations with one another',
+        'The fact that they were written in the same programming language',
+        'The fact that they all started at exactly the same moment',
+      ],
+      answer: 1,
+      why: 'Pike\'s definition emphasizes composition: independent computations that are still combined through shared data and synchronization, not merely coincidentally simultaneous.',
+    },
+    {
+      prompt: 'Why is shared-memory concurrency generally more efficient than message passing for large amounts of data, but also riskier?',
+      choices: [
+        'It is not actually more efficient in any case',
+        'Shared memory avoids copying data for transmission (all threads see the same bytes directly), but that direct access is exactly what opens the door to data races and other synchronization bugs',
+        'Message passing is always faster because it uses the network',
+        'Shared memory can only be used across physically separate computers',
+      ],
+      answer: 1,
+      why: 'Not copying data is a real efficiency win, but granting multiple threads direct access to the same memory is precisely the condition under which synchronization bugs can occur.',
+    },
+    {
+      prompt: 'Why do most game engines lean on shared-memory concurrency rather than message passing, with networked multiplayer as a notable exception?',
+      choices: [
+        'Message passing is not technically possible within a single process',
+        'Game engines are typically single-process, multithreaded programs where threads already share a virtual address space "for free," while multiplayer inherently spans separate machines that must communicate over a network',
+        'Shared memory does not work on multicore CPUs',
+        'Engines never need to synchronize threads at all',
+      ],
+      answer: 1,
+      why: 'A single process\'s threads share an address space automatically, making shared memory the natural default — but once state must cross machine boundaries (multiplayer), message passing becomes necessary instead.',
+    },
+  ]}
+/>
+
+---
+
+## Race Conditions
+
+A **race condition** is any situation where a program's behavior depends on timing — the outcome can change if the relative speed or ordering of events elsewhere in the system changes. Not every race condition is a bug: a **critical race** is specifically a race condition capable of producing *incorrect* behavior.
+
+Bugs caused by critical races have a well-earned reputation for feeling "impossible": intermittent crashes, occasionally-wrong results, data structures that end up corrupted, bugs that vanish in a debug build, bugs that disappear for days and then reappear (traditionally the night before a trade-show demo), bugs that vanish the moment you add logging to hunt for them. Programmers call these **Heisenbugs** — the act of observing the system changes its timing enough to change its behavior.
+
+### Data Races
+
+A **data race** is a critical race where two or more flows of control interfere with each other while reading and/or writing *shared* data, corrupting it. This is the central problem concurrent programming exists to solve — every concurrency technique in this series ultimately boils down to eliminating data races, either by tightly controlling access to shared data, or by giving each thread its own private copy (turning a concurrency problem back into a sequential one).
+
+Consider this innocent-looking C/C++ snippet:
+
+```cpp
+int g_count = 0;
+
+inline void IncrementCount() {
+    ++g_count;
+}
+```
+
+On x86, `++g_count` typically compiles to three separate machine instructions — a classic **read-modify-write (RMW)** sequence:
+
+```asm
+mov  eax, [g_count]   ; read g_count into EAX
+inc  eax              ; modify: increment the value
+mov  [g_count], eax   ; write EAX back into g_count
+```
+
+If two threads, A and B, each call `IncrementCount()` exactly once, we'd expect `g_count` to end up at `2` — whichever thread goes first, the other sees its result and adds one more:
+
+| Step | Thread A | Thread B | `g_count` |
+|---|---|---|---|
+| 1 | reads 0 | | 0 |
+| 2 | increments (local = 1) | | 0 |
+| 3 | writes 1 | | 1 |
+| 4 | | reads 1 | 1 |
+| 5 | | increments (local = 2) | 1 |
+| 6 | | writes 2 | **2** ✓ |
+
+But if the two threads' RMW sequences **interleave** — A gets preempted right after its `mov` (read) but before its `inc`, and B runs its own read in the gap — both threads end up incrementing from the *same* starting value:
+
+| Step | Thread A | Thread B | `g_count` |
+|---|---|---|---|
+| 1 | reads 0 | | 0 |
+| 2 | *(preempted)* | reads 0 | 0 |
+| 3 | | increments (local = 1) | 0 |
+| 4 | | writes 1 | 1 |
+| 5 | increments (local = 1) | | 1 |
+| 6 | writes 1 | | **1** ✗ |
+
+Two increments, and `g_count` ends up at `1` instead of `2` — one update was silently lost. This exact failure mode can happen on a single core via preemptive context-switching (as shown above), *or* on separate cores running genuinely in parallel, if the two RMW sequences happen to overlap in time (offset from each other, or even in perfect lockstep) — either way, both threads can load the same stale value before either writes its result back.
+
+:::tip Activity: simulate the race yourself
+Since a hosted sandbox can't reliably reproduce real thread scheduling on demand, the exercise below has you *play* the scheduler — manually reproducing the exact interleaving from the second table above using plain, deterministic function calls. If you can make `g_count` come out as `1` instead of `2` on purpose, you've proven to yourself precisely how the bug happens.
+:::
+
+### Practice: reproduce the data race by hand
+
+`LoadCount()`, `IncrementLocal()`, and `StoreCount()` below represent the three separate steps of the RMW sequence (`mov`/`inc`/`mov`) as three separate function calls — this lets us simulate two "threads" deterministically, one line at a time, in ordinary sequential code. Call them in the specific interleaved order from the race-condition table above (both threads read *before* either writes back) so that `g_count` ends up `1` instead of the naively-expected `2`.
+
+<CodeExercise
+  title="Reproduce the lost-update race"
+  heading="exercise-simulate-race"
+  lang="cpp"
+  filename="main.cpp"
+  prompt="Call LoadCount/IncrementLocal/StoreCount in an order that simulates both 'threads' reading the same stale value before either writes back, so g_count ends up 1 instead of 2."
+  sampleLog={`(no input)
+g_count = 1`}
+  starter={`#include <iostream>
+using namespace std;
+
+int g_count = 0;
+
+int LoadCount() { return g_count; }
+int IncrementLocal(int val) { return val + 1; }
+void StoreCount(int val) { g_count = val; }
+
+int main() {
+    // TODO: simulate thread A and thread B both calling IncrementCount(),
+    // but interleaved so that BOTH read g_count before EITHER writes back.
+    // Use LoadCount()/IncrementLocal()/StoreCount() directly, in the order
+    // that reproduces the race: A reads, B reads, A writes, B writes.
+
+    cout << "g_count = " << g_count << endl;
+    return 0;
+}
+`}
+  wrapPrefix=""
+  hint="int aReg = LoadCount(); int bReg = LoadCount(); aReg = IncrementLocal(aReg); StoreCount(aReg); bReg = IncrementLocal(bReg); StoreCount(bReg);"
+  solution={`#include <iostream>
+using namespace std;
+
+int g_count = 0;
+
+int LoadCount() { return g_count; }
+int IncrementLocal(int val) { return val + 1; }
+void StoreCount(int val) { g_count = val; }
+
+int main() {
+    int aReg = LoadCount();          // thread A reads 0
+    int bReg = LoadCount();          // thread B reads 0 (before A writes back!)
+    aReg = IncrementLocal(aReg);     // thread A computes 1
+    StoreCount(aReg);                // thread A writes 1
+    bReg = IncrementLocal(bReg);     // thread B computes 1 (from its stale read)
+    StoreCount(bReg);                // thread B writes 1, clobbering A's update
+
+    cout << "g_count = " << g_count << endl;
+    return 0;
+}
+`}
+  sourceChecks={[
+    { name: 'reads twice before writing', pattern: 'LoadCount\\(\\)[\\s\\S]*LoadCount\\(\\)[\\s\\S]*StoreCount\\(', must: true, hint: 'call LoadCount() twice before the first StoreCount() call' },
+  ]}
+  tests={[
+    { name: 'race reproduced', stdin: '', equals: 'g_count = 1' },
+  ]}
+/>
+
+### Check: race conditions and data races
+
+<MultipleChoice
+  id="ge-ch4-concprog-races"
+  title="Race conditions, critical races, and data races"
+  questions={[
+    {
+      prompt: 'What distinguishes a "critical race" from a race condition in general?',
+      choices: [
+        'A critical race only happens on single-core machines',
+        'A critical race is a race condition that has the potential to produce incorrect program behavior, whereas a race condition in general might be entirely harmless',
+        'A critical race can only occur in interpreted languages',
+        'There is no meaningful distinction; the terms are identical',
+      ],
+      answer: 1,
+      why: 'Timing-dependent behavior alone (a race condition) isn\'t necessarily a bug — "critical" specifically marks the subset that can corrupt results.',
+    },
+    {
+      prompt: 'In the lost-update example, why does g_count end up as 1 instead of 2 after both threads call IncrementCount() once?',
+      choices: [
+        'Because the CPU cannot perform two increments in the same program run',
+        'Because both threads read the same stale value of g_count before either had written its result back, so one thread\'s update was silently overwritten by the other',
+        'Because integer overflow occurred',
+        'Because the compiler optimized away one of the increments',
+      ],
+      answer: 1,
+      why: 'The read-modify-write sequence is not atomic; when both reads happen before either write, one increment is lost when the second write overwrites the first.',
+    },
+    {
+      prompt: 'Can the same lost-update bug occur on two separate CPU cores running in true parallel, not just via preemption on one core?',
+      choices: [
+        'No, this bug is only possible with preemptive multitasking on a single core',
+        'Yes — if the two read-modify-write sequences overlap in time (offset or even perfectly synchronized), both cores can load the same stale value before either writes back, producing the identical lost-update result',
+        'No, true parallel hardware automatically prevents all data races',
+        'Yes, but only if the two cores run at different clock speeds',
+      ],
+      answer: 1,
+      why: 'The book explicitly notes this happens the same way on parallel hardware whenever the RMW sequences overlap, regardless of whether that overlap comes from preemption or genuine simultaneity.',
+    },
+  ]}
+/>
+
+---
+
+## Critical Operations and Atomicity
+
+Not every interruption is dangerous. If a thread operates on data no other thread can see, it can be interrupted at any point with zero consequence. Likewise, an operation on object X can't meaningfully interfere with an operation on an unrelated object Y. Data races only happen when an operation on a *shared* object is interrupted by *another operation on that same object* — so it only makes sense to talk about a race in relation to one particular shared object. Call any operation capable of reading or mutating that object a **critical operation**. If we can guarantee that a shared object's critical operations never interrupt one another, the object is safe — and an operation with that guarantee is called **atomic** (it has the property of **atomicity**).
+
+### Invocation and Response
+
+Early on, most of us are taught that an algorithm's correctness only depends on the *order* of its steps, not how long each step takes. That model breaks down the moment multiple threads are involved, because operations now have a real, nonzero duration, and "before/after" between two multi-step operations running on different threads stops being well-defined.
+
+The fix is to stop reasoning about operations and start reasoning about **instantaneous events**. Any operation, however long it takes, can be split into two such events: its **invocation** (the instant it begins) and its **response** (the instant it's considered complete). Given any two instantaneous events, exactly one relationship holds: one happens before the other, or they're simultaneous (rare, but possible on hardware with a synchronized clock across cores).
+
+This lets us cut any code containing a critical operation into three pieces, in **program order** (the order things appear in source):
+
+- **Preamble** — everything before the critical operation's invocation.
+- **Critical section** — the critical operation itself.
+- **Postamble** — everything after the critical operation's response.
+
+### Defining Atomicity Precisely
+
+An "interruption" now has a precise meaning: one operation's invocation and/or response falls *between* another operation's invocation and response. Putting it together:
+
+:::important Atomicity, defined
+A critical operation executes **atomically** if its invocation and response are not interrupted by another critical operation on the *same* shared object.
+:::
+
+Crucially, a critical operation can be interrupted all day long by *unrelated* operations (on other objects, or non-critical code) without any problem — atomicity is only violated when two critical operations *on the same object* overlap. The cleanest way to think about a guaranteed-atomic operation: from every other thread's point of view, it appears to happen **instantaneously** — as if invocation and response were the same event — so nothing else can ever "sneak in" during it.
+
+### Making an Operation Atomic: The Mutex
+
+The most common tool for forcing atomicity is a **mutex** — an OS-provided object that behaves like a padlock a thread can lock and unlock. Guard a critical operation's invocation with acquiring the mutex, and its response with releasing it. Since the OS guarantees only one thread can hold a given mutex lock at a time, no other critical operation on that object can ever have its invocation or response land inside the locked region — exactly the guarantee atomicity requires. (Mutexes are one of several **thread synchronization primitives** the OS provides — the full toolkit is the subject of [Thread Synchronization Primitives](./thread-synchronization-primitives).)
+
+### Atomicity as Serialization
+
+Without atomicity, a group of threads all performing the same operation on shared data can overlap in essentially any order, at any time — an unpredictable jumble. Wrapping the operation in a mutex lock doesn't let you *choose* the order threads run in, but it does guarantee that only one thread is ever inside the operation at once — which transforms that jumble into *some* well-defined sequential order. This transformation — concurrent, overlapping access becoming one-at-a-time, sequential access — is called **serialization**, and it's the core mechanism nearly every concurrency tool in this series relies on.
+
+:::note A term worth knowing
+A shared data store that guarantees atomicity this way is called **linearizable** — one specific, well-studied point in a broader family of **data-centric consistency models** (contracts between a shared data store and the threads using it). This is a deep topic in its own right; search "consistency model" and "linearizability" if you want to go further than this series does.
+:::
+
+### Check: atomicity
+
+<MultipleChoice
+  id="ge-ch4-concprog-atomicity"
+  title="Invocation, response, and atomicity"
+  questions={[
+    {
+      prompt: 'Why does reasoning about "which operation happens first" break down once multiple threads are involved, in a way it never does for sequential code?',
+      choices: [
+        'Because sequential code never has more than one step',
+        'Because operations take a finite, variable amount of time, so two multi-step operations from different threads can genuinely overlap — there is no single well-defined "before" or "after" between them as wholes, only between instantaneous events',
+        'Because computers cannot measure time accurately enough',
+        'Because concurrent code is always executed in a random, undefined order with no rules at all',
+      ],
+      answer: 1,
+      why: 'The fix is to reason about instantaneous invocation/response events rather than whole operations, precisely because whole operations can overlap in time.',
+    },
+    {
+      prompt: 'A critical operation on shared object X is interrupted by an unrelated critical operation on a completely different shared object Y. Does this violate X\'s atomicity?',
+      choices: [
+        'Yes, any interruption at all violates atomicity',
+        'No — atomicity is only violated when a critical operation is interrupted by another critical operation on the SAME shared object; interruptions by operations on unrelated objects (or non-critical code) are harmless',
+        'Only if X and Y are the same size in memory',
+        'Yes, but only on single-core machines',
+      ],
+      answer: 1,
+      why: 'The definition of atomicity is specifically scoped to interference between critical operations on the same object — unrelated interruptions can\'t cause a data race on X.',
+    },
+    {
+      prompt: 'What does it mean to say that wrapping an operation in a mutex lock "serializes" it?',
+      choices: [
+        'It converts the operation\'s data into a serialized (e.g. JSON) format',
+        'It guarantees that even though multiple threads may want to run the operation, they end up executing it one at a time in some well-defined sequential order, rather than overlapping unpredictably',
+        'It forces the operation to run on a single specific CPU core',
+        'It has no real effect beyond making the code slower',
+      ],
+      answer: 1,
+      why: 'Mutual exclusion doesn\'t determine the order threads run in, but it guarantees they run one at a time — turning unpredictable overlap into some sequential ordering.',
+    },
+  ]}
+/>
+
+---
+
+:::important Key takeaways
+- **Concurrency** is Pike's "composition of independently executing computations" — flows of control that run semi-independently but coordinate via shared data and synchronization.
+- **Message passing** and **shared memory** are the two fundamental ways concurrent threads communicate; shared memory is more efficient for large data but is exactly what makes data races possible, which is why game engines (single-process, multithreaded) live and die by getting shared-memory concurrency right.
+- A **data race** happens when a read-modify-write sequence on shared data isn't protected, letting two threads read the same stale value and silently lose one of their updates — this can happen via preemption on one core *or* genuine overlap across cores.
+- An operation is **atomic** if its invocation and response can never be interrupted by another critical operation on the same shared object — practically achieved by wrapping it in a **mutex**, which **serializes** access into some well-defined one-at-a-time order.
+:::
+
+## Further Reading
+
+- Jason Gregory — *Game Engine Architecture*, 3rd ed. (CRC Press, 2018), Chapter 4, Section 4.5
+- [Thread Synchronization Primitives](./thread-synchronization-primitives) — this series' next lesson: mutexes, condition variables, and semaphores in depth
+- Rob Pike — ["Concurrency is not Parallelism"](https://go.dev/blog/waza-talk) (Go blog / talk)
+- Wikipedia — [Linearizability](https://en.wikipedia.org/wiki/Linearizability) and [Consistency model](https://en.wikipedia.org/wiki/Consistency_model)

@@ -1,0 +1,788 @@
+---
+sidebar_position: 3
+title: Looking Inside Large Language Models
+---
+
+# Looking Inside Large Language Models
+
+> **Adapted from:** Jay Alammar & Maarten Grootendorst, *Hands-On Large Language Models* (O'Reilly, 2024), Chapter 3 — rewritten and condensed for teaching, with code examples adapted from the original.
+
+[Lesson 2](./02-tokens-and-embeddings) covered how text becomes tokens, and how tokens become embeddings. This lesson goes one level deeper: what actually happens *inside* the model, between "here's a sequence of embeddings" and "here's the next word"? We'll focus specifically on **generative**, text-producing transformer models — the kind behind ChatGPT-style assistants — rather than representation models like BERT.
+
+---
+
+## An Overview of Transformer Models
+
+### Inputs, outputs, and the generation loop
+
+From the outside, a transformer LLM looks simple: text goes in, text comes out. But that framing hides an important detail — the model doesn't produce its entire response in one shot. It generates **one token at a time**, and each single-token generation step is one full **forward pass** through the network (the input flowing through every computation in the model, once, to produce one output).
+
+After each forward pass, the newly generated token gets appended to the end of the input, and that *longer* sequence is fed back in for the next forward pass. The model is, at its core, just repeatedly answering the question "given everything so far, what's the single most-likely-useful next token?" — with a loop around it that keeps feeding its own output back in as input.
+
+This pattern — a model consuming its own earlier predictions to produce later ones — has a name: **autoregressive**. It's why text-generation LLMs are called autoregressive models, a label that specifically distinguishes them from *representation* models like BERT, which don't generate text token-by-token this way at all.
+
+Here's what setting up that loop looks like in code, using Hugging Face's `pipeline` helper:
+
+```python
+import torch
+from transformers import AutoModelForCausalLM, AutoTokenizer, pipeline
+
+# Load model and tokenizer
+tokenizer = AutoTokenizer.from_pretrained("microsoft/Phi-3-mini-4k-instruct")
+model = AutoModelForCausalLM.from_pretrained(
+    "microsoft/Phi-3-mini-4k-instruct",
+    device_map="cuda",
+    torch_dtype="auto",
+    trust_remote_code=True,
+)
+
+# Create a pipeline
+generator = pipeline(
+    "text-generation",
+    model=model,
+    tokenizer=tokenizer,
+    return_full_text=False,
+    max_new_tokens=50,
+    do_sample=False,
+)
+```
+
+```python
+prompt = "Write an email apologizing to Sarah for the tragic gardening mishap. Explain how it happened."
+output = generator(prompt)
+print(output[0]['generated_text'])
+```
+
+The output cuts off abruptly mid-email — not because anything went wrong, but because we capped generation at `max_new_tokens=50`. Raise that limit and the loop just keeps running, appending one token at a time, until the email is actually finished.
+
+### Check: the generation loop
+
+<MultipleChoice
+  id="ai-eng-ch3-generation-loop"
+  title="Autoregressive generation"
+  questions={[
+    {
+      prompt: 'How does a transformer LLM actually produce a multi-token response?',
+      choices: [
+        'It computes the entire response in a single forward pass',
+        'It generates one token per forward pass, appends that token to the input, and repeats the forward pass on the extended sequence',
+        'It generates tokens in a random, non-sequential order',
+        'It requires a separate model for every additional token',
+      ],
+      answer: 1,
+      why: 'Each forward pass produces exactly one new token; that token is appended to the input for the next forward pass, repeating until generation stops.',
+    },
+    {
+      prompt: 'Why are text-generation LLMs specifically called "autoregressive" models?',
+      choices: [
+        'Because they were trained using regression instead of classification',
+        'Because they consume their own earlier outputs as input to produce later outputs',
+        'Because they automatically regress to a simpler model over time',
+        'Because they only work on numerical data',
+      ],
+      answer: 1,
+      why: 'Autoregressive means the model\'s own prior predictions (previously generated tokens) become part of the input for generating the next one.',
+    },
+  ]}
+/>
+
+<details>
+<summary>🧪 A minimal autoregressive loop, illustrated</summary>
+
+<PistonRunner
+  lang="python"
+  interactive={false}
+  height="280px"
+  code={`# A toy stand-in for "generate one token, append it, repeat."
+# next_token_fn is a stand-in for a real model's forward pass.
+
+def next_token_fn(sequence):
+    # Extremely fake "model": just count words seen so far.
+    return f"tok{len(sequence)}"
+
+def generate(prompt_tokens, max_new_tokens):
+    sequence = list(prompt_tokens)
+    for step in range(max_new_tokens):
+        new_token = next_token_fn(sequence)
+        sequence.append(new_token)
+        print(f"Step {step + 1}: appended '{new_token}' -> {sequence}")
+    return sequence
+
+generate(["Write", "an", "email"], max_new_tokens=4)
+`}
+/>
+
+</details>
+
+---
+
+### The components of the forward pass
+
+Every forward pass flows through three major stages, in order:
+
+1. **The tokenizer** — turns text into token IDs (covered in [Lesson 2](./02-tokens-and-embeddings)).
+2. **A stack of transformer blocks** — the bulk of the model's processing.
+3. **The LM head** — a final layer that converts the last block's output into a probability score for every token in the vocabulary.
+
+The tokenizer's vocabulary and the model's **token embeddings** (recall: one starting vector per vocabulary entry) are directly linked — the embedding matrix's row count equals the vocabulary size.
+
+You can see this structure directly by printing a loaded model. Here's a condensed view of Phi-3's layer stack:
+
+```python
+Phi3ForCausalLM(
+  (model): Phi3Model(
+    (embed_tokens): Embedding(32064, 3072, padding_idx=32000)
+    (layers): ModuleList(
+      (0-31): 32 x Phi3DecoderLayer(
+        (self_attn): Phi3Attention(
+          (o_proj): Linear(in_features=3072, out_features=3072, bias=False)
+          (qkv_proj): Linear(in_features=3072, out_features=9216, bias=False)
+          (rotary_emb): Phi3RotaryEmbedding()
+        )
+        (mlp): Phi3MLP(
+          (gate_up_proj): Linear(in_features=3072, out_features=16384, bias=False)
+          (down_proj): Linear(in_features=8192, out_features=3072, bias=False)
+          (activation_fn): SiLU()
+        )
+      )
+    )
+    (norm): Phi3RMSNorm()
+  )
+  (lm_head): Linear(in_features=3072, out_features=32064, bias=False)
+)
+```
+
+A few things worth reading directly off this dump:
+
+- `embed_tokens` confirms the embedding matrix: 32,064 vocabulary entries, each a 3,072-dimensional vector.
+- 32 stacked `Phi3DecoderLayer` blocks do the actual processing — each one bundling a self-attention sub-layer and an MLP (feedforward) sub-layer.
+- `lm_head` is a single linear layer mapping a 3,072-dimensional vector to a 32,064-dimensional output — one score per vocabulary token.
+
+### Check: forward pass components
+
+<MultipleChoice
+  id="ai-eng-ch3-forward-pass"
+  title="Components of the forward pass"
+  questions={[
+    {
+      prompt: 'What are the three major stages a prompt passes through during a forward pass, in order?',
+      choices: [
+        'LM head, transformer blocks, tokenizer',
+        'Tokenizer, stack of transformer blocks, LM head',
+        'Embedding matrix, tokenizer, decoder',
+        'Attention layer, tokenizer, feedforward layer',
+      ],
+      answer: 1,
+      why: 'Text is tokenized first, flows through the stack of transformer blocks, and the LM head converts the final representation into next-token probabilities.',
+    },
+    {
+      prompt: 'In the Phi-3 layer dump, what does Linear(in_features=3072, out_features=32064) for lm_head tell you?',
+      choices: [
+        'The model has 32,064 layers',
+        'It maps each token\'s final 3,072-dimensional vector to one score per vocabulary token (32,064 of them)',
+        'It is the embedding matrix, not the LM head',
+        'It controls the model\'s context length',
+      ],
+      answer: 1,
+      why: 'The LM head is a linear layer that projects the model dimension (3,072) up to the vocabulary size (32,064) — one output score per possible next token.',
+    },
+  ]}
+/>
+
+---
+
+### Choosing a token from the probability distribution
+
+Once the LM head produces a score for every vocabulary token, something has to pick *one* — that choice is the **decoding strategy**. The simplest option is **greedy decoding**: always take the single highest-scoring token. In practice this tends to produce noticeably worse output than adding some controlled randomness — sampling proportionally to each token's score, so a token with a 40% probability gets picked roughly 40% of the time, not automatically because it's on top. (Lesson 1 covers this territory — temperature, top-k, top-p — in much more depth; the point here is just to see *where in the forward pass* this decision actually happens.)
+
+Greedy decoding is exactly what you get by setting temperature to zero.
+
+Here's the forward pass broken into its raw pieces, bypassing the convenience of `.generate()`:
+
+```python
+prompt = "The capital of France is"
+
+# Tokenize the input prompt
+input_ids = tokenizer(prompt, return_tensors="pt").input_ids
+input_ids = input_ids.to("cuda")
+
+# Get the output of the model before the lm_head
+model_output = model.model(input_ids)
+# Get the output of the lm_head
+lm_head_output = model.lm_head(model_output[0])
+```
+
+`lm_head_output` comes out with shape `[1, 6, 32064]`: batch size 1, 6 input tokens, and a 32,064-length score vector for *each* token position. Only the **last** position matters for predicting the next token:
+
+```python
+token_id = lm_head_output[0, -1].argmax(-1)
+tokenizer.decode(token_id)
+# 'Paris'
+```
+
+### Check: decoding
+
+<MultipleChoice
+  id="ai-eng-ch3-decoding"
+  title="Choosing a token from the output distribution"
+  questions={[
+    {
+      prompt: 'What does greedy decoding do, specifically?',
+      choices: [
+        'Randomly picks any token regardless of score',
+        'Always selects the single token with the highest probability score',
+        'Selects a token proportional to its probability score',
+        'Always selects the second-highest scoring token',
+      ],
+      answer: 1,
+      why: 'Greedy decoding deterministically takes the top-scoring token every time — equivalent to sampling with temperature set to zero.',
+    },
+    {
+      prompt: 'In lm_head_output with shape [1, 6, 32064], why do we use lm_head_output[0, -1] (the last position) to pick the next token, and not, say, position 0?',
+      choices: [
+        'Position 0 is always reserved for padding',
+        'The last position\'s output represents the model\'s prediction for what comes after everything seen so far — the actual "next token" prediction',
+        'All positions give identical results, so it does not matter',
+        'The shape is invalid otherwise',
+      ],
+      answer: 1,
+      why: 'Each position\'s output vector represents a prediction conditioned on everything up to and including that position — the last one is the prediction for what comes right after the full prompt.',
+    },
+  ]}
+/>
+
+---
+
+### Parallel token processing and context size
+
+One of the transformer's biggest practical advantages over earlier architectures (like RNNs) is that input tokens can be processed **in parallel** rather than one-by-one. Each input token flows through its own computation "stream," and — for text generation — only the **last** stream's final output actually gets used to predict the next token.
+
+That raises an obvious question: if only the last stream's output is used, why bother computing all the others? Because the *intermediate* results from every stream are still needed — they get pulled into the last stream's computation via the attention mechanism at every transformer block along the way. Nothing is wasted; it's just that only one stream's *final* output feeds the LM head.
+
+The number of parallel streams a model can maintain at once is its **context length** — a model with a 4K context length can process (and "remember," in a sense) 4K tokens at once, no more.
+
+Tying this back to the shapes from the code above: the input to `lm_head` was `[1, 6, 3072]` — a batch of 1, containing 6 tokens, each represented by a 3,072-dimensional vector (the model's hidden dimension, after flowing through the full stack of transformer blocks):
+
+```python
+model_output[0].shape
+# torch.Size([1, 6, 3072])
+
+lm_head_output.shape
+# torch.Size([1, 6, 32064])
+```
+
+### Speeding up generation with a KV cache
+
+Naively, generating the second token means re-running the *entire* forward pass on the (now one-token-longer) sequence — including recomputing everything for tokens we already fully processed in the previous step. That's wasteful: those earlier tokens haven't changed.
+
+The fix is the **KV cache** (short for "keys and values cache," named after the key and value vectors central to attention — covered next). By caching those vectors from earlier steps, only the *newest* token's stream needs to be computed on each step — everything else is reused. This is a genuinely large speedup: in one benchmark, generating 100 tokens took **4.5 seconds** with caching enabled versus **21.8 seconds** with it disabled — roughly a 5x difference, from one flag.
+
+```python
+# Cached (fast)
+generation_output = model.generate(input_ids=input_ids, max_new_tokens=100, use_cache=True)
+
+# Uncached (slow)
+generation_output = model.generate(input_ids=input_ids, max_new_tokens=100, use_cache=False)
+```
+
+Even 4.5 seconds is a noticeable wait from a user's perspective — which is exactly why production LLM APIs **stream** tokens to the user as they're generated, rather than waiting for the entire response to finish before showing anything.
+
+### Check: context size and caching
+
+<MultipleChoice
+  id="ai-eng-ch3-context-cache"
+  title="Context length and the KV cache"
+  questions={[
+    {
+      prompt: 'What does a model\'s "context length" actually limit?',
+      choices: [
+        'The number of possible output tokens in its vocabulary',
+        'The number of parallel token-processing streams (and therefore input+generated tokens) the model can handle at once',
+        'The number of transformer blocks in the model',
+        'The size of the LM head\'s output vector',
+      ],
+      answer: 1,
+      why: 'Each token gets its own processing stream; context length caps how many such streams (i.e. tokens) the model can maintain simultaneously.',
+    },
+    {
+      prompt: 'Why does caching keys and values speed up token-by-token generation so dramatically?',
+      choices: [
+        'It reduces the model\'s parameter count',
+        'It avoids recomputing the attention keys/values for tokens that were already fully processed in earlier steps, so only the newest token needs new computation',
+        'It skips the LM head entirely on most steps',
+        'It lowers the model\'s context length',
+      ],
+      answer: 1,
+      why: 'Without caching, every generation step recomputes attention information for the entire sequence from scratch; caching reuses that work for all previously-processed tokens.',
+    },
+  ]}
+/>
+
+<details>
+<summary>🧪 Recomputation avoided: cached vs. uncached step counts</summary>
+
+<PistonRunner
+  lang="python"
+  interactive={false}
+  height="280px"
+  code={`# Illustrates *why* caching helps, by counting "token-computations"
+# needed to generate N tokens from an initial prompt of length P.
+
+def uncached_work(prompt_len, new_tokens):
+    total = 0
+    seq_len = prompt_len
+    for _ in range(new_tokens):
+        seq_len += 1
+        total += seq_len  # recompute the WHOLE sequence every step
+    return total
+
+def cached_work(prompt_len, new_tokens):
+    total = prompt_len  # one full pass to seed the cache
+    for _ in range(new_tokens):
+        total += 1  # only the newest token needs work now
+    return total
+
+prompt_len, new_tokens = 20, 100
+print("Uncached token-computations:", uncached_work(prompt_len, new_tokens))
+print("Cached token-computations:  ", cached_work(prompt_len, new_tokens))
+`}
+/>
+
+</details>
+
+---
+
+## Inside the Transformer Block
+
+Each transformer block — and there can be anywhere from a handful (the original 2017 paper) to well over a hundred (in today's largest LLMs) — is made of two sequential pieces:
+
+1. An **attention layer**, which pulls in relevant information from other token positions.
+2. A **feedforward layer** (an MLP), which holds the bulk of the model's raw processing/storage capacity.
+
+### The feedforward network, intuitively
+
+Think about feeding a language model the partial phrase "The Shawshank" and expecting it to predict "Redemption" next. That completion has to come from *somewhere* — and it comes from the feedforward network. When the model trained on a large enough text archive that mentioned "The Shawshank Redemption" often enough, its feedforward layers absorbed and stored that association.
+
+This is genuine **memorization** — but memorization alone doesn't explain why LLMs generalize well to inputs they've never seen. The same machinery that stores specific facts also learns to **interpolate** between related patterns, which is what lets a model perform reasonably on genuinely novel inputs, not just regurgitate memorized text.
+
+:::note Raw completion vs. a polished chat assistant
+A raw, purely pre-trained language model given "The Shawshank" would just continue the sentence. A modern chat assistant given the same input instead answers as if asked *about* the film — because it went through instruction-tuning and preference finetuning after pre-training (see [Lesson 1](./01-understanding-foundation-models#post-training) on post-training) specifically to behave that way, rather than defaulting to raw text continuation.
+:::
+
+### The attention layer, intuitively
+
+Feedforward memorization and interpolation only gets you so far — language depends heavily on **context**. Consider: *"The dog chased the squirrel because it..."* — to predict what comes after "it," the model needs to resolve what "it" actually refers to. The dog? The squirrel? Nothing in "it" alone tells you; only the surrounding context does.
+
+**Attention** is the mechanism that pulls relevant context into a token's representation before the model has to make that call — it's specifically what lets the representation of "it" absorb information about "squirrel" (or "dog," depending on what the rest of the sentence implies).
+
+### Attention, mechanically
+
+Attention breaks down into exactly two steps, applied at the position currently being processed:
+
+1. **Score the relevance** of every earlier token to the current one.
+2. **Combine information**, weighted by those relevance scores, into a single output vector.
+
+Zooming into how that actually gets computed (this builds on the Q/K/V setup from [Lesson 1](./01-understanding-foundation-models#model-architecture) — a quick refresher: every token position gets a **query**, **key**, and **value** vector, produced by multiplying the token's input vector by three learned projection matrices):
+
+**Step 1 — relevance scoring.** Take the *current* position's query vector and multiply it against the **keys** matrix (every earlier position's key vector, stacked together). That produces one raw relevance score per earlier position. Pass those scores through softmax so they sum to 1 — now they're a proper probability-like weighting.
+
+**Step 2 — combining information.** Multiply each earlier position's **value** vector by its relevance score from step 1, then sum all of those weighted value vectors together. The result is the attention layer's output for the current position — a single vector that blends in exactly the right amount of information from exactly the right earlier tokens.
+
+Just like in Lesson 1, this whole two-step process is duplicated across multiple **attention heads** running in parallel, each with its own independent Q/K/V projection matrices — letting different heads specialize in tracking different kinds of relationships simultaneously. The heads' outputs get concatenated and projected back down at the end.
+
+### Check: the attention mechanism
+
+<MultipleChoice
+  id="ai-eng-ch3-attention-mechanics"
+  title="How self-attention is computed"
+  questions={[
+    {
+      prompt: 'In the sentence "The dog chased the squirrel because it fled," what problem is attention specifically solving when the model processes "it"?',
+      choices: [
+        'Converting "it" into a numerical token ID',
+        'Resolving what "it" refers to by pulling in relevant contextual information from earlier tokens like "dog" and "squirrel"',
+        'Deciding the sentence\'s overall sentiment',
+        'Choosing the model\'s vocabulary size',
+      ],
+      answer: 1,
+      why: 'Attention lets a token\'s representation absorb relevant context from other positions — exactly what\'s needed to disambiguate a pronoun like "it".',
+    },
+    {
+      prompt: 'What are the two sequential steps of the attention mechanism, in order?',
+      choices: [
+        'Combine information, then score relevance',
+        'Score the relevance of earlier tokens (query · keys, then softmax), then combine information (weighted sum of value vectors)',
+        'Tokenize the input, then embed it',
+        'Apply the feedforward network, then normalize',
+      ],
+      answer: 1,
+      why: 'Attention first scores how relevant each earlier token is (via query-key dot products and softmax), then uses those scores to weight and sum the value vectors.',
+    },
+    {
+      prompt: 'Why does a transformer use multiple attention heads instead of a single attention computation per block?',
+      choices: [
+        'Multiple heads are required for the model to compile',
+        'Each head has its own independent Q/K/V projections, letting different heads specialize in tracking different kinds of relationships between tokens at once',
+        'It reduces the model\'s vocabulary size',
+        'It removes the need for a feedforward layer',
+      ],
+      answer: 1,
+      why: 'Running several independent attention computations in parallel (multi-head attention) increases the model\'s capacity to capture different relationship types simultaneously.',
+    },
+  ]}
+/>
+
+<details>
+<summary>🧪 A single attention step, computed by hand</summary>
+
+<PistonRunner
+  lang="python"
+  interactive={false}
+  height="340px"
+  code={`import math
+
+def softmax(xs):
+    m = max(xs)
+    exps = [math.exp(x - m) for x in xs]
+    total = sum(exps)
+    return [e / total for e in exps]
+
+def dot(a, b):
+    return sum(x * y for x, y in zip(a, b))
+
+def scale(vec, factor):
+    return [x * factor for x in vec]
+
+def add(a, b):
+    return [x + y for x, y in zip(a, b)]
+
+# Toy example: processing the word "it" in
+# "The dog chased the squirrel because it"
+# Each earlier token already has a key vector and a value vector.
+keys = {
+    "dog":      [1.0, 0.0, 0.0],
+    "chased":   [0.2, 0.1, 0.0],
+    "squirrel": [0.9, 0.1, 0.0],  # deliberately close to the query below
+    "because":  [0.0, 0.2, 0.1],
+}
+values = {
+    "dog":      [1, 0, 0],
+    "chased":   [0, 1, 0],
+    "squirrel": [0, 0, 1],
+    "because":  [0.2, 0.2, 0.2],
+}
+
+# The query for "it" happens to point toward "squirrel"-like keys
+query_it = [0.95, 0.05, 0.0]
+
+# Step 1: relevance scoring
+tokens = list(keys.keys())
+raw_scores = [dot(query_it, keys[t]) for t in tokens]
+weights = softmax(raw_scores)
+
+print("Relevance weights for 'it':")
+for t, w in zip(tokens, weights):
+    print(f"  {t:>9}: {w:.3f}")
+
+# Step 2: combine information (weighted sum of value vectors)
+output = [0.0, 0.0, 0.0]
+for t, w in zip(tokens, weights):
+    output = add(output, scale(values[t], w))
+
+print("\\nAttention output vector for 'it':", [round(v, 3) for v in output])
+print("(Notice it leans toward squirrel's value vector [0, 0, 1])")
+`}
+/>
+
+</details>
+
+---
+
+## Recent Improvements to the Transformer Architecture
+
+The core ideas from the original 2017 transformer paper still hold up — but a handful of architectural refinements have become standard in modern LLMs, largely aimed at making attention (the most computationally expensive part of the model) cheaper without sacrificing much quality.
+
+### More efficient attention
+
+- **Local / sparse attention** limits how many previous positions a token is even allowed to attend to, trading some long-range context for speed. GPT-3 used this selectively — alternating full-attention blocks with sparse-attention blocks rather than making every block sparse, since restricting *every* block this way would meaningfully hurt output quality.
+- **Multi-query attention** shares a single keys matrix and a single values matrix across *all* attention heads (only the query projections stay separate per-head) — a big efficiency win, but one that can cost noticeable quality at larger scale.
+- **Grouped-query attention** (used by Llama 2 and 3) is the middle ground: instead of one shared K/V pair for the whole model, several *groups* of heads each share their own K/V pair. That recovers most of multi-query's efficiency while giving up much less quality.
+- **Flash Attention** isn't a different attention *formula* at all — it's an implementation-level optimization that speeds up the same math by carefully managing which values move between a GPU's fast, small on-chip memory (SRAM) and its slower, larger main memory (HBM).
+
+### Check: efficient attention variants
+
+<MultipleChoice
+  id="ai-eng-ch3-efficient-attention"
+  title="Local, multi-query, grouped-query, and Flash Attention"
+  questions={[
+    {
+      prompt: 'Why did GPT-3 alternate between full-attention and sparse-attention blocks instead of using sparse attention everywhere?',
+      choices: [
+        'Sparse attention was not yet invented when later blocks were designed',
+        'Using sparse attention (which limits how many earlier tokens can be attended to) in every single block would have degraded output quality too much',
+        'Full attention is always faster than sparse attention',
+        'It was a bug, not a deliberate design choice',
+      ],
+      answer: 1,
+      why: 'Sparse attention improves efficiency but restricts context; alternating with full-attention blocks preserved more of the quality that pure sparse attention would have sacrificed.',
+    },
+    {
+      prompt: 'What is the key difference between multi-query attention and grouped-query attention?',
+      choices: [
+        'They are identical techniques with different names',
+        'Multi-query attention shares one K/V pair across all heads; grouped-query attention shares K/V pairs across several smaller groups of heads, trading a bit of multi-query\'s efficiency for better quality',
+        'Grouped-query attention removes the query projection entirely',
+        'Multi-query attention only works for image models',
+      ],
+      answer: 1,
+      why: 'Multi-query is the most aggressive K/V sharing (one shared pair for everything); grouped-query attention is a tunable middle ground between multi-query and full multi-head attention.',
+    },
+    {
+      prompt: 'What does Flash Attention actually change about the attention mechanism?',
+      choices: [
+        'It changes the mathematical formula for computing attention scores',
+        'It changes nothing about the math — it optimizes how data moves between a GPU\'s fast on-chip memory and its slower main memory during the same computation',
+        'It removes the softmax step from attention',
+        'It only works for training, never inference',
+      ],
+      answer: 1,
+      why: 'Flash Attention is an IO-aware implementation optimization: same attention math, but restructured to minimize expensive memory transfers on the GPU.',
+    },
+  ]}
+/>
+
+---
+
+### Modern transformer block tweaks
+
+A handful of small changes have become the norm in recent (2023-2024-era) architectures like Llama 3, on top of the original attention + feedforward structure:
+
+- **Pre-normalization** — normalizing *before* the attention and feedforward sub-layers (rather than after, as in the original transformer paper) has been shown to reduce required training time.
+- **RMSNorm** instead of the original **LayerNorm** — a simpler, more computationally efficient normalization method.
+- **SwiGLU** instead of the original **ReLU** activation function inside the feedforward layer — one of several newer activation variants shown to improve performance.
+
+### Positional embeddings: from absolute to rotary (RoPE)
+
+Attention alone has no inherent sense of token *order* — without extra information, "the dog chased the cat" and "the cat chased the dog" would attend identically. **Positional embeddings** are what inject that order information.
+
+The original transformer (and early successors) used **absolute** positional embeddings: token 1 is tagged "position 1," token 2 is tagged "position 2," and so on — either as a fixed geometric pattern or as learned vectors. This runs into a practical problem at scale: training documents are often much shorter than a model's full context length, so for efficiency, multiple short documents get **packed** together into a single training context. If a second document starts partway through that packed context, naively numbering its first token "position 50" (say) would incorrectly imply 49 tokens of *relevant* preceding context, when really the preceding tokens belong to a completely unrelated document.
+
+**Rotary positional embeddings (RoPE)** sidestep this by encoding position as a *rotation* applied to vectors in embedding space, capturing both absolute and *relative* position information — and, importantly, they're applied later in the pipeline than absolute embeddings were: specifically to the query and key vectors, right before the relevance-scoring step of attention, rather than added once at the very start of the forward pass.
+
+### Check: modern architecture tweaks
+
+<MultipleChoice
+  id="ai-eng-ch3-modern-tweaks"
+  title="Pre-normalization, RMSNorm, SwiGLU, and RoPE"
+  questions={[
+    {
+      prompt: 'Why can naive absolute positional embeddings cause problems when multiple short documents are packed into one training context?',
+      choices: [
+        'Absolute embeddings cannot represent numbers above 100',
+        'A document starting mid-context would be mislabeled with a high position number, incorrectly implying it has relevant preceding context from a different, unrelated document',
+        'Packing documents together is not actually done in practice',
+        'Absolute embeddings only work for single-token documents',
+      ],
+      answer: 1,
+      why: 'If document 2 starts at position 50 in a packed context, absolute embeddings would treat the preceding 49 tokens (from document 1) as this document\'s real context, which is misleading.',
+    },
+    {
+      prompt: 'At what point in the forward pass are rotary positional embeddings (RoPE) applied?',
+      choices: [
+        'Once, at the very beginning, before any transformer block',
+        'To the query and key vectors, right before the relevance-scoring step inside each attention computation',
+        'Only after the LM head produces its output',
+        'RoPE is not actually applied anywhere in the forward pass',
+      ],
+      answer: 1,
+      why: 'Unlike absolute embeddings (added once at the start), RoPE is applied to queries and keys inside the attention step itself, on every relevant computation.',
+    },
+  ]}
+/>
+
+---
+
+## Chapter Summary
+
+:::important Key takeaways
+
+1. A transformer LLM generates **one token at a time**, autoregressively — each new token is appended to the input and fed back in for the next forward pass.
+2. A forward pass has three stages: **tokenizer → stack of transformer blocks → LM head**, with the LM head producing one probability score per vocabulary token; a decoding strategy (greedy, or sampling — see Lesson 1) picks the actual next token.
+3. Input tokens are processed in **parallel streams**, capped by the model's **context length** — but only the last stream's final output feeds the LM head, since earlier streams' information is folded in via attention along the way.
+4. Caching keys and values (the **KV cache**) avoids redundant recomputation across generation steps, producing a large real-world speedup.
+5. Each **transformer block** pairs an **attention layer** (pulls in relevant context) with a **feedforward layer** (stores memorized patterns and interpolates between them); attention itself is two steps — score relevance, then combine information — run in parallel across multiple heads.
+6. Modern architectures refine the original design with **local/sparse, multi-query, and grouped-query attention** and **Flash Attention** for efficiency, plus **pre-normalization, RMSNorm, SwiGLU,** and **rotary positional embeddings (RoPE)** for quality and scalability.
+
+:::
+
+The next step is moving from *how a model works* to *how to actually use one* — starting with practical, task-focused applications built on top of everything covered so far.
+
+## Exercises
+
+Running an actual transformer (Phi-3, Llama) needs a GPU, gigabytes of weights, and network access to download them — none of which the sandbox running these exercises has. So these exercises implement the exact same math (attention, decoding, normalization) directly with plain Python, on tiny hand-sized inputs — the real formulas, mocked inputs.
+
+<ExerciseSet>
+<Exercise title="Compute a self-attention output" anchor="exercise-self-attention">
+
+:::tip Activity: Compute a self-attention output
+Read a dimension `d`, a token count `n`, then `n` key vectors, `n` value vectors, and finally one query vector (all `d`-dimensional). Compute the single-head self-attention output for that query: score each key with a dot product against the query, softmax the scores, then return the weighted sum of the value vectors.
+
+<CodeExercise
+  title="Compute a self-attention output"
+  heading="exercise-self-attention"
+  lang="python"
+  filename="main.py"
+  prompt="Score = dot(query, key) for each key; softmax the scores; output = weighted sum of value vectors using those softmax weights."
+  sampleLog={`(input) 2
+2
+1 0
+0 1
+1 0
+0 1
+2 0
+0.881 0.119`}
+  starter={`import math
+
+def self_attention(query, keys, values):
+    # TODO: score each key against the query, softmax, weighted-sum the values
+    return [0.0] * len(query)
+`}
+  wrapSuffix={`
+d = int(input())
+n = int(input())
+keys = [[float(x) for x in input().split()] for _ in range(n)]
+values = [[float(x) for x in input().split()] for _ in range(n)]
+query = [float(x) for x in input().split()]
+
+out = self_attention(query, keys, values)
+print(" ".join(f"{v:.3f}" for v in out))
+`}
+  sourceChecks={[
+    { name: 'Uses math.exp for softmax', pattern: 'math\\.exp', must: true, hint: 'Convert relevance scores to weights with softmax.' },
+  ]}
+  tests={[
+    { name: 'query leans toward key 0', stdin: '2\n2\n1 0\n0 1\n1 0\n0 1\n2 0', equals: '0.881 0.119' },
+    { name: '3 tokens, 3 dims', stdin: '3\n3\n1 0 0\n0.9 0.1 0\n0 0 1\n1 0 0\n0 1 0\n0 0 1\n1 0 0', equals: '0.440 0.398 0.162' },
+  ]}
+/>
+
+:::
+
+</Exercise>
+
+<Exercise title="Categorical sampling by inverse CDF" anchor="exercise-inverse-cdf">
+
+:::tip Activity: Categorical sampling by inverse CDF
+Read a probability distribution (space-separated floats that sum to 1) and a threshold `u` between 0 and 1. This is exactly how a real sampler turns a random draw into a token choice: walk the distribution left to right, accumulating a running total, and return the index where the running total first reaches or passes `u`.
+
+<CodeExercise
+  title="Categorical sampling by inverse CDF"
+  heading="exercise-inverse-cdf"
+  lang="python"
+  filename="main.py"
+  prompt="Accumulate probs left to right; return the index where the cumulative sum first reaches u."
+  sampleLog={`(input) 0.2 0.5 0.3
+0.6
+1`}
+  starter={`def sample_index(probs, u):
+    # TODO
+    return 0
+`}
+  wrapSuffix={`
+probs = [float(x) for x in input().split()]
+u = float(input())
+print(sample_index(probs, u))
+`}
+  tests={[
+    { name: 'lands in first bucket', stdin: '0.2 0.5 0.3\n0.1', equals: '0' },
+    { name: 'lands in second bucket', stdin: '0.2 0.5 0.3\n0.6', equals: '1' },
+    { name: 'lands in last bucket', stdin: '0.2 0.5 0.3\n0.95', equals: '2' },
+  ]}
+/>
+
+:::
+
+</Exercise>
+
+<Exercise title="Implement RMSNorm" anchor="exercise-rmsnorm">
+
+:::tip Activity: Implement RMSNorm
+Read a vector `x` and a per-dimension gain vector (one line each, space-separated floats). Compute RMSNorm: scale `x` by `1 / sqrt(mean(x_i^2) + 1e-6)`, then multiply elementwise by the gain vector. Print the result rounded to 3 decimals.
+
+<CodeExercise
+  title="Implement RMSNorm"
+  heading="exercise-rmsnorm"
+  lang="python"
+  filename="main.py"
+  prompt="scale = 1 / sqrt(mean(x_i^2) + 1e-6); output_i = x_i * scale * gain_i"
+  sampleLog={`(input) 1 2 3
+1 1 1
+0.463 0.926 1.389`}
+  starter={`import math
+
+def rmsnorm(x, gain, eps=1e-6):
+    # TODO
+    return [0.0] * len(x)
+`}
+  wrapSuffix={`
+x = [float(v) for v in input().split()]
+gain = [float(v) for v in input().split()]
+out = rmsnorm(x, gain)
+print(" ".join(f"{v:.3f}" for v in out))
+`}
+  sourceChecks={[
+    { name: 'Uses math.sqrt', pattern: 'math\\.sqrt', must: true, hint: 'RMSNorm needs the root-mean-square, not just the mean.' },
+  ]}
+  tests={[
+    { name: 'gain of 1', stdin: '1 2 3\n1 1 1', equals: '0.463 0.926 1.389' },
+    { name: 'mixed gain, negative value', stdin: '2 0 -2\n0.5 1 2', equals: '0.612 0.000 -2.449' },
+  ]}
+/>
+
+:::
+
+</Exercise>
+
+<Exercise title="KV-cache savings calculator" anchor="exercise-kv-cache-savings">
+
+:::tip Activity: KV-cache savings calculator
+Read a prompt length and a number of new tokens to generate. Print, on separate lines: the total per-token computation work **without** a KV cache (every step reprocesses the whole sequence so far), the total work **with** a KV cache (each step only processes the newest token), and the speedup ratio (uncached ÷ cached) rounded to 1 decimal.
+
+<CodeExercise
+  title="KV-cache savings calculator"
+  heading="exercise-kv-cache-savings"
+  lang="python"
+  filename="main.py"
+  prompt="Uncached: sum of sequence length at every step. Cached: prompt_len (one seeding pass) + 1 per new token."
+  sampleLog={`(input) 10
+50
+1775
+60
+29.6`}
+  starter={`def uncached_work(prompt_len, new_tokens):
+    # TODO
+    return 0
+
+def cached_work(prompt_len, new_tokens):
+    # TODO
+    return 0
+`}
+  wrapSuffix={`
+prompt_len = int(input())
+new_tokens = int(input())
+u = uncached_work(prompt_len, new_tokens)
+c = cached_work(prompt_len, new_tokens)
+print(u)
+print(c)
+print(f"{u / c:.1f}")
+`}
+  tests={[
+    { name: 'prompt 10, 50 new tokens', stdin: '10\n50', equals: '1775\n60\n29.6' },
+    { name: 'prompt 5, 20 new tokens', stdin: '5\n20', equals: '310\n25\n12.4' },
+  ]}
+/>
+
+:::
+
+</Exercise>
+</ExerciseSet>

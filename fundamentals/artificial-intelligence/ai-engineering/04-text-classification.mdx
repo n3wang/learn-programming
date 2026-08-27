@@ -1,0 +1,819 @@
+---
+sidebar_position: 4
+title: Text Classification
+---
+
+# Text Classification
+
+> **Adapted from:** Jay Alammar & Maarten Grootendorst, *Hands-On Large Language Models* (O'Reilly, 2024), Chapter 4 — rewritten and condensed for teaching, with code examples adapted from the original.
+
+Text classification — assigning a label to a piece of text — is everywhere: sentiment analysis, intent detection, entity extraction, language identification. It's also a great lens for comparing how **representation models** (like BERT) and **generative models** (like GPT) actually differ in practice, since both can be pointed at the exact same task, just through very different mechanics.
+
+This lesson works through the same running example — classifying movie review sentiment as positive or negative — using four progressively different techniques: a task-specific representation model, an embedding model paired with a lightweight classifier, zero-shot classification with no labeled data at all, and two generative models (one open-source, one closed-source API).
+
+:::tip Always compare against a real baseline
+Before reaching for an LLM, it's worth benchmarking against a classic, unglamorous baseline: TF-IDF features feeding a logistic regression classifier. It's fast, cheap, and a genuinely strong baseline — if an LLM-based approach can't clearly beat it, that's worth knowing.
+:::
+
+---
+
+## The Dataset: Movie Review Sentiment
+
+The examples in this lesson use the `rotten_tomatoes` dataset from the Hugging Face Hub — 5,331 positive and 5,331 negative short movie reviews, split into train/validation/test sets:
+
+```python
+from datasets import load_dataset
+
+# Load our data
+data = load_dataset("rotten_tomatoes")
+data
+```
+
+```
+DatasetDict({
+    train: Dataset({
+        features: ['text', 'label'],
+        num_rows: 8530
+    })
+    validation: Dataset({
+        features: ['text', 'label'],
+        num_rows: 1066
+    })
+    test: Dataset({
+        features: ['text', 'label'],
+        num_rows: 1066
+    })
+})
+```
+
+Every technique in this lesson trains (if it trains at all) on the `train` split and reports results on `test`; `validation` is there if you need it for hyperparameter tuning without peeking at test data. Each review is labeled `1` (positive) or `0` (negative) — this is **binary** sentiment classification.
+
+### Check: the classification setup
+
+<MultipleChoice
+  id="ai-eng-ch4-dataset"
+  title="Dataset and evaluation splits"
+  questions={[
+    {
+      prompt: 'Why does this workflow evaluate every technique on the test split rather than the train split?',
+      choices: [
+        'The train split does not contain labels',
+        'Evaluating on the same data a model trained on tells you how well it memorized that data, not how well it generalizes to new, unseen reviews',
+        'The test split is always larger than train',
+        'There is no meaningful difference between the splits',
+      ],
+      answer: 1,
+      why: 'Held-out test data measures generalization; scoring on the training split would just reflect memorization, not real-world performance.',
+    },
+    {
+      prompt: 'What is the role of the validation split when it is used?',
+      choices: [
+        'It replaces the need for a test split entirely',
+        'It lets you tune hyperparameters or make model-selection decisions without contaminating your final test-set evaluation',
+        'It is only used for generative models, never representation models',
+        'It contains unlabeled data only',
+      ],
+      answer: 1,
+      why: 'Validation data gives a way to iterate on model choices while keeping the test set completely untouched until final evaluation.',
+    },
+  ]}
+/>
+
+---
+
+## Text Classification with Representation Models
+
+Classifying with a pretrained representation model comes in two flavors:
+
+1. A **task-specific model** — a representation model (like BERT) that's already been finetuned by someone else for exactly the task you need, e.g. sentiment analysis.
+2. An **embedding model** — a representation model finetuned to produce general-purpose embeddings, which you then feed into your own lightweight classifier (or use directly for zero-shot classification, covered below).
+
+Both start life as the same kind of foundation model; the difference is purely in what they were finetuned to output. In this lesson both stay **frozen** — no training of the big model happens here, only (in one case) a small classifier on top of it.
+
+### Model selection
+
+With tens of thousands of classification models and thousands of embedding models available, picking one isn't trivial. A few things matter beyond raw benchmark performance: language compatibility, underlying architecture, model size, and — easy to underestimate — **inference speed** in production.
+
+On architecture: encoder-only models like BERT remain a strong, efficient choice for task-specific work — they're typically far smaller than comparable generative models while still excelling at focused tasks. Several BERT variants have emerged over the years, each with different tradeoffs:
+
+| Model family | What it changed |
+|---|---|
+| **BERT** | The original encoder-only baseline |
+| **RoBERTa** | A more robustly optimized BERT pretraining recipe |
+| **DistilBERT** | A distilled, smaller/faster/cheaper version of BERT |
+| **ALBERT** | Parameter-sharing tricks for a "lite" BERT |
+| **DeBERTa** | Disentangled attention for improved representations |
+
+Solid starting points/baselines include the base BERT, RoBERTa, DistilBERT, and DeBERTa models, `bert-tiny`, and ALBERT base v2. For this lesson's task-specific example, we'll use **Twitter-RoBERTa-base for Sentiment Analysis** — a RoBERTa model finetuned on tweets, not movie reviews, which makes it a good test of how well a model generalizes outside its original training domain.
+
+For selecting an embedding model, the **MTEB leaderboard** (Massive Text Embedding Benchmark) is the standard starting point — it benchmarks both open and closed embedding models across many tasks. This lesson uses `sentence-transformers/all-mpnet-base-v2`, a small but strong performer.
+
+### Check: choosing representation models
+
+<MultipleChoice
+  id="ai-eng-ch4-model-selection"
+  title="Model selection for representation-based classification"
+  questions={[
+    {
+      prompt: 'Why might an encoder-only model like BERT be preferred over a generative model for a task-specific classification job?',
+      choices: [
+        'Encoder-only models cannot be used for classification',
+        'Encoder-only models can excel at focused tasks while typically being significantly smaller (and cheaper to run) than comparably capable generative models',
+        'Generative models cannot process text input at all',
+        'BERT-family models are always more accurate than any generative model on every task',
+      ],
+      answer: 1,
+      why: 'Task-specific encoder-only models trade general-purpose flexibility for efficiency and strong focused performance — a good fit when you have one well-defined task.',
+    },
+    {
+      prompt: 'Why does this lesson deliberately choose a sentiment model finetuned on tweets (not movie reviews) for the movie review task?',
+      choices: [
+        'It was the only available sentiment model',
+        'To explore how well a model trained on one domain generalizes to a related but different domain',
+        'Because tweet data always outperforms domain-matched data',
+        'It is a required step before using any representation model',
+      ],
+      answer: 1,
+      why: 'Using an off-domain model is a deliberate test of generalization — a common real-world situation when no perfectly domain-matched model exists.',
+    },
+  ]}
+/>
+
+---
+
+### Using a task-specific model
+
+Loading the task-specific model is a one-liner with Hugging Face's `pipeline`:
+
+```python
+from transformers import pipeline
+
+# Path to our HF model
+model_path = "cardiffnlp/twitter-roberta-base-sentiment-latest"
+
+# Load model into pipeline
+pipe = pipeline(
+    model=model_path,
+    tokenizer=model_path,
+    return_all_scores=True,
+    device="cuda:0",
+)
+```
+
+Notice the tokenizer loads alongside the model (it would load automatically either way — passing it explicitly just makes visible what's happening under the hood, per [Lesson 2](./02-tokens-and-embeddings)). One of subword tokenization's real practical payoffs shows up here: even a word this tokenizer never saw during training can still get a reasonable representation, built by combining familiar subword fragments.
+
+Running inference over the whole test split:
+
+```python
+import numpy as np
+from tqdm import tqdm
+from transformers.pipelines.pt_utils import KeyDataset
+
+# Run inference
+y_pred = []
+for output in tqdm(pipe(KeyDataset(data["test"], "text")), total=len(data["test"])):
+    negative_score = output[0]["score"]
+    positive_score = output[2]["score"]
+    assignment = np.argmax([negative_score, positive_score])
+    y_pred.append(assignment)
+```
+
+### Reading a classification report
+
+Evaluating predictions means comparing them against the true labels. A small helper keeps this consistent across every technique in this lesson:
+
+```python
+from sklearn.metrics import classification_report
+
+def evaluate_performance(y_true, y_pred):
+    """Create and print the classification report"""
+    performance = classification_report(
+        y_true, y_pred,
+        target_names=["Negative Review", "Positive Review"],
+    )
+    print(performance)
+```
+
+```python
+evaluate_performance(data["test"]["label"], y_pred)
+```
+
+To understand what comes out of that function, it helps to first understand the **confusion matrix** — the four ways a binary prediction can land, depending on whether it's correct (True/False) and which class it predicted (Positive/Negative):
+
+| | Predicted Positive | Predicted Negative |
+|---|---|---|
+| **Actually Positive** | True Positive (TP) | False Negative (FN) |
+| **Actually Negative** | False Positive (FP) | True Negative (TN) |
+
+From those four counts, four standard metrics follow:
+
+- **Precision** — of everything the model *called* positive, how much actually was? `TP / (TP + FP)`. High precision means few false alarms.
+- **Recall** — of everything that *actually was* positive, how much did the model catch? `TP / (TP + FN)`. High recall means few misses.
+- **Accuracy** — the fraction of *all* predictions (both classes) that were correct.
+- **F1 score** — the harmonic mean of precision and recall, balancing both into one number.
+
+Here's the actual classification report for the task-specific model:
+
+| | precision | recall | f1-score | support |
+|---|---|---|---|---|
+| Negative Review | 0.76 | 0.88 | 0.81 | 533 |
+| Positive Review | 0.86 | 0.72 | 0.78 | 533 |
+| **accuracy** | | | 0.80 | 1066 |
+| **macro avg** | 0.81 | 0.80 | 0.80 | 1066 |
+| **weighted avg** | 0.81 | 0.80 | 0.80 | 1066 |
+
+Throughout this lesson, "the F1 score" means the **weighted average** row's F1 column — 0.80 here — chosen so every class is weighted fairly regardless of how many examples it has. An 0.80 F1 from a model that was never trained on movie reviews at all is a genuinely strong result.
+
+### Check: confusion matrix and metrics
+
+<MultipleChoice
+  id="ai-eng-ch4-metrics"
+  title="Confusion matrices and evaluation metrics"
+  questions={[
+    {
+      prompt: 'A spam filter has high recall but low precision on the "spam" class. What does that mean in practice?',
+      choices: [
+        'It catches almost all real spam, but also wrongly flags a lot of legitimate email as spam',
+        'It rarely flags anything as spam, missing most real spam',
+        'It is perfectly accurate on every email',
+        'Recall and precision cannot both be measured for the same model',
+      ],
+      answer: 0,
+      why: 'High recall means it catches most true positives (spam); low precision means many of its "spam" flags are actually false positives (legitimate mail wrongly flagged).',
+    },
+    {
+      prompt: 'Why use the F1 score instead of just accuracy to summarize a classifier\'s performance?',
+      choices: [
+        'F1 score is always numerically higher than accuracy',
+        'F1 balances precision and recall together, which is especially useful when you care about both false positives and false negatives, not just overall correctness',
+        'Accuracy cannot be computed for binary classification',
+        'F1 score ignores the negative class entirely',
+      ],
+      answer: 1,
+      why: 'F1 is the harmonic mean of precision and recall — a single number that penalizes models that only do well on one of the two.',
+    },
+  ]}
+/>
+
+<details>
+<summary>🧪 Computing precision, recall, and F1 from a confusion matrix</summary>
+
+<PistonRunner
+  lang="python"
+  interactive={false}
+  height="300px"
+  code={`def metrics_from_confusion(tp, fp, tn, fn):
+    precision = tp / (tp + fp) if (tp + fp) else 0.0
+    recall = tp / (tp + fn) if (tp + fn) else 0.0
+    accuracy = (tp + tn) / (tp + fp + tn + fn)
+    f1 = (2 * precision * recall / (precision + recall)) if (precision + recall) else 0.0
+    return precision, recall, accuracy, f1
+
+# Roughly matching the task-specific model's "Negative Review" row
+tp, fp, tn, fn = 469, 149, 384, 64
+precision, recall, accuracy, f1 = metrics_from_confusion(tp, fp, tn, fn)
+
+print(f"Precision: {precision:.2f}")
+print(f"Recall:    {recall:.2f}")
+print(f"Accuracy:  {accuracy:.2f}")
+print(f"F1 score:  {f1:.2f}")
+`}
+/>
+
+</details>
+
+---
+
+### Classification with embeddings (supervised)
+
+What if there's no ready-made task-specific model for your exact problem? Rather than finetuning a representation model yourself (expensive, and covered elsewhere), you can separate the problem into two cheaper steps:
+
+1. **Feature extraction** — run text through a frozen, general-purpose embedding model to get a vector per document.
+2. **Classification** — train a lightweight classifier (like logistic regression) directly on those vectors.
+
+The embedding model never needs to be finetuned — all the trainable work happens in a small, fast classifier, which can even train on a CPU.
+
+```python
+from sentence_transformers import SentenceTransformer
+
+# Load model
+model = SentenceTransformer("sentence-transformers/all-mpnet-base-v2")
+
+# Convert text to embeddings
+train_embeddings = model.encode(data["train"]["text"], show_progress_bar=True)
+test_embeddings = model.encode(data["test"]["text"], show_progress_bar=True)
+```
+
+```python
+train_embeddings.shape
+# (8530, 768)
+```
+
+8,530 training documents, each represented by a 768-dimensional vector — exactly the embedding shape you'd expect from this model (see [Lesson 2](./02-tokens-and-embeddings#text-embeddings-for-sentences-and-whole-documents)). Training the classifier is now just ordinary supervised learning on fixed-length numeric features:
+
+```python
+from sklearn.linear_model import LogisticRegression
+
+# Train a logistic regression on our train embeddings
+clf = LogisticRegression(random_state=42)
+clf.fit(train_embeddings, data["train"]["label"])
+```
+
+```python
+# Predict previously unseen instances
+y_pred = clf.predict(test_embeddings)
+evaluate_performance(data["test"]["label"], y_pred)
+```
+
+| | precision | recall | f1-score | support |
+|---|---|---|---|---|
+| Negative Review | 0.85 | 0.86 | 0.85 | 533 |
+| Positive Review | 0.86 | 0.85 | 0.85 | 533 |
+| **accuracy** | | | 0.85 | 1066 |
+| **macro avg** | 0.85 | 0.85 | 0.85 | 1066 |
+| **weighted avg** | 0.85 | 0.85 | 0.85 | 1066 |
+
+F1 climbs to **0.85** — better than the off-domain task-specific model, while only ever training a small logistic regression. If GPU access is a constraint, this same approach works with embeddings from an external API (Cohere and OpenAI both offer one) instead of running `sentence-transformers` locally, making the whole pipeline CPU-only.
+
+### Zero-shot classification: no labeled data at all
+
+Labeled data is expensive to collect. Before investing in it, it's worth checking whether a task is even feasible **without** any labels — using **zero-shot classification**. You still need to know what your labels *mean*, just not any examples of them.
+
+The trick: describe each label in plain language — "This is a negative movie review" — and embed that description exactly like you'd embed a document. Now both documents and labels live in the same embedding space, and you can measure how close each document sits to each label description using **cosine similarity** (the cosine of the angle between two vectors — closer to 1 means more similar, regardless of vector magnitude).
+
+```python
+# Create embeddings for our labels
+label_embeddings = model.encode(["A negative review", "A positive review"])
+```
+
+```python
+from sklearn.metrics.pairwise import cosine_similarity
+
+# Find the best matching label for each document
+sim_matrix = cosine_similarity(test_embeddings, label_embeddings)
+y_pred = np.argmax(sim_matrix, axis=1)
+```
+
+```python
+evaluate_performance(data["test"]["label"], y_pred)
+```
+
+| | precision | recall | f1-score | support |
+|---|---|---|---|---|
+| Negative Review | 0.78 | 0.77 | 0.78 | 533 |
+| Positive Review | 0.77 | 0.79 | 0.78 | 533 |
+| **accuracy** | | | 0.78 | 1066 |
+| **macro avg** | 0.78 | 0.78 | 0.78 | 1066 |
+| **weighted avg** | 0.78 | 0.78 | 0.78 | 1066 |
+
+An F1 of **0.78** with zero labeled training examples — using nothing but two short label descriptions — is a genuinely strong result, and a good demonstration of just how much general-purpose utility lives inside a good embedding model.
+
+:::tip Label wording is a lever you can pull
+"A negative review" versus "A very negative movie review" will produce different embeddings, and often different results — the more specific description ties the label more tightly to the actual domain (movies) and pushes toward the extremes the two classes represent. It's worth experimenting with label phrasing the same way you'd experiment with a prompt.
+:::
+
+### Check: embeddings for supervised and zero-shot classification
+
+<MultipleChoice
+  id="ai-eng-ch4-embeddings-classification"
+  title="Embedding-based classification approaches"
+  questions={[
+    {
+      prompt: 'What is the key benefit of the two-step "embed, then classify" approach over finetuning a whole representation model?',
+      choices: [
+        'It always produces higher accuracy than finetuning',
+        'The expensive embedding model stays frozen; only a small, cheap classifier (like logistic regression) needs to be trained, which can even run on a CPU',
+        'It removes the need for any labeled data',
+        'It only works for sentiment analysis specifically',
+      ],
+      answer: 1,
+      why: 'Separating feature extraction (frozen embedding model) from classification (lightweight trainable classifier) avoids the cost of finetuning the large model.',
+    },
+    {
+      prompt: 'How does zero-shot classification with embeddings actually assign a label, without any labeled training examples?',
+      choices: [
+        'It randomly guesses a label for each document',
+        'It embeds a plain-language description of each label, then assigns each document to whichever label description its embedding is most similar to (via cosine similarity)',
+        'It requires at least 10 labeled examples per class to function',
+        'It only works with generative models, never embedding models',
+      ],
+      answer: 1,
+      why: 'By embedding label descriptions in the same space as documents, cosine similarity between a document and each label description acts as a classifier — no labeled examples needed.',
+    },
+    {
+      prompt: 'Why might rewording a zero-shot label from "A negative review" to "A very negative movie review" change results?',
+      choices: [
+        'It would have no effect at all',
+        'The more specific, domain-tied phrasing produces a different embedding, potentially better matching the actual documents and separating the extremes of the two classes more clearly',
+        'Longer label descriptions are always embedded as zero vectors',
+        'This only matters for supervised classification, not zero-shot',
+      ],
+      answer: 1,
+      why: 'Zero-shot performance depends entirely on how well the label description\'s embedding matches the target documents — wording is a real, tunable lever.',
+    },
+  ]}
+/>
+
+<details>
+<summary>🧪 Zero-shot classification by cosine similarity, with toy embeddings</summary>
+
+<PistonRunner
+  lang="python"
+  interactive={false}
+  height="340px"
+  code={`import math
+
+def cosine_sim(a, b):
+    dot = sum(x * y for x, y in zip(a, b))
+    norm_a = math.sqrt(sum(x * x for x in a))
+    norm_b = math.sqrt(sum(y * y for y in b))
+    return dot / (norm_a * norm_b)
+
+# Toy "embeddings" standing in for real sentence-transformer output
+label_embeddings = {
+    "negative": [0.9, 0.1, 0.0],
+    "positive": [0.1, 0.9, 0.0],
+}
+
+documents = {
+    "boring and way too long":          [0.85, 0.15, 0.05],
+    "a joyful, charming surprise":      [0.10, 0.88, 0.02],
+    "predictable but still enjoyable":  [0.35, 0.60, 0.05],
+}
+
+for doc, vec in documents.items():
+    scores = {label: cosine_sim(vec, label_vec) for label, label_vec in label_embeddings.items()}
+    predicted = max(scores, key=scores.get)
+    print(f"'{doc}'")
+    print(f"  negative sim={scores['negative']:.3f}  positive sim={scores['positive']:.3f}  -> {predicted}")
+`}
+/>
+
+</details>
+
+---
+
+## Text Classification with Generative Models
+
+Everything so far has used a representation model that outputs a numeric class score directly. **Generative** models — GPT-family models included — work completely differently: they take in a sequence of tokens and produce another sequence of tokens (**sequence-to-sequence**), not a class label. Handed a raw movie review with no other context, a generative model has no built-in notion of "classify this" at all.
+
+To get useful classification behavior out of a generative model, you have to *tell* it what to do — via the instruction or **prompt** you give it. Iterating on that prompt to reliably get the output format and behavior you want is called **prompt engineering**.
+
+### Using Flan-T5 (encoder-decoder)
+
+Most of this book's examples split neatly into encoder-only (BERT-style) or decoder-only (GPT-style) models. But the *original* transformer architecture was actually **encoder-decoder** — and models in that lineage, like **T5** (Text-to-Text Transfer Transformer), are also generative, sequence-to-sequence models.
+
+T5 pretrains with a twist on masked language modeling: instead of masking single tokens, it masks whole **spans** of consecutive tokens and trains the model to reconstruct them. The bigger idea, though, is in how T5 gets finetuned: every downstream task — translation, summarization, classification, whatever — gets reframed as a text-in, text-out problem and trained *together*, all as one unified format. **Flan-T5** pushes this further, finetuning across well over a thousand tasks phrased as natural-language instructions, much closer to how modern instruction-following chat models are trained.
+
+Loading it for classification uses the `text2text-generation` pipeline (the standard task for encoder-decoder models):
+
+```python
+# Load our model
+pipe = pipeline(
+    "text2text-generation",
+    model="google/flan-t5-small",
+    device="cuda:0",
+)
+```
+
+Since this model has no built-in notion of "sentiment classification," every input needs an explicit instruction prefix:
+
+```python
+# Prepare our data
+prompt = "Is the following sentence positive or negative? "
+data = data.map(lambda example: {"t5": prompt + example['text']})
+```
+
+```python
+# Run inference
+y_pred = []
+for output in tqdm(pipe(KeyDataset(data["test"], "t5")), total=len(data["test"])):
+    text = output[0]["generated_text"]
+    y_pred.append(0 if text == "negative" else 1)
+```
+
+Because the output is generated *text*, not a class index, it has to be mapped back into `0`/`1` by hand before evaluation:
+
+```python
+evaluate_performance(data["test"]["label"], y_pred)
+```
+
+| | precision | recall | f1-score | support |
+|---|---|---|---|---|
+| Negative Review | 0.83 | 0.85 | 0.84 | 533 |
+| Positive Review | 0.85 | 0.83 | 0.84 | 533 |
+| **accuracy** | | | 0.84 | 1066 |
+| **macro avg** | 0.84 | 0.84 | 0.84 | 1066 |
+| **weighted avg** | 0.84 | 0.84 | 0.84 | 1066 |
+
+An F1 of **0.84**, from the smallest Flan-T5 variant, with a one-line instruction — a solid first look at what generative models bring to classification.
+
+### Using ChatGPT (closed-source API)
+
+The training story behind ChatGPT connects directly back to [Lesson 1's post-training coverage](./01-understanding-foundation-models#post-training): OpenAI first collected **instruction data** (human-written examples of good responses) for initial finetuning, then collected **preference data** — multiple candidate outputs, manually ranked best to worst — used to further align the model toward outputs people actually prefer. Preference data captures something instruction data alone can't: the *nuance* of what makes one good answer better than another good answer, not just "good vs. bad."
+
+Using a closed-source model means calling an API instead of loading weights locally:
+
+```python
+import openai
+
+# Create client
+client = openai.OpenAI(api_key="YOUR_KEY_HERE")
+
+def chatgpt_generation(prompt, document, model="gpt-3.5-turbo-0125"):
+    """Generate an output based on a prompt and an input document."""
+    messages = [
+        {"role": "system", "content": "You are a helpful assistant."},
+        {"role": "user", "content": prompt.replace("[DOCUMENT]", document)},
+    ]
+    chat_completion = client.chat.completions.create(
+        messages=messages,
+        model=model,
+        temperature=0,
+    )
+    return chat_completion.choices[0].message.content
+```
+
+```python
+# Define a prompt template as a base
+prompt = """Predict whether the following document is a positive or negative movie review:
+
+[DOCUMENT]
+
+If it is positive return 1 and if it is negative return 0. Do not give any other answers.
+"""
+
+document = "unpretentious, charming, quirky, original"
+chatgpt_generation(prompt, document)
+```
+
+Running this across the full test set and converting the string outputs to integers, exactly as with Flan-T5, gives an **F1 score of 0.91** — clearly the strongest result of any technique in this lesson.
+
+:::caution Two real caveats with closed-source API evaluation
+1. **Cost and rate limits.** External APIs charge per request and cap how many requests you can send per minute — running an evaluation like this cost a few cents, but that adds up fast at scale. Hitting a rate limit mid-run is normal; the standard fix is **exponential backoff** — retry after a short sleep, and double that sleep each time you get rate-limited again, up to some maximum number of attempts.
+2. **Unknown training data.** Since OpenAI doesn't disclose exactly what ChatGPT was trained on, there's no way to rule out this exact benchmark dataset having leaked into training somewhere — which would inflate the apparent score. This is a genuine limitation of benchmarking closed models, not just this dataset.
+:::
+
+### Check: generative models for classification
+
+<MultipleChoice
+  id="ai-eng-ch4-generative-classification"
+  title="Generative models for classification"
+  questions={[
+    {
+      prompt: 'Why does classifying with a generative model require a carefully written prompt, when a task-specific representation model does not?',
+      choices: [
+        'Generative models cannot read English text',
+        'A generative model produces free-form text (sequence-to-sequence) with no built-in notion of "classify this" — the prompt is what tells it what task to perform and what output format to use',
+        'Task-specific models never need any input processing at all',
+        'Generative models always ignore their input text',
+      ],
+      answer: 1,
+      why: 'Unlike a task-specific classifier head that directly outputs a class score, a generative model just continues text — the prompt is the only mechanism for specifying "act like a classifier here."',
+    },
+    {
+      prompt: 'What is the practical purpose of exponential backoff when calling an external API like OpenAI\'s?',
+      choices: [
+        'It makes every request faster',
+        'It handles rate-limit errors gracefully by waiting an increasing amount of time between retries instead of failing immediately or hammering the API',
+        'It reduces the cost of every individual API call',
+        'It converts generated text into class labels automatically',
+      ],
+      answer: 1,
+      why: 'Exponential backoff retries a rate-limited request after a growing delay, avoiding both immediate failure and further overwhelming the API.',
+    },
+    {
+      prompt: 'Why is it hard to draw a completely fair conclusion from ChatGPT scoring higher than the open-source models in this comparison?',
+      choices: [
+        'It is not hard at all — the comparison is fully fair',
+        'Since the exact training data behind a closed-source model is undisclosed, it is impossible to rule out that the benchmark data itself leaked into training, inflating the score',
+        'ChatGPT cannot actually be evaluated with classification_report',
+        'F1 score is not a valid metric for generative models',
+      ],
+      answer: 1,
+      why: 'Undisclosed training data means possible train/test contamination cannot be ruled out — a real limitation when comparing benchmark scores against closed models.',
+    },
+  ]}
+/>
+
+<details>
+<summary>🧪 Exponential backoff, simulated</summary>
+
+<PistonRunner
+  lang="python"
+  interactive={false}
+  height="300px"
+  code={`import random
+
+def call_api_simulated(attempt):
+    # Simulate a flaky API: fails with decreasing probability each retry
+    random.seed(attempt * 7)
+    return random.random() > (0.7 / attempt)
+
+def call_with_backoff(max_retries=5, base_delay=1):
+    for attempt in range(1, max_retries + 1):
+        success = call_api_simulated(attempt)
+        if success:
+            print(f"Attempt {attempt}: succeeded")
+            return True
+        delay = base_delay * (2 ** (attempt - 1))
+        print(f"Attempt {attempt}: rate-limited, would sleep {delay}s before retrying")
+    print("Gave up after max retries")
+    return False
+
+call_with_backoff()
+`}
+/>
+
+</details>
+
+---
+
+## Chapter Summary
+
+:::important Key takeaways
+
+1. **Task-specific representation models** (a finetuned BERT-family model) can be used directly for classification, and even generalize reasonably well outside their original training domain.
+2. **Embedding + lightweight classifier** separates expensive feature extraction (a frozen embedding model) from cheap training (e.g. logistic regression), often *outperforming* an off-domain task-specific model while training almost nothing.
+3. **Zero-shot classification with embeddings** needs no labeled data at all — just a plain-language description per label, compared to document embeddings via cosine similarity — and can still reach surprisingly strong results.
+4. **Generative models** (Flan-T5, ChatGPT) treat classification as a text-generation problem, guided entirely by the prompt — requiring the output to be parsed back into class labels, but capable of strong performance with no task-specific finetuning at all.
+5. **Evaluation always comes back to precision, recall, and F1**, derived from the confusion matrix — with the weighted-average F1 used throughout as the single headline number.
+6. Closed-source API-based classification can perform very well, but comes with real practical costs (usage fees, rate limits handled via exponential backoff) and evaluation caveats (undisclosed training data makes benchmark comparisons less trustworthy).
+
+:::
+
+Every technique in this lesson assumed labels were meaningful and available (or at least describable). The next step is the harder, more open-ended case: text data with **no labels at all** — where clustering and topic modeling take over to find structure nobody defined in advance.
+
+## Exercises
+
+These exercises use the **real `scikit-learn` library** — actual `LogisticRegression`, `cosine_similarity`, and the evaluation metrics — running on tiny, hand-picked embeddings instead of the full `rotten_tomatoes` dataset (which would need downloading real pretrained embedding models and isn't something the sandbox running these exercises can do). The classifier and the metrics are 100% real; only the input data is small enough to type out.
+
+<ExerciseSet>
+<Exercise title="Train a real logistic regression classifier" anchor="exercise-logreg">
+
+:::tip Activity: Train a real logistic regression classifier
+A case number (`0` or `1`) selects a toy training set of 2D embeddings and labels, plus a single query embedding. Train `sklearn.linear_model.LogisticRegression` on the training data and print its predicted label for the query point.
+
+<CodeExercise
+  title="Train a real logistic regression classifier"
+  heading="exercise-logreg"
+  lang="python"
+  filename="main.py"
+  prompt="Fit LogisticRegression(random_state=42) on train_X/train_y, then predict on query_X. Return the single predicted label."
+  sampleLog={`(input) 0
+1`}
+  starter={`from sklearn.linear_model import LogisticRegression
+
+def train_and_predict(train_X, train_y, query_X):
+    # TODO: fit a LogisticRegression(random_state=42), predict on query_X,
+    # and return the single predicted label
+    return 0
+`}
+  wrapSuffix={`
+CASES = {
+    "0": {
+        "X": [[0.9,0.1],[0.85,0.2],[0.1,0.9],[0.2,0.8],[0.95,0.05],[0.05,0.95]],
+        "y": [1,1,0,0,1,0],
+        "q": [[0.8,0.15]],
+    },
+    "1": {
+        "X": [[0.9,0.1],[0.85,0.2],[0.1,0.9],[0.2,0.8],[0.95,0.05],[0.05,0.95]],
+        "y": [1,1,0,0,1,0],
+        "q": [[0.15,0.85]],
+    },
+}
+case_id = input().strip()
+case = CASES[case_id]
+pred = train_and_predict(case["X"], case["y"], case["q"])
+print(pred)
+`}
+  sourceChecks={[
+    { name: 'Uses LogisticRegression', pattern: 'LogisticRegression\\(', must: true, hint: 'LogisticRegression(random_state=42)' },
+  ]}
+  tests={[
+    { name: 'query near positive cluster', stdin: '0', equals: '1' },
+    { name: 'query near negative cluster', stdin: '1', equals: '0' },
+  ]}
+/>
+
+:::
+
+</Exercise>
+
+<Exercise title="Compute F1 score with scikit-learn" anchor="exercise-f1-score">
+
+:::tip Activity: Compute F1 score with scikit-learn
+Read two lines of space-separated `0`/`1` integers: the true labels, then the predicted labels. Use `sklearn.metrics.f1_score` to compute and print the F1 score, rounded to 2 decimals.
+
+<CodeExercise
+  title="Compute F1 score with scikit-learn"
+  heading="exercise-f1-score"
+  lang="python"
+  filename="main.py"
+  prompt="Return f1_score(y_true, y_pred)."
+  sampleLog={`(input) 1 1 0 0 1 0 1 0
+1 0 0 0 1 0 1 1
+0.75`}
+  starter={`from sklearn.metrics import f1_score
+
+def compute_f1(y_true, y_pred):
+    # TODO
+    return 0.0
+`}
+  wrapSuffix={`
+y_true = [int(x) for x in input().split()]
+y_pred = [int(x) for x in input().split()]
+print(f"{compute_f1(y_true, y_pred):.2f}")
+`}
+  sourceChecks={[
+    { name: 'Uses sklearn f1_score', pattern: 'f1_score\\(', must: true, hint: 'f1_score(y_true, y_pred)' },
+  ]}
+  tests={[
+    { name: '8 predictions, 2 mistakes', stdin: '1 1 0 0 1 0 1 0\n1 0 0 0 1 0 1 1', equals: '0.75' },
+  ]}
+/>
+
+:::
+
+</Exercise>
+
+<Exercise title="Zero-shot classification with cosine_similarity" anchor="exercise-zeroshot-sklearn">
+
+:::tip Activity: Zero-shot classification with cosine_similarity
+Fixed label embeddings for `negative` (index 0) and `positive` (index 1) are provided, along with a case number selecting a small set of document embeddings. Use `sklearn.metrics.pairwise.cosine_similarity` to score every document against both labels, then print the predicted label index for each document (space-separated) using the highest-scoring label.
+
+<CodeExercise
+  title="Zero-shot classification with cosine_similarity"
+  heading="exercise-zeroshot-sklearn"
+  lang="python"
+  filename="main.py"
+  prompt="sim_matrix = cosine_similarity(doc_embeddings, label_embeddings); return argmax along axis 1 for each row."
+  sampleLog={`(input) 0
+0 1 1`}
+  starter={`from sklearn.metrics.pairwise import cosine_similarity
+import numpy as np
+
+def zero_shot_predict(doc_embeddings, label_embeddings):
+    # TODO: compute the similarity matrix, then return the argmax label
+    # index (axis=1) for every document
+    return []
+`}
+  wrapSuffix={`
+label_embeddings = [[0.95, 0.05, 0.0], [0.05, 0.95, 0.0]]  # [negative, positive]
+CASES = {
+    "0": [[0.9, 0.1, 0.02], [0.1, 0.9, 0.01], [0.4, 0.6, 0.0]],
+    "1": [[0.2, 0.8, 0.0], [0.85, 0.15, 0.05]],
+}
+case_id = input().strip()
+docs = CASES[case_id]
+preds = zero_shot_predict(docs, label_embeddings)
+print(*preds)
+`}
+  sourceChecks={[
+    { name: 'Uses cosine_similarity', pattern: 'cosine_similarity\\(', must: true, hint: 'cosine_similarity(doc_embeddings, label_embeddings)' },
+  ]}
+  tests={[
+    { name: '3 documents', stdin: '0', equals: '0 1 1' },
+    { name: '2 documents', stdin: '1', equals: '1 0' },
+  ]}
+/>
+
+:::
+
+</Exercise>
+
+<Exercise title="Precision, recall, and accuracy together" anchor="exercise-precision-recall-accuracy">
+
+:::tip Activity: Precision, recall, and accuracy together
+Read two lines of space-separated `0`/`1` labels: true, then predicted. Using `sklearn.metrics`, compute precision, recall, and accuracy, and print all three rounded to 2 decimals, space-separated, in that order.
+
+<CodeExercise
+  title="Precision, recall, and accuracy together"
+  heading="exercise-precision-recall-accuracy"
+  lang="python"
+  filename="main.py"
+  prompt="Use precision_score, recall_score, and accuracy_score from sklearn.metrics."
+  sampleLog={`(input) 1 1 0 0 1 0 1 0
+1 0 0 0 1 0 1 1
+0.75 0.75 0.75`}
+  starter={`from sklearn.metrics import precision_score, recall_score, accuracy_score
+
+def compute_metrics(y_true, y_pred):
+    # TODO: return a (precision, recall, accuracy) tuple
+    return 0.0, 0.0, 0.0
+`}
+  wrapSuffix={`
+y_true = [int(x) for x in input().split()]
+y_pred = [int(x) for x in input().split()]
+p, r, a = compute_metrics(y_true, y_pred)
+print(f"{p:.2f} {r:.2f} {a:.2f}")
+`}
+  tests={[
+    { name: '8 predictions, 2 mistakes', stdin: '1 1 0 0 1 0 1 0\n1 0 0 0 1 0 1 1', equals: '0.75 0.75 0.75' },
+  ]}
+/>
+
+:::
+
+</Exercise>
+</ExerciseSet>

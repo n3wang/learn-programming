@@ -1,0 +1,734 @@
+---
+sidebar_position: 6
+title: Prompt Engineering
+---
+
+# Prompt Engineering
+
+> **Adapted from:** Jay Alammar & Maarten Grootendorst, *Hands-On Large Language Models* (O'Reilly, 2024), Chapter 6 — rewritten and condensed for teaching, with code examples adapted from the original.
+
+Every generative model in the previous lessons was loaded, prompted once, and left alone. This lesson is about everything you can do *between* loading the model and reading its output — without changing a single weight. Small, deliberate changes to how you phrase a request, structure it, and configure sampling can move a generative model from "technically answered" to "answered exactly what I needed."
+
+We'll keep using **Phi-3-mini** (3.8 billion parameters) — small enough to run on modest hardware, and a good foundation before scaling up to larger models. As a rule of thumb, starting small and scaling up tends to be a much smoother experience than the reverse.
+
+---
+
+## Loading a Text Generation Model
+
+The familiar `transformers` pattern still applies:
+
+```python
+import torch
+from transformers import AutoModelForCausalLM, AutoTokenizer, pipeline
+
+# Load model and tokenizer
+model = AutoModelForCausalLM.from_pretrained(
+    "microsoft/Phi-3-mini-4k-instruct",
+    device_map="cuda",
+    torch_dtype="auto",
+    trust_remote_code=True,
+)
+tokenizer = AutoTokenizer.from_pretrained("microsoft/Phi-3-mini-4k-instruct")
+
+# Create a pipeline
+pipe = pipeline(
+    "text-generation",
+    model=model,
+    tokenizer=tokenizer,
+    return_full_text=False,
+    max_new_tokens=500,
+    do_sample=False,
+)
+```
+
+Revisiting the chicken-joke example from earlier lessons:
+
+```python
+# Prompt
+messages = [
+    {"role": "user", "content": "Create a funny joke about chickens."}
+]
+
+# Generate the output
+output = pipe(messages)
+print(output[0]["generated_text"])
+```
+
+```
+Why don't chickens like to go to the gym? Because they can't crack the egg-
+sistence of it!
+```
+
+Under the hood, `pipeline` doesn't send `messages` to the model as-is — it first runs them through `apply_chat_template`, which wraps them in the exact format the model was trained on:
+
+```python
+# Apply prompt template
+prompt = pipe.tokenizer.apply_chat_template(messages, tokenize=False)
+print(prompt)
+```
+
+```
+<s><|user|>
+Create a funny joke about chickens.<|end|>
+<|assistant|>
+```
+
+Those `<|user|>`, `<|assistant|>`, and `<|end|>` tokens aren't cosmetic — they're the exact structure the model saw during training, and `<|end|>` in particular is what tells the model when to stop generating. `pipeline` handles this automatically throughout this lesson; the next lesson digs into building and customizing this template by hand.
+
+---
+
+## Controlling Model Output
+
+Prompt wording isn't the only lever available — the sampling parameters passed to `pipe` shape the output just as much. Every time the model generates a token, it computes a likelihood for every possible next token. In the sentence "I am driving a...", "car" and "truck" score far higher than "elephant" — but "elephant" isn't impossible, just unlikely.
+
+So far every example used `do_sample=False`, which always takes the single most likely token — fully deterministic, same output every time. Setting `do_sample=True` unlocks two parameters that shape *how* randomness is introduced.
+
+### Temperature
+
+Temperature controls how willing the model is to pick a less-probable token. A temperature of 0 always picks the most likely token (equivalent to `do_sample=False`); higher values flatten the probability distribution, giving lower-probability tokens more of a chance.
+
+```python
+# Using a high temperature
+output = pipe(messages, do_sample=True, temperature=1)
+print(output[0]["generated_text"])
+```
+
+```
+Why don't chickens like to go on a rollercoaster? Because they're afraid they
+might suddenly become chicken-soup!
+```
+
+Run that same cell again and you'll get a different joke — `temperature` makes the token selection genuinely stochastic. Higher temperature (e.g. 0.8) trades consistency for diversity; lower temperature (e.g. 0.2) trades diversity for predictability.
+
+### top_p and top_k
+
+**top_p** (nucleus sampling) restricts the model to the smallest set of tokens whose cumulative probability reaches `top_p`. At `top_p=0.1`, only the handful of tokens needed to reach 10% cumulative probability are eligible; at `top_p=1`, every token is in play.
+
+```python
+# Using a high top_p
+output = pipe(messages, do_sample=True, top_p=1)
+print(output[0]["generated_text"])
+```
+
+```
+Why don't chickens make good comedians? Because their 'jokes' always 'feather'
+the truth!
+```
+
+**top_k** is the simpler sibling: instead of a cumulative-probability cutoff, it caps the *count* directly — `top_k=100` restricts the model to the 100 most likely tokens, however much cumulative probability that represents.
+
+| Use case | Temperature | top_p | Why |
+|---|---|---|---|
+| Brainstorming | High | High | Large pool, high randomness — diverse and sometimes surprising output |
+| Email generation | Low | Low | Deterministic, focused, conservative — safest default for anything formal |
+| Creative writing | High | Low | Randomness within a small, curated pool — creative but still coherent |
+| Translation | Low | High | Deterministic but with a wide vocabulary pool — accurate with natural variety |
+
+These parameters give you a sliding scale between reliably predictable and deliberately creative — pick based on how much you can tolerate the output surprising you.
+
+### Check: sampling parameters
+
+<MultipleChoice
+  id="ai-eng-ch6-sampling"
+  title="Temperature, top_p, and top_k"
+  questions={[
+    {
+      prompt: 'What happens at temperature = 0?',
+      choices: [
+        'The model refuses to generate any output',
+        'The model always selects the single most probable next token, producing the same output every time for a given prompt',
+        'The model selects tokens completely at random, ignoring probability',
+        'Temperature has no effect on token selection',
+      ],
+      answer: 1,
+      why: 'A temperature of 0 removes randomness entirely — the model always takes the highest-probability token, which is why do_sample=False produces consistent output.',
+    },
+    {
+      prompt: 'What is the key difference between top_p and top_k?',
+      choices: [
+        'They are identical; top_k is just an older name for top_p',
+        'top_p restricts tokens by cumulative probability (a variable-sized pool); top_k restricts tokens to a fixed count regardless of their combined probability',
+        'top_p only works with temperature = 0',
+        'top_k always produces more diverse output than top_p',
+      ],
+      answer: 1,
+      why: 'top_p (nucleus sampling) keeps adding tokens until a probability threshold is reached, so the pool size varies; top_k always keeps exactly k tokens, however much probability mass that covers.',
+    },
+  ]}
+/>
+
+<details>
+<summary>🧪 Simulating temperature and top_p</summary>
+
+<PistonRunner
+  lang="python"
+  interactive={false}
+  height="380px"
+  code={`import random
+
+# A toy vocabulary with made-up base probabilities for "I am driving a ___"
+vocab = [("car", 0.55), ("truck", 0.25), ("bus", 0.10), ("bike", 0.07), ("elephant", 0.03)]
+
+def apply_temperature(vocab, temperature):
+    # Higher temperature flattens the distribution toward uniform.
+    if temperature == 0:
+        best = max(vocab, key=lambda x: x[1])
+        return [(tok, 1.0 if tok == best[0] else 0.0) for tok, _ in vocab]
+    scaled = [(tok, p ** (1 / temperature)) for tok, p in vocab]
+    total = sum(p for _, p in scaled)
+    return [(tok, p / total) for tok, p in scaled]
+
+def apply_top_p(vocab, top_p):
+    sorted_vocab = sorted(vocab, key=lambda x: -x[1])
+    kept, cumulative = [], 0.0
+    for tok, p in sorted_vocab:
+        if cumulative >= top_p:
+            break
+        kept.append((tok, p))
+        cumulative += p
+    total = sum(p for _, p in kept)
+    return [(tok, p / total) for tok, p in kept]
+
+for temp in [0, 0.5, 1.5]:
+    dist = apply_temperature(vocab, temp)
+    print(f"temperature={temp}: " + ", ".join(f"{t}={p:.2f}" for t, p in dist))
+
+print()
+for tp in [0.1, 0.6, 1.0]:
+    kept = apply_top_p(vocab, tp)
+    print(f"top_p={tp}: kept tokens = {[t for t, _ in kept]}")
+`}
+/>
+
+</details>
+
+---
+
+## Intro to Prompt Engineering
+
+An LLM is fundamentally a prediction machine: given some input text (the prompt), it predicts what comes next. That means a prompt can technically be just a few words — but a bare sentence fragment only invites the model to *complete* it, not to perform a task.
+
+Real prompt engineering usually needs at least two components:
+
+1. **Instruction** — what you actually want done
+2. **Data** — the text the instruction applies to
+
+For a task like sentiment classification, you might further add an **output indicator** — prefixing the input with `Text:` and following it with `Sentiment:` — so the model produces exactly `positive` or `negative` rather than a full sentence. The model may never have seen that exact structure during training, but it's seen enough instruction-following examples to generalize to it.
+
+There's no fixed limit on how many pieces a prompt can have. Every additional component — more context, an example output, a stricter format — is a lever you can pull to narrow the gap between what the model *could* say and what you actually want it to say.
+
+### Instruction-based prompting: getting specific
+
+Prompting for a defined task (classification, summarization, translation, and so on) is called **instruction-based prompting**. Different tasks need different instruction formats, but three techniques improve almost any of them:
+
+- **Specificity** — "Write a description for a product" invites a paragraph of any length in any tone. "Write a description for a product in less than two sentences and use a formal tone" leaves far less room for the model to guess wrong.
+- **Addressing hallucination** — LLMs can state incorrect information with total confidence. Explicitly asking the model to say "I don't know" when it isn't sure reduces (though doesn't eliminate) this.
+- **Order** — put your core instruction at the very start or very end of the prompt. Long prompts suffer from a "lost in the middle" effect, where information in the middle gets under-weighted relative to the beginning (primacy) and the end (recency).
+
+### Check: prompt basics
+
+<MultipleChoice
+  id="ai-eng-ch6-prompt-basics"
+  title="The basic ingredients of a prompt"
+  questions={[
+    {
+      prompt: 'Why does a bare prompt like "The sky is" rarely produce a useful task response?',
+      choices: [
+        'Because LLMs cannot process short prompts',
+        'Because with no instruction, the model just predicts a natural continuation of the text rather than performing any specific task',
+        'Because it always causes an error',
+        'Because instructions must always be longer than the data they refer to',
+      ],
+      answer: 1,
+      why: 'Without an instruction component, the model has no signal that a task is being requested — it just continues the sentence, exactly as its next-token-prediction objective would suggest.',
+    },
+    {
+      prompt: 'Why might a long prompt place its most important instruction at the very beginning or very end, rather than in the middle?',
+      choices: [
+        'Prompts longer than a few sentences are rejected by the model',
+        'Models tend to weight information at the start (primacy) and end (recency) of a prompt more heavily, and information buried in the middle is more likely to be under-used',
+        'The middle of a prompt is reserved for special tokens only',
+        'Order has no measurable effect on output quality',
+      ],
+      answer: 1,
+      why: 'This mirrors the "lost in the middle" effect: content sandwiched between other content tends to get less attention than content at the edges of a long prompt.',
+    },
+  ]}
+/>
+
+---
+
+## Advanced Prompt Engineering
+
+A prompt can be built from far more than instruction + data. Common additional components include:
+
+| Component | What it specifies |
+|---|---|
+| **Persona** | The role the model should adopt, e.g. "You are an expert in astrophysics" |
+| **Instruction** | The task itself — as specific as possible |
+| **Context** | Why the instruction matters, or background needed to do it well |
+| **Format** | The exact shape the output should take — without this, the model invents its own |
+| **Audience** | Who the output is for, including the reading level (e.g. ELI5) |
+| **Tone** | Formal, casual, playful — matched to the intended use |
+| **Data** | The actual content the task operates on |
+
+None of these are mandatory, and none are exhaustive — you're free to invent your own (researchers have even found emotionally-charged phrasing like *"This is very important for my career"* measurably changes output). The point isn't to use all of them every time; it's to treat a prompt as a modular set of pieces you can add, remove, and reorder while watching what changes:
+
+```python
+# Prompt components
+persona = "You are an expert in Large Language models. You excel at breaking down complex papers into digestible summaries.\n"
+instruction = "Summarize the key findings of the paper provided.\n"
+context = "Your summary should extract the most crucial points that can help researchers quickly understand the most vital information of the paper.\n"
+data_format = "Create a bullet-point summary that outlines the method. Follow this up with a concise paragraph that encapsulates the main results.\n"
+audience = "The summary is designed for busy researchers that quickly need to grasp the newest trends in Large Language Models.\n"
+tone = "The tone should be professional and clear.\n"
+text = "MY TEXT TO SUMMARIZE"
+data = f"Text to summarize: {text}"
+
+# The full prompt - remove and add pieces to view its impact on the generated output
+query = persona + instruction + context + data_format + audience + tone + data
+```
+
+Since every component is just a string, you can comment one out, rerun, and directly compare the effect — which is exactly the iterative, experimental workflow prompt engineering rewards. There's no single "correct" combination, and what works well for one model may work poorly for another trained on different data or for a different purpose.
+
+### In-context learning: showing instead of telling
+
+Describing a task precisely helps, but *showing* an example of the exact output you want often helps more. This is **in-context learning**, and it comes in three flavors depending on how many examples you provide:
+
+- **Zero-shot** — no examples, just the instruction
+- **One-shot** — a single worked example
+- **Few-shot** — two or more worked examples
+
+Here's a one-shot example (adapted from the technique's original paper) that teaches the model to use a made-up word correctly in a sentence, by first showing it done once:
+
+```python
+# Use a single example of using the made-up word in a sentence
+one_shot_prompt = [
+    {
+        "role": "user",
+        "content": "A 'Gigamuru' is a type of Japanese musical instrument. An example of a sentence that uses the word Gigamuru is:"
+    },
+    {
+        "role": "assistant",
+        "content": "I have a Gigamuru that my uncle gave me as a gift. I love to play it at home."
+    },
+    {
+        "role": "user",
+        "content": "To 'screeg' something is to swing a sword at it. An example of a sentence that uses the word screeg is:"
+    }
+]
+```
+
+```python
+# Generate the output
+outputs = pipe(one_shot_prompt)
+print(outputs[0]["generated_text"])
+```
+
+```
+During the intense duel, the knight skillfully screeged his opponent's shield,
+forcing him to defend himself.
+```
+
+Notice the roles have to alternate correctly — `user`, then `assistant`, then `user` again — so the model can tell the difference between "here's an example of what a good answer looks like" and "here's my actual question." Get that structure wrong and it reads as the model talking to itself. Like every other technique in this lesson, in-context learning nudges the model rather than guaranteeing compliance — with random sampling enabled, it can still choose to ignore the pattern you showed it.
+
+### Check: advanced components and in-context learning
+
+<MultipleChoice
+  id="ai-eng-ch6-advanced-components"
+  title="Advanced prompt components and few-shot learning"
+  questions={[
+    {
+      prompt: 'What does adding a "format" component to a prompt accomplish that an instruction alone does not?',
+      choices: [
+        'It makes the model respond faster',
+        'It tells the model the exact shape the output should take, rather than leaving the model to invent its own structure',
+        'It is required for the model to generate any text at all',
+        'It replaces the need for an instruction entirely',
+      ],
+      answer: 1,
+      why: 'Without an explicit format, a model will pick some reasonable-looking structure on its own — which may not match what a downstream system expects.',
+    },
+    {
+      prompt: 'What distinguishes few-shot prompting from one-shot prompting?',
+      choices: [
+        'Few-shot prompting uses two or more examples in the prompt, versus exactly one for one-shot',
+        'Few-shot prompting requires a fine-tuned model, one-shot does not',
+        'They are the same technique with different names',
+        'Few-shot prompting never includes an instruction, only examples',
+      ],
+      answer: 0,
+      why: 'The "shot" count refers strictly to how many worked examples are included in the prompt: zero, one, or several ("few").',
+    },
+  ]}
+/>
+
+---
+
+## Chain Prompting: Breaking Up the Problem
+
+Modular *components* within a single prompt only go so far — sufficiently complex tasks are better split *between* prompts. Instead of asking for a title, character description, and full story summary all in one shot, generate them sequentially: each prompt's output becomes the next prompt's input.
+
+```python
+# Create name and slogan for a product
+product_prompt = [
+    {"role": "user", "content": "Create a name and slogan for a chatbot that leverages LLMs."}
+]
+outputs = pipe(product_prompt)
+product_description = outputs[0]["generated_text"]
+print(product_description)
+```
+
+```
+Name: 'MindMeld Messenger'
+Slogan: 'Unleashing Intelligent Conversations, One Response at a Time'
+```
+
+```python
+# Based on a name and slogan for a product, generate a sales pitch
+sales_prompt = [
+    {"role": "user", "content": f"Generate a very short sales pitch for the following product: '{product_description}'"}
+]
+outputs = pipe(sales_prompt)
+sales_pitch = outputs[0]["generated_text"]
+print(sales_pitch)
+```
+
+Two model calls instead of one, but each is focused on a smaller job — and each can use different generation parameters. The name and slogan needed only a handful of tokens; the sales pitch can be given a much larger `max_new_tokens` budget without wasting compute on the shorter step.
+
+This pattern generalizes well beyond product naming:
+
+- **Response validation** — a second call asks the model to double-check the first call's output
+- **Parallel prompts** — fire off several independent prompts (e.g. multiple recipe ideas) and merge the results in a final pass
+- **Writing stories** — generate a summary, then character descriptions, then story beats, then dialogue — each stage building on the last
+
+### Check: chain prompting
+
+<MultipleChoice
+  id="ai-eng-ch6-chain-prompting"
+  title="Chain prompting"
+  questions={[
+    {
+      prompt: 'What is the main advantage of splitting a complex task across multiple sequential prompts rather than one large prompt?',
+      choices: [
+        'It always uses fewer total tokens',
+        'Each smaller prompt is more focused, and different generation parameters (like max_new_tokens) can be tuned per step',
+        'It removes the need for any instructions',
+        'It guarantees the model never hallucinates',
+      ],
+      answer: 1,
+      why: 'Breaking a task into stages keeps each individual prompt simpler for the model to satisfy, and lets each step use settings appropriate to just that step\'s output.',
+    },
+  ]}
+/>
+
+---
+
+## Reasoning with Generative Models
+
+Chain prompting was a first step toward something bigger: getting generative models to work through a problem rather than jump straight to an answer. It helps to borrow a distinction from human cognition here — **System 1** thinking is fast, automatic, and intuitive; **System 2** thinking is slow, deliberate, and self-checking.
+
+Left alone, an LLM's raw generation loop looks a lot like System 1: predict the next token, commit to it, move on, with no built-in self-reflection. The techniques below are ways of coaxing something closer to System 2 out of the same underlying model, purely through how we prompt it — worth remembering that what these models produce is generally understood to come from pattern-matching over training data, not "true" reasoning in the human sense, even when the output looks like careful step-by-step thought.
+
+### Chain-of-thought: think before answering
+
+**Chain-of-thought** prompting asks the model to generate its reasoning — its "thoughts" — before committing to a final answer, rather than jumping straight there. This matters most on tasks with several dependent steps, like arithmetic word problems, because it spreads the computation across more generated tokens instead of trying to collapse the whole solution into one.
+
+```python
+# Answering with chain-of-thought
+cot_prompt = [
+    {"role": "user", "content": "Roger has 5 tennis balls. He buys 2 more cans of tennis balls. Each can has 3 tennis balls. How many tennis balls does he have now?"},
+    {"role": "assistant", "content": "Roger started with 5 balls. 2 cans of 3 tennis balls each is 6 tennis balls. 5 + 6 = 11. The answer is 11."},
+    {"role": "user", "content": "The cafeteria had 23 apples. If they used 20 to make lunch and bought 6 more, how many apples do they have?"}
+]
+
+outputs = pipe(cot_prompt)
+print(outputs[0]["generated_text"])
+```
+
+```
+The cafeteria started with 23 apples. They used 20 apples, so they had 23 - 20
+= 3 apples left. Then they bought 6 more apples, so they now have 3 + 6 = 9
+apples. The answer is 9.
+```
+
+The worked example primed the model to show its steps rather than blurt out a number — and each intermediate step it generates becomes something it can reference while computing the next one.
+
+Providing a worked example costs effort, though, and you don't always have one handy. **Zero-shot chain-of-thought** gets a similar effect for free, just by appending a nudge like "Let's think step-by-step":
+
+```python
+# Zero-shot chain-of-thought
+zeroshot_cot_prompt = [
+    {"role": "user", "content": "The cafeteria had 23 apples. If they used 20 to make lunch and bought 6 more, how many apples do they have? Let's think step-by-step."}
+]
+
+outputs = pipe(zeroshot_cot_prompt)
+print(outputs[0]["generated_text"])
+```
+
+```
+Step 1: Start with the initial number of apples, which is 23.
+Step 2: Subtract the number of apples used to make lunch, which is 20. So, 23
+- 20 = 3 apples remaining.
+Step 3: Add the number of apples bought, which is 6. So, 3 + 6 = 9 apples.
+
+The cafeteria now has 9 apples.
+```
+
+Same reasoning behavior, zero examples required. The exact phrase isn't magic — "Take a deep breath and think step-by-step" and "Let's work through this problem step-by-step" work about as well; what matters is prompting the model to externalize its steps before committing to an answer.
+
+### Self-consistency: voting across samples
+
+Once sampling (`temperature`, `top_p`) is enabled, asking the same question twice can yield two different answers — and there's no guarantee the first one you get is the best one. **Self-consistency** counters this by asking the same prompt multiple times (optionally at different temperature/top_p settings for more diverse attempts) and taking the answer the majority of runs agree on. It combines naturally with chain-of-thought: let each run reason freely, but only feed the *final answers* into the vote.
+
+The cost is real: n samples means n calls to the model, so this trades latency and compute directly for reliability.
+
+### Tree-of-thought: exploring branches, not just one path
+
+Chain-of-thought and self-consistency both work by generating "thoughts" — but chain-of-thought commits to one linear reasoning path, and self-consistency just repeats that same path several times independently. **Tree-of-thought** generalizes this into an actual search: at each step, the model proposes multiple candidate next-thoughts, votes on which are most promising, prunes the weaker ones, and continues from there — much like exploring a tree of possibilities rather than a single line.
+
+Running this "properly" needs many separate model calls per problem, which is expensive. A cheaper approximation asks a single model to simulate the whole process by role-playing multiple experts collaborating and cross-checking each other in one pass:
+
+```python
+# Zero-shot tree-of-thought
+zeroshot_tot_prompt = [
+    {"role": "user", "content": "Imagine three different experts are answering this question. All experts will write down 1 step of their thinking, then share it with the group. Then all experts will go on to the next step, etc. If any expert realizes they're wrong at any point then they leave. The question is 'The cafeteria had 23 apples. If they used 20 to make lunch and bought 6 more, how many apples do they have?' Make sure to discuss the results."}
+]
+
+outputs = pipe(zeroshot_tot_prompt)
+print(outputs[0]["generated_text"])
+```
+
+```
+Expert 1: Step 1 - Start with the initial number of apples: 23 apples.
+Expert 2: Step 1 - Subtract the apples used for lunch: 23 - 20 = 3 apples
+remaining.
+Expert 3: Step 1 - Add the newly bought apples: 3 + 6 = 9 apples.
+Expert 1: Step 2 - Confirm the final count: The cafeteria has 9 apples.
+Expert 2: Step 2 - Review the calculations: 23 - 20 = 3, then 3 + 6 = 9. The
+calculations are correct.
+Expert 3: Step 2 - Agree with the result: The cafeteria indeed has 9 apples.
+All experts agree on the final count: The cafeteria has 9 apples.
+```
+
+Same correct answer, arrived at through simulated cross-checking rather than a single line of reasoning — all from one prompt and one model call.
+
+### Check: reasoning techniques
+
+<MultipleChoice
+  id="ai-eng-ch6-reasoning"
+  title="Chain-of-thought, self-consistency, and tree-of-thought"
+  questions={[
+    {
+      prompt: 'Why does asking a model to "think step-by-step" tend to improve accuracy on multi-step problems like arithmetic word problems?',
+      choices: [
+        'It makes the model\'s weights update in real time',
+        'It spreads the computation across more generated tokens, letting the model use its own earlier reasoning steps as input to later ones, instead of collapsing everything into a single guess',
+        'It forces the model to use a calculator internally',
+        'It has no real effect; results only appear better by coincidence',
+      ],
+      answer: 1,
+      why: 'Generating intermediate steps gives the model more "room" to work through a problem, since each step becomes part of the context available for the next one.',
+    },
+    {
+      prompt: 'What is the fundamental trade-off of self-consistency?',
+      choices: [
+        'It requires no sampling parameters at all',
+        'It generally improves reliability of the final answer, but costs n times the compute/latency because the same prompt must be run n times',
+        'It only works with temperature = 0',
+        'It eliminates the need for chain-of-thought',
+      ],
+      answer: 1,
+      why: 'Self-consistency\'s majority vote needs multiple independent samples of the same question, so its accuracy gain comes directly at the cost of running the model multiple times.',
+    },
+    {
+      prompt: 'How does the "multiple experts" prompt approximate tree-of-thought without making many separate model calls?',
+      choices: [
+        'It doesn\'t — it is a completely unrelated technique',
+        'It asks a single model to simulate multiple reasoning branches and their cross-checking within one generated response, rather than actually branching into separate calls',
+        'It fine-tunes three separate models',
+        'It disables sampling entirely',
+      ],
+      answer: 1,
+      why: 'The zero-shot tree-of-thought prompt gets the model to role-play several "experts" checking each other\'s work in a single pass, mimicking branching exploration without the cost of a true multi-call search.',
+    },
+  ]}
+/>
+
+<details>
+<summary>🧪 Simulating self-consistency's majority vote</summary>
+
+<PistonRunner
+  lang="python"
+  interactive={false}
+  height="320px"
+  code={`import random
+from collections import Counter
+
+# Simulate n independent (noisy) samples of the same reasoning task.
+# Correct answer is 9; sampling occasionally introduces an arithmetic slip.
+def sample_answer(seed):
+    random.seed(seed)
+    return 9 if random.random() > 0.3 else random.choice([8, 10, 11])
+
+n_samples = 7
+answers = [sample_answer(i) for i in range(n_samples)]
+print(f"Individual samples: {answers}")
+
+vote = Counter(answers).most_common(1)[0]
+print(f"Majority vote: {vote[0]} (appeared {vote[1]}/{n_samples} times)")
+print("Self-consistency recovers the right answer even though some individual samples were wrong.")
+`}
+/>
+
+</details>
+
+---
+
+## Output Verification
+
+Prototypes can tolerate occasional malformed output; production systems can't. Before an LLM's output reaches a downstream system, there are usually four things worth checking:
+
+- **Structured output** — does it parse as the format you need (JSON, a specific schema)?
+- **Valid output** — if you asked for one of a fixed set of labels, did it actually pick one of them?
+- **Ethics** — is it free of profanity, PII, bias, or other content your use case can't tolerate?
+- **Accuracy** — is it factually correct, coherent, and free of hallucination?
+
+Three general strategies exist for enforcing this: **providing examples** (few-shot learning applied to structure), **grammar-constrained sampling** (restricting which tokens can even be generated), and **fine-tuning** on data in the desired format (covered later, in the fine-tuning lesson).
+
+### Providing examples
+
+Zero-shot, a request for structured output can go wrong in familiar ways — including simply running out of tokens mid-structure:
+
+```python
+# Zero-shot learning: Providing no examples
+zeroshot_prompt = [
+    {"role": "user", "content": "Create a character profile for an RPG game in JSON format."}
+]
+
+outputs = pipe(zeroshot_prompt)
+print(outputs[0]["generated_text"])
+```
+
+The result here is invalid — generation stopped mid-attribute before the JSON object was ever closed, and it included fields nobody asked for. Providing a one-shot template of the exact schema fixes both problems:
+
+```python
+# One-shot learning: Providing an example of the output structure
+one_shot_template = """Create a short character profile for an RPG game. Make sure to only use this format:
+
+{
+  "description": "A SHORT DESCRIPTION",
+  "name": "THE CHARACTER'S NAME",
+  "armor": "ONE PIECE OF ARMOR",
+  "weapon": "ONE OR MORE WEAPONS"
+}
+"""
+one_shot_prompt = [
+    {"role": "user", "content": one_shot_template}
+]
+
+outputs = pipe(one_shot_prompt)
+print(outputs[0]["generated_text"])
+```
+
+```
+{
+  "description": "A cunning rogue with a mysterious past, skilled in stealth
+and deception.",
+  "name": "Lysandra Shadowstep",
+  "armor": "Leather Cloak of the Night",
+  "weapon": "Dagger of Whispers, Throwing Knives"
+}
+```
+
+Valid JSON, matching exactly the fields requested — nothing more. Still, this is guidance, not a guarantee: the model *usually* follows a clear example, but nothing stops it from deviating, and different models vary a lot in how reliably they comply.
+
+### Grammar: constrained sampling
+
+Examples guide the model but can't strictly forbid anything. **Grammar-constrained sampling** works differently: instead of hoping the model picks a valid token, it restricts *which tokens are even eligible* at each generation step, based on a defined grammar (a JSON schema, or a fixed set of allowed labels like `positive` / `negative` / `neutral`). This makes invalid output structurally impossible, not just unlikely — and it still interacts with `temperature` and `top_p`, which operate over whatever the grammar leaves eligible.
+
+`llama-cpp-python` supports this directly for JSON. It expects the GGUF (quantized) format rather than the standard `transformers` checkpoint, so loading looks a little different:
+
+```python
+from llama_cpp.llama import Llama
+
+# Load Phi-3
+llm = Llama.from_pretrained(
+    repo_id="microsoft/Phi-3-mini-4k-instruct-gguf",
+    filename="*fp16.gguf",
+    n_gpu_layers=-1,
+    n_ctx=2048,
+    verbose=False
+)
+```
+
+Requesting JSON-constrained output is a single argument:
+
+```python
+# Generate output
+output = llm.create_chat_completion(
+    messages=[
+        {"role": "user", "content": "Create a warrior for an RPG in JSON format."},
+    ],
+    response_format={"type": "json_object"},
+    temperature=0,
+)['choices'][0]['message']["content"]
+```
+
+```python
+import json
+
+# Format as json
+json_output = json.dumps(json.loads(output), indent=4)
+print(json_output)
+```
+
+Because the grammar constrains *every* token choice during generation — not just the overall shape — the result reliably parses as valid JSON, no matter how elaborate the requested schema is. This is the strongest of the three guarantees discussed here, at the cost of needing a library and model setup that supports constrained decoding.
+
+### Check: output verification
+
+<MultipleChoice
+  id="ai-eng-ch6-output-verification"
+  title="Output verification and constrained sampling"
+  questions={[
+    {
+      prompt: 'What is the fundamental difference between fixing output with few-shot examples versus grammar-constrained sampling?',
+      choices: [
+        'They are exactly the same technique under different names',
+        'Few-shot examples guide the model toward a format but cannot forbid deviation; grammar constraints restrict which tokens are eligible at each step, making invalid structure impossible rather than just unlikely',
+        'Grammar constraints require no model at all',
+        'Few-shot examples always produce more reliable structure than grammar constraints',
+      ],
+      answer: 1,
+      why: 'Examples are a soft nudge the model can still ignore; constrained sampling enforces validity at the token level, so the output cannot leave the allowed structure.',
+    },
+    {
+      prompt: 'Why did the zero-shot RPG character JSON request fail to produce valid JSON?',
+      choices: [
+        'JSON output is impossible for any language model',
+        'Generation stopped before the structure was complete, and the model added unrequested fields — both symptoms of having no defined format to follow',
+        'The prompt contained a syntax error',
+        'The model was not capable of generating any structured text',
+      ],
+      answer: 1,
+      why: 'Without a template or constraint, the model free-forms both the content and the exact shape of the output, which can result in premature truncation or extra, unrequested structure.',
+    },
+  ]}
+/>
+
+---
+
+## Chapter Summary
+
+:::important Key takeaways
+
+1. **Prompts are modular.** Instruction, data, and output indicators are the baseline; persona, context, format, audience, and tone are optional components you can freely add, remove, and reorder while observing the effect — prompt engineering is inherently iterative, not a one-shot design exercise.
+2. **Sampling parameters shape output independently of wording.** `temperature` controls how willing the model is to pick less-likely tokens; `top_p`/`top_k` control the size of the pool it's allowed to pick from at all.
+3. **In-context learning** (zero-, one-, few-shot) shows the model exactly what a good answer looks like, often more effectively than describing the task in words alone.
+4. **Chain prompting** splits a complex task into smaller sequential prompts, each with its own focused goal and its own tuned generation parameters — a pattern that scales up into response validation, parallel prompting, and multi-stage story generation.
+5. **Reasoning techniques** — chain-of-thought, self-consistency, and tree-of-thought — all trade extra generated tokens or extra model calls for more reliable answers on multi-step problems, by giving the model room to work through intermediate steps instead of jumping straight to a final answer.
+6. **Output verification** matters once an LLM's output feeds a real system. Examples nudge toward a desired structure; grammar-constrained sampling enforces it outright by restricting which tokens can be generated at each step.
+
+:::
+
+Everything in this lesson works by adjusting prompts and sampling around a single, isolated call to a model. The next lesson goes further: combining prompting with external memory and tools — using a framework like LangChain to chain prompts together, let a model remember prior turns in a conversation, and even let it decide for itself which external tools to use to answer a question.

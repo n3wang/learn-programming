@@ -1,0 +1,691 @@
+---
+sidebar_position: 8
+title: Semantic Search and Retrieval-Augmented Generation
+---
+
+# Semantic Search and Retrieval-Augmented Generation
+
+> **Adapted from:** Jay Alammar & Maarten Grootendorst, *Hands-On Large Language Models* (O'Reilly, 2024), Chapter 8 — rewritten and condensed for teaching, with code examples adapted from the original.
+
+[Lesson 7](./07-advanced-text-generation) ended on a real limitation: every technique there still depended on whatever the LLM happened to memorize during training, plus whatever a tool call returned in the moment. This lesson tackles that gap directly with **search** — one of the first places transformer-based language models saw genuine industry-wide adoption. Encoder models like BERT famously drove some of the largest single-year quality jumps major search engines had ever shipped, precisely because they enabled **semantic search**: matching by *meaning*, not just overlapping keywords.
+
+On a separate track, once people started treating chat-style LLMs like question-answering machines, a new problem showed up: models answer fluently and confidently, but not always *correctly*. This is the well-known **hallucination** problem, and the leading mitigation is **retrieval-augmented generation (RAG)** — giving the model real, retrieved information to ground its answer in, rather than relying purely on what it memorized.
+
+---
+
+## Three Ways Language Models Upgrade Search
+
+| Category | What it does |
+|---|---|
+| **Dense retrieval** | Embeds a query and a document archive into the same vector space, then returns the archive entries whose embeddings land closest to the query's |
+| **Reranking** | Takes an existing shortlist of results (from any earlier search step) and rescoring/reordering them by relevance to the query |
+| **RAG** | Adds a generation step after retrieval — the LLM reads the retrieved documents and formulates an answer, ideally citing its sources |
+
+These three aren't mutually exclusive — a realistic pipeline commonly chains a fast first-stage retriever, a reranker to refine the shortlist, and (for RAG systems) a generation step at the end. The rest of this lesson works through each in turn.
+
+### Check: the three categories
+
+<MultipleChoice
+  id="ai-eng-ch8-overview"
+  title="Dense retrieval, reranking, and RAG"
+  questions={[
+    {
+      prompt: 'What is the key structural difference between a dense retrieval system and a reranker?',
+      choices: [
+        'Rerankers never use embeddings at all',
+        'Dense retrieval searches an entire archive using only the query; a reranker additionally takes in a candidate shortlist (from an earlier step) and reorders it',
+        'Dense retrieval only works on images',
+        'There is no meaningful difference between them',
+      ],
+      answer: 1,
+      why: 'A reranker\'s defining feature is that it operates on an existing shortlist, not the whole archive — it takes query + candidates as input, not just the query.',
+    },
+    {
+      prompt: 'What problem is RAG primarily designed to reduce?',
+      choices: [
+        'Slow inference speed',
+        'Hallucination — confident but factually wrong generated answers — by grounding generation in retrieved information',
+        'The cost of training a new model from scratch',
+        'Tokenizer vocabulary size limitations',
+      ],
+      answer: 1,
+      why: 'RAG grounds generation in retrieved, real documents specifically to reduce confidently-wrong (hallucinated) answers.',
+    },
+  ]}
+/>
+
+---
+
+## Dense Retrieval
+
+Recall from [Lesson 2](./02-tokens-and-embeddings) that embeddings place text as points in a vector space, where nearby points represent similar meaning. Dense retrieval turns this directly into a search engine: embed the query into that same space, then return whichever archive entries sit closest to it.
+
+Two questions come up almost immediately with this setup:
+
+- **Should a distant result even be returned?** That's a system-design choice — many pipelines apply a maximum-distance cutoff so a query with genuinely no good match in the archive doesn't return misleadingly confident-looking "top results."
+- **Are a query and its best answer always similar text?** Not necessarily — a question and its correct answer can look quite different on the surface. This is exactly why retrieval-oriented embedding models are specifically finetuned on (query, relevant document) pairs, rather than just reused off the shelf (more on this shortly).
+
+### A dense retrieval walkthrough
+
+Here's the shape of a minimal dense retrieval pipeline, using Cohere's embedding API and FAISS for the index. Suppose we have a short, several-sentence synopsis of a documentary film as our searchable archive:
+
+```python
+import cohere
+import numpy as np
+import pandas as pd
+
+# Create and retrieve a Cohere API key from os.cohere.ai
+co = cohere.Client(api_key="YOUR_KEY_HERE")
+
+text = """
+Abyssal Blue is a 2021 documentary directed by Mara Solano.
+It follows a team of marine biologists exploring a newly discovered trench in the Pacific Ocean.
+The crew used a custom-built submersible designed to withstand extreme pressure.
+Filming took place over eighteen months using specialized deep-sea cameras.
+The documentary features previously unseen footage of bioluminescent creatures.
+Critics praised its cinematography and its scientific accuracy.
+The film was made on a budget of two million dollars and earned twelve million dollars at the box office.
+It won Best Documentary Feature at the Pacific Film Festival.
+"""
+
+# Split into a list of sentences and clean up whitespace
+texts = [t.strip(" \n") for t in text.split(".") if t.strip(" \n")]
+```
+
+Embedding every chunk turns each sentence into a vector:
+
+```python
+response = co.embed(texts=texts, input_type="search_document").embeddings
+embeds = np.array(response)
+print(embeds.shape)
+# (8, 4096)  -- 8 sentences, each embedded into a 4096-dimensional vector
+```
+
+A FAISS index makes nearest-neighbor lookup fast, even at large scale:
+
+```python
+import faiss
+
+dim = embeds.shape[1]
+index = faiss.IndexFlatL2(dim)
+index.add(np.float32(embeds))
+```
+
+```python
+def search(query, number_of_results=3):
+    query_embed = co.embed(texts=[query], input_type="search_query").embeddings[0]
+    distances, similar_item_ids = index.search(np.float32([query_embed]), number_of_results)
+    results = pd.DataFrame({
+        "texts": np.array(texts)[similar_item_ids[0]],
+        "distance": distances[0],
+    })
+    return results
+
+search("how much money did the film make")
+```
+
+The top result would be the budget/box-office sentence — even though it shares almost no exact words with the query — because the *meaning* ("money," "earned," "budget") lines up in embedding space. A pure keyword search (using something like **BM25**, a standard lexical-search algorithm) would instead favor whichever sentence happens to share literal words with the query, which can easily miss the semantically right answer entirely — one of the clearest illustrations of what "semantic" search actually buys you over keyword matching.
+
+### Check: dense retrieval
+
+<MultipleChoice
+  id="ai-eng-ch8-dense-retrieval"
+  title="Dense retrieval basics"
+  questions={[
+    {
+      prompt: 'Why might a keyword search (like BM25) fail to find the best answer to a query, even when dense retrieval succeeds?',
+      choices: [
+        'Keyword search is always slower than dense retrieval',
+        'Keyword search matches literal shared words, so it can miss a sentence that answers the question in meaning but uses different vocabulary — exactly what dense retrieval is designed to catch',
+        'Keyword search cannot process more than one sentence',
+        'BM25 only works on numeric data',
+      ],
+      answer: 1,
+      why: 'Dense retrieval matches by meaning in embedding space; keyword search matches literal overlapping terms, which can miss a semantically correct answer that\'s phrased differently.',
+    },
+    {
+      prompt: 'Why is it useful to set a maximum-distance threshold in a dense retrieval system?',
+      choices: [
+        'It makes the FAISS index build faster',
+        'Without one, a query with no genuinely relevant match in the archive still returns a "top result," which can misleadingly look like a real answer',
+        'It is required for the embeddings to have the correct dimensionality',
+        'It removes the need for a vector index entirely',
+      ],
+      answer: 1,
+      why: 'Dense retrieval always returns *something* — the nearest points, regardless of how far away they actually are — so a distance cutoff helps distinguish "no good match" from a genuinely close one.',
+    },
+  ]}
+/>
+
+---
+
+### Caveats of Dense Retrieval
+
+A few real limitations are worth knowing before relying on dense retrieval alone:
+
+- **No answer exists in the archive.** The system still returns its nearest points — just with much larger distances. A threshold (or tracking which results users actually click and find useful) helps here, but there's no way to be *certain* a query has no good answer.
+- **Exact-phrase matching.** If a user wants a literal phrase match, that's exactly what keyword search is built for — which is why **hybrid search** (combining dense retrieval and keyword search) is generally recommended over relying on dense retrieval alone.
+- **Domain mismatch.** A retrieval model trained mostly on general web/Wikipedia-style text will often underperform in a narrow, different domain (legal documents, for instance) unless it saw enough of that domain during training.
+- **Answers that span multiple sentences.** Everything so far assumed one sentence = one complete answer. Real answers often need more context than a single sentence provides — which raises the question of how to best break long documents into searchable pieces.
+
+### Chunking Long Texts
+
+Transformer models have a fixed context length, so a long document can't just be embedded whole. Two broad strategies:
+
+**One vector per document.** Represent the entire document with a single embedding — either by embedding just a representative slice (like the title or opening paragraph) or by averaging the embeddings of all its chunks. Both are fast to set up but lossy: the first ignores most of the document's content, and averaging compresses everything into one vector that blurs together whatever distinct ideas the document actually contains.
+
+**Multiple vectors per document.** Split the document into smaller chunks and index each chunk's embedding separately. This gives full coverage and lets individual concepts get their own, more precise vector — generally the better approach for anything beyond a quick demo. Common chunking strategies include:
+
+- **One sentence per chunk** — precise, but sometimes too granular to capture enough surrounding context.
+- **One paragraph per chunk** (or roughly 3–8 sentences) — a reasonable default for most prose.
+- **Adding context to each chunk** — prepending the document's title, or including some text from just before/after the chunk (**overlapping chunks**), so a chunk near a boundary doesn't lose meaning it depends on.
+
+There's no universally "correct" chunk size — it depends on your documents and the kinds of questions you expect.
+
+### Check: dense retrieval caveats and chunking
+
+<MultipleChoice
+  id="ai-eng-ch8-caveats-chunking"
+  title="Caveats and chunking strategies"
+  questions={[
+    {
+      prompt: 'Why is hybrid search (dense retrieval + keyword search) generally recommended over dense retrieval alone?',
+      choices: [
+        'Dense retrieval cannot be combined with any other technique',
+        'Dense retrieval is weak at exact-phrase matching, which keyword search handles well — combining both covers more query types',
+        'Hybrid search removes the need for embeddings entirely',
+        'Keyword search is always more accurate than dense retrieval',
+      ],
+      answer: 1,
+      why: 'Dense retrieval excels at meaning-based matches but can miss exact-phrase queries that keyword search handles naturally — hybrid search covers both cases.',
+    },
+    {
+      prompt: 'What is the main downside of representing an entire long document with a single averaged embedding?',
+      choices: [
+        'It makes the embedding too large to store',
+        'Averaging compresses everything into one vector, blurring together distinct ideas the document contains and losing precision for specific sub-topics',
+        'It is impossible to compute an average of embedding vectors',
+        'It only works for documents shorter than one sentence',
+      ],
+      answer: 1,
+      why: 'Averaging many chunk embeddings into one vector loses the specific, distinguishing information from each individual part of the document.',
+    },
+    {
+      prompt: 'Why might chunks overlap with the text immediately before and after them?',
+      choices: [
+        'To intentionally duplicate the archive and waste storage',
+        'To preserve context a chunk near a boundary would otherwise lose, since some meaning depends on surrounding text',
+        'Overlapping chunks are required by every vector database',
+        'It has no real effect on retrieval quality',
+      ],
+      answer: 1,
+      why: 'Overlap keeps a chunk from losing meaning that depends on the sentences right before or after it, especially near a chunk boundary.',
+    },
+  ]}
+/>
+
+---
+
+### Nearest Neighbor Search vs. Vector Databases
+
+Once a query is embedded, finding its nearest archive vectors is just a distance calculation. At a small scale (thousands, maybe tens of thousands of vectors), brute-force distance computation with something like NumPy is entirely reasonable:
+
+<details>
+<summary>🧪 Brute-force nearest-neighbor search with NumPy</summary>
+
+<PistonRunner
+  lang="python"
+  interactive={false}
+  height="300px"
+  code={`import numpy as np
+
+def nearest_neighbors(query, archive, k=2):
+    query = np.array(query)
+    archive = np.array(archive)
+    distances = np.linalg.norm(archive - query, axis=1)
+    order = np.argsort(distances)[:k]
+    return order, distances[order]
+
+archive = [
+    [1.0, 0.0],  # doc 0
+    [0.7, 0.3],  # doc 1
+    [0.0, 1.0],  # doc 2
+    [0.5, 0.5],  # doc 3
+]
+query = [0.95, 0.05]
+
+order, dists = nearest_neighbors(query, archive, k=2)
+for idx, dist in zip(order, dists):
+    print(f"doc {idx}: distance {dist:.3f}")
+`}
+/>
+
+</details>
+
+Once an archive grows into the millions of vectors, brute force stops being practical, and two categories of tools take over:
+
+- **Approximate nearest neighbor (ANN) libraries** like Annoy or FAISS trade a small amount of accuracy for dramatic speedups — retrieving from a massive index in milliseconds, sometimes with GPU or multi-machine scaling.
+- **Vector databases** like Weaviate or Pinecone go further: they let you add or delete vectors without rebuilding the whole index, and typically add filtering and other query features beyond plain vector distance.
+
+### Finetuning Embedding Models for Retrieval
+
+Just as [Lesson 4](./04-text-classification) covered finetuning a representation model for classification, embedding models can be finetuned specifically for retrieval — using (query, relevant document) pairs as positive examples and (query, irrelevant document) pairs as negative examples. Before finetuning, a query and several candidate documents might all sit at roughly the same distance in embedding space (they're all topically related, after all); finetuning pulls genuinely relevant pairs closer together while pushing irrelevant ones apart, teaching the model what "relevant" specifically means for your data.
+
+### Check: nearest neighbor search and finetuning
+
+<MultipleChoice
+  id="ai-eng-ch8-nn-finetune"
+  title="ANN search, vector databases, and retrieval finetuning"
+  questions={[
+    {
+      prompt: 'When does it make sense to move from brute-force distance calculation to an ANN library like FAISS?',
+      choices: [
+        'Immediately, even for a dozen documents',
+        'As the archive grows toward millions of vectors, where brute-force computation becomes too slow',
+        'Never — brute force is always preferred',
+        'Only when working with text shorter than one sentence',
+      ],
+      answer: 1,
+      why: 'Brute-force distance computation is fine at small scale; ANN libraries become worthwhile once the archive is too large for that to stay fast.',
+    },
+    {
+      prompt: 'What specifically does finetuning an embedding model for retrieval optimize for?',
+      choices: [
+        'Making the model smaller in file size',
+        'Pulling embeddings of genuinely relevant (query, document) pairs closer together while pushing irrelevant pairs apart',
+        'Increasing the model\'s vocabulary size',
+        'Removing the need for any vector index',
+      ],
+      answer: 1,
+      why: 'Retrieval finetuning directly shapes the embedding space around what counts as "relevant" for the target data, using positive and negative query-document pairs.',
+    },
+  ]}
+/>
+
+---
+
+## Reranking
+
+Many organizations already have a working search pipeline and don't want to rebuild it from scratch. Reranking is often the easiest way to bolt language-model quality onto an *existing* system: add one more step at the end that reorders a shortlist of results by relevance.
+
+A reranker takes a query and a set of candidate documents (from any earlier retrieval step — keyword, dense, or hybrid) and returns a relevance score for each. Continuing the earlier documentary example, reranking the shortlist for "how much money did the film make" would score the budget/box-office sentence clearly highest, with everything else trailing well behind — exactly the reordering a good reranker is supposed to produce, no training or tuning required on your end since it's a ready-to-use API/model.
+
+In practice, an index might hold millions of entries, far too many to rerank directly — so a fast **first-stage retriever** (keyword, dense, or hybrid) shortlists perhaps a hundred or a thousand candidates, and only *those* get passed to the reranker. On a multilingual retrieval benchmark (MIRACL), adding a reranking step after a first-stage retriever has been shown to boost scores from roughly **36.5 to 62.8** (measured with nDCG@10, an evaluation metric covered later in this lesson) — a substantial jump from one extra pipeline stage.
+
+### How reranking models work
+
+The dominant approach (sometimes called **monoBERT**, after an influential paper on the technique) treats reranking as a **cross-encoder** classification problem: the query and one candidate document are fed into the model *together*, letting it directly compare the two texts before outputting a single relevance score between 0 and 1. This should feel familiar — it's structurally the same classification setup covered in [Lesson 4](./04-text-classification), just applied to a (query, document) pair instead of a single document.
+
+If you want to run retrieval and reranking locally rather than through a hosted API, the open-source **Sentence Transformers** library documents exactly this workflow under its "Retrieve & Re-Rank" guide.
+
+### Check: reranking
+
+<MultipleChoice
+  id="ai-eng-ch8-reranking"
+  title="Reranking"
+  questions={[
+    {
+      prompt: 'Why is reranking often the easiest way for an existing search system to gain LLM-quality improvements?',
+      choices: [
+        'It requires rebuilding the entire search index from scratch',
+        'It bolts on as one additional step at the end of an existing pipeline, rescoring an already-retrieved shortlist without replacing the earlier stages',
+        'It eliminates the need for any first-stage retrieval',
+        'It only works for brand-new search systems',
+      ],
+      answer: 1,
+      why: 'Reranking slots in after whatever retrieval system already exists, reordering its output — no need to replace the existing pipeline.',
+    },
+    {
+      prompt: 'Why do rerankers typically only see a shortlist (e.g. 100-1000 candidates) rather than the entire archive?',
+      choices: [
+        'Rerankers cannot process more than one document at a time',
+        'Cross-encoder scoring processes the query jointly with each document, which is too expensive to run against every document in a million-scale archive — a fast first-stage retriever narrows the field first',
+        'Shortlisting is a legal requirement for search systems',
+        'Rerankers do not use embeddings at all',
+      ],
+      answer: 1,
+      why: 'Cross-encoder reranking is relatively expensive per document, so it\'s only practical on a pre-narrowed shortlist from a cheaper first-stage retriever.',
+    },
+    {
+      prompt: 'How does a cross-encoder reranker differ structurally from the dense retrieval approach covered earlier in this lesson?',
+      choices: [
+        'It embeds the query and each document completely separately, exactly like dense retrieval',
+        'It feeds the query and a candidate document into the model together, letting the model directly compare them before producing one relevance score — unlike dense retrieval\'s separate embed-then-compare approach',
+        'It never produces a numeric score',
+        'It requires no candidate documents at all',
+      ],
+      answer: 1,
+      why: 'Cross-encoders process query and document jointly (more expensive but often more accurate); dense retrieval embeds them independently and compares afterward (cheaper, scales further).',
+    },
+  ]}
+/>
+
+---
+
+## Retrieval Evaluation Metrics
+
+Semantic search borrows its evaluation methodology from the broader Information Retrieval field. Evaluating a search system needs three ingredients: a text archive, a set of test queries, and **relevance judgments** — a record of which archive documents are actually relevant to each test query.
+
+### Average precision
+
+Consider a query with exactly one relevant document in the archive. If a system places it at position 1, that's a perfect result: precision at position 1 is `1/1 = 1.0`. If instead the system buries it at position 3 (behind two irrelevant results), the score drops — the system gets penalized for making the user look further down the list before finding the right answer.
+
+With multiple relevant documents for one query, the process is: at every position where a relevant document appears, compute precision-so-far (`relevant docs seen / position`), then average those per-position precision values together. That average is the query's **average precision (AP)**.
+
+### Mean average precision (MAP)
+
+Averaging the AP scores across every query in your test suite gives **mean average precision (MAP)** — a single number for comparing search systems head-to-head. (The name is a small in-joke: "mean average precision" is technically "the mean of the average precision scores," which is why it isn't just called "average precision.")
+
+<details>
+<summary>🧪 Computing average precision and MAP</summary>
+
+<PistonRunner
+  lang="python"
+  interactive={false}
+  height="340px"
+  code={`def average_precision(relevance_labels):
+    """relevance_labels: 0/1 list in ranked order (position 1 first)."""
+    hits = 0
+    precisions = []
+    for i, rel in enumerate(relevance_labels, start=1):
+        if rel == 1:
+            hits += 1
+            precisions.append(hits / i)
+    return sum(precisions) / len(precisions) if precisions else 0.0
+
+# One relevant doc, found at position 1 (perfect)
+print("Relevant doc at position 1:", average_precision([1, 0, 0]))
+# One relevant doc, found at position 3 (penalized)
+print("Relevant doc at position 3:", round(average_precision([0, 0, 1]), 3))
+# Two relevant docs, found at positions 1 and 3
+print("Two relevant docs:", round(average_precision([1, 0, 1]), 3))
+
+def mean_average_precision(all_relevance_labels):
+    aps = [average_precision(labels) for labels in all_relevance_labels]
+    return sum(aps) / len(aps)
+
+query_results = [
+    [1, 0, 0],  # query 1
+    [0, 1, 0],  # query 2
+    [1, 0, 1],  # query 3
+]
+print("MAP across 3 queries:", round(mean_average_precision(query_results), 3))
+`}
+/>
+
+</details>
+
+A related, more nuanced metric is **normalized discounted cumulative gain (nDCG)**, which handles *graded* relevance — where one document can be labeled more relevant than another, rather than a strict relevant/not-relevant split.
+
+### Check: MAP and evaluation
+
+<MultipleChoice
+  id="ai-eng-ch8-map"
+  title="Average precision and MAP"
+  questions={[
+    {
+      prompt: 'For a query with one relevant document, why does placing it at position 3 (behind two irrelevant results) score lower than placing it at position 1?',
+      choices: [
+        'It does not score lower — position never matters',
+        'Precision-at-position is computed as relevant docs found divided by the position reached, so making the user look past irrelevant results before finding the right one lowers that ratio',
+        'Position 3 always means the document is not actually relevant',
+        'Average precision ignores position entirely',
+      ],
+      answer: 1,
+      why: 'Precision at position k = (relevant docs found so far) / k — finding the one relevant doc at position 3 gives 1/3, much lower than 1/1 for finding it immediately.',
+    },
+    {
+      prompt: 'What does mean average precision (MAP) actually average?',
+      choices: [
+        'The raw relevance scores of every document in the archive',
+        'The average precision (AP) score computed separately for each query in the test suite',
+        'The number of documents returned per query',
+        'The distance values from the vector index',
+      ],
+      answer: 1,
+      why: 'MAP is the mean of each individual query\'s average precision score, giving one system-wide comparison number across the whole test suite.',
+    },
+  ]}
+/>
+
+---
+
+## Retrieval-Augmented Generation (RAG)
+
+RAG adds a generation step after retrieval: the retrieved documents get handed to an LLM along with the original question, and the LLM formulates an answer grounded in that retrieved context — ideally citing exactly which source backs each claim. This is what powers "chat with my data" use cases (grounding a model on internal company documents, or a specific book or dataset), and it's increasingly built directly into search engines themselves (Perplexity, Bing AI's chat features, and Google's AI-generated search summaries all use some version of this pattern).
+
+### Grounded generation with a hosted API
+
+Continuing the earlier retrieval example, adding a generation step on top looks like this with Cohere's chat endpoint:
+
+```python
+query = "how much did the film earn"
+
+# 1. Retrieval (ideally hybrid, kept simple here)
+results = search(query)
+
+# 2. Grounded generation
+docs_dict = [{"text": text} for text in results["texts"]]
+response = co.chat(message=query, documents=docs_dict)
+print(response.text)
+```
+
+A hosted chat endpoint like this can return not just the answer text, but **citation spans** — which exact substring of the answer is backed by which retrieved document — letting an application highlight or link back to sources directly in the UI.
+
+### RAG with fully local models
+
+The same pattern works entirely offline, trading away citation spans (and some raw quality, if using a small local model) for zero API dependency. The pieces:
+
+```python
+from langchain import LlamaCpp
+
+# A quantized local model, exactly as covered in Lesson 7
+llm = LlamaCpp(
+    model_path="Phi-3-mini-4k-instruct-fp16.gguf",
+    n_gpu_layers=-1,
+    max_tokens=500,
+    n_ctx=2048,
+    seed=42,
+    verbose=False,
+)
+```
+
+```python
+from langchain.embeddings.huggingface import HuggingFaceEmbeddings
+from langchain.vectorstores import FAISS
+
+embedding_model = HuggingFaceEmbeddings(model_name="thenlper/gte-small")
+db = FAISS.from_texts(texts, embedding_model)
+```
+
+A prompt template is what actually wires the retrieved context into the model's input:
+
+```python
+from langchain import PromptTemplate
+
+template = """<|user|>
+Relevant information:
+{context}
+
+Provide a concise answer to the following question using the relevant information provided above:
+{question}<|end|>
+<|assistant|>"""
+
+prompt = PromptTemplate(template=template, input_variables=["context", "question"])
+```
+
+```python
+from langchain.chains import RetrievalQA
+
+rag = RetrievalQA.from_chain_type(
+    llm=llm,
+    chain_type="stuff",
+    retriever=db.as_retriever(),
+    chain_type_kwargs={"prompt": prompt},
+)
+
+rag.invoke("How much did the film earn?")
+```
+
+The `"stuff"` chain type simply "stuffs" every retrieved chunk into the `{context}` slot of the prompt — the simplest possible way to combine retrieval and generation, and a fine default until the retrieved context starts overflowing the model's context window.
+
+### Check: RAG basics
+
+<MultipleChoice
+  id="ai-eng-ch8-rag-basics"
+  title="Retrieval-augmented generation"
+  questions={[
+    {
+      prompt: 'What does "grounded generation" mean in the context of RAG?',
+      choices: [
+        'The model generates text with no input at all',
+        'The model\'s answer is generated using retrieved, real documents as context, rather than relying solely on what it memorized during training',
+        'The model is physically connected to a database server',
+        'Grounded generation only works for numeric answers',
+      ],
+      answer: 1,
+      why: 'Grounding means the retrieved documents are supplied as context so the model\'s answer is tied to real, checkable source material.',
+    },
+    {
+      prompt: 'What capability do citation spans add to a RAG response that a plain generated answer lacks?',
+      choices: [
+        'Faster generation speed',
+        'A way to trace which exact part of the answer is backed by which specific retrieved document',
+        'The ability to answer questions with no retrieved context',
+        'A smaller model size',
+      ],
+      answer: 1,
+      why: 'Citation spans map substrings of the generated answer back to their supporting source document, which plain uncited generation does not provide.',
+    },
+    {
+      prompt: 'What does the "stuff" chain type do in a local LangChain RAG pipeline?',
+      choices: [
+        'It compresses retrieved documents using a summarization model first',
+        'It inserts every retrieved chunk directly into the prompt\'s context slot, with no additional processing',
+        'It deletes irrelevant retrieved documents automatically',
+        'It only works with a single retrieved document at a time',
+      ],
+      answer: 1,
+      why: '"stuff" is the simplest chain type — it just concatenates ("stuffs") all retrieved context straight into the prompt template.',
+    },
+  ]}
+/>
+
+---
+
+## Advanced RAG Techniques
+
+Basic RAG (embed the question, retrieve, generate) breaks down in a few realistic situations. Several extensions address specific gaps:
+
+- **Query rewriting.** A chatbot user's raw message is often too verbose, conversational, or dependent on earlier chat history to work well as a search query directly. An LLM can rewrite a rambling message into a focused search query before retrieval ever runs — some hosted chat APIs even expose a dedicated query-rewriting mode for exactly this.
+- **Multi-query RAG.** Some questions genuinely need more than one search. "Compare this company's revenue in 2020 versus 2023" is better served by two separate targeted queries (one per year) than a single query hoping to find one document with both numbers. A smart query rewriter can also recognize when *no* search is needed at all, if it's confident it already knows the answer.
+- **Multi-hop RAG.** Some questions require a *sequence* of dependent searches, where the second search depends on what the first one returned — e.g., first find which companies are relevant, then run a separate follow-up search for each one individually.
+- **Query routing.** If an organization has multiple distinct data sources (an HR system, a CRM, internal docs), the model can be given the ability to decide *which* source to search based on the nature of the question, rather than searching everything indiscriminately.
+- **Agentic RAG.** Push this far enough and retrieval starts looking like the [agent pattern from Lesson 7](./07-advanced-text-generation#agents-systems-that-choose-their-own-actions) — each data source becomes a **tool** the model can choose to use, decide how to use, and potentially even write back to (not just read from). This requires meaningfully strong models to pull off reliably; as of this writing, it's mostly the largest, most capable models that handle this well.
+
+### Check: advanced RAG techniques
+
+<MultipleChoice
+  id="ai-eng-ch8-advanced-rag"
+  title="Advanced RAG techniques"
+  questions={[
+    {
+      prompt: 'Why is query rewriting especially important for a chatbot-style RAG system, as opposed to a single-shot search box?',
+      choices: [
+        'Chatbot messages are always shorter than search queries',
+        'A conversational message can be verbose or depend on earlier chat context, which makes a poor search query directly — rewriting distills it into something retrieval can actually work with',
+        'Query rewriting is only needed for non-English languages',
+        'Chatbots never need to search at all',
+      ],
+      answer: 1,
+      why: 'Raw conversational messages are often unfocused or reference prior context — rewriting produces a clean, standalone query better suited to retrieval.',
+    },
+    {
+      prompt: 'What distinguishes multi-hop RAG from multi-query RAG?',
+      choices: [
+        'They are the same technique with different names',
+        'Multi-query RAG runs several independent queries at once; multi-hop RAG runs a sequence where each later query depends on the results of an earlier one',
+        'Multi-hop RAG never uses more than one query',
+        'Multi-query RAG is only used for single-word queries',
+      ],
+      answer: 1,
+      why: 'Multi-query issues independent parallel searches; multi-hop chains searches sequentially, where each step\'s query depends on the previous step\'s result.',
+    },
+    {
+      prompt: 'How does agentic RAG relate to the ReAct agent pattern from Lesson 7?',
+      choices: [
+        'They are unrelated concepts',
+        'Agentic RAG treats each data source as a tool the model can choose to use and when, extending the same reasoning-and-acting pattern used by ReAct agents to retrieval specifically',
+        'Agentic RAG never involves any retrieval at all',
+        'ReAct agents cannot use search as a tool',
+      ],
+      answer: 1,
+      why: 'Agentic RAG is essentially the agent/tool-use pattern applied to data sources — deciding which source to query, when, and how, the same way a ReAct agent chooses among any other tools.',
+    },
+  ]}
+/>
+
+---
+
+## RAG Evaluation
+
+Evaluating RAG systems is still an active area of development, but human evaluations commonly look at four axes:
+
+- **Fluency** — is the generated text cohesive and well-written?
+- **Perceived utility** — is the answer actually helpful and informative?
+- **Citation recall** — what fraction of factual claims in the answer are backed by a citation that actually supports them?
+- **Citation precision** — what fraction of the *citations given* actually support the claim they're attached to?
+
+Human evaluation remains the gold standard, but it's slow and expensive to run repeatedly. **LLM-as-a-judge** approaches — using a capable LLM to score generations along these same axes — are increasingly used to automate this. The **Ragas** library implements this approach and adds a couple of its own useful metrics:
+
+- **Faithfulness** — is the answer actually consistent with the retrieved context it was supposedly grounded in?
+- **Answer relevance** — how directly does the answer address the question that was actually asked?
+
+### Check: RAG evaluation
+
+<MultipleChoice
+  id="ai-eng-ch8-rag-eval"
+  title="Evaluating RAG systems"
+  questions={[
+    {
+      prompt: 'What is the difference between citation recall and citation precision in RAG evaluation?',
+      choices: [
+        'They measure the exact same thing',
+        'Citation recall measures what fraction of factual claims have a supporting citation; citation precision measures what fraction of given citations actually support their claim',
+        'Citation precision only applies to numeric answers',
+        'Neither metric involves citations at all',
+      ],
+      answer: 1,
+      why: 'Recall asks "are claims covered by citations?"; precision asks "are the citations given actually correct/supporting?" — a system can score well on one and poorly on the other.',
+    },
+    {
+      prompt: 'What does the "faithfulness" metric (used by tools like Ragas) actually measure?',
+      choices: [
+        'How fast the model generates a response',
+        'Whether the generated answer is actually consistent with the retrieved context it was supposed to be grounded in',
+        'How many documents were retrieved',
+        'The fluency of the generated text only',
+      ],
+      answer: 1,
+      why: 'Faithfulness specifically checks that the answer doesn\'t contradict or go beyond what the retrieved context actually supports.',
+    },
+  ]}
+/>
+
+---
+
+## Chapter Summary
+
+:::important Key takeaways
+
+1. **Dense retrieval** embeds queries and documents into the same vector space and returns whichever archive entries land nearest the query — powerful for meaning-based matches, but still needs a plan for exact-phrase queries (hybrid search), out-of-domain data, and answers that span more than one chunk.
+2. **Chunking strategy matters**: multiple vectors per document (one per chunk, sized to the content, sometimes overlapping for context) generally beats compressing an entire document into one vector.
+3. At small scale, brute-force nearest-neighbor search is fine; **ANN libraries** (FAISS, Annoy) and **vector databases** (Weaviate, Pinecone) take over as an archive grows into the millions.
+4. **Rerankers** bolt onto an existing search pipeline as a final step, using cross-encoder scoring (query and document processed together) to meaningfully improve a first-stage shortlist's ordering.
+5. **Mean average precision (MAP)** — the mean of each query's average precision — is a standard way to score and compare retrieval systems; **nDCG** extends this to graded (not just binary) relevance.
+6. **RAG** adds a generation step after retrieval, grounding the LLM's answer (and ideally its citations) in real retrieved documents rather than pure memorized knowledge — with **query rewriting, multi-query, multi-hop, routing,** and **agentic** variants handling progressively more complex information needs.
+7. RAG evaluation spans **fluency, perceived utility, citation recall, and citation precision** for human evaluation, plus **faithfulness** and **answer relevance** from automated LLM-as-a-judge tools like Ragas.
+
+:::
+
+Text isn't the only modality language models are learning to reason about. The next lesson turns to **multimodal models** — systems that work with images alongside (or instead of) text.

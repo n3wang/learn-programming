@@ -1,0 +1,383 @@
+---
+sidebar_position: 11
+title: Problems with Lock-Based Concurrency
+---
+
+# Problems with Lock-Based Concurrency
+
+> **Adapted from:** Jason Gregory, *Game Engine Architecture*, 3rd ed. (CRC Press, 2018), Chapter 4, Section 4.7 — rewritten and condensed for teaching.
+
+[Thread Synchronization Primitives](./thread-synchronization-primitives) covered how mutexes, condition variables, and semaphores make operations atomic and let threads coordinate. But eliminating data races is only *part* of writing correct concurrent software — a program where every shared access is perfectly locked can still hang forever, spin uselessly, starve one thread indefinitely, or let a low-priority thread block a high-priority one. This lesson works through the four classic lock-based failure modes: **deadlock**, **livelock**, **starvation**, and **priority inversion** — plus the field's favorite illustration of all of them at once, the **dining philosophers**.
+
+---
+
+## Deadlock
+
+**Deadlock** is the situation where *no* thread in the system can make progress — every thread is blocked, waiting on some resource, but because nothing is runnable, none of those resources can ever be released. The whole program just hangs.
+
+Deadlock needs at least two threads and two resources:
+
+```cpp
+void Thread1() {
+    g_mutexA.lock();   // holds Resource A
+    g_mutexB.lock();   // sleeps, waiting for Resource B
+    // ...
+}
+
+void Thread2() {
+    g_mutexB.lock();   // holds Resource B
+    g_mutexA.lock();   // sleeps, waiting for Resource A
+    // ...
+}
+```
+
+If Thread1 grabs `g_mutexA` right as Thread2 grabs `g_mutexB`, each thread now holds exactly the resource the other one needs next — and neither will ever release what it's holding, because doing so requires finishing the function, which requires the *other* lock first. Neither thread ever gets there.
+
+You can spot this pattern visually with a **dependency graph**: draw a node per thread and per resource, a solid arrow from a resource to whichever thread currently holds it, and a dashed arrow from a thread to whichever resource it's waiting on. (You can even drop the resource nodes and draw dashed arrows directly thread-to-thread.) **A cycle in this graph means deadlock.**
+
+### The Coffman Conditions
+
+Strictly speaking, a cycle alone isn't quite sufinent — deadlock requires all four **Coffman conditions** to hold simultaneously:
+
+1. **Mutual exclusion** — a resource can only be held by one thread at a time.
+2. **Hold and wait** — a thread holds one lock while sleeping, waiting on another.
+3. **No preemption** — nobody (not even the kernel) can forcibly strip a lock away from a sleeping thread.
+4. **Circular wait** — a cycle exists in the wait-for graph.
+
+Breaking condition #1 or #3 would generally defeat the purpose of having locks at all — so real fixes target **#2** or **#4**:
+
+- **Avoid hold-and-wait** by reducing the number of distinct locks. If Resource A and Resource B in the example above were protected by a *single* lock, deadlock becomes structurally impossible — whichever thread gets the one lock first simply gets exclusive access to both resources while the other waits.
+- **Avoid circular wait** by imposing a **global lock ordering**. If every thread in the system agrees to always acquire Resource A's lock before Resource B's lock — never the other way around — no cycle can ever form, because one thread reaching for A first will always put any contending thread to sleep before it can reach for B out of order.
+
+### Check: deadlock
+
+<MultipleChoice
+  id="ge-ch4-lockproblems-deadlock"
+  title="Deadlock and the Coffman conditions"
+  questions={[
+    {
+      prompt: 'In the classic two-thread, two-mutex deadlock example, what specifically causes the hang?',
+      choices: [
+        'One of the threads crashes',
+        'Thread1 holds mutexA while waiting for mutexB, and Thread2 holds mutexB while waiting for mutexA — each thread holds exactly what the other needs, and neither will release it until it gets the other lock first',
+        'The mutexes were never initialized',
+        'Both threads are trying to run on the same CPU core',
+      ],
+      answer: 1,
+      why: 'This is the textbook circular-wait pattern: each thread\'s next required resource is held by the other thread, with neither willing to give up what it already holds.',
+    },
+    {
+      prompt: 'Why does enforcing a single, consistent global lock-acquisition order across all threads prevent deadlock?',
+      choices: [
+        'It does not actually prevent deadlock, only reduces its likelihood',
+        'It makes a circular wait structurally impossible — since every thread reaches for the same resource first, in the same order, no thread can ever be caught holding one lock while waiting on another that some other thread is also waiting to acquire out of order',
+        'It works by making all locks instantaneous',
+        'It only works with exactly two threads',
+      ],
+      answer: 1,
+      why: 'A consistent acquisition order eliminates the possibility of a cycle in the wait-for graph, which is precisely the fourth Coffman condition required for deadlock.',
+    },
+    {
+      prompt: 'Which two of the four Coffman conditions do practical deadlock-avoidance strategies typically target, and why not the other two?',
+      choices: [
+        'Mutual exclusion and no-preemption, because those are the easiest to detect',
+        '"Hold and wait" and "circular wait" — because eliminating mutual exclusion or allowing lock preemption would generally defeat the entire purpose of having locks in the first place',
+        'All four conditions are equally easy to target with no particular trade-offs',
+        'None of the four conditions can actually be prevented in practice',
+      ],
+      answer: 1,
+      why: 'Reducing lock count attacks "hold and wait," and global lock ordering attacks "circular wait" — mutual exclusion and no-preemption are largely non-negotiable properties of using locks at all.',
+    },
+  ]}
+/>
+
+---
+
+## Livelock
+
+One tempting way to *avoid* deadlock is to never sleep waiting for a contested lock — instead try a non-blocking `try_lock()`, and if it fails, release whatever you already hold and retry after a short delay. That sidesteps deadlock, but opens the door to a different problem: **livelock**, where threads spend *all* their time trying (and failing) to resolve the very conflict their retry strategy created, making zero actual progress — the concurrent-programming equivalent of two people repeatedly stepping the same direction trying to get out of each other's way in a hallway.
+
+Concretely: if Thread1 and Thread2 both back off and retry after the *same* fixed timeout whenever they collide, they can end up perfectly resynchronized every single time — colliding, backing off, and colliding again, forever, like a stalemate in chess.
+
+The fix is **asymmetry**: make the retry strategy break the tie somehow — for example, only ever let one specific thread (chosen by priority, or at random) take the active steps to resolve a detected conflict, while others simply wait for it to succeed.
+
+## Starvation
+
+**Starvation** is any situation where one or more threads never get any CPU time at all. It commonly arises when higher-priority threads simply never yield the CPU long enough for lower-priority ones to run — and livelock is really a special case of starvation, where a deadlock-avoidance algorithm accidentally starves *every* thread of real work by keeping them all busy resolving conflicts instead.
+
+The usual mitigation for priority-based starvation: keep high-priority threads short-lived. A healthy design generally has a pool of lower-priority threads sharing the CPU fairly most of the time, with occasional short bursts from higher-priority threads that finish quickly and hand control back.
+
+### Check: livelock and starvation
+
+<MultipleChoice
+  id="ge-ch4-lockproblems-livelock"
+  title="Livelock and starvation"
+  questions={[
+    {
+      prompt: 'How does livelock differ from deadlock, given that both result in a program failing to make real progress?',
+      choices: [
+        'They are the same phenomenon with two different names',
+        'In deadlock, threads are asleep/blocked and nothing executes at all; in livelock, threads are actively running and doing work — just work that only exists to detect and back off from the same conflict, over and over, with no real progress',
+        'Livelock only happens on single-core machines',
+        'Deadlock can be fixed by adding more CPU cores, but livelock cannot',
+      ],
+      answer: 1,
+      why: 'Livelock threads are busy — actively executing retry/backoff logic — whereas deadlocked threads are simply blocked; both fail to progress, but for structurally different reasons.',
+    },
+    {
+      prompt: 'Why can two threads using identical, symmetric backoff-and-retry timeouts fall into a persistent livelock?',
+      choices: [
+        'Because identical timeouts are technically impossible to configure',
+        'Because both threads back off and retry at exactly the same moments every time, so they keep re-colliding in lockstep indefinitely — an asymmetric strategy is needed to break the tie',
+        'Because backoff timers do not exist in real operating systems',
+        'Because livelock only occurs when timeouts are set to zero',
+      ],
+      answer: 1,
+      why: 'Symmetric retry behavior means both threads repeat the same collision pattern forever; breaking the symmetry (e.g., letting only one thread actively resolve the conflict) is what actually resolves it.',
+    },
+    {
+      prompt: 'What is the recommended general strategy for avoiding priority-based starvation?',
+      choices: [
+        'Never assign different priorities to any threads',
+        'Keep high-priority threads short-lived, so lower-priority threads still get a fair share of CPU time most of the time, with only occasional brief interruptions from higher-priority work',
+        'Always run every thread at the same, maximum priority',
+        'Disable preemptive scheduling entirely',
+      ],
+      answer: 1,
+      why: 'If high-priority threads run briefly and yield promptly, lower-priority threads still get regular CPU time instead of being perpetually crowded out.',
+    },
+  ]}
+/>
+
+---
+
+## Priority Inversion
+
+**Priority inversion** is a subtler problem: a low-priority thread can end up effectively blocking a high-priority one, even though the scheduler is supposed to always prefer higher-priority work.
+
+Concretely: threads `L` (low priority) and `H` (high priority) share a lock. `L` takes the lock, then gets preempted by `H`. If `H` now also wants that same lock, `H` goes to sleep waiting for `L` — which means `L` gets to keep running (to finish and release the lock) even though a higher-priority thread is sitting there ready to run. For that stretch, `L` is effectively behaving as if it were the *highest*-priority thread in the system.
+
+It gets worse with a third, medium-priority thread `M` in the mix: if `M` preempts `L` while `L` still holds the lock `H` needs, `L` can't run (because `M` is running instead) and therefore can't release the lock — so now `H` is blocked not by `L` directly, but transitively by `M`, a thread with *lower* priority than `H`. `M`'s priority has effectively been inverted with `H`'s.
+
+Consequences range from negligible (if `L` releases the lock almost immediately) to severe — in the worst case, priority inversion has caused real high-priority threads to miss hard deadlines. Common fixes:
+
+- **Avoid locks shared between low- and high-priority threads** entirely (often not realistic).
+- **Priority ceiling / priority inheritance** — temporarily boost the priority of whoever holds the lock up to the priority of the highest-priority thread waiting on it, so it can't be preempted by anything in between.
+- **Random priority boosting** — periodically and randomly boost the priority of threads that are actively holding locks until they release them; this is the general approach the Windows scheduler uses.
+
+### Check: priority inversion
+
+<MultipleChoice
+  id="ge-ch4-lockproblems-inversion"
+  title="Priority inversion"
+  questions={[
+    {
+      prompt: 'In the basic two-thread priority inversion scenario, why does the high-priority thread H end up waiting on the low-priority thread L?',
+      choices: [
+        'Because H has a bug in its own code',
+        'Because L took a lock before being preempted by H, and when H then tries to take the same lock, it must sleep until L releases it — allowing L to effectively run ahead of H for that duration',
+        'Because the operating system randomly assigns which thread runs first',
+        'Because H and L cannot run on the same CPU',
+      ],
+      answer: 1,
+      why: 'H is blocked purely because it needs a lock currently held by L, temporarily letting the lower-priority thread\'s execution take precedence.',
+    },
+    {
+      prompt: 'In the three-thread scenario (L, M, H), why is M described as causing an "inversion" with H specifically, even though M never touches the shared lock?',
+      choices: [
+        'M does not actually affect H in any way',
+        'M preempts L while L holds the lock H needs, preventing L from running long enough to release it — so H ends up transitively blocked by M, a thread with strictly lower priority than H',
+        'M is actually the thread holding the lock in this scenario',
+        'H always has lower priority than M by definition',
+      ],
+      answer: 1,
+      why: 'The inversion is transitive: M blocks L\'s progress, and L\'s lack of progress is what blocks H — so a lower-priority thread (M) ends up dictating a higher-priority thread\'s (H) progress.',
+    },
+    {
+      prompt: 'What is the core idea behind the "priority ceiling" / priority inheritance solution to priority inversion?',
+      choices: [
+        'Permanently set every thread to the same priority',
+        'Temporarily raise the priority of whichever thread currently holds a contested lock, up to the priority of the highest-priority thread waiting for it, so the lock holder cannot be preempted by anything in between and can finish and release the lock quickly',
+        'Prevent low-priority threads from ever acquiring any locks',
+        'Force the high-priority thread to give up and never retry',
+      ],
+      answer: 1,
+      why: 'Boosting the lock holder\'s priority to match the highest waiter removes the window in which an intermediate-priority thread could preempt it and prolong the inversion.',
+    },
+  ]}
+/>
+
+---
+
+## Practice: avoid deadlock with a global lock order
+
+Here's the classic real-world instance of the deadlock pattern: transferring funds between two accounts, each guarded by its own mutex. If `Transfer(A, B, ...)` always locks `A` then `B`, but some other thread calls `Transfer(B, A, ...)` at the same time (locking `B` then `A`), you have the exact circular-wait shape from earlier in this lesson.
+
+Fix `Transfer()` below so it locks the two accounts' mutexes in a **consistent global order** — by comparing their `id` fields — regardless of which account is passed as `from` and which is `to`. That way, no matter which order two concurrent transfers name their accounts in, every thread agrees on which lock to take first.
+
+:::note What this exercise can (and can't) verify
+This sandbox runs your code single-threaded, so it can't literally trigger or detect a live deadlock the way two real concurrent threads calling `Transfer()` in opposite orders would. What it *can* verify is that `Transfer()` still computes the correct balances — and the source check confirms you actually compare the two accounts' `id`s to decide lock order, rather than always locking in call-argument order (which is exactly the pattern that deadlocks once a second thread calls the function with the arguments reversed).
+:::
+
+<CodeExercise
+  title="Deadlock-free fund transfer"
+  heading="exercise-lock-ordering"
+  lang="cpp"
+  filename="main.cpp"
+  prompt="Make Transfer() lock both accounts' mutexes in a consistent order based on account id, regardless of which is passed as 'from' vs 'to', then perform the transfer and unlock both."
+  sampleLog={`(no input)
+A balance: 130
+B balance: 70`}
+  starter={`#include <iostream>
+#include <mutex>
+using namespace std;
+
+struct Account {
+    int id;
+    double balance;
+    mutex mtx;
+};
+
+void Transfer(Account& from, Account& to, double amount) {
+    // TODO: lock from.mtx and to.mtx in a consistent order based on id
+    // (always lock the lower-id account's mutex first), so this function
+    // is safe to call as Transfer(A, B, ...) and Transfer(B, A, ...)
+    // concurrently without risking circular-wait deadlock.
+
+    from.balance -= amount;
+    to.balance += amount;
+
+    // TODO: unlock both mutexes
+}
+
+int main() {
+    Account a{1, 100.0};
+    Account b{2, 100.0};
+
+    Transfer(a, b, 50.0);   // a -> b: locks id 1 then id 2
+    Transfer(b, a, 20.0);   // b -> a: must STILL lock id 1 before id 2
+
+    cout << "A balance: " << a.balance << "\\n";
+    cout << "B balance: " << b.balance << "\\n";
+    return 0;
+}
+`}
+  hint="Compare from.id and to.id: if (from.id < to.id) { from.mtx.lock(); to.mtx.lock(); } else { to.mtx.lock(); from.mtx.lock(); } — then unlock both at the end, in either order."
+  solution={`#include <iostream>
+#include <mutex>
+using namespace std;
+
+struct Account {
+    int id;
+    double balance;
+    mutex mtx;
+};
+
+void Transfer(Account& from, Account& to, double amount) {
+    if (from.id < to.id) {
+        from.mtx.lock();
+        to.mtx.lock();
+    } else {
+        to.mtx.lock();
+        from.mtx.lock();
+    }
+
+    from.balance -= amount;
+    to.balance += amount;
+
+    from.mtx.unlock();
+    to.mtx.unlock();
+}
+
+int main() {
+    Account a{1, 100.0};
+    Account b{2, 100.0};
+
+    Transfer(a, b, 50.0);
+    Transfer(b, a, 20.0);
+
+    cout << "A balance: " << a.balance << "\\n";
+    cout << "B balance: " << b.balance << "\\n";
+    return 0;
+}
+`}
+  sourceChecks={[
+    { name: 'compares ids before locking', pattern: 'id\\s*<\\s*[a-zA-Z_.]*id|id\\s*>\\s*[a-zA-Z_.]*id', must: true, hint: 'compare from.id and to.id to decide which mutex to lock first' },
+    { name: 'unlocks both mutexes', pattern: 'unlock\\(\\)[\\s\\S]*unlock\\(\\)', must: true, hint: 'call unlock() on both accounts\' mutexes before returning' },
+  ]}
+  tests={[
+    { name: 'correct balances after both transfers', stdin: '', equals: 'A balance: 130\nB balance: 70' },
+  ]}
+/>
+
+---
+
+## The Dining Philosophers
+
+The **dining philosophers** problem packs deadlock, livelock, and starvation into one famous scenario: five philosophers sit around a circular table, one chopstick between each adjacent pair (five chopsticks total). Each philosopher alternates between *thinking* (needs no chopsticks) and *eating* (needs the two chopsticks on either side of their plate). The puzzle: define behavior so every philosopher can keep alternating between thinking and eating forever, without deadlock, livelock, or starvation. (Philosophers are threads; chopsticks are mutexes.)
+
+If every philosopher always picks up their left chopstick first, then reaches for their right, you get the textbook circular-wait deadlock — every philosopher ends up holding one chopstick, and permanently waiting on their neighbor. A few well-known fixes:
+
+- **Global order** — number the chopsticks, and require every philosopher to always pick up the *lower-numbered* one first, regardless of which side it's on. This is exactly the global-lock-ordering fix from earlier in this lesson, applied to five resources arranged in a circle.
+- **Central arbiter** — a "waiter" hands out chopsticks and only ever grants a philosopher *both* at once (or none) — directly preventing the "hold and wait" condition, since no philosopher can ever be left holding just one.
+- **Chandy–Misra** — chopsticks are marked clean/dirty, and philosophers explicitly request them from each other via messages; worth reading about separately if you want the full algorithm.
+- **N−1 philosophers** — with 5 philosophers and 5 chopsticks, use a semaphore to ensure at most **4** philosophers are ever allowed to pick up chopsticks simultaneously. This guarantees at least one of the five will always be able to complete a pair — solving deadlock and livelock — though it can still let one unlucky philosopher starve unless you add an explicit fairness rule on top.
+
+### Check: dining philosophers
+
+<MultipleChoice
+  id="ge-ch4-lockproblems-philosophers"
+  title="The dining philosophers problem"
+  questions={[
+    {
+      prompt: 'Why does "every philosopher always picks up their left chopstick first" lead to guaranteed deadlock?',
+      choices: [
+        'It does not — this strategy actually works fine',
+        'Every philosopher can simultaneously succeed in picking up their left chopstick, then every philosopher is left waiting forever for their right chopstick, which is held by their neighbor doing the exact same thing — a perfect circular wait',
+        'Chopsticks cannot be represented as mutexes',
+        'Only left-handed philosophers can experience this problem',
+      ],
+      answer: 1,
+      why: 'This produces a full cycle around the table: everyone holds one resource and waits on the next philosopher\'s resource, satisfying all four Coffman conditions at once.',
+    },
+    {
+      prompt: 'How does the "central arbiter" (waiter) solution prevent deadlock?',
+      choices: [
+        'By making all philosophers eat at the same time',
+        'By ensuring a philosopher is only ever granted BOTH chopsticks at once, or none at all — directly eliminating the "hold and wait" condition, since no one can be stuck holding just one chopstick',
+        'By removing the need for chopsticks entirely',
+        'By assigning random priorities to each philosopher',
+      ],
+      answer: 1,
+      why: 'The arbiter\'s all-or-nothing granting rule means no philosopher can ever be left holding one resource while waiting on another, breaking the hold-and-wait condition directly.',
+    },
+    {
+      prompt: 'Why does the "N-1 philosophers" solution (allowing at most 4 of 5 to reach for chopsticks at once) prevent deadlock and livelock, but not automatically prevent starvation?',
+      choices: [
+        'It does prevent starvation automatically, with no further work needed',
+        'Limiting simultaneous attempts to N-1 guarantees at least one philosopher can always complete a full pair (avoiding deadlock/livelock), but it does not guarantee that pair is never repeatedly the SAME philosophers, so one unlucky individual could in principle be excluded indefinitely without an added fairness rule',
+        'It works by giving every philosopher their own private chopstick',
+        'It only works for exactly five philosophers and no other number',
+      ],
+      answer: 1,
+      why: 'The semaphore limit guarantees systemic progress (someone always eats), but "someone" isn\'t guaranteed to rotate fairly among all five without an explicit fairness mechanism layered on top.',
+    },
+  ]}
+/>
+
+---
+
+:::important Key takeaways
+- **Deadlock** requires all four Coffman conditions (mutual exclusion, hold-and-wait, no preemption, circular wait) — practical fixes target hold-and-wait (fewer locks) or circular wait (a consistent global lock order).
+- **Livelock** happens when threads actively avoid deadlock but end up doing nothing but retry/backoff forever — fixed by breaking the symmetry in how conflicts get resolved.
+- **Starvation** means a thread never gets CPU time at all; keeping high-priority threads short-lived is the standard mitigation, and livelock is really starvation caused by a conflict-avoidance algorithm itself.
+- **Priority inversion** lets a low- (or even medium-, transitively) priority thread block a high-priority one through a shared lock; priority inheritance/ceiling protocols and random priority boosting (used by Windows) are the standard fixes.
+- The **dining philosophers** problem packs all of the above into one scenario, and its classic solutions (global order, central arbiter, Chandy-Misra, N-1 philosophers) map directly onto the general deadlock/starvation-avoidance techniques covered in this lesson.
+:::
+
+## Further Reading
+
+- Jason Gregory — *Game Engine Architecture*, 3rd ed. (CRC Press, 2018), Chapter 4, Section 4.7
+- [Thread Synchronization Primitives](./thread-synchronization-primitives) — this series' previous lesson: mutexes, condition variables, and semaphores
+- Wikipedia — [Dining philosophers problem](https://en.wikipedia.org/wiki/Dining_philosophers_problem) and [Priority inversion](https://en.wikipedia.org/wiki/Priority_inversion)
+- K. Mani Chandy & J. Misra — "The Drinking Philosophers Problem" (1984), the source of the Chandy–Misra solution

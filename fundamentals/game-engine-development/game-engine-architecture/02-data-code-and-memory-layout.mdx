@@ -1,0 +1,868 @@
+---
+sidebar_position: 2
+title: Data, Code, and Memory Layout
+---
+
+# Data, Code, and Memory Layout
+
+> **Adapted from:** Jason Gregory, *Game Engine Architecture*, 3rd ed. (CRC Press, 2018), Chapter 3, Section 3.3 — rewritten and condensed for teaching.
+
+A game engine spends its entire life moving bytes around: reading assets off disk, streaming vertex data to the GPU, patching save files between platforms, packing gameplay state into network packets. None of that works reliably unless you understand *how numbers are actually stored in memory* — how many bits, in what order, with what gaps between them. Bugs born from a wrong assumption here (an unswapped endian value, a struct that isn't the size you expected, a float compared for exact equality) tend to be silent and platform-specific, which makes them some of the nastiest things to debug in a shipped console title. This lesson builds that low-level foundation: numeric representations, primitive types, how the linker turns your source into an executable, and how objects are actually laid out in memory.
+
+---
+
+## Numeric Bases
+
+Humans think in base ten — decimal — because we happen to have ten fingers. Each digit, right to left, represents an increasing power of ten: `7803 = (7×10³) + (8×10²) + (0×10¹) + (3×10⁰)`.
+
+Computers store everything in **binary**, base two, because a transistor is most reliably read as "on" or "off." Each digit (bit) represents a power of two instead of a power of ten, and we prefix binary literals with `0b`:
+
+```
+0b1101 = (1×2³) + (1×2²) + (0×2¹) + (1×2⁰) = 8 + 4 + 0 + 1 = 13
+```
+
+**Hexadecimal** (base 16) is the format you'll actually read and write most often. It uses `0`–`9` plus `A`–`F` for the values 10–15, prefixed with `0x` in C/C++. It's popular specifically *because* memory is addressed in 8-bit bytes, and one hex digit encodes exactly 4 bits — so a pair of hex digits is exactly one byte:
+
+```
+0xFF   = 0b11111111 = 255            (largest value in 1 byte)
+0xB052 = (11×16³) + (0×16²) + (5×16¹) + (2×16⁰) = 45,138
+```
+
+When you're staring at a hex dump or a debugger's memory view, being able to convert hex ↔ binary ↔ decimal in your head is a genuinely load-bearing skill.
+
+## Signed and Unsigned Integers
+
+A 32-bit **unsigned** integer is just the binary encoding of its value, ranging from `0x00000000` (0) to `0xFFFFFFFF` (4,294,967,295).
+
+To represent negative numbers, we need to steal some encoding space for a sign. There are two classic approaches:
+
+- **Sign-and-magnitude** reserves the most significant bit as a sign flag (0 = positive, 1 = negative) and uses the remaining bits for magnitude. Simple, but it produces *two* representations of zero (+0 and −0), which wastes an encoding and complicates arithmetic circuits.
+- **Two's complement**, used by essentially every modern CPU, has only one representation of zero. In 32-bit two's complement, `0xFFFFFFFF` means `−1`, and negative values count down from there:
+
+| Range (hex) | Meaning |
+|---|---|
+| `0x00000000` – `0x7FFFFFFF` | 0 to 2,147,483,647 (positive) |
+| `0x80000000` – `0xFFFFFFFF` | −2,147,483,648 to −1 (negative) |
+
+The rule of thumb: if the most significant bit is set, the value is negative.
+
+## Fixed-Point Notation
+
+Integers can't express fractions, so the earliest approach to non-integer numbers was **fixed-point notation**: you arbitrarily decide how many bits represent the whole part and how many represent the fraction, up front. Moving left to right, magnitude bits represent decreasing powers of two (`…16, 8, 4, 2, 1`), and fractional bits represent decreasing *inverse* powers of two (`½, ¼, ⅛, …`).
+
+For example, `−173.25` stored with 1 sign bit, 16 magnitude bits, and 15 fraction bits becomes `0x8056A000` — the sign, `173 = 0b0000000010101101`, and `0.25 = 0b010000000000000` packed end to end into 32 bits.
+
+The problem is that both the magnitude range and the fractional precision are fixed at compile time. With 16 magnitude bits you're capped at ±65,535 — not exactly generous. Floating-point notation exists to solve that.
+
+### Check: numeric bases, two's complement, and fixed-point
+
+<MultipleChoice
+  id="ge-ch3-numeric-bases"
+  title="Bases, signed integers, and fixed-point"
+  questions={[
+    {
+      prompt: 'Why is hexadecimal specifically convenient for representing raw memory contents, compared to binary or decimal?',
+      choices: [
+        'Hexadecimal digits are easier to pronounce out loud',
+        'One hex digit encodes exactly 4 bits, so a pair of hex digits maps exactly onto one byte — binary is too long to read at a glance and decimal doesn\'t divide evenly into bit groups',
+        'Hexadecimal is the only base computers can actually store',
+        'Decimal cannot represent numbers larger than 9',
+      ],
+      answer: 1,
+      why: 'The 4-bits-per-digit property is exactly why hex dumps and debugger memory views use it — two hex digits per byte, cleanly.',
+    },
+    {
+      prompt: 'Why does two\'s complement notation have only one representation of zero, unlike sign-and-magnitude?',
+      choices: [
+        'Two\'s complement cannot represent zero at all',
+        'Sign-and-magnitude reserves a dedicated sign bit, producing distinct +0 and −0 bit patterns; two\'s complement instead counts negative values downward from the all-ones pattern, so there is exactly one all-zero bit pattern and it is unambiguously zero',
+        'Two\'s complement uses decimal internally',
+        'They are actually identical encodings with different names',
+      ],
+      answer: 1,
+      why: 'Sign-and-magnitude\'s dedicated sign bit is exactly what creates the redundant +0/−0 pair that two\'s complement avoids.',
+    },
+    {
+      prompt: 'What is the core limitation of fixed-point notation that floating-point notation was invented to solve?',
+      choices: [
+        'Fixed-point notation cannot represent negative numbers',
+        'A fixed-point format commits, at compile time, to a fixed split between magnitude bits and fraction bits — so both its maximum range and its precision are locked in, unable to trade one for the other as needed',
+        'Fixed-point notation only works on 8-bit CPUs',
+        'Fixed-point numbers cannot be added or subtracted',
+      ],
+      answer: 1,
+      why: 'Floating-point\'s exponent is exactly the mechanism that lets the same bit budget shift between range and precision depending on a value\'s magnitude — fixed-point has no such flexibility.',
+    },
+  ]}
+/>
+
+---
+
+## Floating-Point Notation (IEEE-754)
+
+A floating-point number lets the position of the decimal point *float* — it's specified separately, via an exponent, rather than being fixed in advance. A float has three parts: a **sign** bit, an **exponent**, and a **mantissa** (the significant digits). The dominant standard, IEEE-754, lays a 32-bit float out as 1 sign bit, 8 exponent bits, and 23 mantissa bits:
+
+```
+sign (1) │ exponent (8 bits) │ mantissa (23 bits)
+```
+
+The value is:
+
+```
+v = s × 2^(e − 127) × (1 + m)
+```
+
+- `s` is +1 or −1.
+- `e` is the stored exponent, **biased by 127** so negative exponents are representable without a separate sign on the exponent itself.
+- `m` is the mantissa interpreted as a fraction, with an *implicit* leading 1 that is never actually stored (it's guaranteed to be there for any normal float, so storing it would be a wasted bit).
+
+**Worked example:** the bit pattern for `0.15625` has `s = 0`, `e = 0b01111100 = 124`, and `m = 0b0100… = ¼`:
+
+```
+v = (+1) × 2^(124−127) × (1 + ¼)
+  = 2⁻³ × 1.25
+  = 0.125 × 1.25
+  = 0.15625
+```
+
+:::tip Activity: decode a float by hand
+Given the bit pattern `0 10000001 01000000000000000000000`, find the decimal value.
+
+`e = 0b10000001 = 129`, so the unbiased exponent is `129 − 127 = 2`. `m = 0b01000… = ¼`. So `v = (+1) × 2² × (1 + ¼) = 4 × 1.25 = 5.0`.
+:::
+
+Now do the same decomposition in code. A `float`'s bits can be reinterpreted as a `uint32_t` through a `union` — the same trick used later in this lesson for endian-swapping floats — which lets you pull the sign, exponent, and mantissa fields out with shifts and masks instead of doing it by hand.
+
+<CodeExercise
+  title="Decode a float's bits"
+  heading="exercise-decode-float"
+  lang="cpp"
+  filename="main.cpp"
+  prompt="Read a float from stdin, reinterpret its bits via a union (not a reinterpret_cast — see the note on strict aliasing later in this lesson), and print its sign bit, biased exponent, and mantissa."
+  sampleLog={`(input) 0.15625
+sign=0 exponent=124 mantissa=0x200000`}
+  starter={`#include <cstdio>
+#include <cstdint>
+using namespace std;
+
+int main() {
+    float v;
+    scanf("%f", &v);
+
+    // TODO: reinterpret v's bits as a uint32_t using a union (no
+    // reinterpret_cast between float* and uint32_t* -- see the strict
+    // aliasing note later in this lesson).
+    uint32_t bits = 0;
+
+    // TODO: extract sign (bit 31), biased exponent (bits 30-23),
+    // and mantissa (bits 22-0) from 'bits'.
+    unsigned sign = 0;
+    unsigned exponent = 0;
+    unsigned mantissa = 0;
+
+    printf("sign=%u exponent=%u mantissa=0x%06X\\n", sign, exponent, mantissa);
+    return 0;
+}
+`}
+  hint="union { float f; uint32_t u; } conv; conv.f = v; bits = conv.u; sign = bits >> 31; exponent = (bits >> 23) & 0xFF; mantissa = bits & 0x7FFFFF;"
+  solution={`#include <cstdio>
+#include <cstdint>
+using namespace std;
+
+int main() {
+    float v;
+    scanf("%f", &v);
+
+    union { float f; uint32_t u; } conv;
+    conv.f = v;
+    uint32_t bits = conv.u;
+
+    unsigned sign = bits >> 31;
+    unsigned exponent = (bits >> 23) & 0xFF;
+    unsigned mantissa = bits & 0x7FFFFF;
+
+    printf("sign=%u exponent=%u mantissa=0x%06X\\n", sign, exponent, mantissa);
+    return 0;
+}
+`}
+  sourceChecks={[
+    { name: 'uses a union for bit reinterpretation', pattern: 'union', must: true, hint: 'reinterpret the float\'s bits via a union, not reinterpret_cast' },
+  ]}
+  tests={[
+    { name: '0.15625 (exact worked example)', stdin: '0.15625', equals: 'sign=0 exponent=124 mantissa=0x200000' },
+    { name: '5.0', stdin: '5', equals: 'sign=0 exponent=129 mantissa=0x200000' },
+    { name: '-2.0 (exact power of two)', stdin: '-2', equals: 'sign=1 exponent=128 mantissa=0x000000' },
+  ]}
+/>
+
+### The Magnitude/Precision Trade-off
+
+The mantissa has a *fixed* number of bits, and those bits get shared between "how big" and "how precise." Spend more of the exponent's range on magnitude, and you have fewer significant digits left over for precision — this is the same idea physicists call "significant figures."
+
+Take `FLT_MAX ≈ 3.403 × 10³⁸`, encoded as `0x7F7FFFFF`:
+
+- The largest value the 23-bit mantissa (plus its implicit leading 1) can hold is 24 consecutive ones — `0x00FFFFFF`.
+- An exponent of `255` is reserved for special values (`NaN`, infinity), so the maximum usable stored exponent is `254`, i.e. `254 − 127 = 127` unbiased.
+
+So `FLT_MAX` is those 24 mantissa bits shifted left by 127 positions — leaving `127 − 23 = 104` bits (26 hex digits) that are just *zeros conjured by the exponent*, not real stored precision. Subtract any number smaller than that 26-hex-digit gap from `FLT_MAX` and you'll get `FLT_MAX` right back, unchanged — those digits don't exist. The same effect runs in reverse for tiny magnitudes: a large negative exponent buys you huge precision very close to zero, at the cost of range.
+
+### Subnormal Values
+
+There's a subtle gap between zero and the smallest representable nonzero float, `FLT_MIN ≈ 1.175 × 10⁻³⁸` (`0x00800000`). Without special handling, the real number line would be unevenly quantized right around zero.
+
+**Subnormal** (denormalized) values fill that gap: any float with a stored exponent of `0` is interpreted specially — the exponent is treated as if it were `1`, and the implicit leading mantissa bit becomes `0` instead of `1`. This fills the space between `−FLT_MIN` and `+FLT_MIN` with evenly spaced small values, and it's the reason these two expressions behave the same even when `a` and `b` are both tiny:
+
+```cpp
+if (a == b) { /* ... */ }
+if (a - b == 0.0f) { /* ... */ }
+```
+
+Without subnormals, `a - b` could round to zero even when `a != b` — a genuinely surprising bug source if you don't know this exists.
+
+### Machine Epsilon and ULP
+
+**Machine epsilon** (ε) is the smallest float where `1 + ε ≠ 1`. For IEEE-754 single precision, `ε = 2⁻²³ ≈ 1.192 × 10⁻⁷`. Anything smaller than ε added to `1.0` gets rounded away entirely, because it falls outside the 23 bits the mantissa has to work with.
+
+**ULP** (unit in the last place) is the gap between two floats that differ only in their least-significant mantissa bit — and unlike ε, its *absolute* size scales with the exponent. At `1.0f` (unbiased exponent 0), 1 ULP equals ε. At `2.0f` (exponent 1), 1 ULP is `2ε`. At `4.0f` (exponent 2), it's `4ε`. In general, for an unbiased exponent `x`: `1 ULP = 2^x · ε`.
+
+This is more than trivia — Naughty Dog's engine uses it in the character dialog system. Rather than supporting every comparison operator, the system only implements greater-than and less-than, and derives `≥`/`≤` by nudging the compared value by 1 ULP: `a ≥ b` is equivalent to `a + 1 ULP > b`.
+
+:::note Key insight
+Floating-point precision isn't a fixed number of decimal places — it's a fixed number of *significant bits* that slides up and down the number line as the exponent changes. Precision is highest near zero and lowest at large magnitudes.
+:::
+
+### A Practical Consequence: The Game Clock
+
+Say you track total elapsed game time in a 32-bit float, in seconds, and you add `1/30` of a second to it every frame. At what point does that addition stop changing the value at all? The answer is **2²⁰ seconds — about 12.14 days**. That's well past the length of any single play session, so a `float` clock is usually fine for a game — but it's exactly the kind of limit you need to know about *before* it silently breaks something at 2 a.m. during a long-running soak test.
+
+### Check: IEEE-754 floats, subnormals, and epsilon/ULP
+
+<MultipleChoice
+  id="ge-ch3-floating-point"
+  title="Floating-point precision, subnormals, epsilon, and ULP"
+  questions={[
+    {
+      prompt: 'Why does IEEE-754 store the exponent with a bias of 127 rather than storing it as an ordinary signed integer?',
+      choices: [
+        'Biasing has no real purpose, it is a historical accident',
+        'Biasing lets negative exponents be represented as small unsigned values, without needing a separate sign bit dedicated to the exponent itself',
+        'It doubles the number of bits available for the mantissa',
+        'It is required so the mantissa can hold an implicit leading 1',
+      ],
+      answer: 1,
+      why: 'The bias turns the representable exponent range into a straightforward unsigned field, avoiding a second sign bit just for the exponent.',
+    },
+    {
+      prompt: 'What specific problem do subnormal (denormalized) floats solve?',
+      choices: [
+        'They let floats represent numbers larger than FLT_MAX',
+        'They fill the gap between zero and FLT_MIN with evenly-spaced small values, so that a - b can equal exactly 0.0f whenever a == b, even for tiny magnitudes',
+        'They make floating-point addition commutative',
+        'They eliminate the need for a sign bit',
+      ],
+      answer: 1,
+      why: 'Without subnormals, a - b could round to zero even when a != b for values very close to FLT_MIN — subnormals close that gap and preserve the a == b guarantee.',
+    },
+    {
+      prompt: 'What is the key difference between machine epsilon and a ULP (unit in the last place)?',
+      choices: [
+        'They are two names for the exact same fixed value at every magnitude',
+        'Machine epsilon is a single fixed value (the smallest amount that changes 1.0 when added to it); a ULP is the gap between adjacent representable floats at a given exponent, and its absolute size scales with that exponent — 1 ULP equals epsilon only at exponent 0',
+        'ULP only applies to double-precision floats, never to single-precision',
+        'Machine epsilon is always larger than any ULP',
+      ],
+      answer: 1,
+      why: 'ULP = 2^x · ε for unbiased exponent x, so it grows with magnitude, whereas machine epsilon is defined once, specifically relative to 1.0.',
+    },
+  ]}
+/>
+
+---
+
+## Primitive Types Aren't Portable
+
+C and C++ leave the exact size of most built-in types up to the compiler and target platform:
+
+| Type | Typical size | Caveat |
+|---|---|---|
+| `char` | 8 bits | signedness is compiler-defined |
+| `short` | 16 bits | |
+| `int` | 32 bits (64-bit on some platforms) | "most efficient size for the target," not a fixed width |
+| `long` | 32 or 64+ bits | varies by compiler, OS, and target |
+| `float` | 32 bits, IEEE-754 | |
+| `double` | 64 bits, IEEE-754 | |
+| `bool` | 8 or 32 bits (never 1 bit) | width varies by compiler |
+
+That ambiguity is a serious problem when you're packing binary asset files or network packets that have to mean the same thing on every platform. Before C++11, engines rolled their own explicitly-sized typedefs. Naughty Dog's convention, for example:
+
+```cpp
+// F32 is a 32-bit IEEE-754 float.
+// U8/I8, U16/I16, U32/I32, U64/I64 are unsigned/signed N-bit integers.
+// U32F/I32F are "at least 32 bits, wider if that's faster on this CPU."
+using F32  = float;
+using U32  = std::uint32_t;
+using I32  = std::int32_t;
+using U32F = std::uint_fast32_t;
+```
+
+Since C++11, `<cstdint>` standardizes this: `std::int8_t` … `std::int64_t`, their `uint` counterparts, and `_fast`/`_least` variants — so you generally don't need to invent your own anymore. Third-party engines and libraries (e.g. OGRE's `uint8`/`uint16`/`uint32`, or its `Real` type that can be toggled between `float` and `double`) still define their own sets for legacy or portability reasons, so expect to see them in the wild.
+
+## Multibyte Values and Endianness
+
+Any value wider than a single byte — a 16-, 32-, or 64-bit integer, a float, a double — is a **multibyte** value, and there are two ways a CPU can order its bytes in memory:
+
+- **Little-endian**: least-significant byte first (lowest address). `0xABCD1234` is stored as `34 12 CD AB`.
+- **Big-endian**: most-significant byte first. The same value is stored as `AB CD 12 34`.
+
+x86/x64 (the machine you develop on) is little-endian. Historically, console CPUs based on PowerPC (Xbox 360, PS3, Wii) defaulted to big-endian — so a binary data file baked by your tools on a dev PC and loaded straight into the console build would come out byte-reversed: write `0xABCD1234`, read back `0x3412CDAB`. Modern consoles (PS5, Xbox Series) are back to little-endian x86-64, so this exact scenario is rarer today — but the underlying problem hasn't gone away. It resurfaces anywhere two systems disagree on byte order: network protocols (historically "network byte order" is big-endian), cross-save compatibility, or any binary format you didn't design yourself.
+
+Two fixes exist:
+
+1. Write data files as text (decimal/hex digits, one character per digit). Simple, portable, but wastes disk space and parse time.
+2. Have your **tools** endian-swap the data at bake time, so the file already matches the target's byte order before it ever reaches the engine.
+
+Swapping an integer means reversing its bytes end to end:
+
+```cpp
+inline U16 swapU16(U16 value)
+{
+    return ((value & 0x00FF) << 8)
+         | ((value & 0xFF00) >> 8);
+}
+
+inline U32 swapU32(U32 value)
+{
+    return ((value & 0x000000FF) << 24)
+         | ((value & 0x0000FF00) << 8)
+         | ((value & 0x00FF0000) >> 8)
+         | ((value & 0xFF000000) >> 24);
+}
+```
+
+Crucially, you cannot just cast a whole `struct` to a byte array and blindly reverse it — you have to know each member's offset and width and swap them individually, in place:
+
+```cpp
+struct Example { U32 m_a; U16 m_b; U32 m_c; };
+
+void writeExampleStruct(Example& ex, Stream& stream)
+{
+    stream.writeU32(swapU32(ex.m_a));
+    stream.writeU16(swapU16(ex.m_b));
+    stream.writeU32(swapU32(ex.m_c));
+}
+```
+
+Floats swap the same way, since bytes are bytes regardless of what they represent — you just need a way to reinterpret the bit pattern as an integer, swap it, and reinterpret it back. A `union` does this portably (a raw `reinterpret_cast` between a `float*` and `U32*` risks undefined behavior under strict-aliasing optimizations):
+
+```cpp
+union U32F32 { U32 m_asU32; F32 m_asF32; };
+
+inline F32 swapF32(F32 value)
+{
+    U32F32 u;
+    u.m_asF32 = value;
+    u.m_asU32 = swapU32(u.m_asU32);
+    return u.m_asF32;
+}
+```
+
+<CodeExercise
+  title="Reconstruct a big-endian value"
+  heading="exercise-big-endian-reconstruct"
+  lang="cpp"
+  filename="main.cpp"
+  prompt="Given four bytes as they'd be laid out in memory on a big-endian machine (byte 0 is the most-significant byte), reconstruct the 32-bit value they represent — without calling a pre-built swap helper."
+  sampleLog={`(input) 171 205 18 52
+0xABCD1234`}
+  starter={`#include <cstdio>
+#include <cstdint>
+using namespace std;
+
+uint32_t ReadBigEndianU32(unsigned b0, unsigned b1, unsigned b2, unsigned b3) {
+    // b0 is the byte stored at the LOWEST address. Since this data is
+    // big-endian, b0 is the MOST significant byte of the value.
+    // TODO: combine b0..b3 into a single uint32_t using shifts and ORs.
+    return 0;
+}
+
+int main() {
+    unsigned b0, b1, b2, b3;
+    scanf("%u %u %u %u", &b0, &b1, &b2, &b3);
+    uint32_t value = ReadBigEndianU32(b0, b1, b2, b3);
+    printf("0x%08X\\n", value);
+    return 0;
+}
+`}
+  hint="return (b0 << 24) | (b1 << 16) | (b2 << 8) | b3;"
+  solution={`#include <cstdio>
+#include <cstdint>
+using namespace std;
+
+uint32_t ReadBigEndianU32(unsigned b0, unsigned b1, unsigned b2, unsigned b3) {
+    return (b0 << 24) | (b1 << 16) | (b2 << 8) | b3;
+}
+
+int main() {
+    unsigned b0, b1, b2, b3;
+    scanf("%u %u %u %u", &b0, &b1, &b2, &b3);
+    uint32_t value = ReadBigEndianU32(b0, b1, b2, b3);
+    printf("0x%08X\\n", value);
+    return 0;
+}
+`}
+  sourceChecks={[
+    { name: 'combines bytes with shifts', pattern: '<<', must: true, hint: 'shift each byte into its position with << before combining them with |' },
+  ]}
+  tests={[
+    { name: '0xABCD1234 (this lesson\'s own example)', stdin: '171 205 18 52', equals: '0xABCD1234' },
+    { name: 'lowest nonzero value', stdin: '0 0 0 1', equals: '0x00000001' },
+    { name: 'all bytes 0xFF', stdin: '255 255 255 255', equals: '0xFFFFFFFF' },
+  ]}
+/>
+
+### Check: portable types and endianness
+
+<MultipleChoice
+  id="ge-ch3-types-endian"
+  title="Portable sized types and byte order"
+  questions={[
+    {
+      prompt: 'Why is the ambiguous size of a plain `int` (32 vs. 64 bits, compiler/platform dependent) a real problem when designing a binary file format?',
+      choices: [
+        'It is not actually a problem, int is always 32 bits on every platform',
+        'A binary file written with one platform\'s int width will be misread on a platform where int has a different width, since the byte offsets of every subsequent field shift — explicitly-sized types like std::int32_t avoid this entirely',
+        'Binary file formats never store integers',
+        'The C++ standard forbids writing int values to files',
+      ],
+      answer: 1,
+      why: 'A format that leans on an ambiguous native type instead of a fixed-width one silently breaks the moment it is read back on a platform with a different int size.',
+    },
+    {
+      prompt: 'On a little-endian machine, how is the 32-bit value 0xABCD1234 actually laid out in memory, from the lowest address to the highest?',
+      choices: [
+        '0xAB, 0xCD, 0x12, 0x34',
+        '0x34, 0x12, 0xCD, 0xAB',
+        '0x12, 0x34, 0xAB, 0xCD',
+        'The byte order is undefined on little-endian machines',
+      ],
+      answer: 1,
+      why: 'Little-endian stores the least-significant byte (0x34) first, at the lowest address, and the most-significant byte (0xAB) last.',
+    },
+    {
+      prompt: 'Why can\'t you endian-swap a whole struct by casting it to a byte array and blindly reversing the bytes?',
+      choices: [
+        'Structs cannot be cast to byte arrays under any circumstances',
+        'Each member has its own width and needs to be swapped individually, in place — reversing the entire struct\'s bytes end to end would scramble the relative order of its separate members, not just each one\'s internal byte order',
+        'Endian swapping only works on arrays, never on structs',
+        'C++ automatically endian-swaps structs when they are copied',
+      ],
+      answer: 1,
+      why: 'A struct is a sequence of independently-sized fields; swapping requires knowing each field\'s offset and width and reversing only within that field\'s own bytes.',
+    },
+  ]}
+/>
+
+---
+
+## Kilobytes vs. Kibibytes
+
+"Kilobyte" is ambiguous: programmers usually mean 1024 bytes, but the SI prefix "kilo" strictly means 1000. The IEC introduced power-of-two-specific prefixes in 1998 to resolve this — **kibibyte (KiB)**, not kilobyte, means 1024 bytes:
+
+| SI (decimal) | | IEC (binary) | |
+|---|---|---|---|
+| 1000 B = 1 kB | kilobyte | 1024 B = 1 KiB | kibibyte |
+| 1000² B = 1 MB | megabyte | 1024² B = 1 MiB | mebibyte |
+| 1000³ B = 1 GB | gigabyte | 1024³ B = 1 GiB | gibibyte |
+| 1000⁴ B = 1 TB | terabyte | 1024⁴ B = 1 TiB | tebibyte |
+
+It's worth being precise about which one you mean when you're budgeting a fixed memory pool on a console with a hard RAM ceiling — the two units diverge by more than 4% at the terabyte scale.
+
+## Declarations, Definitions, and Linkage
+
+The compiler processes one **translation unit** (`.cpp` file) at a time, producing an object file (`.o`/`.obj`) that contains machine code plus any global/static data — and possibly *unresolved* references to things defined elsewhere. The **linker** then combines all object files and resolves those cross-references into a single executable. It can fail in exactly two ways:
+
+1. **Unresolved symbol** — something is referenced but never defined anywhere.
+2. **Multiply defined symbol** — something with external linkage is defined more than once across translation units.
+
+The distinction that matters here:
+
+- A **declaration** describes an entity's name and type/signature, without allocating any storage. `extern U32 gGlobalA;` is a pure declaration.
+- A **definition** actually allocates the storage — a variable's memory, or a function's compiled body. `U32 gGlobalA;` is a definition.
+
+A definition is always also a declaration; the reverse isn't true. Any entity may have many identical declarations across translation units, but **only one** definition (with external linkage).
+
+```cpp
+// foo.h
+extern U32 gGlobalInteger;      // declaration only
+int max(int a, int b);          // declaration only
+
+// foo.cpp
+U32 gGlobalInteger = 5;         // definition
+int max(int a, int b) { return (a > b) ? a : b; }  // definition
+```
+
+**Why you shouldn't put definitions in headers:** if a header containing a definition is `#include`d into two `.cpp` files, you get a multiply-defined-symbol error at link time. There are two exceptions:
+
+- **`inline` functions** — each call site effectively gets its own copy of the compiled body, and inline functions have *internal* linkage by default (as if declared `static`), so no clash occurs. But the compiler must actually *see* the function body to inline it — declaring it `inline` in a header and defining it in a `.cpp` only allows inlining within that one `.cpp` file.
+- **Templates** — the compiler needs to see a template's full definition, not just a declaration, everywhere it's instantiated. So template declaration and definition are inseparable and both must live in the header.
+
+### Internal vs. External Linkage
+
+Every definition has **linkage**: *external* (visible to, and referenceable by, other translation units — the default) or *internal* (visible only within the translation unit it's defined in). The `static` keyword flips a definition from external to internal linkage — think of it as the translation-unit-level equivalent of `private:`.
+
+```cpp
+// foo.cpp
+U32 gExternalVariable;          // external linkage — usable elsewhere
+static U32 gInternalVariable;   // internal linkage — foo.cpp only
+
+// bar.cpp
+extern U32 gExternalVariable;   // OK — refers to foo.cpp's variable
+static U32 gInternalVariable;   // OK — a DIFFERENT variable, no clash
+```
+
+Note `static` means three different (but related) things depending on where it appears:
+
+| Context | Meaning |
+|---|---|
+| At file scope | restrict linkage to this translation unit |
+| Inside a function | this local is a persistent global, but its *name* is only visible inside the function |
+| Inside a class | this is a per-*class* variable, shared across all instances, not a per-instance member |
+
+### Check: declarations, definitions, and linkage
+
+<MultipleChoice
+  id="ge-ch3-linkage"
+  title="Declarations, definitions, and linkage"
+  questions={[
+    {
+      prompt: 'What is the fundamental difference between a declaration and a definition in C/C++?',
+      choices: [
+        'They are exactly the same thing, just different terminology',
+        'A declaration describes an entity\'s name and type/signature without allocating storage; a definition actually allocates the storage (a variable\'s memory or a function\'s compiled body) — a definition is always also a declaration, but not vice versa',
+        'A declaration can only appear in a .cpp file, never in a header',
+        'A definition never includes a type, only a declaration does',
+      ],
+      answer: 1,
+      why: 'This distinction is exactly why `extern U32 gGlobalA;` (declaration) and `U32 gGlobalA;` (definition) behave so differently at link time.',
+    },
+    {
+      prompt: 'Why is it usually safe to put an inline function\'s full definition in a header, when an ordinary (non-inline) function definition in a header would cause a "multiply defined symbol" error?',
+      choices: [
+        'Inline functions are secretly compiled into a completely separate executable',
+        'Inline functions have internal linkage by default (as if declared static), so each translation unit that includes the header gets its own private copy, and the compiler needs to see the body anyway in order to actually inline it',
+        'The compiler ignores inline function bodies entirely',
+        'Header files cannot contain multiply defined symbols by definition',
+      ],
+      answer: 1,
+      why: 'Internal linkage is the key: each .cpp file gets a distinct copy of the inline function, so there\'s no cross-translation-unit clash the way there would be with an ordinary external-linkage definition.',
+    },
+    {
+      prompt: 'A variable is declared static at file scope in foo.cpp, and a completely unrelated variable with the same name is also declared static at file scope in bar.cpp. What happens at link time?',
+      choices: [
+        'A "multiply defined symbol" linker error, since both have the same name',
+        'No error — each static variable has internal linkage, so the linker treats them as two entirely distinct entities scoped to their own translation unit',
+        'The program refuses to compile at all',
+        'The two variables are silently merged into one shared variable',
+      ],
+      answer: 1,
+      why: 'Internal linkage confines a static file-scope variable to its own translation unit, so same-named statics in different .cpp files never collide at link time.',
+    },
+  ]}
+/>
+
+---
+
+## Memory Layout of a Running Program
+
+### The Executable Image
+
+The linker's output (`.exe`, or `.elf` on UNIX-like systems, including most consoles) is a partial image of the program as it will look once loaded — "partial" because more memory gets allocated dynamically at runtime. The image is divided into **segments**:
+
+| Segment | Contents |
+|---|---|
+| **Text** (code) | Compiled machine code for every function |
+| **Data** | Initialized globals and statics, with their actual initial values baked in |
+| **BSS** | *Uninitialized* globals and statics — C/C++ guarantee these start at zero, so the linker just stores a byte *count*, and the OS zero-fills that much memory at load time rather than storing literal zero bytes |
+| **Read-only data (rodata)** | `const` globals and floating-point literals |
+
+```cpp
+F32 gInitializedGlobal = -2.0f;   // → data segment
+F32 gUninitializedGlobal;         // → BSS segment (zero-filled at load)
+```
+
+A function-local `static` behaves identically in terms of segment placement — it lands in data or BSS depending on whether it's initialized — it's just lexically scoped to the function and initialized on first call rather than before `main()`.
+
+### The Program Stack
+
+Every function call pushes a **stack frame** onto the program stack, and every `return` pops it. A stack frame holds three things: the **return address** to resume the caller at, the caller's **saved register values** (so the callee can freely reuse registers), and the function's **local (automatic) variables**.
+
+```cpp
+void c() { U32 localC1; /* ... */ }
+F32  b() { F32 localB1; I32 localB2; c(); /* ... */ return localB1; }
+void a() { U32 aLocalsA1[5]; F32 localA2 = b(); /* ... */ }
+```
+
+Calling `a()` → `b()` → `c()` stacks three frames on top of each other; each `return` pops exactly one. This is also *why* returning a pointer to a local variable is a classic, nasty bug:
+
+```cpp
+U32* getMeaningOfLife()
+{
+    U32 anInteger = 42;
+    return &anInteger;   // BUG: anInteger's stack frame is gone on return
+}
+```
+
+The memory is technically still sitting there for a moment, which is why this sometimes *appears* to work — right up until another function call overwrites that stack region and the bug turns into a crash that's maddening to reproduce.
+
+### The Dynamic Allocation Heap
+
+Globals/statics and locals are both sized at compile time. When a program's memory needs aren't known until runtime, it requests memory from the **heap** (a.k.a. free store) via `malloc()`/`free()` (or an OS-specific equivalent), and in C++, via `new`/`delete`. Be aware that individual classes — and even the global `new`/`delete` themselves — can be overloaded to allocate from custom pools, which is extremely common in game engines for performance and fragmentation control; never assume `new` necessarily means "the general heap."
+
+### Check: the executable image, stack, and heap
+
+<MultipleChoice
+  id="ge-ch3-memlayout"
+  title="Program segments, the stack, and the heap"
+  questions={[
+    {
+      prompt: 'Why does the BSS segment store just a byte count instead of literal zero bytes for every uninitialized global/static?',
+      choices: [
+        'Uninitialized globals are actually undefined behavior and BSS is irrelevant',
+        'C/C++ guarantee uninitialized globals and statics start at zero, so storing a count and having the OS zero-fill that many bytes at load time avoids wasting disk space on a giant block of literal zeros in the executable file',
+        'BSS can only ever hold exactly one variable',
+        'The linker is physically incapable of writing zero bytes',
+      ],
+      answer: 1,
+      why: 'Since the required value is always zero by language guarantee, storing a size and zero-filling on load is strictly more efficient than storing the zeros themselves.',
+    },
+    {
+      prompt: 'Why is returning the address of a local variable from a function a serious bug, even though the code sometimes appears to work?',
+      choices: [
+        'It never actually compiles',
+        'The local variable\'s stack frame is abandoned the moment the function returns, so that memory can be — and eventually will be — overwritten by a subsequent function call, even though it may briefly still hold the old value right after return',
+        'Local variables are stored in the BSS segment and are always safe to return',
+        'Returning a pointer to a local variable always crashes immediately',
+      ],
+      answer: 1,
+      why: 'The apparent "it worked" case is exactly the trap: the stack memory is still physically there for a moment, until the next function call reuses that same region.',
+    },
+    {
+      prompt: 'Why does a program need the heap at all, when it already has globals/statics and the stack?',
+      choices: [
+        'The heap is purely a legacy feature with no real use in modern C++',
+        'Globals/statics and stack locals are both sized at compile time; the heap lets a program request memory whose size or lifetime is only known at runtime, independent of any single function\'s call frame',
+        'The heap is required for every single variable in a C++ program',
+        'The stack and heap are actually the same region of memory',
+      ],
+      answer: 1,
+      why: 'Compile-time-sized storage (globals/statics/stack) can\'t serve a request like "allocate an array whose size depends on user input" — that\'s precisely the heap\'s role.',
+    },
+  ]}
+/>
+
+---
+
+## Object Layout: Alignment and Padding
+
+A `struct`/`class` **declaration** allocates no memory by itself — it's a blueprint. Storage only appears when you *define* an instance, whether as an automatic (stack) variable, a global/static, or something allocated on the heap.
+
+Every data type has a **natural alignment**: its address must be a multiple of its size (typically) for the CPU to read/write it efficiently — some CPUs (notoriously the PlayStation 2) refuse unaligned accesses outright, or silently return garbage. A misaligned 4-byte read forces the memory controller to fetch two overlapping 4-byte blocks and stitch the result together with shifts and masks — slower, when it's even allowed at all.
+
+Because of this, the compiler inserts **padding** between struct members so each one lands on its required boundary:
+
+```cpp
+struct InefficientPacking
+{
+    U32   mU1; // 4-byte aligned, offset 0
+    F32   mF2; // 4-byte aligned, offset 4
+    U8    mB3; // 1-byte aligned, offset 8
+    I32   mI4; // 4-byte aligned — needs offset 12, so 3 bytes of padding go after mB3
+    bool  mB5; // 1-byte aligned, offset 16
+    char* mP6; // 4/8-byte aligned — more padding goes after mB5
+};
+```
+
+Grouping same-size (or naturally-aligned) members together — largest first — eliminates most of that waste:
+
+```cpp
+struct BestPacking
+{
+    U32   mU1;      // 4-byte aligned
+    F32   mF2;      // 4-byte aligned
+    I32   mI4;      // 4-byte aligned
+    char* mP6;      // 4/8-byte aligned
+    U8    mB3;      // 1-byte aligned
+    bool  mB5;      // 1-byte aligned
+    U8    _pad[2];  // explicit — makes the trailing padding visible
+};
+```
+
+A struct's own alignment equals the *largest* alignment among its members — here, 4 bytes — and the compiler pads the struct's total size up to a multiple of that, so that every element of an array of these structs stays aligned, not just the first one.
+
+:::tip Activity: count the padding
+Given `struct Mixed { bool a; U32 b; U16 c; F32 d; };` (assume `bool`=1 byte, no explicit packing pragma), work out the byte offset of each member and the struct's total size. (Answer: `a`@0, 3 bytes padding, `b`@4, `c`@8, 2 bytes padding, `d`@12 — total 16 bytes.)
+:::
+
+<CodeExercise
+  title="Minimize struct padding"
+  heading="exercise-minimize-padding"
+  lang="cpp"
+  filename="main.cpp"
+  prompt="Reorder Particle's six members (don't add, remove, resize, or rename any) so that sizeof(Particle) is as small as possible."
+  sampleLog={`(no input)
+16`}
+  starter={`#include <cstdio>
+
+struct Particle {
+    // TODO: reorder these six members (don't add, remove, resize,
+    // or rename any) so that sizeof(Particle) is as small as possible.
+    bool active;
+    float x;
+    unsigned char flags;
+    float y;
+    bool dead;
+    float z;
+};
+
+int main() {
+    printf("%zu\\n", sizeof(Particle));
+    return 0;
+}
+`}
+  hint="Group same-alignment members together, largest alignment first: the three 4-byte floats, then the three 1-byte fields."
+  solution={`#include <cstdio>
+
+struct Particle {
+    float x;
+    float y;
+    float z;
+    bool active;
+    unsigned char flags;
+    bool dead;
+};
+
+int main() {
+    printf("%zu\\n", sizeof(Particle));
+    return 0;
+}
+`}
+  sourceChecks={[
+    { name: 'keeps all six original members', pattern: '(?=[\\s\\S]*active)(?=[\\s\\S]*dead)(?=[\\s\\S]*flags)(?=[\\s\\S]*x)(?=[\\s\\S]*y)(?=[\\s\\S]*z)', must: true, hint: 'reorder the existing members, don\'t remove or rename any of active, dead, flags, x, y, z' },
+  ]}
+  tests={[
+    { name: 'minimal size (12 bytes of float + 3 bytes of 1-byte fields, padded to a multiple of 4)', stdin: '', equals: '16' },
+  ]}
+/>
+
+### Class-Static Members
+
+A `static` member inside a class/struct doesn't belong to any one instance — it acts like a global scoped to the class's namespace. Just like a regular `extern` global, declaring it inside the class allocates **no** memory; a `.cpp` file must provide the actual definition:
+
+```cpp
+// foo.h
+class Foo { public: static F32 sClassStatic; };  // no memory allocated
+
+// foo.cpp
+F32 Foo::sClassStatic = -1.0f;   // this line defines and initializes it
+```
+
+### Inheritance and Virtual Function Tables
+
+When class `B` inherits from class `A`, `B`'s members are simply appended in memory after `A`'s (with alignment padding as needed) — a derived class is, physically, its base class's layout plus some more bytes tacked on the end.
+
+If a class declares or inherits any `virtual` function, the compiler adds a hidden **vpointer** (4 bytes on 32-bit targets, 8 on 64-bit) — typically at the very front of the object — pointing to that class's **virtual function table (vtable)**: an array of function pointers, one per virtual function, filled in with whichever override applies to that concrete class.
+
+This is the entire mechanism behind runtime polymorphism. Given a base-class pointer, the CPU doesn't need to know the concrete type at all — it just follows the vpointer to the vtable and calls whatever's sitting in the `Draw()` slot:
+
+```cpp
+class Shape {
+public:
+    virtual void SetId(int id) { m_id = id; }
+    virtual void Draw() = 0;          // pure virtual — no default body
+private:
+    int m_id;
+};
+
+class Circle : public Shape {
+public:
+    virtual void Draw() override { /* draw a circle */ }
+private:
+    Vector3 m_center;
+    float   m_radius;
+};
+
+class Triangle : public Shape {
+public:
+    virtual void Draw() override { /* draw a triangle */ }
+    virtual void SetId(int id) override { Shape::SetId(id); /* + extra work */ }
+private:
+    Vector3 m_vtx[3];
+};
+
+Shape* pShape1 = new Circle;
+Shape* pShape2 = new Triangle;
+pShape1->Draw();   // vtable lookup resolves to Circle::Draw()
+pShape2->Draw();   // vtable lookup resolves to Triangle::Draw()
+```
+
+`pShape1->Draw()` never needs to know it's holding a `Circle` — it dereferences the vpointer, indexes into the vtable at `Draw()`'s slot, and jumps there. Each concrete class gets exactly one vtable (shared by all its instances); each *instance* carries its own vpointer to that shared table. Multiple inheritance complicates this picture significantly (a derived object can end up with more than one base-class sub-object and more than one vpointer) — game codebases generally avoid multiple inheritance specifically to sidestep that complexity.
+
+### Check: alignment, padding, and virtual function tables
+
+<MultipleChoice
+  id="ge-ch3-alignment-vtables"
+  title="Struct alignment, padding, and vtables"
+  questions={[
+    {
+      prompt: 'What determines a struct\'s own overall alignment requirement?',
+      choices: [
+        'It is always exactly 1 byte, regardless of its members',
+        'It equals the largest alignment requirement among all of its members — the compiler then pads the struct\'s total size up to a multiple of that alignment',
+        'It is always exactly 16 bytes on every platform',
+        'It equals the sum of every member\'s individual alignment requirement',
+      ],
+      answer: 1,
+      why: 'This is exactly why BestPacking ends up padded to a multiple of 4 (its largest member alignment) even after the members were reordered to minimize waste.',
+    },
+    {
+      prompt: 'Why does a class with even a single virtual function carry extra hidden bytes that a plain struct with the same data members would not?',
+      choices: [
+        'Virtual functions are stored inline inside every instance',
+        'The compiler adds a hidden vpointer (4 or 8 bytes) to the object, pointing to that class\'s shared virtual function table (vtable) — the mechanism that lets a call through a base-class pointer resolve to the correct override',
+        'Virtual functions require the object to be exactly twice its normal size',
+        'This only happens if the class has more than ten virtual functions',
+      ],
+      answer: 1,
+      why: 'The vpointer is the one piece of hidden per-instance state polymorphism actually costs — everything else (the vtable itself) is shared once per class, not duplicated per instance.',
+    },
+    {
+      prompt: 'Given `Shape* pShape = new Circle;` followed by `pShape->Draw();`, how does the program know to call Circle::Draw() specifically, rather than some other override?',
+      choices: [
+        'The compiler embeds a giant if/else chain checking every possible derived type at every call site',
+        'At runtime, the call follows the instance\'s vpointer to Circle\'s vtable and invokes whatever function pointer is stored in the Draw() slot — no knowledge of the concrete type is needed at the call site itself',
+        'It is resolved entirely at compile time, before the program ever runs',
+        'Shape::Draw() always runs, since pShape is declared as a Shape*',
+      ],
+      answer: 1,
+      why: 'This vpointer-to-vtable indirection is the entire mechanism behind runtime polymorphism — one extra pointer dereference per virtual call.',
+    },
+  ]}
+/>
+
+---
+
+:::important Key takeaways
+- Two's complement is why `0xFFFFFFFF` means `−1`, not 4 billion-something.
+- IEEE-754 floats trade magnitude for precision — the same 23 mantissa bits mean something very different near `0` than near `FLT_MAX`. Never compare floats with `==` without accounting for this.
+- Don't assume a `struct`'s size is the sum of its members — alignment padding is real and reorderable member order can shrink it for free.
+- A pointer to a local variable is only valid until that function returns — the stack frame it lived in may be immediately overwritten.
+- `static` means three unrelated things depending on scope: internal linkage (file scope), a persistent-but-locally-named variable (function scope), or a per-class shared variable (class scope).
+- Every class with a virtual function carries a hidden vpointer — polymorphism isn't magic, it's an array of function pointers and one extra level of indirection.
+:::
+
+## Further Reading
+
+- Jason Gregory — *Game Engine Architecture*, 3rd ed. (CRC Press, 2018), Chapter 3
+- [cppreference: Fixed width integer types](https://en.cppreference.com/w/cpp/types/integer) — the full `<cstdint>` type list
+- [Wikipedia: Dynamic memory allocation](https://en.wikipedia.org/wiki/Dynamic_memory_allocation)
+- [Wikipedia: Significant figures](https://en.wikipedia.org/wiki/Significant_digits) — the general concept behind the float magnitude/precision trade-off

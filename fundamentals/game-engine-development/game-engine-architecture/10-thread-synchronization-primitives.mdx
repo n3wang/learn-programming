@@ -1,0 +1,486 @@
+---
+sidebar_position: 10
+title: Thread Synchronization Primitives
+---
+
+# Thread Synchronization Primitives
+
+> **Adapted from:** Jason Gregory, *Game Engine Architecture*, 3rd ed. (CRC Press, 2018), Chapter 4, Section 4.6 — rewritten and condensed for teaching.
+
+[Introduction to Concurrent Programming](./introduction-to-concurrent-programming) established that eliminating data races means making critical operations **atomic**, and that a **mutex** is the standard tool for doing so. Every OS that supports concurrency ships a toolkit of **thread synchronization primitives** that provide two services: making operations atomic, and letting threads coordinate by sleeping until woken. This lesson works through the standard primitives — mutexes, critical sections, condition variables, and semaphores — and what each one is actually *for*.
+
+:::note These tools aren't free
+Every primitive covered here is ultimately backed by the kernel, so using one typically means a kernel call — a context switch into protected mode that can cost on the order of 1,000 clock cycles. That cost is exactly why some programmers reach for hand-rolled atomics or lock-free techniques instead once profiling says it matters — but a solid grasp of these primitives is the prerequisite for knowing when that trade-off is worth making.
+:::
+
+---
+
+## Mutexes
+
+A **mutex** ("mutual exclusion") is an OS object with exactly two states — **unlocked** and **locked** (also called *released*/*acquired*, or *signaled*/*nonsignaled*). Its defining guarantee: only one thread can hold the lock at any instant. Wrap every critical operation on a shared object in the same mutex's lock/unlock, and those operations become mutually exclusive — atomic with respect to each other.
+
+A typical mutex API looks like this:
+
+| Function | Purpose |
+|---|---|
+| `create()` / `init()` | Create the mutex |
+| `destroy()` | Destroy the mutex |
+| `lock()` / `acquire()` | **Blocking.** Locks the mutex; puts the calling thread to sleep if another thread already holds it |
+| `try_lock()` / `try_acquire()` | **Non-blocking.** Attempts to lock; returns immediately either way |
+| `unlock()` / `release()` | Releases the lock — usually, only the thread that locked it may unlock it |
+
+When a mutex is released, if any threads are asleep waiting on it, the kernel wakes exactly one of them up. Here's the same atomic-increment example implemented three ways:
+
+```cpp
+// POSIX threads
+#include <pthread.h>
+int g_count = 0;
+pthread_mutex_t g_mutex;
+
+inline void IncrementCount() {
+    pthread_mutex_lock(&g_mutex);
+    ++g_count;
+    pthread_mutex_unlock(&g_mutex);
+}
+```
+
+```cpp
+// C++11 standard library — std::mutex wraps the same kernel object,
+// but its constructor/destructor handle init/destroy for you.
+#include <mutex>
+int g_count = 0;
+std::mutex g_mutex;
+
+inline void IncrementCount() {
+    g_mutex.lock();
+    ++g_count;
+    g_mutex.unlock();
+}
+```
+
+```cpp
+// Windows — a mutex is an opaque kernel object referenced by a HANDLE.
+// "Locking" means waiting for it to become signaled.
+#include <windows.h>
+int g_count = 0;
+HANDLE g_hMutex;
+
+inline void IncrementCount() {
+    if (WaitForSingleObject(g_hMutex, INFINITE) == WAIT_OBJECT_0) {
+        ++g_count;
+        ReleaseMutex(g_hMutex);
+    }
+}
+```
+
+(All three omit the surrounding `init()`/`destroy()` calls a real program would need around thread creation/teardown, for clarity.)
+
+:::tip Prefer std::mutex with RAII in real code
+`g_mutex.lock(); ... g_mutex.unlock();` has the same problem every manual resource pair does: an early `return` or a thrown exception between them skips the `unlock()` and leaves the mutex held forever. Idiomatic C++ wraps the lock in an RAII guard instead — `std::lock_guard<std::mutex> lk(g_mutex);` — so the unlock happens automatically when `lk` goes out of scope, on every exit path. (See [RAII in Fundamentals of Software Engineering for Games](./fundamentals-of-software-engineering#practice-build-a-janitor) for the general pattern this is built on.)
+:::
+
+## Critical Sections: A Cheaper Mutex
+
+A real mutex can be shared *across processes*, which means the kernel has to manage it — every lock/unlock is a kernel call, and that cost is paid even when no other thread is contending for the lock at all.
+
+Windows offers a cheaper alternative for the common case of locking *within* one process: the **critical section**. Functionally it's just a low-cost mutex, with its own API naming:
+
+| Function | Purpose |
+|---|---|
+| `InitializeCriticalSection()` | Construct |
+| `DeleteCriticalSection()` | Destroy |
+| `EnterCriticalSection()` | Blocking lock (busy-waits briefly, then sleeps if held too long) |
+| `TryEnterCriticalSection()` | Non-blocking lock attempt |
+| `LeaveCriticalSection()` | Unlock |
+
+```cpp
+#include <windows.h>
+int g_count = 0;
+CRITICAL_SECTION g_critsec;
+
+inline void IncrementCount() {
+    EnterCriticalSection(&g_critsec);
+    ++g_count;
+    LeaveCriticalSection(&g_critsec);
+}
+```
+
+The trick behind the lower cost: when a thread first hits a locked critical section, it **spin-locks** — busy-waits in a tight loop, no kernel call involved — for a short while, hoping the other thread releases it quickly. Only if the wait drags on does the thread actually go to sleep the expensive way, as it would with a full mutex. This works precisely *because* a critical section can't cross a process boundary, unlike a real mutex. Linux has a broadly similar concept called a **futex** ("fast userspace mutex") for the same reason.
+
+### Check: mutexes and critical sections
+
+<MultipleChoice
+  id="ge-ch4-sync-mutex"
+  title="Mutexes and critical sections"
+  questions={[
+    {
+      prompt: 'What is the defining guarantee a mutex provides?',
+      choices: [
+        'It guarantees a function will execute in constant time',
+        'Only one thread can hold a lock on the mutex at any given instant, making operations wrapped in it mutually exclusive',
+        'It guarantees a thread will never be put to sleep',
+        'It automatically parallelizes any code it wraps',
+      ],
+      answer: 1,
+      why: 'Mutual exclusion — exactly one lock holder at a time — is the entire point of a mutex and the source of its name.',
+    },
+    {
+      prompt: 'Why is a Windows critical section typically cheaper to use than a full kernel mutex, when contention is low?',
+      choices: [
+        'It skips synchronization entirely, so it is unsafe',
+        'It first busy-waits with a spin lock (no kernel call, no context switch) for a short time before falling back to a real sleep, and this trade-off is only possible because it cannot be shared across process boundaries the way a real mutex can',
+        'It runs on a completely separate CPU core reserved for locking',
+        'It uses less memory than a mutex, which is unrelated to its speed',
+      ],
+      answer: 1,
+      why: 'Spin-waiting avoids the ~1000-cycle kernel call cost for short waits; restricting the primitive to within-process use is what makes that lighter-weight approach safe.',
+    },
+    {
+      prompt: 'What is the risk of using bare lock()/unlock() calls instead of an RAII guard like std::lock_guard?',
+      choices: [
+        'There is no risk, they are functionally identical in every case',
+        'An early return or an exception thrown between lock() and unlock() will skip the unlock() call, leaving the mutex locked forever and likely deadlocking other threads',
+        'Bare lock()/unlock() calls are slower than RAII guards',
+        'RAII guards cannot be used with std::mutex',
+      ],
+      answer: 1,
+      why: 'Manual lock/unlock pairs are vulnerable to any early exit path skipping the unlock; RAII ties the unlock to scope exit, covering every path automatically.',
+    },
+  ]}
+/>
+
+---
+
+## Condition Variables
+
+Consider the classic **producer-consumer** problem: a producer thread generates data, a consumer thread reads and uses it, and the consumer obviously can't consume before the producer has produced. The naive fix — a shared `bool g_ready` flag that the consumer polls in a loop — technically works, but wastes CPU cycles **busy-waiting**, spinning the consumer thread in a tight loop just to repeatedly check a flag:
+
+```cpp
+// Naive polling approach — wastes CPU spinning on g_ready.
+while (true) {
+    pthread_mutex_lock(&g_mutex);
+    const bool ready = g_ready;
+    pthread_mutex_unlock(&g_mutex);
+    if (ready) break;
+}
+```
+
+A **condition variable (CV)** solves this properly. Despite the name, it isn't a variable holding a condition — it's really a queue of sleeping threads, plus a mechanism letting a running thread wake some of them up on demand. Its API:
+
+| Function | Purpose |
+|---|---|
+| `create()` / `init()` | Create the CV |
+| `destroy()` | Destroy the CV |
+| `wait()` | **Blocking.** Puts the calling thread to sleep on this CV |
+| `notify()` / `signal()` | **Non-blocking.** Wakes a thread currently asleep on this CV |
+
+```cpp
+Queue           g_queue;
+pthread_mutex_t g_mutex;
+bool            g_ready = false;
+pthread_cond_t  g_cv;
+
+void* ProducerThreadCV(void*) {
+    while (true) {
+        pthread_mutex_lock(&g_mutex);
+        ProduceDataInto(&g_queue);
+        g_ready = true;
+        pthread_cond_signal(&g_cv);   // wake the consumer
+        pthread_mutex_unlock(&g_mutex);
+    }
+    return nullptr;
+}
+
+void* ConsumerThreadCV(void*) {
+    while (true) {
+        pthread_mutex_lock(&g_mutex);
+        while (!g_ready) {
+            // sleep; the kernel releases g_mutex while we're asleep
+            // and re-acquires it for us automatically before we wake
+            pthread_cond_wait(&g_cv, &g_mutex);
+        }
+        ConsumeDataFrom(&g_queue);
+        g_ready = false;
+        pthread_mutex_unlock(&g_mutex);
+    }
+    return nullptr;
+}
+```
+
+Two details are easy to miss but matter a lot:
+
+1. **The consumer appears to sleep while holding a lock**, which would normally be a fast route to deadlock — but the kernel quietly unlocks `g_mutex` the instant the thread is safely asleep, and re-locks it on the thread's behalf right before `pthread_cond_wait()` returns. This dance is exactly what makes condition variables safe to use this way.
+2. **The `while (!g_ready)` loop is still necessary even though we're using a CV to wait for exactly that condition**, because a thread can occasionally wake from `pthread_cond_wait()` **spuriously** — without anyone actually calling `signal()`. The loop re-checks the real condition every time control returns, rather than trusting that a wake-up means the condition is actually true.
+
+### Check: condition variables
+
+<MultipleChoice
+  id="ge-ch4-sync-condvar"
+  title="Condition variables and busy-waiting"
+  questions={[
+    {
+      prompt: 'What specific problem does a condition variable solve, compared to a consumer thread that repeatedly polls a shared boolean flag in a loop?',
+      choices: [
+        'It makes the flag update faster',
+        'It lets the waiting thread go to sleep entirely (consuming no CPU) until explicitly woken, instead of wasting cycles busy-spinning while repeatedly re-checking the flag',
+        'It eliminates the need for a mutex entirely',
+        'It guarantees the producer will always run before the consumer',
+      ],
+      answer: 1,
+      why: 'Polling in a loop wastes CPU; a condition variable lets the OS put the thread to sleep and wake it only when signaled, at essentially zero cost while waiting.',
+    },
+    {
+      prompt: 'Why doesn\'t a thread waiting on a condition variable deadlock, even though it appears to go to sleep while still holding the associated mutex?',
+      choices: [
+        'It does deadlock; this is a known limitation programmers must work around manually',
+        'The kernel automatically releases the mutex once the thread is safely asleep, and re-acquires it on the thread\'s behalf right before the wait call returns',
+        'Condition variables do not actually use a mutex at all',
+        'The mutex is destroyed and recreated automatically',
+      ],
+      answer: 1,
+      why: 'This unlock-while-asleep, relock-on-wake behavior is a core guarantee of the condition-variable wait operation, specifically to prevent deadlock.',
+    },
+    {
+      prompt: 'Why must the consumer recheck its condition in a while loop, rather than assuming the condition is true immediately after pthread_cond_wait() returns?',
+      choices: [
+        'Because pthread_cond_wait() always returns immediately without actually waiting',
+        'Because a thread can wake up spuriously (with no corresponding signal() call), so the real condition must be re-verified every time control returns from the wait',
+        'Because condition variables can only be used once',
+        'Because the mutex might have been destroyed while the thread was asleep',
+      ],
+      answer: 1,
+      why: 'Spurious wakeups are a documented possibility for condition variables, which is exactly why the wait must be wrapped in a loop that re-checks the actual condition rather than a single if.',
+    },
+  ]}
+/>
+
+---
+
+## Semaphores
+
+Where a mutex behaves like an atomic boolean flag, a **semaphore** behaves like an atomic *counter* that's never allowed to go negative — effectively a mutex generalized to let up to N threads hold it simultaneously. That makes it a natural fit for guarding access to a fixed-size pool of resources: say a rendering system with exactly four offscreen buffers available for HUD/menu drawing — a semaphore initialized to `4` ensures no more than four threads ever use the pool at once.
+
+| Function | Purpose |
+|---|---|
+| `init(n)` | Create the semaphore with initial count `n` |
+| `destroy()` | Destroy the semaphore |
+| `take()` / `wait()` | If count > 0, decrement and return immediately; if count == 0, sleep until it rises above zero |
+| `give()` / `post()` / `signal()` | Increment the count by one, waking a sleeping waiter if there is one |
+
+A semaphore is **signaled** when its count is above zero, **nonsignaled** at zero — which is exactly why some APIs name the take/give operations `wait()`/`signal()`.
+
+### Mutex vs. Binary Semaphore
+
+A semaphore initialized to `1` — a **binary semaphore** — looks superficially identical to a mutex: both let exactly one thread through at a time. But there's a crucial behavioral difference: **a mutex can only be unlocked by the thread that locked it**; a semaphore's count has no such ownership rule — one thread can `take()` it and a completely different thread can `give()` it back. That single distinction drives very different use cases: a mutex makes an operation *atomic*; a binary semaphore *signals* between threads.
+
+That signaling role makes semaphores a clean fit for producer-consumer, using two semaphores to track "used" and "free" slots in a single-item buffer:
+
+```cpp
+Queue g_queue;
+sem_t g_semUsed;  // initialized to 0
+sem_t g_semFree;  // initialized to 1
+
+void* ProducerThreadSem(void*) {
+    while (true) {
+        Item item = ProduceItem();       // local work, no locking needed
+        sem_wait(&g_semFree);            // wait until there's room
+        AddItemToQueue(&g_queue, item);
+        sem_post(&g_semUsed);            // tell the consumer data is ready
+    }
+    return nullptr;
+}
+
+void* ConsumerThreadSem(void*) {
+    while (true) {
+        sem_wait(&g_semUsed);            // wait for data to be ready
+        Item item = RemoveItemFromQueue(&g_queue);
+        sem_post(&g_semFree);            // tell the producer there's room again
+        ConsumeItem(item);               // local work, no locking needed
+    }
+    return nullptr;
+}
+```
+
+### A Semaphore Is Really Built From a Mutex + a CV
+
+Semaphores are a genuinely higher-level construct than mutexes or condition variables — in fact, you can build one entirely out of the other two, plus a plain integer:
+
+```cpp
+class Semaphore {
+private:
+    int             m_count;
+    pthread_mutex_t m_mutex;
+    pthread_cond_t  m_cv;
+public:
+    explicit Semaphore(int initialCount) : m_count(initialCount) {
+        pthread_mutex_init(&m_mutex, nullptr);
+        pthread_cond_init(&m_cv, nullptr);
+    }
+
+    void Take() {
+        pthread_mutex_lock(&m_mutex);
+        while (m_count == 0) {
+            pthread_cond_wait(&m_cv, &m_mutex);   // sleep until count > 0
+        }
+        --m_count;
+        pthread_mutex_unlock(&m_mutex);
+    }
+
+    void Give() {
+        pthread_mutex_lock(&m_mutex);
+        ++m_count;
+        if (m_count == 1) {
+            pthread_cond_signal(&m_cv);           // wake one waiter, if any
+        }
+        pthread_mutex_unlock(&m_mutex);
+    }
+};
+```
+
+Seeing the implementation makes the mutex/CV relationship concrete: `Take()` is just "wait (via a CV) until the shared counter (guarded by a mutex) is nonzero, then decrement it," and `Give()` is "increment the counter, and wake someone up if they might have been waiting."
+
+### Windows Events
+
+Windows offers one more option: an **event** object, similar in spirit to a condition variable but noticeably simpler to use directly — a thread sleeps via `WaitForSingleObject()` and another thread wakes it with `SetEvent()`, no explicit associated mutex required at the API level. Rewriting the producer-consumer example with two events (`g_hFree` initially signaled, `g_hUsed` initially not) produces code that reads almost identically to the semaphore version above, just swapping `sem_wait`/`sem_post` for `WaitForSingleObject`/`SetEvent`.
+
+### Check: semaphores
+
+<MultipleChoice
+  id="ge-ch4-sync-semaphore"
+  title="Semaphores vs. mutexes"
+  questions={[
+    {
+      prompt: 'What is the key behavioral difference between a binary semaphore and a mutex, even though both only allow one "holder" at a time?',
+      choices: [
+        'There is no real difference, they are fully interchangeable in every situation',
+        'A mutex can only be unlocked by the same thread that locked it, while a semaphore\'s count can be decremented (taken) by one thread and incremented (given) by a completely different thread',
+        'Semaphores cannot be initialized to a count of 1',
+        'Mutexes are always faster than binary semaphores on every platform',
+      ],
+      answer: 1,
+      why: 'The lack of an "ownership" rule on a semaphore\'s count is exactly what makes it usable for cross-thread signaling, which a mutex\'s lock-owner restriction does not allow.',
+    },
+    {
+      prompt: 'In the two-semaphore producer-consumer example, what does g_semFree represent?',
+      choices: [
+        'The number of threads currently running',
+        'The number of empty slots currently available in the shared buffer for the producer to fill',
+        'The number of items the consumer has already consumed',
+        'A count of memory allocation failures',
+      ],
+      answer: 1,
+      why: 'g_semFree tracks available buffer capacity; the producer waits on it before adding an item and the consumer signals it after removing one, freeing a slot.',
+    },
+    {
+      prompt: 'The hand-rolled Semaphore class implements Take() and Give() using a mutex and a condition variable. What does this reveal about the relationship between these three primitives?',
+      choices: [
+        'They are unrelated, independent primitives with no connection to each other',
+        'A semaphore is a higher-level construct that can be built entirely from a mutex (protecting a counter) and a condition variable (for sleeping/waking waiters) — it is not a fundamentally different kind of primitive',
+        'Mutexes are actually implemented using semaphores internally on every platform',
+        'Condition variables cannot be used without a semaphore',
+      ],
+      answer: 1,
+      why: 'The implementation directly demonstrates that a semaphore\'s behavior — a guarded counter with sleep/wake — is expressible in terms of the two lower-level primitives.',
+    },
+  ]}
+/>
+
+---
+
+## Practice: build a spinlock from `std::atomic`
+
+The sandbox here can't spin up real OS threads to demonstrate contention live — but you can still build and functionally verify a real, minimal **spinlock** (the same style of low-cost lock underlying Windows critical sections and Linux futexes), using `std::atomic<bool>` and a compare-and-swap loop. Implement `TryLock()` so it atomically checks whether the lock is free and claims it in one indivisible step, and `Unlock()` so it releases the lock.
+
+<CodeExercise
+  title="A minimal atomic spinlock"
+  heading="exercise-spinlock"
+  lang="cpp"
+  filename="main.cpp"
+  prompt="Implement TryLock() using compare_exchange_strong so it atomically claims the lock only if it was free, and Unlock() so it releases the lock."
+  sampleLog={`(no input)
+first tryLock: 1
+second tryLock (while held): 0
+tryLock after unlock: 1`}
+  starter={`#include <iostream>
+#include <atomic>
+using namespace std;
+
+class SpinLock {
+public:
+    bool TryLock() {
+        // TODO: atomically check-and-set m_locked from false to true.
+        // Return true only if THIS call was the one that claimed the lock.
+        return false;
+    }
+    void Unlock() {
+        // TODO: release the lock.
+    }
+private:
+    atomic<bool> m_locked{false};
+};
+
+int main() {
+    SpinLock lock;
+    cout << "first tryLock: " << lock.TryLock() << "\\n";
+    cout << "second tryLock (while held): " << lock.TryLock() << "\\n";
+    lock.Unlock();
+    cout << "tryLock after unlock: " << lock.TryLock() << "\\n";
+    return 0;
+}
+`}
+  hint="bool TryLock() { bool expected = false; return m_locked.compare_exchange_strong(expected, true); } void Unlock() { m_locked.store(false); }"
+  solution={`#include <iostream>
+#include <atomic>
+using namespace std;
+
+class SpinLock {
+public:
+    bool TryLock() {
+        bool expected = false;
+        return m_locked.compare_exchange_strong(expected, true);
+    }
+    void Unlock() {
+        m_locked.store(false);
+    }
+private:
+    atomic<bool> m_locked{false};
+};
+
+int main() {
+    SpinLock lock;
+    cout << "first tryLock: " << lock.TryLock() << "\\n";
+    cout << "second tryLock (while held): " << lock.TryLock() << "\\n";
+    lock.Unlock();
+    cout << "tryLock after unlock: " << lock.TryLock() << "\\n";
+    return 0;
+}
+`}
+  sourceChecks={[
+    { name: 'uses compare_exchange', pattern: 'compare_exchange', must: true, hint: 'use compare_exchange_strong (or _weak) to atomically test-and-set the lock' },
+  ]}
+  tests={[
+    { name: 'lock/contend/unlock/relock sequence', stdin: '', equals: 'first tryLock: 1\nsecond tryLock (while held): 0\ntryLock after unlock: 1' },
+  ]}
+/>
+
+:::note Why this matters even without real threads
+`compare_exchange_strong` is a genuine **atomic** hardware instruction (compare-and-swap) — the same primitive real mutex and spin lock implementations are built on. The exercise above is single-threaded, but the object you built would behave identically if two real threads called `TryLock()` at the same instant: the hardware guarantees exactly one of them observes `expected == false` and wins.
+:::
+
+---
+
+:::important Key takeaways
+- A **mutex** guarantees exclusive, one-at-a-time access and can only be unlocked by whoever locked it — use it to make an operation **atomic**. Prefer RAII wrappers (`std::lock_guard`) over bare lock/unlock in real code.
+- A Windows **critical section** (or Linux **futex**) is a cheaper, process-local mutex that spin-waits briefly before falling back to a real kernel sleep.
+- A **condition variable** lets a thread sleep until explicitly woken, instead of busy-waiting on a flag — but always re-check the real condition in a loop, because spurious wakeups are real.
+- A **semaphore** is an atomic counter (never negative) that generalizes a mutex to N simultaneous holders, and — unlike a mutex — can be given by a different thread than the one that took it, making it a natural signaling tool. It can be built entirely from a mutex + a condition variable.
+- Every one of these primitives is a kernel-backed tool with real cost; a hand-rolled spinlock built on `std::atomic` compare-and-swap shows the same idea implemented directly on a hardware atomic instruction.
+:::
+
+## Further Reading
+
+- Jason Gregory — *Game Engine Architecture*, 3rd ed. (CRC Press, 2018), Chapter 4, Section 4.6
+- [Introduction to Concurrent Programming](./introduction-to-concurrent-programming) — this series' previous lesson: race conditions and atomicity
+- [Problems with Lock-Based Concurrency](./problems-with-lock-based-concurrency) — this series' next lesson: deadlock, livelock, starvation, and priority inversion
+- Ulrich Drepper — ["Futexes Are Tricky"](https://www.akkadia.org/drepper/futex.pdf)
+- [cppreference: std::atomic](https://en.cppreference.com/w/cpp/atomic/atomic) and [std::condition_variable](https://en.cppreference.com/w/cpp/thread/condition_variable)

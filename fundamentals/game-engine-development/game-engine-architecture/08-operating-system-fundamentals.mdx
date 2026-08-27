@@ -1,0 +1,558 @@
+---
+sidebar_position: 8
+title: Operating System Fundamentals
+---
+
+# Operating System Fundamentals
+
+> **Adapted from:** Jason Gregory, *Game Engine Architecture*, 3rd ed. (CRC Press, 2018), Chapter 4, Section 4.4 — rewritten and condensed for teaching.
+
+[Explicit Parallelism](./explicit-parallelism) covered the *hardware* that can run multiple instruction streams at once — hyperthreading, multicore, SMP/AMP. None of that hardware schedules itself. It's the **operating system** that decides which instruction stream runs on which core, when, and for how long, and that provides the abstractions — processes, threads, virtual memory — that make concurrent programming possible in the first place. This lesson works through those OS mechanisms from the ground up: the privileged kernel underneath everything, how it gets invoked, how it multitasks, and the process/thread/fiber abstractions engine programmers build on top of it every day.
+
+---
+
+## The Kernel
+
+An operating system handles tasks at every granularity, from a single keypress to managing a whole network stack. The **kernel** is the core of it — the part that handles the most fundamental, lowest-level operations. Everything else, including the rest of the OS and every user program, is built on top of the services the kernel provides.
+
+### Kernel Mode vs. User Mode
+
+The kernel and its device drivers run in a special **privileged mode** (also called protected mode or kernel mode), which has full access to all of the machine's hardware. Every other program — including OS components that aren't part of the kernel itself — runs in **user mode**, which is deliberately restricted. A user-mode program can only reach low-level services by making a **kernel call**, a formal request for the kernel to perform an operation on its behalf. This is what stops a program from inadvertently (or maliciously) destabilizing the whole system.
+
+In practice, many CPUs implement this as a set of **protection rings** rather than a flat two-mode split:
+
+| Ring | Typical occupant |
+|---|---|
+| Ring 0 | Kernel (most trusted, full privileges) |
+| Ring 1 | Device drivers |
+| Ring 2 | Trusted programs with I/O permissions |
+| Ring 3 | Ordinary, untrusted user programs |
+
+The exact number of rings and what runs in each varies by CPU and OS — this table shows one common four-ring layout, not a universal rule.
+
+### Kernel Mode Privileges
+
+Ring 0 software has access to the CPU's full instruction set, including **privileged instructions** — ones that can modify otherwise off-limits registers (virtual memory mapping, interrupt masking) or access otherwise-restricted memory. Examples on x86 include `wrmsr` (write to a model-specific register) and `cli` (clear/mask interrupts). Restricting these to trusted software is precisely what makes the rest of the security model work: the kernel locks certain virtual memory pages so user code can't write to them, keeping the kernel's own code and bookkeeping data safe from a misbehaving (or malicious) process.
+
+### Check: kernel mode and privilege
+
+<MultipleChoice
+  id="ge-ch4-kernel-mode"
+  title="Kernel mode, user mode, and protection rings"
+  questions={[
+    {
+      prompt: 'Why can\'t a user-mode program directly execute a privileged instruction like x86\'s cli (clear interrupts)?',
+      choices: [
+        'Privileged instructions do not actually exist on real CPUs',
+        'Privileged instructions are restricted to code running in kernel/privileged mode (ring 0) specifically so untrusted user programs cannot destabilize or compromise the whole system',
+        'User-mode programs can execute any instruction, there is no restriction',
+        'Privileged instructions only work on 8-bit CPUs',
+      ],
+      answer: 1,
+      why: 'The whole point of splitting kernel mode from user mode is to gate powerful, system-wide operations behind trusted code only.',
+    },
+    {
+      prompt: 'How does a user-mode program request a privileged operation, such as mapping a virtual memory page?',
+      choices: [
+        'It executes the privileged instruction directly, the same as kernel code would',
+        'It makes a kernel call (system call), asking the kernel to perform the operation safely on its behalf',
+        'It is not possible for a user-mode program to ever trigger such an operation',
+        'It edits the kernel\'s memory pages directly',
+      ],
+      answer: 1,
+      why: 'Kernel calls are the sanctioned bridge between user mode and privileged operations — covered in more depth later in this lesson.',
+    },
+  ]}
+/>
+
+---
+
+## Interrupts
+
+An **interrupt** is a signal that notifies the CPU of some low-level event — a keypress, a signal from a peripheral, a timer expiring. When one occurs, an **interrupt request (IRQ)** is raised; if the OS wants to respond, it pauses whatever was executing and calls a dedicated **interrupt service routine (ISR)**, then returns control to wherever execution had been.
+
+- A **hardware interrupt** comes from an external signal — a nonzero voltage on one of the CPU's pins, from a device like a keyboard or a periodic timer circuit. Because it's externally triggered, it can happen at literally any point mid-instruction, so there's a small unavoidable delay before the CPU can actually service it.
+- A **software interrupt** is triggered by the running code itself, either explicitly (an "interrupt" machine instruction) or implicitly, when the CPU detects an erroneous condition — these implicit cases are also called **traps** or **exceptions** (not to be confused with language-level exception handling). A divide-by-zero is the classic example: it raises a software interrupt, which the OS normally handles by crashing the program and writing a core dump — though a debugger attached to the process can intercept it and break in for inspection instead.
+
+## Kernel Calls (System Calls)
+
+To perform a privileged operation — mapping memory pages, opening a raw network socket — a user program makes a **kernel call** (a.k.a. **system call**). On most systems this is implemented as a software interrupt: the caller places its arguments in memory or registers, then issues an interrupt instruction carrying an integer identifying which kernel operation is being requested. The CPU switches to privileged mode, saves the calling program's state, and jumps to the matching kernel ISR. If the kernel allows the request, it performs the operation in privileged mode, then restores the caller's state and returns control — a **context switch** into the kernel and back (more on context switching below).
+
+In practice you never write the raw interrupt instruction by hand. A kernel API function marshals the arguments and trips the interrupt for you, so a system call *looks* like an ordinary function call from the program's point of view even though a full privilege-mode round trip is happening underneath it.
+
+:::note Dig deeper
+This site's OSTEP-based [Limited Direct Execution](/fundamentals/computer-engineering/virtualization/limited-direct-execution) walks through this exact mechanism — traps, trap tables, and the "limited direct execution" protocol — in much more depth.
+:::
+
+### Check: interrupts and system calls
+
+<MultipleChoice
+  id="ge-ch4-interrupts-syscalls"
+  title="Hardware/software interrupts and kernel calls"
+  questions={[
+    {
+      prompt: 'What distinguishes a hardware interrupt from a software interrupt?',
+      choices: [
+        'Hardware interrupts only occur on old CPUs',
+        'A hardware interrupt is triggered by an external signal (a device, a timer) and can occur at any point mid-instruction; a software interrupt is triggered by the running code itself, either explicitly or via a detected error condition like divide-by-zero',
+        'Software interrupts require a physical wire on the motherboard',
+        'There is no real difference between them',
+      ],
+      answer: 1,
+      why: 'The trigger source is the defining distinction — external device/timer signal vs. code-triggered (explicit instruction or an implicit trap/exception).',
+    },
+    {
+      prompt: 'Why does a system call still "look like" an ordinary function call to the programmer, even though it involves a full privilege-mode switch?',
+      choices: [
+        'It does not — programmers must write raw interrupt instructions by hand for every system call',
+        'A kernel API function wraps the argument marshaling and the underlying software interrupt, hiding the mode switch behind a normal-looking function signature',
+        'System calls are actually never privileged operations',
+        'The CPU automatically detects system calls without any interrupt mechanism at all',
+      ],
+      answer: 1,
+      why: 'The wrapping API function is what makes the messy, error-prone manual approach (inline assembly, raw interrupt instructions) unnecessary in practice.',
+    },
+  ]}
+/>
+
+---
+
+## Preemptive Multitasking
+
+Early personal computers ran exactly one program at a time — the Apple II's whole screen belonged to whatever single program was running, because nothing else *could* run concurrently. As systems matured, **cooperative multitasking** let one program run while another was idle waiting on I/O, with each program periodically *yielding* the CPU voluntarily so others could get a turn — a technique also called time-slicing (formally: time-division multiplexing). It worked, with one serious flaw: a single misbehaving program that failed to yield could freeze out everything else in the system.
+
+**Preemptive multitasking** fixes this by moving scheduling control into the OS itself rather than relying on program cooperation. The OS responds to a regularly-timed hardware interrupt (a timer) to forcibly context-switch between programs at consistent intervals, regardless of whether any given program wants to yield. The time slice a program gets on the CPU is called its **quantum**.
+
+Preemptive multitasking is used even on multicore machines — the number of runnable threads is almost always larger than the number of physical cores, so the kernel still has to time-slice *within* each core across whatever threads are assigned to it. A hundred threads on a four-core machine still means each core is preemptively time-slicing across roughly twenty-five threads.
+
+:::note Dig deeper
+[Scheduling: Introduction](/fundamentals/computer-engineering/virtualization/scheduling-introduction) and [Multi-Level Feedback Queue](/fundamentals/computer-engineering/virtualization/mlfq) on this site cover the *policy* side of this in depth — which specific algorithm decides who runs next, not just the mechanism that makes preemption possible.
+:::
+
+## Processes
+
+A **process** is the OS's bookkeeping for one running instance of a program — it exists only while that instance is actually running, and is torn down the moment it exits, is killed, or crashes. Multiple processes, including multiple instances of the very same program, can coexist on one system.
+
+### Anatomy of a Process
+
+Under the hood, every process carries:
+
+- a **process ID (PID)**, unique within the OS;
+- **permissions** — the owning user and group;
+- a reference to its **parent process**, if any;
+- a **virtual memory space** — its private "view" of memory (detailed below);
+- its **environment variables**;
+- its **open file handles**;
+- its **current working directory**;
+- **IPC resources** for synchronizing/communicating with other processes — message queues, pipes, semaphores; and
+- **one or more threads**.
+
+A process defaults to a single thread, but — as covered in depth below — can spawn more, letting more than one instruction stream run inside the same process concurrently. It's worth being precise here: **threads**, not processes, are the fundamental unit of *execution* the kernel schedules. A process merely supplies the environment — memory map, resources — that its thread(s) run inside. Whenever a thread is scheduled onto a core, its parent process's resources become available to it for that stretch; a thread is never running "on its own," always within the context of exactly one process.
+
+### Virtual Memory Map of a Process
+
+Every process gets its own virtual page table — its own private view of memory (see [Memory Architectures](./memory-architectures#virtual-memory) for how the MMU and page table actually perform this translation). This is the core mechanism behind process isolation: one process's physical pages simply aren't mapped into another's address space unless they've deliberately opted into sharing, so neither can corrupt the other's memory. The kernel's own pages live in a special **kernel space** range, accessible only from privileged mode — a user process that tries to touch it directly takes a page fault and crashes.
+
+A process's memory map (its virtual page table, effectively) typically contains:
+
+- the **text, data, and BSS** sections read in from the executable file (see [Data, Code, and Memory Layout](./data-code-and-memory-layout#the-executable-image) for what these segments actually hold);
+- a view of any **shared libraries** it depends on;
+- a **call stack** per thread;
+- a **heap** for dynamic allocation;
+- possibly pages **shared** with other processes; and
+- the inaccessible **kernel space** range.
+
+**Text, data, and BSS.** When a program starts, the kernel creates the process, sets up its virtual address space, and reads the executable's text/data/BSS sections into freshly allocated virtual pages. Executable machine code is actually **relocatable** — its addresses are relative offsets, not absolute — and the kernel patches these into real (virtual) addresses before execution begins.
+
+**Call stack.** The kernel allocates and maps physical pages for the default thread's call stack, initializes its stack/base pointers to the (empty) bottom of that stack, and starts execution at the program's entry point (`main()`, or `WinMain()` on Windows).
+
+**Heap.** `malloc()`/`free()` in C, or `new`/`delete` in C++, draw from this region. Physical pages back it on demand as allocations occur, and get unmapped and returned once fully freed.
+
+**Shared libraries.** A library can be **statically linked** (its code copied directly into the executable) or loaded as a **shared library** — a DLL on Windows, or a PRX on the PS4 (the name is a historical holdover from the PS3, where it stood for "PPU Relocatable Executable"). The first process that needs a shared library triggers the OS to load it into physical memory and map a view into that process's address space, patching in the addresses of its functions/globals. Every *subsequent* process that needs the same library just gets the already-loaded pages mapped in — saving both memory and load time. The trade-off: updating a shared library can silently break compatibility for programs that depend on a specific version, a problem colloquially known (on Windows especially) as **"DLL hell."**
+
+**Kernel pages.** A process's address space typically splits into **user space** and **kernel space** — on 32-bit Windows, for example, the lower 2 GiB is user space and the upper 2 GiB is kernel space, shared via a *separate* page table common to every process, so all processes see a consistent view of kernel internals. User code triggers a fault if it tries to touch kernel space directly; a system call performs the necessary context switch into privileged mode first.
+
+:::note Address space layout randomization (ASLR)
+The exact addresses where each region lands aren't predictable, partly because segment sizes differ per program, but also deliberately: **ASLR** randomizes these addresses between runs of the same executable, as a security measure against attacks that rely on guessing where code or data will land in memory.
+:::
+
+:::note Dig deeper
+This site's OSTEP-based [The Process Abstraction](/fundamentals/computer-engineering/virtualization/the-process) and [Process API](/fundamentals/computer-engineering/virtualization/the-process-api) cover process creation, state, and the concrete `fork`/`exec`-style API in more depth.
+:::
+
+### Check: processes and virtual memory
+
+<MultipleChoice
+  id="ge-ch4-processes"
+  title="Process anatomy and the virtual memory map"
+  questions={[
+    {
+      prompt: 'Why is a thread, not a process, described as "the fundamental unit of execution" that the kernel schedules?',
+      choices: [
+        'Processes are scheduled directly and threads are just a naming convention with no real distinction',
+        'A process only provides the environment (memory map, resources) that its thread(s) run inside — it\'s the thread that actually gets scheduled onto a core and executes instructions',
+        'Threads cannot actually execute any code on their own',
+        'Every process always has exactly one thread, so the distinction is meaningless',
+      ],
+      answer: 1,
+      why: 'This is the key conceptual split: the process is a container/environment, the thread is the thing that actually runs.',
+    },
+    {
+      prompt: 'What is the main benefit of a shared library (DLL/PRX) over static linking, once more than one process uses it?',
+      choices: [
+        'Shared libraries always run faster than statically linked code',
+        'After the first process loads it, subsequent processes that need the same library just get the already-loaded physical pages mapped into their address space, saving memory and load time',
+        'Shared libraries eliminate the possibility of any version-compatibility issues',
+        'Shared libraries do not require any address patching',
+      ],
+      answer: 1,
+      why: 'The memory/time savings only kick in on the second and later processes — the first process using a shared library still has to trigger the initial load.',
+    },
+    {
+      prompt: 'What security purpose does address space layout randomization (ASLR) serve?',
+      choices: [
+        'It makes programs run faster by randomizing memory access patterns',
+        'It randomizes where memory regions (stack, heap, code) land between runs, making it harder for an attacker to reliably guess addresses needed for certain exploits',
+        'It has no security purpose, it is purely a debugging aid',
+        'It prevents processes from ever using virtual memory',
+      ],
+      answer: 1,
+      why: 'ASLR is specifically a mitigation against address-guessing exploit techniques, by making the memory layout unpredictable run to run.',
+    },
+  ]}
+/>
+
+---
+
+## Threads
+
+A **thread** is a running instance of one instruction stream. Each thread carries:
+
+- a **thread ID (TID)**, unique within its process (not necessarily system-wide);
+- its own **call stack**;
+- its own register values, including the **instruction pointer (IP)** and the **base/stack pointers (BP/SP)** that define its current stack frame; and
+- **thread-local storage (TLS)** — a small private memory block, covered below.
+
+A process starts with one main thread, executing from the program's entry point — but every modern OS can run more than one concurrent instruction stream inside a single process. A thread is the *minimum* set of resources needed to run an instruction stream (a stack plus register state); the process supplies everything else.
+
+### Thread Libraries
+
+Every multithreading-capable OS exposes its own system calls for thread management, and a few portable libraries wrap them consistently: **POSIX threads (pthread)**, the **C11/C++11** standard thread libraries, and the PS4 SDK's `sce`-prefixed thread functions (which map closely onto POSIX). Nearly all of them expose the same six core operations:
+
+| Operation | Purpose |
+|---|---|
+| **Create** | Spawn a new thread |
+| **Terminate** | End the calling thread |
+| **Request to exit** | Ask *another* thread to end |
+| **Sleep** | Suspend the current thread for a given duration |
+| **Yield** | Give up the rest of the current time slice |
+| **Join** | Block until another thread (or group of threads) terminates |
+
+### Creation and Termination
+
+A thread is spawned via an OS-specific call — `pthread_create()` on POSIX, `CreateThread()` on Windows, or by constructing a `std::thread` in C++11 — passing the address of an entry-point function. Once created, a thread runs until one of:
+
+- it **returns naturally** from its entry function (for the *main* thread specifically, this also ends the whole process);
+- it calls something like `pthread_exit()` to terminate itself early;
+- it's **killed externally** by another thread's request — though it may delay or ignore that request, depending on how it was configured at creation; or
+- its **whole process ends** (main thread returns, any thread calls `exit()`, or an external actor kills the process).
+
+### Joining Threads
+
+A common pattern: spawn several worker threads to split up a chunk of work, do something useful on the main thread meanwhile, then wait for all workers to finish before continuing. Splitting 1,000 independent computations across four threads on a quad-core machine, then checksumming the combined result, looks like this:
+
+```cpp
+ComputationResult g_aResult[1000];
+
+void Compute(void* arg) {
+    uintptr_t startIndex = (uintptr_t)arg;
+    uintptr_t endIndex = startIndex + 250;
+    for (uintptr_t i = startIndex; i < endIndex; ++i) {
+        g_aResult[i] = ComputeOneResult(/* ... */);
+    }
+}
+
+void main() {
+    pthread_t tid[4];
+    for (int i = 0; i < 4; ++i) {
+        const uintptr_t startIndex = i * 250;
+        pthread_create(&tid[i], nullptr, Compute, (void*)startIndex);
+    }
+    // main thread could do other useful work here while workers run...
+
+    for (int i = 0; i < 4; ++i) {
+        pthread_join(&tid[i], nullptr);   // wait for each worker to finish
+    }
+
+    // safe now — every g_aResult[] slot has been written
+    unsigned checksum = Sha1(g_aResult, 1000 * sizeof(ComputationResult));
+}
+```
+
+`pthread_join()` **blocks** the calling thread until the target thread terminates — the checksum can't safely run until every worker is confirmed done, and `join` is exactly the mechanism that guarantees that ordering.
+
+### Polling, Blocking, and Yielding
+
+When a thread needs to wait on some future event — a slow operation finishing, a resource becoming available — it has three options.
+
+**Polling** (a.k.a. spin-wait or busy-wait) sits in a tight loop repeatedly checking a condition:
+
+```cpp
+while (!CheckCondition()) {
+    // twiddle thumbs
+}
+```
+
+Simple, but it burns CPU cycles the whole time it waits — fine for a condition expected to resolve almost immediately, wasteful for anything longer.
+
+**Blocking** puts the thread to sleep via a dedicated OS call, so it consumes no CPU while waiting; the kernel tracks which threads are waiting on which conditions and wakes the right ones when those conditions become true. If the condition is already satisfied at call time, a blocking function just returns immediately instead of actually sleeping. Common blocking calls: opening a file (`fopen()`), explicit sleeps (`usleep()`, `Sleep()`, `std::this_thread::sleep_until()`), joining another thread (`pthread_join()`), and waiting on a mutex lock (covered in a later lesson on synchronization). Any user-space function that ultimately calls one of these is *itself* a blocking function transitively — worth documenting clearly, so callers know it can block.
+
+**Yielding** splits the difference: poll the condition in a loop, but give up the rest of the current time slice on every failed check (`pthread_yield()`, `Sleep(0)`, `SwitchToThread()`):
+
+```cpp
+while (!CheckCondition()) {
+    pthread_yield(nullptr);   // give up the rest of my time slice
+}
+```
+
+This wastes fewer cycles and less power than pure busy-waiting, but yielding is still a full kernel call — not free. Some ISAs offer a cheap alternative: a **pause instruction** that just lets the pipeline drain briefly without a kernel round trip (Intel's `_mm_pause()` intrinsic on SSE2), useful for shortening a busy-wait loop's power draw without paying for a real yield:
+
+```cpp
+while (!CheckCondition()) {
+    _mm_pause();   // ~40-cycle pause, no kernel call
+}
+```
+
+### Context Switching
+
+Every thread the kernel tracks sits in one of three states:
+
+- **Running** — actively executing on a core right now.
+- **Runnable** — able to run, waiting for a time slice.
+- **Blocked** — asleep, waiting on some condition.
+
+A **context switch** is the kernel moving a thread between these states — triggered by the preemptive-multitasking timer interrupt (Running ↔ Runnable), by a thread making a blocking call (Running/Runnable → Blocked), or by a waited-on condition becoming true (Blocked → Runnable). It always happens in privileged mode.
+
+A thread's **execution context** is its register state (IP, SP, BP, general-purpose registers) plus its call stack. Leaving the Running state means the kernel saves the CPU's current register contents into a block of memory reserved for that thread; re-entering Running means restoring them. Notably, the call stack itself doesn't need any special saving — it already lives in a fixed region of the process's virtual memory, so restoring SP/BP as part of the register restore effectively restores the whole stack "for free."
+
+Switching between threads *of the same process* is relatively cheap. Switching between threads of *different* processes costs more: the kernel also has to save/restore which virtual page table is active (usually a pointer kept in a privileged CPU register) and **flush the TLB** (see [Memory Architectures](./memory-architectures#the-translation-lookaside-buffer-tlb)), since the cached virtual-to-physical mappings for the outgoing process's addresses are no longer valid for the incoming one.
+
+### Thread Priorities and Affinity
+
+Programmers get two levers over scheduling, beyond letting the kernel decide freely:
+
+- **Priority** governs a thread's precedence relative to other Runnable threads — as long as any higher-priority thread is Runnable, no lower-priority thread gets scheduled. Windows, for instance, combines six priority *classes* with seven priority *levels* per class into 32 total base priorities. Taken too far, a handful of persistently-Runnable high-priority threads can starve everything below them — a failure mode called **starvation**, which some schedulers specifically guard against by occasionally boosting a long-neglected low-priority thread anyway.
+- **Affinity** requests (or forces) that a thread prefer, or be locked to, one or more specific cores.
+
+:::note Dig deeper
+[Scheduling: Introduction](/fundamentals/computer-engineering/virtualization/scheduling-introduction) and [Multi-Level Feedback Queue](/fundamentals/computer-engineering/virtualization/mlfq) go deep on scheduling policy design, including concrete anti-starvation mechanisms.
+:::
+
+### Thread Local Storage (TLS)
+
+Threads share almost everything in their parent process's virtual memory — with one deliberate exception. Each thread gets a private **thread local storage (TLS)** block, useful for anything that genuinely shouldn't be shared, like a per-thread memory allocator. In practice, TLS blocks are usually just ordinary (unprotected) memory mapped at a different address per thread, with a system call that lets any thread fetch the address of its own block — think of it as part of a thread's execution context.
+
+### Thread Debugging
+
+Modern debuggers expose dedicated multithreading tools — Visual Studio's Threads window, for instance, lists every thread in the running program and lets you activate any one of them (Running, Runnable, or Blocked) to inspect its call stack and local variables, exactly as if it were the only thread in the program.
+
+### Check: thread lifecycle and scheduling
+
+<MultipleChoice
+  id="ge-ch4-threads"
+  title="Thread creation, waiting strategies, and context switching"
+  questions={[
+    {
+      prompt: 'In the "join" code example, why must the checksum computation happen after the pthread_join() calls, not before?',
+      choices: [
+        'pthread_join() has no real effect and the ordering does not matter',
+        'pthread_join() blocks the calling thread until the target worker thread terminates, guaranteeing every g_aResult[] slot has actually been written by the time the checksum runs',
+        'The checksum function requires threads to still be running',
+        'g_aResult is automatically zeroed if accessed too early',
+      ],
+      answer: 1,
+      why: 'Join is precisely the mechanism used to guarantee "wait until this other thread\'s work is done" before proceeding — without it there\'s a race on g_aResult.',
+    },
+    {
+      prompt: 'What is the main downside of a pure polling (busy-wait) loop compared to blocking?',
+      choices: [
+        'Polling is impossible to implement in C/C++',
+        'Polling continuously consumes CPU cycles the entire time it waits, since the thread never actually sleeps, unlike blocking which lets the kernel put the thread to sleep and wake it only when needed',
+        'Polling can never detect when a condition becomes true',
+        'Blocking always uses more CPU than polling',
+      ],
+      answer: 1,
+      why: 'Blocking hands control back to the kernel to sleep the thread, avoiding wasted cycles; polling keeps the core busy the whole time regardless of whether the condition is close to becoming true.',
+    },
+    {
+      prompt: 'Why is a context switch between threads of two different processes more expensive than one between two threads of the same process?',
+      choices: [
+        'There is no difference in cost between the two cases',
+        'An inter-process switch additionally requires swapping the active virtual page table and flushing the TLB, since the cached address translations belong to the outgoing process and are invalid for the incoming one',
+        'Inter-process switches always require rebooting the operating system',
+        'Same-process context switches do not require saving any register state at all',
+      ],
+      answer: 1,
+      why: 'The extra page-table swap and mandatory TLB flush are exactly the additional cost an inter-process switch pays that a same-process switch avoids.',
+    },
+  ]}
+/>
+
+---
+
+## Fibers
+
+Preemptive multitasking is convenient, but it means the kernel can interrupt your code at essentially any point — sometimes you want the opposite: **cooperative** scheduling, where a workload voluntarily hands off control at moments *you* choose. This is exactly the shape of problem a game engine's job system runs into (jobs that want to yield to other jobs without preemption "pulling the rug out" mid-computation).
+
+A **fiber** is a lot like a thread — it has its own call stack and register state, its own execution context — but the kernel never schedules it directly. Fibers run *inside* a thread and hand control to each other cooperatively. (This section describes the Windows fiber API specifically; the PS4 SDK offers a very similar one.)
+
+### Fiber Creation and Destruction
+
+Every process starts thread-based by default. Calling `ConvertThreadToFiber()` bootstraps the calling thread into fiber mode, after which `CreateFiber()` (given an entry-point function) creates more fibers, `SwitchToFiber()` cooperatively hands control from the currently active fiber to another, and `DeleteFiber()` destroys one that's no longer needed.
+
+### Fiber States
+
+A fiber is **Active** (assigned to a thread, executing on its behalf — Windows calls it that thread's "selected" fiber) or **Inactive** (idle, consuming no thread's resources, waiting to be selected). `SwitchToFiber()` is the *only* way a fiber moves between these two states. Whether an Active fiber's instructions are actually *executing* right now depends entirely on its enclosing thread's own state (Running/Runnable/Blocked) — a fiber has no Blocked state of its own.
+
+That last point matters in practice: a fiber can't sleep on a condition the way a thread can. If it needs to wait, it either busy-waits or explicitly yields to another fiber via `SwitchToFiber()`. Calling a genuinely blocking OS function from inside a fiber is a serious mistake — it puts the fiber's *entire enclosing thread* to sleep, taking every fiber scheduled on that thread down with it, including whichever fiber would otherwise have picked up the cooperative scheduling.
+
+### Fiber Migration
+
+A fiber can move between threads, but only by passing through its Inactive state. If fiber F (running inside thread A) calls `SwitchToFiber(G)`, F becomes Inactive — unattached to any thread. If a *different* thread B, currently running fiber H, then calls `SwitchToFiber(F)`, fiber F has effectively migrated from thread A to thread B.
+
+### Fiber Debugging
+
+Because fibers are an OS-level concept, decent debuggers and profilers can see them the same way they see threads — worth verifying on your specific target platform and toolchain *before* committing to a fiber-based architecture, since debugger support here varies a lot more than it does for ordinary threads.
+
+### Check: fibers
+
+<MultipleChoice
+  id="ge-ch4-fibers"
+  title="Fibers and cooperative scheduling"
+  questions={[
+    {
+      prompt: 'What is the fundamental scheduling difference between a thread and a fiber?',
+      choices: [
+        'There is no difference — fibers and threads are scheduled identically by the kernel',
+        'Threads are scheduled preemptively by the kernel; fibers are never scheduled directly by the kernel and only run when explicitly handed control by another fiber via a cooperative switch',
+        'Fibers can only ever run on a single specific CPU core',
+        'Threads cannot have their own call stack, only fibers can',
+      ],
+      answer: 1,
+      why: 'That kernel-vs-cooperative scheduling distinction is exactly why fibers exist: to give the programmer explicit control over when control transfers.',
+    },
+    {
+      prompt: 'Why is calling a blocking OS function from inside a fiber considered a serious mistake?',
+      choices: [
+        'It has no effect at all, fibers ignore blocking calls',
+        'It puts the fiber\'s entire enclosing thread to sleep, which also stops every other fiber scheduled on that same thread, since a fiber has no Blocked state of its own',
+        'It immediately crashes the program with no recovery possible',
+        'Blocking calls are actually required inside every fiber',
+      ],
+      answer: 1,
+      why: 'A fiber\'s "aliveness" is entirely borrowed from its enclosing thread\'s state — sleeping that thread strands every fiber depending on it, including the ones that should have been cooperatively scheduled next.',
+    },
+  ]}
+/>
+
+---
+
+## User-Level Threads and Coroutines
+
+Both threads and fibers are relatively "heavyweight" because the kernel is involved in managing them — most operations on them cost a real context switch into kernel space. **User-level threads** avoid this entirely: they're implemented purely in user space, invisible to the kernel, riding on top of one real OS thread or fiber. Each is just a data structure tracking an ID and an execution context (registers + stack); a user-level thread library provides create/destroy/switch operations, and the core implementation trick is realizing that a context switch mostly just means swapping CPU register contents — something a small amount of hand-written assembly can do without ever calling into the kernel.
+
+### Coroutines
+
+A **coroutine** generalizes the idea of a subroutine: where an ordinary subroutine can only exit by returning to its caller, a coroutine can also exit by **yielding** to a *different* coroutine — and when it's next invoked, it resumes exactly where it left off, execution context intact. Subroutines call each other **hierarchically** (A calls B calls C, which unwinds back through B to A); coroutines call each other **symmetrically** (A yields to B, which can yield right back to A, indefinitely), without an ever-deepening call stack, because each coroutine keeps its own private, persistent execution context — yielding behaves like a lightweight thread-style context switch, not a nested function call.
+
+Here's the classic producer/consumer shape, as pseudocode:
+
+```cpp
+Queue g_queue;
+
+coroutine void Produce() {
+    while (true) {
+        while (!g_queue.IsFull()) {
+            CreateItemAndAddToQueue(g_queue);
+        }
+        YieldToCoroutine(Consume);
+        // resumes here on the next yield back...
+    }
+}
+
+coroutine void Consume() {
+    while (true) {
+        while (!g_queue.IsEmpty()) {
+            ConsumeItemFromQueue(g_queue);
+        }
+        YieldToCoroutine(Produce);
+        // resumes here on the next yield back...
+    }
+}
+```
+
+`Produce` fills the queue, then hands off to `Consume`, which drains it and hands back — each resuming exactly where its own `while` loop left off, with no shared kernel-level scheduling involved at all.
+
+Coroutines show up as first-class language features in Ruby, Lua, and Go (there called "goroutines"), and are usable in C/C++ too — the C++ Boost library provides a solid implementation, at the cost of a fairly large dependency; hand-rolled coroutine libraries are also a well-trodden path if that's too heavy for a given project.
+
+### "Kernel Thread" Is an Overloaded Term
+
+Two genuinely different things get called a "kernel thread," and mixing them up is a common source of confusion:
+
+1. On Linux specifically, a **kernel thread** can mean an internal thread created *by and for* the kernel itself, running only in privileged mode — as distinct from the ordinary threads a process creates via `pthread`/`std::thread`, which run in user space.
+2. More generally, "kernel thread" can mean **any thread the kernel is aware of and schedules** — whether it happens to be executing kernel code or user code — with "user thread" reserved for something the kernel doesn't know about at all, like a coroutine.
+
+Under definition 2, a fiber sits right on the boundary: the kernel *is* aware fibers exist and keeps a stack for each, but it never schedules one directly — that only happens via an explicit `SwitchToFiber()` call from other user-space code.
+
+### Check: user-level threads and coroutines
+
+<MultipleChoice
+  id="ge-ch4-coroutines"
+  title="User-level threads, coroutines, and thread terminology"
+  questions={[
+    {
+      prompt: 'What is the core technical trick that makes a user-level thread library possible without kernel involvement?',
+      choices: [
+        'It requires a special CPU with built-in coroutine hardware',
+        'A context switch mostly reduces to swapping CPU register contents (including the instruction pointer and stack/base pointers), which can be done directly with hand-written assembly, entirely in user space',
+        'It is not actually possible, all threading requires the kernel',
+        'User-level threads secretly make hidden kernel calls on every operation',
+      ],
+      answer: 1,
+      why: 'Since a thread\'s execution context is fully captured by its registers and stack, swapping registers in user-space code is sufficient to implement a lightweight, kernel-free context switch.',
+    },
+    {
+      prompt: 'How does a coroutine\'s "yield to another coroutine" differ from an ordinary subroutine call?',
+      choices: [
+        'They are exactly the same operation with a different name',
+        'A subroutine call is hierarchical (returns unwind back through the caller chain); a coroutine yield is symmetric (A can yield to B, which can yield back to A indefinitely) without an ever-deepening call stack, since each coroutine keeps its own persistent execution context',
+        'Coroutines can only ever call themselves recursively',
+        'Yielding always terminates the coroutine permanently',
+      ],
+      answer: 1,
+      why: 'The persistent, private execution context per coroutine is exactly what avoids stack growth across repeated back-and-forth yields, unlike nested subroutine calls.',
+    },
+  ]}
+/>
+
+---
+
+:::important Key takeaways
+- The **kernel** runs in privileged mode with access to the full instruction set, including privileged instructions off-limits to user code; user programs reach privileged operations only via **kernel calls**, implemented as software interrupts.
+- **Preemptive multitasking** — the OS forcibly time-slicing between programs via a timer interrupt — replaced cooperative multitasking specifically to stop one misbehaving program from starving every other one.
+- A **process** provides an isolated virtual memory map (text/data/BSS, heap, stack, shared libraries) and resources; a **thread** is the actual unit of execution the kernel schedules within that environment.
+- Waiting on a condition has three shapes: **poll** (cheap to write, wastes CPU), **block** (kernel-managed sleep/wake, no wasted CPU, costs a kernel call), and **yield** (poll, but give up the time slice each iteration).
+- A **context switch** saves/restores a thread's registers (and, for cross-process switches, its page table and a TLB flush) — the call stack itself is restored "for free" as a side effect of restoring SP/BP.
+- **Fibers** and **coroutines** both implement cooperative, non-preemptive scheduling — fibers via a thin OS-level API, coroutines and other user-level threads entirely in user space with no kernel involvement, and correspondingly cheaper context switches.
+:::
+
+## Further Reading
+
+- Jason Gregory — *Game Engine Architecture*, 3rd ed. (CRC Press, 2018), Chapter 4, Section 4.4
+- [Explicit Parallelism](./explicit-parallelism) — this series' previous lesson, on the hardware these threads actually run on
+- [Data, Code, and Memory Layout](./data-code-and-memory-layout#the-executable-image) and [Memory Architectures](./memory-architectures#virtual-memory) — this series' earlier lessons on executable segments and virtual memory/the MMU/TLB
+- [The Process Abstraction](/fundamentals/computer-engineering/virtualization/the-process) and [Process API](/fundamentals/computer-engineering/virtualization/the-process-api) — this site's OSTEP-based deep dive into process creation and state
+- [Limited Direct Execution](/fundamentals/computer-engineering/virtualization/limited-direct-execution) — the trap/system-call mechanism in full detail
+- [Scheduling: Introduction](/fundamentals/computer-engineering/virtualization/scheduling-introduction) and [Multi-Level Feedback Queue](/fundamentals/computer-engineering/virtualization/mlfq) — scheduling *policy*, beyond the mechanism covered here
+- [Concurrency: An Introduction](/fundamentals/computer-engineering/concurrency/concurrent/concurrency-introduction) — this site's entry point into thread synchronization, continuing where this lesson leaves off
+- [Locks](/fundamentals/computer-engineering/concurrency/concurrent/locks) — mutexes, referenced above as one of the classic blocking calls
