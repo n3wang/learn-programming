@@ -17,11 +17,6 @@ Allowed to talk to each other for a limited time. During these discussions, the 
 
 [^1]: [Among Us: the Ultimate Party Game of the Paranoid Covid Era](https://www.theguardian.com/games/2020/sep/29/among-us-the-ultimate-party-game-of-the-covid-era#:~:text=Among%20Us%20is%20essentially%20an,crew%20member%20or%20an%20imposter.)
 
-![](https://i.makeagif.com/media/1-07-2021/b2J0UP.gif)
-
-
-
-
 :::tip You were accused as the imposter
 - Write in the chat your defense to convince the fleet that you are **not the imposter**!
 - Try talking about Bruno -> This is the trick not to get ejected

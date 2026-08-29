@@ -171,8 +171,6 @@ It is important to follow the below guidelines to name a variable in java.
 
 ### Concatenating Words
 
-![](https://media0.giphy.com/media/BHeCjdyGJck6c/200.gif)
-
 ```java
 System.out.println("Pineapple " + " Pen");
 ```

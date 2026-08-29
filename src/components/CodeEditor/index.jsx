@@ -1,17 +1,25 @@
-import React, {useMemo} from 'react';
+import React, {useEffect, useMemo, useState} from 'react';
 import BrowserOnly from '@docusaurus/BrowserOnly';
 import CodeMirror from '@uiw/react-codemirror';
 import {autocompletion} from '@codemirror/autocomplete';
 import {EditorView} from '@codemirror/view';
-import {cpp} from '@codemirror/lang-cpp';
-import {java} from '@codemirror/lang-java';
-import {python} from '@codemirror/lang-python';
-import {javascript} from '@codemirror/lang-javascript';
-import {yaml} from '@codemirror/lang-yaml';
 import {githubLight} from '@uiw/codemirror-theme-github';
 import {oneDark} from '@codemirror/theme-one-dark';
 import useHtmlColorMode from '@site/src/components/codeWorkspace/useHtmlColorMode';
 import styles from './styles.module.css';
+
+const LANG_LOADERS = {
+  'c++': () => import('@codemirror/lang-cpp').then((m) => m.cpp()),
+  cpp: () => import('@codemirror/lang-cpp').then((m) => m.cpp()),
+  c: () => import('@codemirror/lang-cpp').then((m) => m.cpp()),
+  java: () => import('@codemirror/lang-java').then((m) => m.java()),
+  python: () => import('@codemirror/lang-python').then((m) => m.python()),
+  py: () => import('@codemirror/lang-python').then((m) => m.python()),
+  javascript: () => import('@codemirror/lang-javascript').then((m) => m.javascript()),
+  js: () => import('@codemirror/lang-javascript').then((m) => m.javascript()),
+  yaml: () => import('@codemirror/lang-yaml').then((m) => m.yaml()),
+  yml: () => import('@codemirror/lang-yaml').then((m) => m.yaml()),
+};
 
 const KEYWORDS = {
   'c++': [
@@ -58,24 +66,17 @@ const KEYWORDS = {
 };
 KEYWORDS.cpp = KEYWORDS['c++'];
 
-function languageExt(lang) {
+async function loadLanguageExt(lang) {
   const key = String(lang || '').toLowerCase();
-  if (key === 'c++' || key === 'cpp' || key === 'c') {
-    return cpp();
+  const loader = LANG_LOADERS[key];
+  if (!loader) {
+    return [];
   }
-  if (key === 'java') {
-    return java();
+  try {
+    return await loader();
+  } catch {
+    return [];
   }
-  if (key === 'python' || key === 'py') {
-    return python();
-  }
-  if (key === 'javascript' || key === 'js') {
-    return javascript();
-  }
-  if (key === 'yaml' || key === 'yml') {
-    return yaml();
-  }
-  return [];
 }
 
 function keywordList(lang) {
@@ -112,9 +113,23 @@ function completionsFor(lang) {
 
 function EditorInner({value, onChange, lang, readOnly}) {
   const colorMode = useHtmlColorMode();
+  const [languageExtension, setLanguageExtension] = useState([]);
+
+  useEffect(() => {
+    let cancelled = false;
+    loadLanguageExt(lang).then((ext) => {
+      if (!cancelled) {
+        setLanguageExtension(ext ? [ext] : []);
+      }
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [lang]);
+
   const extensions = useMemo(
     () => [
-      languageExt(lang),
+      ...languageExtension,
       autocompletion({override: [completionsFor(lang)]}),
       EditorView.theme({
         '&': {height: '100%', fontSize: '13px'},
@@ -126,7 +141,7 @@ function EditorInner({value, onChange, lang, readOnly}) {
       }),
       EditorView.lineWrapping,
     ],
-    [lang]
+    [lang, languageExtension]
   );
 
   return (

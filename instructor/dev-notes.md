@@ -203,9 +203,4 @@ Joe is as old as Tom: True
 
 📝 Scratch - Project
 
-### Gifs
-
-
-![](@site/static/gif/change-background.gif)
-
 
