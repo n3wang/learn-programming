@@ -1,6 +1,5 @@
 import React, { useMemo, useState } from 'react';
 import Box from '@mui/material/Box';
-import Button from '@mui/material/Button';
 import Typography from '@mui/material/Typography';
 import ProblemShell from '@site/src/components/interactive/shell/ProblemShell';
 import AnimatedNumber from '@site/src/components/interactive/shell/AnimatedNumber';
@@ -13,37 +12,24 @@ import { randInt } from '@site/src/components/interactive/shell/mathRandom';
  * x·(t1+t2) = H − t2·a always has an exact integer solution.
  */
 function generate() {
-  const x = randInt(2, 6); // true number of people in phase 1
-  const a = randInt(1, 4); // extra people who join
-  const t1 = randInt(2, 6); // phase-1 hours
-  const t2 = randInt(4, 12); // phase-2 hours
-  const H = x * (t1 + t2) + t2 * a; // hours for ONE person to finish alone
+  const x = randInt(2, 6);
+  const a = randInt(1, 4);
+  const t1 = randInt(2, 6);
+  const t2 = randInt(4, 12);
+  const H = x * (t1 + t2) + t2 * a;
   return { a, t1, t2, H };
 }
 
 export default function BookSortingRateSimulator() {
   const [key, setKey] = useState(0);
   const [p, setP] = useState(generate);
-  const [anim, setAnim] = useState('idle'); // idle | phase1 | phase2
 
   const solvedX = useMemo(() => Math.round((p.H - p.t2 * p.a) / (p.t1 + p.t2)), [p]);
-  const phase1Frac = (p.t1 * solvedX) / p.H;
 
   const randomize = () => {
     setP(generate());
     setKey((k) => k + 1);
-    setAnim('idle');
   };
-
-  const play = () => {
-    setAnim('idle');
-    requestAnimationFrame(() => {
-      setAnim('phase1');
-      setTimeout(() => setAnim('phase2'), 1300);
-    });
-  };
-
-  const width = anim === 'phase2' ? 100 : anim === 'phase1' ? phase1Frac * 100 : 0;
 
   const solution = (
     <Box>
@@ -72,56 +58,11 @@ export default function BookSortingRateSimulator() {
       onRandomize={randomize}
       solution={solution}
     >
-      {(showAnswer) => (
-        <Box>
-          <Typography sx={{ mb: 1.5 }}>
-            整理一批图书，由 1 人整理需要 <b>{p.H}</b> h 完成。现计划由一部分人先整理{' '}
-            <b>{p.t1}</b> h，然后增加 <b>{p.a}</b> 人与他们一起再整理 <b>{p.t2}</b> h，恰好完成
-            这项工作。假设每人工作效率相同，应先安排多少人进行整理？
-          </Typography>
-
-          <Box
-            sx={{
-              height: 28,
-              borderRadius: 1,
-              overflow: 'hidden',
-              border: '1px solid',
-              borderColor: 'divider',
-              backgroundColor: 'grey.100',
-              position: 'relative',
-            }}
-          >
-            <Box
-              sx={{
-                height: '100%',
-                width: `${width}%`,
-                background: 'linear-gradient(90deg, #64b5f6, #4db6ac)',
-                transition: 'width 1.1s ease',
-              }}
-            />
-            <Typography
-              variant="caption"
-              sx={{
-                position: 'absolute',
-                inset: 0,
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-                fontWeight: 700,
-                color: width > 45 ? '#fff' : 'text.secondary',
-              }}
-            >
-              {anim === 'idle' && '点击 ▶ 播放进度'}
-              {anim === 'phase1' && `阶段一：${solvedX} 人工作 ${p.t1} h`}
-              {anim === 'phase2' && `阶段二：${solvedX + p.a} 人工作 ${p.t2} h → 完成！`}
-            </Typography>
-          </Box>
-
-          <Button size="small" variant="text" onClick={play} sx={{ mt: 1 }}>
-            ▶ 播放动画{showAnswer ? '' : '（先显示解答后更准确）'}
-          </Button>
-        </Box>
-      )}
+      <Typography>
+        整理一批图书，由 1 人整理需要 <b>{p.H}</b> h 完成。现计划由一部分人先整理{' '}
+        <b>{p.t1}</b> h，然后增加 <b>{p.a}</b> 人与他们一起再整理 <b>{p.t2}</b> h，恰好完成
+        这项工作。假设每人工作效率相同，应先安排多少人进行整理？
+      </Typography>
     </ProblemShell>
   );
 }

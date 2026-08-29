@@ -21,11 +21,11 @@ function shuffle(arr) {
   return a;
 }
 
-/** 负一场固定积 1 分（沿用原题设定），胜一场积分和总场次随机生成。 */
+/** 负一场固定积 1 分，胜一场积分和总场次随机生成。 */
 function generate() {
-  const G = randInt(8, 24); // games played by every team
-  const W = randInt(2, 5); // points per win
-  const L = 1; // points per loss
+  const G = randInt(8, 24);
+  const W = randInt(2, 5);
+  const L = 1;
   const names = shuffle(NAME_POOL).slice(0, 4);
   const wins = [0, randInt(1, G - 1), randInt(1, G - 1), G];
   const teams = names.map((name, i) => {
@@ -36,12 +36,39 @@ function generate() {
   return { G, W, L, teams };
 }
 
+/** 人教版表 5.3-1：胜一场 2 分，负一场 1 分，共 14 场。 */
+function bookProblem() {
+  const G = 14;
+  const W = 2;
+  const L = 1;
+  const rows = [
+    ['前进', 10],
+    ['东方', 10],
+    ['光明', 9],
+    ['蓝天', 9],
+    ['雄鹰', 7],
+    ['远大', 7],
+    ['卫星', 4],
+    ['钢铁', 0],
+  ];
+  const teams = rows.map(([name, wins]) => {
+    const losses = G - wins;
+    return { name, wins, losses, points: wins * W + losses * L };
+  });
+  return { G, W, L, teams };
+}
+
 export default function LeagueStandingsSimulator() {
   const [key, setKey] = useState(0);
-  const [p, setP] = useState(generate);
+  const [p, setP] = useState(bookProblem);
 
   const randomize = () => {
     setP(generate());
+    setKey((k) => k + 1);
+  };
+
+  const loadBook = () => {
+    setP(bookProblem());
     setKey((k) => k + 1);
   };
 
@@ -89,49 +116,38 @@ export default function LeagueStandingsSimulator() {
       subtitle="胜一场的分值、总场次、每队的胜负记录都会重新生成"
       problemKey={key}
       onRandomize={randomize}
+      onBook={loadBook}
       solution={solution}
     >
-      {(showAnswer) => (
-        <Box>
-          <Typography sx={{ mb: 1.5 }}>
-            下表是某次篮球联赛的积分情况，每队共赛 <b>{p.G}</b> 场。(1) 胜一场和负一场各积多少
-            分？(2) 用代数式表示一支球队的总积分与胜、负场数之间的关系。(3) 某队的胜场总积分能
-            等于它的负场总积分吗？
-          </Typography>
-          <Table size="small">
-            <TableHead>
-              <TableRow>
-                <TableCell>队名</TableCell>
-                <TableCell align="right">比赛场次</TableCell>
-                <TableCell align="right">胜场</TableCell>
-                <TableCell align="right">负场</TableCell>
-                <TableCell align="right">积分</TableCell>
+      <Box>
+        <Typography sx={{ mb: 1.5 }}>
+          下表是某次篮球联赛的积分情况，每队共赛 <b>{p.G}</b> 场。(1) 胜一场和负一场各积多少
+          分？(2) 用代数式表示一支球队的总积分与胜、负场数之间的关系。(3) 某队的胜场总积分能
+          等于它的负场总积分吗？
+        </Typography>
+        <Table size="small">
+          <TableHead>
+            <TableRow>
+              <TableCell>队名</TableCell>
+              <TableCell align="right">比赛场次</TableCell>
+              <TableCell align="right">胜场</TableCell>
+              <TableCell align="right">负场</TableCell>
+              <TableCell align="right">积分</TableCell>
+            </TableRow>
+          </TableHead>
+          <TableBody>
+            {p.teams.map((t) => (
+              <TableRow key={t.name}>
+                <TableCell>{t.name}</TableCell>
+                <TableCell align="right">{p.G}</TableCell>
+                <TableCell align="right">{t.wins}</TableCell>
+                <TableCell align="right">{t.losses}</TableCell>
+                <TableCell align="right">{t.points}</TableCell>
               </TableRow>
-            </TableHead>
-            <TableBody>
-              {p.teams.map((t) => {
-                const highlighted =
-                  showAnswer && (t.name === derived.zeroRow.name || t.name === derived.otherRow.name);
-                return (
-                  <TableRow
-                    key={t.name}
-                    sx={{
-                      transition: 'background-color 0.5s ease',
-                      backgroundColor: highlighted ? 'rgba(100, 181, 246, 0.18)' : 'transparent',
-                    }}
-                  >
-                    <TableCell>{t.name}</TableCell>
-                    <TableCell align="right">{p.G}</TableCell>
-                    <TableCell align="right">{t.wins}</TableCell>
-                    <TableCell align="right">{t.losses}</TableCell>
-                    <TableCell align="right">{t.points}</TableCell>
-                  </TableRow>
-                );
-              })}
-            </TableBody>
-          </Table>
-        </Box>
-      )}
+            ))}
+          </TableBody>
+        </Table>
+      </Box>
     </ProblemShell>
   );
 }

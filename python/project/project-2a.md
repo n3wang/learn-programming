@@ -3,167 +3,281 @@ sidebar_position: 3
 title: 💯 2a - Using python to calculate things
 ---
 
+# Calculating Things 💯
 
+改代码，按运行，让输出对上目标。 Fix the code, press Run, match the target.
 
-## Introductory Exercise: 
+<br />
 
-### Calculating Profits: Fix the following program
+## Profit
 
-:::tip Calulating Profits
-Profits are calulated as `Profit = Revenue - Cost`
+<ExerciseSet>
 
-The programmer who created the following code made a huge mistake and calculated profits as `Revenue + Cost` please fix this program!
-<details>
-<summary>
- 🔨 Fix the program here:
-</summary>
-<iframe src="https://trinket.io/embed/python/a4f88da201" width="100%" height="600" frameborder="0" marginwidth="0" marginheight="0" allowfullscreen></iframe>
+<Exercise title="profit">
 
-</details>
-:::
+$$Profit = Revenue - Cost$$
 
-### Calculating Profits: Solving a new formula
+`revenue` 收入 − `cost` 成本
 
-:::tip Calculating Profit Margin
+<OutputChallenge
+  title="profit"
+  target={`40`}
+  starter={`revenue = 100
+cost = 60
+print(revenue + cost)
+`}
+/>
+</Exercise>
 
-[What is Profit Margin? - ClayTrader business](https://www.youtube.com/watch?v=pgmtxQNKe9Q&ab_channel=ClayTrader)
+<Exercise title="profit_with_returns">
 
-Profit margins are calculated as `Profit Margin = (Net Profit / Revenue) * 100`
-Finish the following program so that the program prints your
+$$Profit = Revenue - Cost - Returns$$
 
-<details>
-<summary>
- 🔨 Fix the program here:
-</summary>
-<iframe src="https://trinket.io/embed/python/d03bc0e07a" width="100%" height="600" frameborder="0" marginwidth="0" marginheight="0" allowfullscreen></iframe>
+`returns` 退货
 
-</details>
-:::
+<OutputChallenge
+  title="profit_with_returns"
+  target={`30`}
+  starter={`revenue = 100
+cost = 60
+returns = 10
+print(revenue - cost)
+`}
+/>
+</Exercise>
 
+<Exercise title="margin">
 
+$$Margin = \frac{Profit}{Revenue} \times 100$$
 
-## Optional Assigments 
+`profit` 利润 ÷ `revenue` 收入 × 100
 
-### The secret of building wealth: Compound Interest
+<OutputChallenge
+  title="margin"
+  target={`40.0`}
+  starter={`profit = 40
+revenue = 100
+print(profit / revenue)
+`}
+/>
+</Exercise>
 
-[👀 Instructor Notes](https://docs.google.com/spreadsheets/d/1iH3owGRNLaSoqhlSNBmb-jZLjisvXfteBHbfO44xj34/edit#gid=1342840897)
+<Exercise title="margin_round">
 
-This might be a concept harder to understand but here we have a program that approximates how rich you will be if you started an investing account (and you  don't add or remove money from your investing account)
+$$Margin = \mathrm{round}\left(\frac{Profit}{Revenue} \times 100,\ 1\right)$$
 
-:::note 
-![](2022-05-06-09-21-19.png)
+保留 1 位小数 (round to 1 decimal)
 
-Image extracted from [Navicore](https://navicoresolutions.org/understanding-compound-interest/)
-:::
+<OutputChallenge
+  title="margin_round"
+  target={`42.9`}
+  starter={`profit = 33
+revenue = 77
+print((profit / revenue) * 100)
+`}
+/>
+</Exercise>
 
+</ExerciseSet>
 
-```python
-age_start_investing = 20
-age_retirement = 22
-initial_investment = 1000
-yearly_interest_percent = 5
+## Growing Money
 
-expected_yearly_interestgain = 1.00 + yearly_interest_percent*0.01
+<ExerciseSet>
 
-worth_end = initial_investment* expected_yearly_interestgain**(age_retirement - age_start_investing)
-print("\nInvestment Calculator \n -----------------")
-print("If you create an investment account at:\n age {age_start_investing} with an yearly interest rate of {yearly_interest_percent} percent ".format(age_start_investing=age_start_investing, yearly_interest_percent=yearly_interest_percent))
-print('\nAt the age of {age_retirement} your ${initial_investment} will become: {worth_end}'.format(age_retirement=age_retirement, initial_investment = initial_investment, worth_end= worth_end))
-```
-<details>
-<summary>
-🧪 Try the code out! 
-</summary>
+<Exercise title="double_money">
 
-<iframe src="https://trinket.io/embed/python/c8557f8656" width="100%" height="600" frameborder="0" marginwidth="0" marginheight="0" allowfullscreen></iframe>
+$$Money = Principal \times (1 + Rate)$$
 
+`principal` 本金 × (1 + `rate` 利率)
 
-</details>
+<OutputChallenge
+  title="double_money"
+  target={`200.0`}
+  starter={`principal = 100
+rate = 1.0
+print(round(principal + rate, 2))
+`}
+/>
+</Exercise>
 
+<Exercise title="grow_two_years">
 
-:::tip Calculating your future wealth of a single investment
-<details>
-<summary>
-🧪 Play with the following code!
-</summary>
+$$Money = Principal \times (1 + Rate)^{Years}$$
 
+`years` 年数
 
-Play around with the next python code
-- Try changing the age you start investing (e.g. from 18 to 20)
-- Try changing your initial investment (e.g. from 1000 to 2000)
-- Try Changing the interest_rate (e.g. from 8 % yearly to 12%)
+<OutputChallenge
+  title="grow_two_years"
+  target={`121.0`}
+  starter={`principal = 100
+rate = 0.10
+years = 2
+print(round(principal * (1 + rate), 2))
+`}
+/>
+</Exercise>
 
+<Exercise title="grow_five_years">
 
-<iframe src="https://trinket.io/embed/python/b66cc4b608" width="100%" height="600" frameborder="0" marginwidth="0" marginheight="0" allowfullscreen></iframe>
-</details>
+$$Money = \mathrm{round}\left(Principal \times (1 + Rate)^{Years},\ 2\right)$$
 
-:::
+保留 2 位小数 (round to 2 decimals)
 
-<br/>
+<OutputChallenge
+  title="grow_five_years"
+  target={`255.26`}
+  starter={`principal = 200
+rate = 0.05
+years = 5
+money = principal * (1 + rate) ** years
+print(money)
+`}
+/>
+</Exercise>
 
-### But what if I invest $1000 every year? 🙋‍♂️
+</ExerciseSet>
 
-:::note Me Stressing
-<img src={require('../../static/img/2022-05-09-03-30-09.png').default} width="70%" />
+## Physics
 
-Image extracted from [ahseeit.com](https://ahseeit.com/?qa=99197/me-stressing-about-all-the-things-i-need-to-do-to-be-rich-meme)
-:::
+<ExerciseSet>
 
-:::tip Calculating your future wealth of multiple investments
-<details>
-<summary>
-🧪 Play with the following code!
-</summary>
+<Exercise title="final_velocity">
 
+$$v = v_0 + a t$$
 
-Play around with the next python code
-- Try changing the age you start investing (e.g. from 18 to 20)
-- Try changing your initial investment (e.g. from 1000 to 2000)
-- Try Changing the interest_rate (e.g. from 8 % yearly to 12%)
+`v0` 初速度 + `a` 加速度 × `t` 时间
 
-** Don't worry about the code below line 8**
+<OutputChallenge
+  title="final_velocity"
+  target={`32`}
+  starter={`v0 = 2
+a = 3
+t = 10
+print(v0 + a)
+`}
+/>
+</Exercise>
 
-<iframe src="https://trinket.io/embed/python/e0fb1b318c" width="100%" height="600" frameborder="0" marginwidth="0" marginheight="0" allowfullscreen></iframe>
-</details>
+<Exercise title="final_velocity_2">
 
-:::
+$$v = v_0 + a t$$
 
-<br/>
+同上公式 (same formula), new numbers
 
-### Cheating your Physics Exam
-The following program calculates the position of something based on variables:
-These are the linear motion formulas
+<OutputChallenge
+  title="final_velocity_2"
+  target={`13`}
+  starter={`v0 = 5
+a = 2
+t = 4
+print(v0 * a * t)
+`}
+/>
+</Exercise>
 
+<Exercise title="distance">
 
-:::caution Disclaimer
-I don't condone cheating or anything related to actual academic dishonesty, this
-is just a what if scenario... 	٩(｡•́‿•̀｡)۶
-:::
+$$d = v_0 t + \frac{1}{2} a t^2$$
 
+`d` 位移 = `v0` 初速度 × `t` 时间 + 1/2 × `a` 加速度 × `t`²
 
-<!-- ![](../../static/img/2022-05-04-02-16-59.png) -->
-![](../../static/img/2022-05-04-02-48-50.png)
+<OutputChallenge
+  title="distance"
+  target={`20.0`}
+  starter={`v0 = 0
+a = 10
+t = 2
+print(v0 * t + a * t ** 2)
+`}
+/>
+</Exercise>
 
-Image extracted from [real-world-physics](https://www.real-world-physics-problems.com/rectilinear-motion.html)
+<Exercise title="distance_2">
 
+$$d = v_0 t + \frac{1}{2} a t^2$$
 
-:::tip Fix the following speed printer
-The following program doesn't follow the formula properly please fix it (it should print `32` when `v1 = 2`, `aceleration = 3` and `time = 10`)
-```python
-initial_velocity =  2
-aceleration = 3
-time_elapsed = 10
+同上公式 (same formula), new numbers
 
-print("Velocity of the object at time: "+ str(time_elapsed))
-print(initial_velocity + aceleration)
-```
-:::
+<OutputChallenge
+  title="distance_2"
+  target={`27.0`}
+  starter={`v0 = 3
+a = 4
+t = 3
+print(v0 * t ** 2 + 0.5 * a * t)
+`}
+/>
+</Exercise>
 
-<details>
-<summary>
- 🔨 Fix the program here:
-</summary>
-<iframe src="https://trinket.io/embed/python/0cf1c4e60d" width="100%" height="600" frameborder="0" marginwidth="0" marginheight="0" allowfullscreen></iframe>
+</ExerciseSet>
 
-</details>
+## Charts
 
+<ExerciseSet>
+
+<Exercise title="store_profit">
+
+$$Profit = Revenue - Cost$$ (per quarter)
+
+`revenue` 收入 − `cost` 成本
+
+<ChartChallenge
+  title="store_profit"
+  kind="bar"
+  functionName="store_profit"
+  hint="a=(Q1, 150); b=(Q2, 250); c=(Q3, 100)"
+  categories={["Q1", "Q2", "Q3"]}
+  targetValues={[150, 250, 100]}
+  ylabel="Profit ($)"
+  starter={`def store_profit():
+    revenue = [400, 550, 300]
+    cost = [250, 300, 200]
+    return [r + c for r, c in zip(revenue, cost)]
+`}
+/>
+</Exercise>
+
+<Exercise title="cups_revenue">
+
+$$Revenue = Price \times Quantity$$
+
+`price` 单价 × `quantity` 数量
+
+<ChartChallenge
+  title="cups_revenue"
+  kind="bar"
+  functionName="cups_revenue"
+  hint="a=(Coffee, 30); b=(Tea, 30); c=(Juice, 20)"
+  categories={["Coffee", "Tea", "Juice"]}
+  targetValues={[30, 30, 20]}
+  ylabel="Revenue ($)"
+  starter={`def cups_revenue():
+    prices = [3, 2, 4]
+    quantities = [10, 15, 5]
+    return prices
+`}
+/>
+</Exercise>
+
+<Exercise title="budget_split">
+
+$$Amount = Share \times Budget$$
+
+`share` 占比 × `budget` 预算
+
+<ChartChallenge
+  title="budget_split"
+  kind="pie"
+  functionName="budget_split"
+  hint="a=(Rent, 500); b=(Food, 300); c=(Fun, 200)"
+  categories={["Rent", "Food", "Fun"]}
+  targetValues={[500, 300, 200]}
+  starter={`def budget_split():
+    budget = 1000
+    shares = [0.5, 0.3, 0.2]
+    return shares
+`}
+/>
+</Exercise>
+
+</ExerciseSet>

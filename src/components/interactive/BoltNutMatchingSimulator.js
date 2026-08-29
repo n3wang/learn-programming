@@ -12,12 +12,12 @@ import { randInt } from '@site/src/components/interactive/shell/mathRandom';
  * N·(T−x) = r·B·x always has an exact integer solution.
  */
 function generate() {
-  const x = randInt(4, 12); // true number of workers making bolts
-  const y = randInt(4, 12); // true number of workers making nuts
-  const r = randInt(2, 4); // nuts needed per bolt
-  const m = randInt(5, 15) * 10; // scaling factor, guarantees exact division
-  const B = y * m; // bolts one worker makes per day
-  const N = r * m * x; // nuts one worker makes per day
+  const x = randInt(4, 12);
+  const y = randInt(4, 12);
+  const r = randInt(2, 4);
+  const m = randInt(5, 15) * 10;
+  const B = y * m;
+  const N = r * m * x;
   return { r, B, N, T: x + y };
 }
 
@@ -71,57 +71,11 @@ export default function BoltNutMatchingSimulator() {
       onRandomize={randomize}
       solution={solution}
     >
-      {(showAnswer) => {
-        const frac = showAnswer ? solvedX / p.T : 0.5;
-        return (
-          <Box>
-            <Typography sx={{ mb: 1.5 }}>
-              某车间共有 <b>{p.T}</b> 名工人，每人每天可以生产 <b>{p.B}</b> 个螺栓，或者{' '}
-              <b>{p.N}</b> 个螺母。1 个螺栓需要配 <b>{p.r}</b> 个螺母。为使每天生产的螺栓和
-              螺母刚好配套，应安排生产螺栓和螺母的工人各多少名？
-            </Typography>
-            <Box
-              sx={{
-                display: 'flex',
-                height: 40,
-                borderRadius: 1,
-                overflow: 'hidden',
-                border: '1px solid',
-                borderColor: 'divider',
-              }}
-            >
-              <Box
-                sx={{
-                  width: `${frac * 100}%`,
-                  backgroundColor: '#64b5f6',
-                  transition: 'width 0.7s cubic-bezier(.4,0,.2,1)',
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                }}
-              >
-                <Typography variant="caption" sx={{ color: '#fff', fontWeight: 700, whiteSpace: 'nowrap', px: 0.5 }}>
-                  🔩 {showAnswer ? `${solvedX} 人做螺栓` : '做螺栓？'}
-                </Typography>
-              </Box>
-              <Box
-                sx={{
-                  width: `${(1 - frac) * 100}%`,
-                  backgroundColor: '#ffb74d',
-                  transition: 'width 0.7s cubic-bezier(.4,0,.2,1)',
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                }}
-              >
-                <Typography variant="caption" sx={{ color: '#fff', fontWeight: 700, whiteSpace: 'nowrap', px: 0.5 }}>
-                  🔗 {showAnswer ? `${solvedY} 人做螺母` : '做螺母？'}
-                </Typography>
-              </Box>
-            </Box>
-          </Box>
-        );
-      }}
+      <Typography>
+        某车间共有 <b>{p.T}</b> 名工人，每人每天可以生产 <b>{p.B}</b> 个螺栓，或者{' '}
+        <b>{p.N}</b> 个螺母。1 个螺栓需要配 <b>{p.r}</b> 个螺母。为使每天生产的螺栓和
+        螺母刚好配套，应安排生产螺栓和螺母的工人各多少名？
+      </Typography>
     </ProblemShell>
   );
 }

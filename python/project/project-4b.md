@@ -2,81 +2,146 @@
 title: ♋ 4b - Zodiac Signs!
 ---
 
-*We are building in this classs an application that will tell your personality / your match / etc based on your zodiac. Also if today is your lucky date depending on your zodiac sign!*
+# Zodiac Signs ♋
 
-I am going to use [this](https://www.refinery29.com/en-us/zodiac-sign-accuracy-strengths-weakness-descriptions) as a reference [^Coughlin]
+改代码，按运行，让输出对上目标。 Fix the code, press Run, match the target.
 
+<br />
 
-[^Coughlin]:[Coughlin S. - This Sign Is The Saltiest About Their Personality Type](https://www.refinery29.com/en-us/zodiac-sign-accuracy-strengths-weakness-descriptions)
+## Zodiac Lookup
 
-[^Markarian]:[Markarian T. - Zodiac Compa](https://www.refinery29.com/en-us/zodiac-sign-accuracy-strengths-weakness-descriptions)
+<ExerciseSet>
 
-## Zodiac Personality
+<Exercise title="aries">
+<OutputChallenge
+  title="aries"
+  target={`Bold and quick to act.`}
+  starter={`sign = "Aries"
+if sign == "Taurus":
+    print("Bold and quick to act.")
+`}
+/>
+</Exercise>
 
+<Exercise title="taurus">
+<OutputChallenge
+  title="taurus"
+  target={`Steady and loves comfort.`}
+  starter={`sign = "Taurus"
+if sign == "Aries":
+    print("Bold and quick to act.")
+`}
+/>
+</Exercise>
 
-:::tip Try
+<Exercise title="gemini">
+<OutputChallenge
+  title="gemini"
+  target={`Curious and talks a lot.`}
+  starter={`sign = "Gemini"
+if sign == "Aries":
+    print("Bold and quick to act.")
+elif sign == "Taurus":
+    print("Steady and loves comfort.")
+`}
+/>
+</Exercise>
 
-- Entering your sign `e.g Cancer`
-  - Don't know your zodiac sign? I prepared a code [here](#zodiac-sign-calculator)
-- Entering some random words `e.g. Fire nation`
+<Exercise title="cancer">
+<OutputChallenge
+  title="cancer"
+  target={`Caring and a little moody.`}
+  starter={`sign = "Cancer"
+if sign == "Aries":
+    print("Bold and quick to act.")
+elif sign == "Taurus":
+    print("Steady and loves comfort.")
+elif sign == "Gemini":
+    print("Curious and talks a lot.")
+`}
+/>
+</Exercise>
 
-:::
+<Exercise title="unknown_sign">
+<OutputChallenge
+  title="unknown_sign"
+  target={`Unknown sign.`}
+  starter={`sign = "Pluto"
+if sign == "Aries":
+    print("Bold and quick to act.")
+elif sign == "Taurus":
+    print("Steady and loves comfort.")
+elif sign == "Gemini":
+    print("Curious and talks a lot.")
+elif sign == "Cancer":
+    print("Caring and a little moody.")
+`}
+/>
+</Exercise>
 
-<iframe src="https://trinket.io/embed/python/cf0e74362d?outputOnly=true&runOption=run&start=result" width="100%" height="300" frameborder="0" marginwidth="0" marginheight="0" allowfullscreen></iframe>
+</ExerciseSet>
 
-:::tip Exercise
+## More Signs
 
-- The following code only works for `Aries` and `Tauros`
-- No matter what you enter it will also print the results for `Gemini` and `Cancer`
+<ExerciseSet>
 
-### Activity
-1. 🛠 Fix it to to print the results for `Gemini` when the user enters `Gemini`
-2. 🛠 Fix it to to print the results for `Cancer` when the user enters `Cancer`
-3. Try using `elif` instead of `if`
+<Exercise title="leo">
+<OutputChallenge
+  title="leo"
+  target={`Confident and loves attention.`}
+  starter={`sign = "Leo"
+if sign == "Virgo":
+    print("Confident and loves attention.")
+`}
+/>
+</Exercise>
 
-<iframe src="https://trinket.io/embed/python/705196b851" width="100%" height="600" frameborder="0" marginwidth="0" marginheight="0" allowfullscreen></iframe>
-:::
+<Exercise title="leo_virgo">
+<OutputChallenge
+  title="leo_virgo"
+  target={`Careful and very organized.`}
+  sourceChecks={[
+    {name: 'elif', pattern: '\\belif\\b', must: true, hint: 'use elif to add a branch'},
+  ]}
+  starter={`sign = "Virgo"
+if sign == "Leo":
+    print("Confident and loves attention.")
+`}
+/>
+</Exercise>
 
+<Exercise title="leo_virgo_libra">
+<OutputChallenge
+  title="leo_virgo_libra"
+  target={`Fair and seeks balance.`}
+  sourceChecks={[
+    {name: 'elif', pattern: '\\belif\\b', must: true, hint: 'use elif to add a branch'},
+  ]}
+  starter={`sign = "Libra"
+if sign == "Leo":
+    print("Confident and loves attention.")
+elif sign == "Virgo":
+    print("Careful and very organized.")
+`}
+/>
+</Exercise>
 
-## Optional Exercise
+<Exercise title="three_signs_default">
+<OutputChallenge
+  title="three_signs_default"
+  target={`Unknown sign.`}
+  sourceChecks={[
+    {name: 'else', pattern: '\\belse\\b', must: true, hint: 'add an else branch'},
+  ]}
+  starter={`sign = "Mars"
+if sign == "Leo":
+    print("Confident and loves attention.")
+elif sign == "Virgo":
+    print("Careful and very organized.")
+elif sign == "Libra":
+    print("Fair and seeks balance.")
+`}
+/>
+</Exercise>
 
-:::tip Completing the Zodiac personality test
-
-### Activity
-1. Complete the following code so that it works in all 12 zodiac signs
-2. Make the program provide feedback if an unexpected user input was entered
-
-<iframe src="https://trinket.io/embed/python/9ddba7e522" width="100%" height="600" frameborder="0" marginwidth="0" marginheight="0" allowfullscreen></iframe>
-
-
-<details>
-<summary>
-Hint
-</summary>
-
-use `else`
-
-</details>
-
-
-:::
-
-:::note okno
- | Figure 1.1                                                                                                        | FIgure 1.2                                                                                 |
- | ----------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------ |
- | ![](../../static/img/2022-05-27-02-52-51.png)                                                                     | ![](../../static/img/2022-05-27-03-00-33.png)                                              |
- | Extracted from [Lost Cities](https://lost-cities-keeper.fandom.com/f/p/4400000000000448154/r/4400000000003805604) | Extracted from [Reddit](https://www.reddit.com/r/capricorns/comments/m46xab/memes_galore/) |
-
-
-| Figure 1.3                                                                                                           | Figure 1.4                                                                                                               |
-| -------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------ |
-| ![](../../static/img/2022-05-27-03-01-37.png)                                                                        | ![](../../static/img/2022-05-27-03-03-41.png)                                                                            |
-| Extracted from [Reddit](https://www.reddit.com/r/memes/comments/pqmm9m/usually_not_into_zodiac_memes_but_as_a_sagg/) | Image Extracted from [Cheezburger](https://cheezburger.com/9330437/astrology-memes-with-something-for-every-zodiac-sign) |
-:::
-
-## Zodiac Sign Calculator
-
-- Don't worry about the code of this program yet, you are not expected to understand it!
-
-<iframe src="https://trinket.io/embed/python/152ed204bb?runOption=run&start=result" width="100%" height="600" frameborder="0" marginwidth="0" marginheight="0" allowfullscreen></iframe>
-
+</ExerciseSet>

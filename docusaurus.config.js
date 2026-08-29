@@ -6,6 +6,9 @@ const path = require('path');
 const {themes: prismThemes} = require('prism-react-renderer');
 const lightCodeTheme = prismThemes.github;
 const darkCodeTheme = prismThemes.dracula;
+// Both packages are ESM-only; Node 22's require() can load them synchronously.
+const remarkMath = require('remark-math').default;
+const rehypeKatex = require('rehype-katex').default;
 
 function loadDotEnv(fileName) {
   const filePath = path.join(__dirname, fileName);
@@ -56,6 +59,14 @@ const config = {
   customFields: {
     pistonExecuteUrl,
   },
+  stylesheets: [
+    {
+      href: 'https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/katex.min.css',
+      type: 'text/css',
+      integrity: 'sha384-n8MVd4RsNIU0tAv4ct0nTaAbDJwPJzDEaqSD1odI+WdtXRGWt2kTvGFasHpSy3SV',
+      crossorigin: 'anonymous',
+    },
+  ],
   i18n: {
     defaultLocale: 'en',
     locales: ['en', 'zh-Hans'],
@@ -102,6 +113,8 @@ const config = {
         path: 'python',
         routeBasePath: 'python',
         sidebarPath: require.resolve('./sidebars.js'),
+        remarkPlugins: [remarkMath],
+        rehypePlugins: [rehypeKatex],
       },
     ],
     [

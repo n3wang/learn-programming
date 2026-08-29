@@ -12,6 +12,7 @@ import ExerciseSet, {Exercise} from '@site/src/components/ExerciseSet';
 import TranslatableParagraph from '@site/src/components/Translate/TranslatableParagraph';
 import GraphChallenge from '@site/src/components/GraphChallenge';
 import OutputChallenge from '@site/src/components/OutputChallenge';
+import ChartChallenge from '@site/src/components/ChartChallenge';
 
 export default {
     ...MDXComponents,
@@ -28,5 +29,6 @@ export default {
     Exercise,
     GraphChallenge,
     OutputChallenge,
+    ChartChallenge,
     p: TranslatableParagraph,
 };
