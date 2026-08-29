@@ -1,8 +1,8 @@
 import React from 'react';
-import Box from '@mui/material/Box';
-import Button from '@mui/material/Button';
-import Typography from '@mui/material/Typography';
-import Stack from '@mui/material/Stack';
+import Box from '@site/src/components/ui/Box';
+import Button from '@site/src/components/ui/Button';
+import Typography from '@site/src/components/ui/Typography';
+import Stack from '@site/src/components/ui/Stack';
 
 /**
  * Reusable prev / next / reset control bar for step-through simulators.

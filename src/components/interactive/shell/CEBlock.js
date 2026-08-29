@@ -1,8 +1,8 @@
 import React from 'react';
-import Box from '@mui/material/Box';
-import Paper from '@mui/material/Paper';
-import Typography from '@mui/material/Typography';
-import Divider from '@mui/material/Divider';
+import Box from '@site/src/components/ui/Box';
+import Paper from '@site/src/components/ui/Paper';
+import Typography from '@site/src/components/ui/Typography';
+import Divider from '@site/src/components/ui/Divider';
 
 /**
  * Consistent outer frame for all Computer Engineering interactive demos.

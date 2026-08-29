@@ -1,7 +1,7 @@
 import React from 'react';
-import Box from '@mui/material/Box';
-import Typography from '@mui/material/Typography';
-import Tooltip from '@mui/material/Tooltip';
+import Box from '@site/src/components/ui/Box';
+import Typography from '@site/src/components/ui/Typography';
+import Tooltip from '@site/src/components/ui/Tooltip';
 
 /**
  * Renders a row of color-coded swatches with labels and optional tooltips.

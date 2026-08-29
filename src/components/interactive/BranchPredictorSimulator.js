@@ -1,14 +1,14 @@
 import React, {useState} from 'react';
-import Box from '@mui/material/Box';
-import Button from '@mui/material/Button';
-import Typography from '@mui/material/Typography';
-import Chip from '@mui/material/Chip';
-import Stack from '@mui/material/Stack';
-import LinearProgress from '@mui/material/LinearProgress';
-import ToggleButton from '@mui/material/ToggleButton';
-import ToggleButtonGroup from '@mui/material/ToggleButtonGroup';
-import TextField from '@mui/material/TextField';
-import Tooltip from '@mui/material/Tooltip';
+import Box from '@site/src/components/ui/Box';
+import Button from '@site/src/components/ui/Button';
+import Typography from '@site/src/components/ui/Typography';
+import Chip from '@site/src/components/ui/Chip';
+import Stack from '@site/src/components/ui/Stack';
+import LinearProgress from '@site/src/components/ui/LinearProgress';
+import ToggleButton from '@site/src/components/ui/ToggleButton';
+import ToggleButtonGroup from '@site/src/components/ui/ToggleButtonGroup';
+import TextField from '@site/src/components/ui/TextField';
+import Tooltip from '@site/src/components/ui/Tooltip';
 
 import CEBlock from '@site/src/components/interactive/shell/CEBlock';
 

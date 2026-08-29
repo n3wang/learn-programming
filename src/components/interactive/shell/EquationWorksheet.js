@@ -1,9 +1,9 @@
 import React, { useState } from 'react';
-import Box from '@mui/material/Box';
-import Button from '@mui/material/Button';
-import Collapse from '@mui/material/Collapse';
-import Stack from '@mui/material/Stack';
-import Typography from '@mui/material/Typography';
+import Box from '@site/src/components/ui/Box';
+import Button from '@site/src/components/ui/Button';
+import Collapse from '@site/src/components/ui/Collapse';
+import Stack from '@site/src/components/ui/Stack';
+import Typography from '@site/src/components/ui/Typography';
 import CEBlock from './CEBlock';
 
 function makeBatch(generator, count) {

@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from 'react';
-import Box from '@mui/material/Box';
-import Button from '@mui/material/Button';
-import Stack from '@mui/material/Stack';
+import Box from '@site/src/components/ui/Box';
+import Button from '@site/src/components/ui/Button';
+import Stack from '@site/src/components/ui/Stack';
 import CEBlock from './CEBlock';
 
 /**

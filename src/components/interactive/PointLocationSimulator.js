@@ -1,5 +1,5 @@
 import React, {useMemo, useState} from 'react';
-import Typography from '@mui/material/Typography';
+import Typography from '@site/src/components/ui/Typography';
 
 import CEBlock from '@site/src/components/interactive/shell/CEBlock';
 import StepControls from '@site/src/components/interactive/shell/StepControls';

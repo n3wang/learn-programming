@@ -1,11 +1,11 @@
 import React, { useMemo, useState } from 'react';
-import Box from '@mui/material/Box';
-import Typography from '@mui/material/Typography';
-import Table from '@mui/material/Table';
-import TableBody from '@mui/material/TableBody';
-import TableCell from '@mui/material/TableCell';
-import TableHead from '@mui/material/TableHead';
-import TableRow from '@mui/material/TableRow';
+import Box from '@site/src/components/ui/Box';
+import Typography from '@site/src/components/ui/Typography';
+import Table from '@site/src/components/ui/Table';
+import TableBody from '@site/src/components/ui/TableBody';
+import TableCell from '@site/src/components/ui/TableCell';
+import TableHead from '@site/src/components/ui/TableHead';
+import TableRow from '@site/src/components/ui/TableRow';
 import ProblemShell from '@site/src/components/interactive/shell/ProblemShell';
 import AnimatedNumber from '@site/src/components/interactive/shell/AnimatedNumber';
 import { randInt, pickOne } from '@site/src/components/interactive/shell/mathRandom';

@@ -1,13 +1,13 @@
 import React, { useState } from 'react';
-import Box from '@mui/material/Box';
-import Button from '@mui/material/Button';
-import Typography from '@mui/material/Typography';
-import Paper from '@mui/material/Paper';
-import TextField from '@mui/material/TextField';
-import Chip from '@mui/material/Chip';
-import Stack from '@mui/material/Stack';
-import Collapse from '@mui/material/Collapse';
-import Tooltip from '@mui/material/Tooltip';
+import Box from '@site/src/components/ui/Box';
+import Button from '@site/src/components/ui/Button';
+import Typography from '@site/src/components/ui/Typography';
+import Paper from '@site/src/components/ui/Paper';
+import TextField from '@site/src/components/ui/TextField';
+import Chip from '@site/src/components/ui/Chip';
+import Stack from '@site/src/components/ui/Stack';
+import Collapse from '@site/src/components/ui/Collapse';
+import Tooltip from '@site/src/components/ui/Tooltip';
 import CEBlock from '@site/src/components/interactive/shell/CEBlock';
 
 const LEVELS = [

@@ -1,9 +1,9 @@
 import React, { useState } from 'react';
-import Box from '@mui/material/Box';
-import Chip from '@mui/material/Chip';
-import Typography from '@mui/material/Typography';
-import Stack from '@mui/material/Stack';
-import Tooltip from '@mui/material/Tooltip';
+import Box from '@site/src/components/ui/Box';
+import Chip from '@site/src/components/ui/Chip';
+import Typography from '@site/src/components/ui/Typography';
+import Stack from '@site/src/components/ui/Stack';
+import Tooltip from '@site/src/components/ui/Tooltip';
 
 import CEBlock from '@site/src/components/interactive/shell/CEBlock';
 import StepControls from '@site/src/components/interactive/shell/StepControls';

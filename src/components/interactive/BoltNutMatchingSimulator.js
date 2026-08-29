@@ -1,6 +1,6 @@
 import React, { useMemo, useState } from 'react';
-import Box from '@mui/material/Box';
-import Typography from '@mui/material/Typography';
+import Box from '@site/src/components/ui/Box';
+import Typography from '@site/src/components/ui/Typography';
 import ProblemShell from '@site/src/components/interactive/shell/ProblemShell';
 import AnimatedNumber from '@site/src/components/interactive/shell/AnimatedNumber';
 import { randInt } from '@site/src/components/interactive/shell/mathRandom';

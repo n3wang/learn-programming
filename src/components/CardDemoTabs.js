@@ -1,20 +1,20 @@
 import React, { useState } from "react"
-import Box from '@mui/material/Box';
-import Card from '@mui/material/Card';
-import CardContent from '@mui/material/CardContent';
-import Typography from '@mui/material/Typography';
-import ExpandMoreIcon from '@mui/icons-material/ExpandMore';
-import Accordion from '@mui/material/Accordion';
-import AccordionSummary from '@mui/material/AccordionSummary';
-import AccordionDetails from '@mui/material/AccordionDetails';
-import Tabs from '@mui/material/Tabs';
-import Tab from '@mui/material/Tab';
-import TabContext from '@mui/lab/TabContext';
-import TabList from '@mui/lab/TabList';
-import TabPanel from '@mui/lab/TabPanel';
+import Box from '@site/src/components/ui/Box';
+import Card from '@site/src/components/ui/Card';
+import CardContent from '@site/src/components/ui/CardContent';
+import Typography from '@site/src/components/ui/Typography';
+import ExpandMoreIcon from '@site/src/components/ui/icons/ExpandMoreIcon';
+import Accordion from '@site/src/components/ui/Accordion';
+import AccordionSummary from '@site/src/components/ui/AccordionSummary';
+import AccordionDetails from '@site/src/components/ui/AccordionDetails';
+import Tabs from '@site/src/components/ui/Tabs';
+import Tab from '@site/src/components/ui/Tab';
+import TabContext from '@site/src/components/ui/lab/TabContext';
+import TabList from '@site/src/components/ui/lab/TabList';
+import TabPanel from '@site/src/components/ui/lab/TabPanel';
 
-import Chip from '@mui/material/Chip';
-import Stack from '@mui/material/Stack';
+import Chip from '@site/src/components/ui/Chip';
+import Stack from '@site/src/components/ui/Stack';
 
 const linkSample = { "Udemy": "https://www.udemy.com/course/tensorflow-developer-certificate-machine-learning-zero-to-mastery/", "My Notes": "https://docs.google.com/document/d/1kP4wv0uMWKvrFWUlq66kVZnvnyb0km1AmkP65-dFJqQ/edit" }
 const image = require("@site/static/img/2022-05-26-19-56-57.png").default

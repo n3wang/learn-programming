@@ -11,9 +11,9 @@
  */
 
 import React, { useState } from 'react';
-import Typography from '@mui/material/Typography';
-import Stack from '@mui/material/Stack';
-import Chip from '@mui/material/Chip';
+import Typography from '@site/src/components/ui/Typography';
+import Stack from '@site/src/components/ui/Stack';
+import Chip from '@site/src/components/ui/Chip';
 
 import CEBlock from '@site/src/components/interactive/shell/CEBlock';
 import StepControls from '@site/src/components/interactive/shell/StepControls';
