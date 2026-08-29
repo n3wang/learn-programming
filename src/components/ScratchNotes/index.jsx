@@ -17,6 +17,9 @@ import {
 } from '@site/src/components/codeWorkspace/drafts';
 import styles from './styles.module.css';
 
+const HOMEWORK_SUBMIT_URL =
+  'https://drive.google.com/drive/folders/1cUjkXudoElFuF98pQVmk9fsggHnhcpdm?usp=sharing';
+
 const SAVE_MS = 400;
 
 function formatDate(ts) {
@@ -312,6 +315,19 @@ export default function ScratchNotes() {
               ×
             </button>
           </header>
+
+          <div className={styles.homework}>
+            <p className={styles.homeworkText}>
+              课后作业请上传到 Google Drive 文件夹。文件名写清楚姓名与日期。
+            </p>
+            <a
+              className={styles.homeworkLink}
+              href={HOMEWORK_SUBMIT_URL}
+              target="_blank"
+              rel="noopener noreferrer">
+              提交作业
+            </a>
+          </div>
 
           {tab === 'notes' && !activeNote && (
             <div className={styles.body}>
