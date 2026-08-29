@@ -1,0 +1,218 @@
+---
+sidebar_position: 9
+title: Designing Applications Around Dataflow
+---
+
+# Designing Applications Around Dataflow
+
+> **Adapted from:** Martin Kleppmann, *Designing Data-Intensive Applications* (O'Reilly, 2017), Chapter 12 — rewritten and condensed for teaching.
+
+[Unbundling Databases](./unbundling-databases) framed composing specialized storage and processing systems as a kind of "database inside-out" — a design pattern, not a new architecture, drawing on ideas from dataflow languages, functional reactive programming, and logic programming that already existed elsewhere. This lesson works through what that pattern actually implies for how application code and state relate to each other.
+
+---
+
+## Application Code as a Derivation Function
+
+Every derived dataset is produced by some transformation function applied to its source:
+
+- A **secondary index** picks out the indexed columns/fields from each row and sorts by them.
+- A **full-text search index** applies language detection, word segmentation, stemming, spelling correction, and synonym expansion, then builds an inverted index for fast lookup.
+- A **machine learning model** is derived from training data via feature extraction and statistical analysis; a prediction is then derived from the model plus new input (and hence, indirectly, from the training data too).
+- A **cache** is often a precomputed aggregation shaped for exactly how a UI will display it — populating it correctly requires knowing what the UI actually references.
+
+`CREATE INDEX`'s derivation function is common enough to be a database built-in. Full-text indexing gets basic support built in for common languages, but sophisticated tuning is domain-specific. Feature engineering for ML is notoriously application-specific. Whenever the derivation function *isn't* a standard, cookie-cutter one, custom application code is required — and this is precisely where databases have historically struggled: triggers, stored procedures, and user-defined functions exist, but have generally been an afterthought in database design.
+
+### Separation of Application Code and State
+
+In principle, a database could be a deployment environment for arbitrary application code, the way an operating system is. In practice, databases are poorly suited to this: they don't fit modern development needs like dependency management, version control, rolling upgrades, monitoring, or calling out to network services. Cluster-management tools (Kubernetes, Docker, Mesos, YARN) exist specifically to run application code well, by focusing on doing exactly that one thing.
+
+The resulting split — stateless application logic on one side, database-managed state on the other — is now close to universal in web application deployment: any request can be routed to any server, which forgets everything the instant it responds, while the database is the durable, shared, mutable variable both readers and writers interact with over the network.
+
+There's a real limitation baked into that model, though: in most programming languages, you can't *subscribe* to changes in a mutable variable — only read it periodically. Databases inherited exactly that passive behavior: your only default option for detecting a change is to poll (repeat the same query again later). Subscribing to changes as a first-class database feature (see [API support for change streams](./databases-and-streams)) is only just beginning to emerge.
+
+### Check: derivation functions and the app/state split
+
+<MultipleChoice
+  id="ddia-future-dataflow-apps"
+  title="Application code as derivation, and separating logic from state"
+  questions={[
+    {
+      prompt: 'Why have databases historically struggled to support "custom" derivation functions well, even though they support standard ones like secondary indexes natively?',
+      choices: [
+        'Databases have always excelled equally at both standard and fully custom derivation logic',
+        'Standard derivations like secondary indexes are common enough to be built-in database features, but arbitrary, application-specific logic (custom feature engineering, domain-tuned search ranking) requires running real application code — and features like triggers/stored procedures for that have generally been an afterthought in database design',
+        'Databases are physically incapable of running any code beyond SQL queries',
+        'Custom derivation functions are never actually needed in real applications',
+      ],
+      answer: 1,
+      why: "The lesson distinguishes exactly this: cookie-cutter derivations (secondary indexes) get first-class support, while genuinely custom logic needs real application code — support databases have historically treated as secondary.",
+    },
+    {
+      prompt: 'Why are dedicated cluster-management tools (Kubernetes, Docker, Mesos, YARN) generally better suited to running application code than a database would be?',
+      choices: [
+        'Databases and cluster-management tools are functionally identical, so it makes no difference',
+        'Cluster-management tools specialize specifically in running application code well — handling dependency management, version control, rolling upgrades, and network service integration — concerns databases were never designed around, since databases focus on durable storage instead',
+        'Cluster-management tools cannot run any application code at all',
+        'Databases are actually the superior choice for running application code in every case',
+      ],
+      answer: 1,
+      why: 'This is the specialization argument the lesson makes directly: a tool that focuses on doing one thing (running app code well) ends up doing it better than a database for which that would only ever be a secondary feature.',
+    },
+    {
+      prompt: 'What key limitation does the lesson identify in the typical "stateless application code + database as shared mutable variable" model?',
+      choices: [
+        'The model has no limitations and is already ideal for every use case',
+        'Most programming languages (and the databases behind them) only support reading a variable\'s current value on demand — you cannot subscribe to be notified when it changes, so detecting a change usually requires periodic polling instead',
+        'Stateless application servers cannot ever read from a database',
+        'Databases can only be read by exactly one application server at a time',
+      ],
+      answer: 1,
+      why: "The lesson explicitly contrasts this passive, poll-based default with a spreadsheet's automatic recalculation — and notes that subscribing to database changes as a first-class feature is only just beginning to emerge.",
+    },
+  ]}
+/>
+
+---
+
+## Dataflow: Interplay Between State Changes and Application Code
+
+Thinking in terms of dataflow means renegotiating that database-as-passive-variable relationship: instead of an application manipulating a passive store, application code responds to state changes in one place by *triggering* state changes elsewhere — the same idea behind treating a [database's own change log as a stream](./databases-and-streams#derived-state-versus-events-stream) to subscribe to, behind message-passing actor systems, and, going back to the 1980s, behind the tuple-spaces model of distributed computation.
+
+Unbundling the database means taking this same idea — a trigger firing, a secondary index updating in step with the table it indexes — and applying it *outside* the primary database, to caches, search indexes, ML pipelines, and analytics systems, using stream processing and messaging as the mechanism.
+
+Maintaining derived data this way is a genuinely different problem from ordinary asynchronous job execution, which is what most messaging systems were originally built for:
+
+- **Order matters.** If several views are derived from the same event log, they need to process events in the *same* order to remain mutually consistent — many message brokers don't preserve this when redelivering unacknowledged messages, and [dual writes](./databases-and-streams#the-dual-writes-problem) are ruled out entirely for the same reason.
+- **No message can be lost.** Losing even one message permanently desyncs the derived dataset from its source — both message delivery *and* derived-state updates need to be genuinely reliable, which rules out actor systems that, by default, keep state and messages purely in memory.
+
+Modern stream processors provide exactly this combination of ordering and reliability, at real scale, while still letting application code run as a stream operator doing whatever custom processing built-in database derivation functions don't cover — composed together, Unix-pipe style, into larger systems built entirely around dataflow.
+
+### Stream Processors and Services
+
+The currently dominant style — services communicating over synchronous REST/RPC calls (see [Dataflow Through Services: REST and RPC](../designing-data-intensive-applications/modes-of-dataflow)) — buys organizational scalability through loose coupling between teams. Composing stream operators shares that organizational benefit, but the underlying communication mechanism is fundamentally different: one-directional, asynchronous message streams instead of synchronous request/response.
+
+**A concrete comparison.** Converting a purchase from one currency to another needs the current exchange rate. Two ways to get it:
+
+1. **Microservices approach:** query an exchange-rate service or database for the current rate, synchronously, at the moment you need it.
+2. **Dataflow approach:** subscribe to a stream of exchange-rate updates *ahead of time*, keep the latest rate in a small local database, and just query that local copy when a purchase needs converting.
+
+The dataflow version replaces a synchronous network call with a local (even same-process) lookup — faster, and more robust to the exchange-rate service being temporarily unavailable. As Kleppmann puts it: *the fastest and most reliable network request is no network request at all.* In join terms, this has replaced an RPC call with a [stream-table join](./transmitting-event-streams#stream-table-join) between purchase events and exchange-rate update events — and, like any such join, it's genuinely **time-dependent**: reprocessing an old purchase event later requires the exchange rate *as it was* at the original time, not whatever the current rate happens to be.
+
+### Practice: a local rate cache fed by a subscribed stream
+
+Implement the dataflow-style currency conversion directly: maintain a small local table of exchange rates by applying rate-update events in order, then convert each purchase using whatever rate was known *as of* that purchase — exactly the stream-table join the lesson describes.
+
+<CodeExercise
+  title="Convert purchases using a locally-cached, subscribed rate stream"
+  heading="exercise-stream-table-join"
+  lang="python"
+  filename="main.py"
+  prompt="Implement convert_purchases(purchases, rate_updates). purchases is a list of dicts with 'seq', 'amount', 'currency', sorted by seq. rate_updates is a list of dicts with 'seq', 'currency', 'rate' (rate to USD), not necessarily sorted. For each purchase, apply every rate_update with seq <= the purchase's seq (in seq order) to a local rates table first, then convert that purchase's amount to USD using the latest known rate for its currency. Return a list of the converted amounts, each rounded to 2 decimal places."
+  sampleLog={`(no input)
+[11.0, 24.0]`}
+  starter={`def convert_purchases(purchases, rate_updates):
+    # TODO: sort rate_updates by seq, then walk through purchases (already
+    # sorted by seq) applying every rate update whose seq has "arrived" so
+    # far into a local rates dict before converting each purchase.
+    pass
+
+purchases = [
+    {"seq": 1, "amount": 10, "currency": "EUR"},
+    {"seq": 3, "amount": 20, "currency": "EUR"},
+]
+rate_updates = [
+    {"seq": 0, "currency": "EUR", "rate": 1.1},
+    {"seq": 2, "currency": "EUR", "rate": 1.2},
+]
+print(convert_purchases(purchases, rate_updates))
+`}
+  hint="Sort rate_updates by seq, keep a pointer i, and for each purchase advance i while rate_updates[i]['seq'] <= purchase['seq'], updating rates[currency] = rate as you go."
+  solution={`def convert_purchases(purchases, rate_updates):
+    rates = {}
+    updates = sorted(rate_updates, key=lambda u: u["seq"])
+    results = []
+    i = 0
+    for p in purchases:
+        while i < len(updates) and updates[i]["seq"] <= p["seq"]:
+            rates[updates[i]["currency"]] = updates[i]["rate"]
+            i += 1
+        results.append(round(p["amount"] * rates[p["currency"]], 2))
+    return results
+
+purchases = [
+    {"seq": 1, "amount": 10, "currency": "EUR"},
+    {"seq": 3, "amount": 20, "currency": "EUR"},
+]
+rate_updates = [
+    {"seq": 0, "currency": "EUR", "rate": 1.1},
+    {"seq": 2, "currency": "EUR", "rate": 1.2},
+]
+print(convert_purchases(purchases, rate_updates))
+`}
+  sourceChecks={[
+    { name: 'only applies rate updates whose seq has already arrived', pattern: 'seq.*<=|<=.*seq', must: true, hint: "advance the rate-update pointer only while updates[i]['seq'] <= p['seq']" },
+  ]}
+  tests={[
+    { name: 'converts each purchase using the rate known as of its own seq', stdin: '', equals: "[11.0, 24.0]" },
+  ]}
+/>
+
+### Check: dataflow vs. job queues, and stream processors vs. services
+
+<MultipleChoice
+  id="ddia-future-stream-services"
+  title="Dataflow's stricter requirements, and streams vs. synchronous services"
+  questions={[
+    {
+      prompt: 'Why is maintaining derived data via stream processing NOT the same problem as ordinary asynchronous job execution, which most message brokers were originally designed for?',
+      choices: [
+        'They are exactly the same problem with no meaningful differences',
+        'Maintaining derived data requires processing events in a consistent ORDER across multiple derived views (which many brokers don\'t guarantee on redelivery) and cannot tolerate losing even a single message without permanently desyncing derived state from its source — much stricter requirements than typical job queues need',
+        'Asynchronous job execution never requires any reliability guarantees at all',
+        'Message brokers are incapable of being used for any kind of derived-data maintenance',
+      ],
+      answer: 1,
+      why: 'Ordering consistency across views and zero tolerance for message loss are exactly the two stricter requirements the lesson calls out as distinguishing derived-data maintenance from generic job queues.',
+    },
+    {
+      prompt: 'In the currency-conversion example, why does subscribing to a stream of exchange-rate updates and querying a local cache outperform querying a remote exchange-rate service synchronously?',
+      choices: [
+        'It does not actually perform any better in practice',
+        'It replaces a synchronous network round-trip with a local (or even same-process) lookup, which is both faster and more robust to the exchange-rate service being temporarily slow or unavailable — "the fastest and most reliable network request is no network request at all"',
+        'Local caches are always perfectly up to date with zero delay, unlike remote services',
+        'Remote services are technically incapable of serving exchange rate data',
+      ],
+      answer: 1,
+      why: "This is exactly the trade-off the lesson highlights: pre-subscribing and caching locally trades a network round-trip (with its latency and failure exposure) for a fast local lookup.",
+    },
+    {
+      prompt: 'Why is the currency-conversion stream-table join described as genuinely "time-dependent"?',
+      choices: [
+        'It is not actually time-dependent; the current exchange rate always works for any purchase, past or present',
+        'If a purchase event is reprocessed later, correctly reconstructing the original result requires the exchange rate as it was AT THE ORIGINAL TIME of purchase, not whatever the current rate happens to be when reprocessing occurs',
+        'Time-dependence only matters for purchases made in US dollars',
+        'Stream-table joins can never be time-dependent by definition',
+      ],
+      answer: 1,
+      why: 'Reprocessing correctness specifically requires the historically-correct rate at the original event time, which is exactly what makes this class of join time-dependent rather than a simple current-value lookup.',
+    },
+  ]}
+/>
+
+---
+
+:::important Key takeaways
+- Every derived dataset — a secondary index, a search index, an ML model, a cache — is the output of some derivation function applied to its source; standard ones are database built-ins, but custom, application-specific ones require real application code, which databases have historically supported only as an afterthought.
+- The now-standard split between **stateless application servers** and a **stateful database** works well operationally, but inherits a real limitation: most systems can only poll a database for changes, since subscribing to changes is only just beginning to emerge as a first-class feature.
+- Thinking in terms of **dataflow** means treating application code as reacting to state changes and triggering further state changes elsewhere — the same pattern already used inside databases for triggers and index maintenance, now applied outside the database via stream processing.
+- Maintaining derived data via streams has **stricter requirements** than ordinary job queues: consistent ordering across derived views, and zero tolerance for lost messages.
+- Subscribing to a stream and maintaining a **local cache**, as in the currency-conversion example, can beat synchronous service calls on both speed and robustness — at the cost of having to handle the resulting join's time-dependence correctly.
+:::
+
+## Further Reading
+
+- Martin Kleppmann — *Designing Data-Intensive Applications* (O'Reilly, 2017), Chapter 12
+- [Unbundling Databases](./unbundling-databases) — this series' previous lesson
+- [Observing Derived State](./observing-derived-state) — this series' next lesson
+- [Modes of Dataflow](../designing-data-intensive-applications/modes-of-dataflow) — REST/RPC and message-passing dataflow, contrasted directly with the stream-operator style in this lesson
+- [Transmitting Event Streams](./transmitting-event-streams) — stream-table joins and reasoning about event time

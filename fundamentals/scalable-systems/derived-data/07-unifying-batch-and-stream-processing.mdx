@@ -1,0 +1,146 @@
+---
+sidebar_position: 7
+title: Unifying Batch and Stream Processing
+---
+
+# Unifying Batch and Stream Processing
+
+> **Adapted from:** Martin Kleppmann, *Designing Data-Intensive Applications* (O'Reilly, 2017), Chapter 12 — rewritten and condensed for teaching.
+
+[Data Integration and the Limits of Total Order](./data-integration-and-the-limits-of-total-order) established the goal: make sure data ends up in the right form in all the right places. Batch and stream processors ([Chapter 10](./batch-processing-with-unix-and-mapreduce) and [Chapter 11](./transmitting-event-streams)) are the tools for actually doing that — consuming inputs, transforming, joining, filtering, aggregating, and writing to the right outputs. This lesson looks at what the two approaches share, and how the industry has moved from running them side by side toward genuinely unifying them.
+
+---
+
+## Maintaining Derived State
+
+Batch and stream processing share a strong functional flavor, whether or not the code itself is written in a functional language: deterministic, pure functions whose output depends only on their input, with no side effects beyond their explicit output, treating input as immutable and output as append-only. Stream processing extends this with one addition — managed, fault-tolerant operator **state** (see [Rebuilding state after a failure](./transmitting-event-streams)).
+
+This discipline pays off twice over: it's what makes [idempotent retries](./databases-and-streams#change-data-capture) safe, and it makes the dataflow across an entire organization dramatically easier to reason about — search index, statistical model, or cache, it's all just a pipeline deriving one thing from another.
+
+Derived data *could*, in principle, be maintained synchronously — a relational database updates its secondary indexes inside the very same transaction as the write to the indexed table. But asynchrony is exactly what makes event-log-based systems robust: a fault in one component stays local, instead of the way distributed transactions **abort everywhere** the instant any single participant fails (see [Limitations of distributed transactions](../distributed-data/distributed-transactions-and-two-phase-commit#the-real-cost)). This is also why [partitioned secondary indexes](../distributed-data/partitioning-and-secondary-indexes) — which routinely have to cross partition boundaries — are most reliable when maintained asynchronously rather than synchronously.
+
+### Reprocessing Data for Application Evolution
+
+Stream processing keeps derived views current with low delay; batch processing lets you **reprocess** the entire accumulated history to derive a genuinely new view. That second capability matters more than it sounds — without it, schema evolution is limited to additive, low-risk changes (a new optional field, a new record type). *With* reprocessing, you can restructure a dataset into a fundamentally different model to meet new requirements.
+
+:::info Schema Migrations on Railways
+19th-century England had competing railway gauges (the distance between rails) — trains built for one gauge simply couldn't run on another. The eventual fix, after standardizing in 1846, wasn't shutting a line down for a rebuild: engineers added a third rail to create **dual gauge** track. Both old and new trains ran on the same line for years, until every train had converted, at which point the now-redundant rail could finally be removed.
+:::
+
+The same pattern works for datasets: maintain the old schema and the new schema **side by side**, as two independently-derived views of the same underlying data. Route a small fraction of users to the new view, watch for bugs, gradually increase that fraction, and eventually retire the old view. Every stage of that process is easily reversible — you always have a working system to fall back to — which is exactly what lets you move faster with real confidence.
+
+### The Lambda Architecture
+
+If batch reprocesses history and stream processing handles what just happened, the natural question is how to combine them. The **lambda architecture** proposes running two systems in parallel against the same immutable, append-only event log: a batch system (e.g., Hadoop MapReduce) produces a slower, exact, "corrected" view, while a stream processor (e.g., Storm) produces a fast, approximate view in the meantime. The premise: batch processing is simpler and less bug-prone, while stream processors were, at the time, considered less reliable and harder to make properly fault-tolerant.
+
+Despite being genuinely influential — it popularized deriving views from immutable event streams and reprocessing when needed — Kleppmann identifies real practical problems with running it as literally specified:
+
+- **Duplicated logic.** The same computation has to be implemented and maintained in *both* a batch and a streaming framework — libraries like Summingbird help express one computation that can run in either, but the operational burden of debugging and tuning two separate systems doesn't go away.
+- **Merging two outputs.** The batch and stream pipelines produce genuinely separate outputs that must be merged to answer a user request — trivial for a simple tumbling-window aggregation, much harder for joins, sessionization, or non-time-series output.
+- **Expensive full reprocessing.** Reprocessing the *entire* history on every batch run is costly at scale, which pushes the batch layer toward **incremental** batches instead — reintroducing exactly the straggler and window-boundary problems from [stream time semantics](./transmitting-event-streams), and eroding the "keep the batch layer simple" goal that motivated the split in the first place.
+
+### Unifying Batch and Stream Processing
+
+More recent systems get the lambda architecture's benefits without its duplication, by implementing both modes in **one** engine. That requires three capabilities, now increasingly standard:
+
+1. **Replaying historical events** through the same engine that handles the live stream — log-based brokers already support replay (see [Replaying old messages](./transmitting-event-streams)), and some stream processors can also read directly from a distributed filesystem like HDFS.
+2. **Exactly-once semantics** for stream processing — the output matches what it would have been with no faults at all, which (as in batch processing) requires discarding any failed task's partial output.
+3. **Event-time windowing**, not processing-time windowing — processing time is meaningless once you're reprocessing history (see [Reasoning About Time](./transmitting-event-streams)). Apache Beam's API, runnable on Flink or Google Cloud Dataflow, is a concrete example of expressing computations this way.
+
+### Practice: reconciling a lambda-architecture merge
+
+Implement the merge step a lambda-style pipeline needs: a fast stream view gives an immediate, approximate answer, and a slower batch view later supplies the corrected value for whatever it's had time to (re)process.
+
+<CodeExercise
+  title="Merge a fast stream view with a corrected batch view"
+  heading="exercise-lambda-merge"
+  lang="python"
+  filename="main.py"
+  prompt="Implement merge_views(stream_view, batch_view), where both are dicts mapping an hour (int) to a count. Return a merged dict: for any hour present in batch_view, use the batch (corrected) count; otherwise fall back to the stream (approximate) count."
+  sampleLog={`(no input)
+{0: 11, 1: 12, 2: 9}`}
+  starter={`def merge_views(stream_view, batch_view):
+    # TODO: start from stream_view, then overwrite any hour that batch_view
+    # has already corrected.
+    pass
+
+stream_view = {0: 10, 1: 12, 2: 9}
+batch_view = {0: 11, 1: 12}
+print(merge_views(stream_view, batch_view))
+`}
+  hint="merged = dict(stream_view); merged.update(batch_view); return merged"
+  solution={`def merge_views(stream_view, batch_view):
+    merged = dict(stream_view)
+    merged.update(batch_view)
+    return merged
+
+stream_view = {0: 10, 1: 12, 2: 9}
+batch_view = {0: 11, 1: 12}
+print(merge_views(stream_view, batch_view))
+`}
+  sourceChecks={[
+    { name: 'starts from the stream view and overlays batch corrections', pattern: 'dict\\(stream_view\\)|\\.update\\(', must: true, hint: 'copy stream_view first, then apply batch_view on top so corrected hours win' },
+  ]}
+  tests={[
+    { name: 'batch-corrected hours win, uncorrected hours fall back to the stream view', stdin: '', equals: "{0: 11, 1: 12, 2: 9}" },
+  ]}
+/>
+
+### Check: reprocessing, the lambda architecture, and unification
+
+<MultipleChoice
+  id="ddia-future-batch-stream-unification"
+  title="Reprocessing for evolution, the lambda architecture, and unifying the two models"
+  questions={[
+    {
+      prompt: 'Why does the ability to reprocess an entire historical dataset (not just apply incremental updates) matter for evolving an application\'s schema?',
+      choices: [
+        'Reprocessing has no real relationship to schema evolution',
+        'Without reprocessing, schema evolution is limited to simple additive changes; with reprocessing, you can restructure the entire dataset into a genuinely different model to meet new requirements, gradually and reversibly',
+        'Reprocessing is only useful for fixing data corruption, never for schema changes',
+        'Reprocessing requires deleting all old data before any new schema can be used',
+      ],
+      answer: 1,
+      why: 'The railway dual-gauge analogy captures exactly this: reprocessing lets you run old and new representations side by side and migrate gradually, which purely additive schema changes cannot achieve on their own.',
+    },
+    {
+      prompt: 'What is the core practical problem the lambda architecture runs into by running separate batch and stream pipelines against the same event log?',
+      choices: [
+        'The lambda architecture has no practical downsides at all',
+        'The same computational logic must be implemented and maintained in two different frameworks, and their separately-produced outputs must be merged at query time — which is straightforward for simple aggregations but genuinely hard for joins, sessionization, or non-time-series results',
+        'The lambda architecture cannot process any historical data whatsoever',
+        'Stream processors in a lambda architecture never produce any output at all',
+      ],
+      answer: 1,
+      why: 'Duplicated logic across two frameworks and the need to merge two separately-produced outputs are exactly the practical costs Kleppmann identifies with the lambda architecture as originally proposed.',
+    },
+    {
+      prompt: 'What three capabilities does a single, unified engine need in order to provide the benefits of the lambda architecture without running two separate systems?',
+      choices: [
+        'A faster CPU, more memory, and a bigger cluster',
+        'The ability to replay historical events through the same processing engine that handles live events, exactly-once semantics for stream processing, and windowing based on event time rather than processing time',
+        'A relational database, a NoSQL database, and a graph database running simultaneously',
+        'Manual synchronization scripts that copy data between the batch and stream systems nightly',
+      ],
+      answer: 1,
+      why: 'These are precisely the three requirements the lesson identifies as what modern unified engines provide in place of running genuinely separate batch and streaming pipelines.',
+    },
+  ]}
+/>
+
+---
+
+:::important Key takeaways
+- Batch and stream processing share a deterministic, side-effect-free "functional" core, and both should generally be maintained **asynchronously** — synchronous, transactional maintenance of derived data amplifies local faults into system-wide ones, exactly like distributed transactions do.
+- Batch processing's ability to **reprocess** an entire historical dataset — not just apply incremental updates — is what makes large, reversible schema and application evolution possible, following the same "run old and new side by side" pattern railways used to change gauges.
+- The **lambda architecture** popularized deriving views from immutable event logs, but running duplicated logic in two frameworks and merging their separate outputs is real, ongoing operational cost.
+- Modern engines **unify** batch and stream processing by supporting historical replay, exactly-once semantics, and event-time windowing in one system — capturing the lambda architecture's benefits without its duplication.
+:::
+
+## Further Reading
+
+- Martin Kleppmann — *Designing Data-Intensive Applications* (O'Reilly, 2017), Chapter 12
+- [Data Integration and the Limits of Total Order](./data-integration-and-the-limits-of-total-order) — this series' previous lesson
+- [Unbundling Databases](./unbundling-databases) — this series' next lesson
+- [Batch Processing with Unix and MapReduce](./batch-processing-with-unix-and-mapreduce) — the batch-processing fundamentals this lesson builds on
+- [Transmitting Event Streams](./transmitting-event-streams) — stream processing fundamentals, replay, and reasoning about time

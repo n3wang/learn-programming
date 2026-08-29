@@ -9,6 +9,8 @@ const FILE_NAMES = {
     java: 'Main.java',
     javascript: 'index.js',
     js: 'index.js',
+    yaml: 'manifest.yaml',
+    yml: 'manifest.yaml',
 };
 
 export default function defaultSourceFilename(lang, filename) {

@@ -1,0 +1,404 @@
+---
+sidebar_position: 2
+title: Hash Indexes and LSM-Trees
+---
+
+# Hash Indexes and LSM-Trees
+
+> **Adapted from:** Martin Kleppmann, *Designing Data-Intensive Applications* (O'Reilly, 2017), Chapter 3 — rewritten and condensed for teaching.
+
+[Graph-Like Data Models](./graph-like-data-models) looked at storage and retrieval from the *application developer's* side — the format you hand a database and the language you use to ask for it back. This lesson flips to the database's own point of view: on the most fundamental level, a database only has two jobs — when you give it data, store it; when you ask for it later, hand it back. Everything in this lesson is really just different answers to *how*.
+
+You'll probably never write your own storage engine from scratch — but picking the *right* one for your workload, and tuning it well, both require a rough mental model of what's happening under the hood. That's exactly what this lesson and the next one build.
+
+---
+
+## The World's Simplest Database
+
+Here's a fully working key-value store in two Bash functions:
+
+```bash
+#!/bin/bash
+db_set () {
+    echo "$1,$2" >> database
+}
+
+db_get () {
+    grep "^$1," database | sed -e "s/^$1,//" | tail -n 1
+}
+```
+
+`db_set key value` appends a `key,value` line to a file. `db_get key` finds the *most recent* line for that key and returns its value. It actually works:
+
+```bash
+$ db_set 123456 '{"name":"London","attractions":["Big Ben","London Eye"]}'
+$ db_set 42 '{"name":"San Francisco","attractions":["Golden Gate Bridge"]}'
+$ db_get 42
+{"name":"San Francisco","attractions":["Golden Gate Bridge"]}
+```
+
+Updating a key doesn't overwrite anything — it just appends another line, so `db_get` has to find the *last* matching line to get the current value:
+
+```bash
+$ db_set 42 '{"name":"San Francisco","attractions":["Exploratorium"]}'
+$ cat database
+123456,{"name":"London","attractions":["Big Ben","London Eye"]}
+42,{"name":"San Francisco","attractions":["Golden Gate Bridge"]}
+42,{"name":"San Francisco","attractions":["Exploratorium"]}
+```
+
+`db_set` is, surprisingly, already quite good — appending to a file is one of the cheapest operations a filesystem offers. Many real databases use exactly this idea internally: an append-only **log**. (Here, "log" doesn't mean human-readable application logs — it means any append-only sequence of records, human-readable or not.) Real engines add concurrency control, reclaiming disk space, and crash safety on top, but the core idea is identical to `db_set`.
+
+`db_get`, on the other hand, is a disaster at scale: it scans the *entire* file, every time, looking for matches. That's `O(n)` — double the number of records, double the lookup time. To fix this, we need a different data structure: an **index**.
+
+An index is extra metadata *derived from* the primary data — it doesn't change what's stored, only how fast you can find it. And every index has a cost: it must be updated on every write, so **indexes speed up reads at the cost of slowing down writes.** This is why databases don't index everything by default — you (or a DBA) choose indexes deliberately, based on your application's actual query patterns.
+
+### Practice: build the toy database
+
+Piston's sandbox doesn't have a Bash runtime, but the exact same idea translates directly into Python. Implement `db_set` and `db_get` using plain file append and a linear scan for the *last* matching key — this is the real append-only-log mechanism, just in a different language.
+
+<CodeExercise
+  title="Append-only key-value store"
+  heading="exercise-toy-db"
+  lang="python"
+  filename="main.py"
+  prompt="Implement db_set(key, value) to append 'key,value' to database.txt, and db_get(key) to return the most recently set value for that key (or None if it was never set)."
+  sampleLog={`(no input)
+San Francisco v1
+San Francisco v2`}
+  starter={`import os
+
+DB_PATH = "database.txt"
+
+def db_set(key, value):
+    # TODO: append "key,value\\n" to DB_PATH
+    pass
+
+def db_get(key):
+    # TODO: scan DB_PATH and return the value from the LAST line
+    # whose key matches, or None if the key was never set.
+    pass
+
+if os.path.exists(DB_PATH):
+    os.remove(DB_PATH)
+
+db_set("42", "San Francisco v1")
+print(db_get("42"))
+db_set("42", "San Francisco v2")
+print(db_get("42"))
+`}
+  hint='db_set: open(DB_PATH, "a") and write(f"{key},{value}\\n"). db_get: iterate all lines, split on the first comma, keep overwriting a "latest" variable whenever the key matches, return it at the end.'
+  solution={`import os
+
+DB_PATH = "database.txt"
+
+def db_set(key, value):
+    with open(DB_PATH, "a") as f:
+        f.write(f"{key},{value}\\n")
+
+def db_get(key):
+    latest = None
+    if not os.path.exists(DB_PATH):
+        return None
+    with open(DB_PATH) as f:
+        for line in f:
+            line = line.rstrip("\\n")
+            k, _, v = line.partition(",")
+            if k == key:
+                latest = v
+    return latest
+
+if os.path.exists(DB_PATH):
+    os.remove(DB_PATH)
+
+db_set("42", "San Francisco v1")
+print(db_get("42"))
+db_set("42", "San Francisco v2")
+print(db_get("42"))
+`}
+  sourceChecks={[
+    { name: 'appends to file', pattern: '"a"\\)|\\x27a\\x27\\)|append', must: true, hint: 'open the file in append mode ("a")' },
+  ]}
+  tests={[
+    { name: 'returns latest value after update', stdin: '', equals: 'San Francisco v1\nSan Francisco v2' },
+  ]}
+/>
+
+### Check: the append-only log
+
+<MultipleChoice
+  id="ddia-storage-toy-db"
+  title="The world's simplest database"
+  questions={[
+    {
+      prompt: 'Why is db_set (the append-only write) already fast, without any special optimization?',
+      choices: [
+        'Because Bash automatically compresses data before writing',
+        'Because appending to the end of a file is one of the cheapest possible filesystem operations — no need to find or rewrite existing data',
+        'Because db_set only writes to memory, never to disk',
+        'Because the database file is always empty before every write',
+      ],
+      answer: 1,
+      why: 'Appending avoids seeking to and rewriting existing data, which is exactly why real storage engines lean on the same append-only-log idea for writes.',
+    },
+    {
+      prompt: 'Why does db_get become slower and slower as the database grows, and what is this cost called in Big-O terms?',
+      choices: [
+        'It doesn\'t get slower; lookups are always instant regardless of size',
+        'db_get scans the entire file from start to end on every call, so lookup cost grows linearly with the number of records — O(n)',
+        'It gets slower because Bash deletes old records automatically',
+        'It gets slower only if the values are very large, never due to the number of records',
+      ],
+      answer: 1,
+      why: 'A full linear scan means doubling the record count doubles the average lookup time — the definition of O(n) cost.',
+    },
+    {
+      prompt: 'What is the fundamental trade-off that comes with adding an index to a database?',
+      choices: [
+        'Indexes have no real cost, so you should index every column by default',
+        'An index speeds up reads for the queries it supports, but slows down writes, because the index itself must be updated on every write',
+        'Indexes only work on numeric data, never on strings',
+        'Adding an index changes the actual contents of the stored data',
+      ],
+      answer: 1,
+      why: 'This read/write trade-off is exactly why indexes are chosen deliberately rather than applied to everything automatically.',
+    },
+  ]}
+/>
+
+---
+
+## Hash Indexes
+
+The simplest index for key-value data: keep an **in-memory hash map** from every key to a byte offset in the append-only data file. On every write, update the hash map with the new offset. On every read, look up the offset in the hash map, seek straight to that byte in the file, and read the value — no scanning required.
+
+This is, essentially, exactly what **Bitcask** (Riak's default storage engine) does. It offers very fast reads and writes, on one condition: *all keys must fit in RAM* (the hash map lives entirely in memory). Values can be far larger than available memory, since each read only costs one disk seek — and if that part of the file is already in the OS's filesystem cache, not even that.
+
+This shape fits workloads where a **modest number of distinct keys get updated extremely often** — e.g. the key is a cat video's URL, and the value is its play count, incremented every time someone hits play. Lots of writes, but a feasible number of distinct keys to keep in memory.
+
+### Compaction and Segment Merging
+
+An append-only file obviously can't grow forever, so real implementations break the log into **segments**: close a segment once it hits a size threshold, and start a new one. **Compaction** then throws away all but the most recent value for each key within a segment — and since compaction usually shrinks segments a lot (a key might be overwritten many times within one segment), it's natural to **merge** several compacted segments together at the same time, writing the result to a fresh file. Old segments are read normally while this happens in the background, and get deleted only once the merge completes.
+
+Each segment keeps its *own* in-memory hash map. A lookup checks the newest segment's map first, then the next-newest, and so on — merging keeps the segment count low, so this stays fast.
+
+### Making It Work in Practice
+
+A handful of unglamorous details separate this idea from a real, safe implementation:
+
+| Concern | Approach |
+|---|---|
+| **File format** | A binary format (length-prefixed strings) instead of CSV — faster, and sidesteps escaping |
+| **Deletes** | A special **tombstone** record marks a key deleted; merging discards any older value once it sees the tombstone |
+| **Crash recovery** | Rebuilding a segment's hash map by rereading the whole segment is slow — Bitcask snapshots each segment's hash map to disk for fast reload |
+| **Partial writes** | Checksums let a crash-corrupted, half-written record be detected and skipped |
+| **Concurrency** | One writer thread (writes are strictly sequential anyway); segments are immutable once closed, so many threads can read concurrently with no coordination |
+
+:::tip Why append-only, when overwriting in place seems simpler?
+Three real reasons: **(1)** sequential writes (appending, merging) are dramatically faster than random writes, especially on spinning disks and — to a lesser extent — SSDs. **(2)** Concurrency and crash recovery get much simpler when segments are append-only/immutable — there's no scenario where a crash leaves a file half-old, half-new mid-record. **(3)** Merging naturally defragments old data over time, instead of it slowly fragmenting the way in-place updates do.
+:::
+
+### Where Hash Indexes Fall Short
+
+Two real limits:
+
+1. **The hash map must fit in memory.** An on-disk hash map is possible in theory, but performs poorly in practice — random I/O, expensive resizing, fiddly collision handling.
+2. **Range queries are inefficient.** There's no way to cheaply ask "give me every key between `kitty00000` and `kitty99999`" — a hash map has no sense of ordering, so you'd have to look up each key individually.
+
+### Check: hash indexes
+
+<MultipleChoice
+  id="ddia-storage-hash-index"
+  title="Hash indexes and Bitcask"
+  questions={[
+    {
+      prompt: 'In a Bitcask-style hash index, what does the in-memory hash map actually store?',
+      choices: [
+        'A full copy of every value, kept entirely in RAM',
+        'A mapping from each key to the byte offset in the on-disk data file where its most recent value can be found',
+        'A sorted list of all keys in the database',
+        'A count of how many times each key has been written',
+      ],
+      answer: 1,
+      why: 'The hash map only needs to point at where the real value lives on disk — the value itself doesn\'t need to be duplicated in memory.',
+    },
+    {
+      prompt: 'What specifically must fit in memory for a Bitcask-style hash index to work well, and what does NOT need to fit?',
+      choices: [
+        'Both keys and values must fit entirely in RAM',
+        'All the keys (since the hash map holding them lives in memory) — but the values can be far larger than available RAM, since each read only costs one disk seek',
+        'Neither keys nor values need to fit in memory',
+        'Only the values need to fit in memory; keys can be stored on disk',
+      ],
+      answer: 1,
+      why: 'The hash map (keys → offsets) is what has to be memory-resident; the bulk of the data (values) stays on disk and is fetched on demand.',
+    },
+    {
+      prompt: 'Why can\'t a hash index efficiently answer a range query like "all keys between kitty00000 and kitty99999"?',
+      choices: [
+        'Hash indexes can only store numeric keys, not strings',
+        'A hash map has no notion of key ordering, so there\'s no way to jump straight to a contiguous range — every key in the range would need to be looked up individually',
+        'Range queries are impossible in any indexing structure',
+        'Hash maps can only hold a fixed maximum number of entries',
+      ],
+      answer: 1,
+      why: 'Hashing deliberately scatters keys with no preserved order, which is exactly the property a range query needs and a hash index lacks — this motivates the sorted structures covered next.',
+    },
+  ]}
+/>
+
+---
+
+## SSTables and LSM-Trees
+
+Take the segment format from before and add one requirement: **the key-value pairs must be sorted by key**, with each key appearing only once per (already-compacted) segment. This format is called a **Sorted String Table**, or **SSTable**.
+
+Sorting unlocks three big wins over plain hash-indexed segments:
+
+1. **Merging is simple and cheap, even for files bigger than memory.** It's exactly mergesort's merge step: read all input segments side by side, always copy the *lowest* current key to the output, and repeat. When the same key appears in multiple segments, keep the value from the *newer* segment and discard the rest (since segments are ordered in time, this is always well-defined).
+
+2. **You don't need every key in memory to find one.** If you're looking for `handiwork` and you already know `handbag` sits at offset 1000 and `handsome` sits at offset 2000, sorting guarantees `handiwork` — if it exists — is somewhere between those two offsets. So the in-memory index only needs to be **sparse**: one key every few kilobytes of segment file is enough, since scanning a few kilobytes is cheap.
+
+3. **Compression becomes natural.** Since a read already has to scan a small range of consecutive records anyway, that range can be grouped into a block and compressed before writing — smaller files *and* less I/O bandwidth used per read.
+
+### How Do You Get Sorted Data From Unsorted Writes?
+
+Writes arrive in arbitrary order, but building a sorted structure *in memory* is easy — a balanced tree (red-black, AVL) lets you insert in any order and read back sorted. This in-memory tree is called a **memtable**, and it's the missing piece of the puzzle:
+
+1. A write goes into the memtable first.
+2. Once the memtable crosses a size threshold (typically a few MB), flush it to disk as a new SSTable file — cheap, since the tree is already sorted. Writes continue into a *fresh* memtable while the old one is being flushed.
+3. A read checks the memtable first, then the newest on-disk segment, then the next-newest, and so on.
+4. A background process periodically merges and compacts segments, same as before.
+
+The one gap: a crash loses whatever's in the memtable but not yet flushed. The fix is familiar — keep a separate, unsorted **write-ahead log** that every write hits immediately, purely to rebuild the memtable after a crash. Once a memtable is safely flushed to an SSTable, its corresponding log can be discarded.
+
+### The LSM-Tree Family
+
+This exact scheme — memtable + flushed SSTables + background merging — is what **LevelDB** and **RocksDB** implement, and it's the design **Cassandra** and **HBase** both inherited from Google's **Bigtable** paper (which is where the terms *SSTable* and *memtable* originated). The underlying technique was formally described earlier as the **Log-Structured Merge-Tree (LSM-Tree)**, building on log-structured filesystem research — which is why storage engines built this way are generally called **LSM storage engines**. Lucene (the indexing engine behind Elasticsearch and Solr) uses a near-identical SSTable-like structure for its term dictionary, mapping search terms to lists of matching document IDs.
+
+### Performance Tricks
+
+Looking up a key that **doesn't exist** is the worst case for an LSM-tree — you have to check the memtable and every segment, oldest included, before you can be sure. **Bloom filters** — a compact, memory-efficient structure that can definitively say "this key is *not* in the set" — short-circuit most of those wasted checks.
+
+Two common strategies govern *when* and *how* SSTables get merged:
+
+- **Size-tiered compaction** — merge smaller, newer SSTables into larger, older ones (used by HBase; Cassandra supports this too).
+- **Leveled compaction** — split the key range into smaller SSTables and progressively move older data into separate "levels," allowing incremental compaction with less disk space overhead (used by LevelDB and RocksDB — hence LevelDB's name).
+
+Despite the subtlety packed into a real implementation, the core idea — a cascade of sorted segments, merged in the background — stays simple, scales well past available memory, supports efficient range queries (since data is sorted), and sustains high write throughput (since disk writes stay sequential).
+
+### Practice: simulate compaction
+
+Compaction's core job is simple: given a segment (a sequence of key-value writes in the order they happened), keep only the **most recent** value per key. Implement it directly.
+
+<CodeExercise
+  title="Compact a segment"
+  heading="exercise-compaction"
+  lang="python"
+  filename="main.py"
+  prompt="Implement compact(writes) to return a list of (key, value) pairs — one per unique key, keeping each key's LAST value from the input — sorted by key (as a real SSTable would be)."
+  sampleLog={`(no input)
+[('bengal', '9'), ('siamese', '30'), ('tabby', '17')]`}
+  starter={`def compact(writes):
+    # writes is a list of (key, value) tuples, in write order.
+    # TODO: keep only the most recent value per key, and
+    # return the result as a list of (key, value) tuples
+    # sorted by key.
+    pass
+
+writes = [
+    ("tabby", "12"),
+    ("siamese", "5"),
+    ("tabby", "13"),
+    ("bengal", "9"),
+    ("siamese", "30"),
+    ("tabby", "17"),
+]
+
+print(compact(writes))
+`}
+  hint="Build a dict, overwriting each key's value as you iterate through writes in order (later writes naturally overwrite earlier ones) — then return sorted(dict.items())."
+  solution={`def compact(writes):
+    latest = {}
+    for key, value in writes:
+        latest[key] = value
+    return sorted(latest.items())
+
+writes = [
+    ("tabby", "12"),
+    ("siamese", "5"),
+    ("tabby", "13"),
+    ("bengal", "9"),
+    ("siamese", "30"),
+    ("tabby", "17"),
+]
+
+print(compact(writes))
+`}
+  sourceChecks={[
+    { name: 'returns sorted output', pattern: 'sorted\\(', must: true, hint: 'sort the final result by key, matching SSTable ordering' },
+  ]}
+  tests={[
+    { name: 'keeps latest value per key, sorted', stdin: '', equals: "[('bengal', '9'), ('siamese', '30'), ('tabby', '17')]" },
+  ]}
+/>
+
+### Check: SSTables and LSM-trees
+
+<MultipleChoice
+  id="ddia-storage-lsm"
+  title="SSTables, memtables, and LSM-trees"
+  questions={[
+    {
+      prompt: 'Why does requiring segment files to be sorted by key (an SSTable) allow the in-memory index to be sparse, instead of needing every key in memory?',
+      choices: [
+        'Sparse indexes are always used regardless of sorting; sorting is unrelated',
+        'Because sorting guarantees a target key must fall between two known indexed keys, so you can jump to the nearby offset and scan a small range — no need to know every key\'s exact location up front',
+        'Because sorted files never need an index at all',
+        'Because sorting compresses the file, making a full index unnecessary',
+      ],
+      answer: 1,
+      why: 'Sort order is what lets you bound the search to a small window between two known offsets, which is exactly what makes a sparse index sufficient.',
+    },
+    {
+      prompt: 'What is a memtable, and why is a separate write-ahead log also needed alongside it?',
+      choices: [
+        'A memtable is a disk file; the write-ahead log replaces it entirely',
+        'A memtable is an in-memory sorted tree that buffers recent writes before they\'re flushed to disk as an SSTable; the write-ahead log exists purely to recover the memtable\'s contents if the database crashes before a flush happens',
+        'A memtable and a write-ahead log are two names for the exact same structure',
+        'The write-ahead log replaces the need for SSTables entirely',
+      ],
+      answer: 1,
+      why: 'The memtable buffers sorted writes in memory for cheap flushing later, but memory is volatile — the WAL is the durability backstop for whatever hasn\'t been flushed yet.',
+    },
+    {
+      prompt: 'Why are Bloom filters particularly useful for LSM-tree storage engines specifically?',
+      choices: [
+        'They make writes faster by skipping the write-ahead log',
+        'Looking up a nonexistent key in an LSM-tree is expensive (every segment must be checked); a Bloom filter can quickly say "definitely not here" for most segments, avoiding that costly worst case',
+        'They replace the need for a memtable',
+        'They are used only for compression, not lookups',
+      ],
+      answer: 1,
+      why: 'The described worst case — checking every segment for a key that doesn\'t exist — is exactly the scenario Bloom filters are designed to short-circuit cheaply.',
+    },
+  ]}
+/>
+
+---
+
+:::important Key takeaways
+- Every database ultimately does two things: **store** data you give it, and **retrieve** it later — everything else is implementation detail in service of doing both quickly.
+- An **index** is metadata derived from primary data that speeds up reads at the cost of slowing down writes — which is why indexes are chosen deliberately, not applied everywhere by default.
+- A **hash index** (Bitcask-style) offers very fast reads/writes but requires all keys to fit in memory and can't do efficient range queries.
+- Sorting segments into **SSTables** fixes both limits: merging becomes a cheap mergesort-style pass, the in-memory index can be sparse, and reads compress naturally — at the cost of needing an in-memory **memtable** (backed by a write-ahead log) to accumulate sorted writes before flushing.
+- **LSM-trees** — a cascade of SSTables merged in the background — power LevelDB, RocksDB, Cassandra, HBase, and Lucene's term dictionaries, and scale gracefully even when the dataset far exceeds available memory.
+:::
+
+## Further Reading
+
+- Martin Kleppmann — *Designing Data-Intensive Applications* (O'Reilly, 2017), Chapter 3
+- [Graph-Like Data Models](./graph-like-data-models) — this series' previous lesson
+- [B-Trees and Other Indexing Structures](./b-trees-and-other-indexing-structures) — this series' next lesson
+- Patrick O'Neil et al. — "The Log-Structured Merge-Tree (LSM-Tree)" (1996), the original paper
+- [LevelDB documentation](https://github.com/google/leveldb) and [RocksDB documentation](https://rocksdb.org/)

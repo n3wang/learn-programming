@@ -1,0 +1,247 @@
+---
+sidebar_position: 2
+title: Joins in MapReduce
+---
+
+# Joins in MapReduce
+
+> **Adapted from:** Martin Kleppmann, *Designing Data-Intensive Applications* (O'Reilly, 2017), Chapter 10 — rewritten and condensed for teaching.
+
+[Batch Processing with Unix and MapReduce](./batch-processing-with-unix-and-mapreduce) established the map/shuffle/reduce pattern in the abstract. This lesson puts it to work on the problem every real dataset eventually runs into: **joins**. [Graph-Like Data Models](../designing-data-intensive-applications/graph-like-data-models) discussed joins from the query-language side; this is where they actually get *implemented*.
+
+MapReduce has no concept of an index — when it's given a set of input files, it reads *all* of them, a full scan every time. For looking up a handful of records, that's absurdly wasteful compared to an index lookup. But for the kind of aggregate, whole-dataset analytics batch jobs exist to do, a full scan across many parallel machines is often perfectly reasonable — and when we say "join" in a batch context, we specifically mean resolving **every** occurrence of some association across the *entire* dataset, not looking up one specific record.
+
+---
+
+## Reduce-Side Joins: Bringing Data Together by Key
+
+### The Motivating Example
+
+Say you have a log of user activity events (clickstream data — just a user ID per event) and a separate user profile database (containing, say, each user's date of birth), and you want to correlate page popularity with age group. The events don't carry full profile data — embedding it in every single event would be wasteful — so you need to **join** the two datasets on user ID.
+
+The naive approach — query the (remote) user database once per activity event — performs terribly: throughput gets capped by network round-trip time, cache effectiveness depends entirely on data distribution, and hammering the database with a flood of parallel queries risks overwhelming it. It also makes the whole batch job **nondeterministic**, since the remote database's contents can change mid-run. The fix: copy the user database into the *same* distributed filesystem as the activity log (typically via an ETL extraction), so the join can run entirely locally, with no network round-trips per record at all.
+
+### Sort-Merge Joins
+
+Run mappers over **both** inputs, each extracting **the same key** — user ID — regardless of which dataset a mapper is reading:
+
+- Mappers over the activity log emit `(userID, activity_event)`.
+- Mappers over the user database emit `(userID, date_of_birth)`.
+
+Once the shuffle partitions and sorts by that shared key, every activity event *and* the one profile record sharing a user ID land **adjacent to each other**, in the same reducer call. A common refinement, **secondary sort**, arranges things so the reducer always sees the profile record **first**, followed by that user's activity events in timestamp order — letting the reducer stash the date of birth in a local variable, then simply stream through the events emitting `(url, age)` pairs as it goes, with no memory overhead beyond that single cached record. This whole technique — sort mapper output by key, let matching records merge together in the reducer — is a **sort-merge join**.
+
+### Why This Works: Mappers as Messages
+
+One clean way to see this pattern: mapper output keys act like **destination addresses**. A mapper "sends a message" to a reducer purely by choosing what key to emit — every key-value pair sharing a key is guaranteed delivery to the same reducer call, no matter which mapper produced it or which machine that mapper ran on. This cleanly separates the **physical** problem (get the right data to the right machine — the framework's job) from the **application logic** (what to actually do once it's there — your job) — a separation ordinary database-backed application code, where a query sits deep inside business logic, doesn't get nearly as cleanly.
+
+### GROUP BY Is the Same Pattern
+
+Grouping — SQL's `GROUP BY` — uses the exact same "bring matching keys together" mechanism: set the mapper's output key to whatever you're grouping by, and every record in a group lands at one reducer call together, ready for a `COUNT`, `SUM`, top-*k*, or any other per-group aggregation. **Sessionization** — reconstructing one user's full sequence of actions, e.g., to compare an old vs. new site design (A/B testing) — is exactly this same grouping pattern, using a session ID or user ID as the key, even when the underlying events are scattered across many different web servers' individual log files.
+
+### Handling Skew
+
+The "bring everything for a key to one place" trick breaks down hard when one key dominates — a celebrity account with millions of followers, say (a **hot key** or **linchpin object**). Routing every event tied to that key to a single reducer creates a genuine **hot spot**: since a MapReduce job only finishes once every reducer finishes, the whole job now waits on that one overloaded reducer. Real mitigations:
+
+- **Pig's skewed join**: sample the data first to detect hot keys, then route *that specific key's* records to a **randomly** chosen reducer (instead of the usual deterministic hash) — spreading one key's load across several reducers, at the cost of needing to replicate the *other* join input for that key to every reducer that might need it.
+- **Hive's skewed join optimization**: require hot keys to be declared explicitly in table metadata, store their records separately, and handle just those keys with a map-side join (covered next).
+- **Two-stage grouping**: for pure aggregation (not joins), send a hot key's records to a random reducer first for **partial** aggregation, then combine those partial results in a *second* MapReduce pass into the final per-key total.
+
+### Practice: sort-merge join reducer logic
+
+Implement the reducer-side half of a sort-merge join directly: given a user's profile plus their activity events (already grouped by user ID, as the shuffle would deliver them), emit `(url, age)` pairs.
+
+<CodeExercise
+  title="Sort-merge join: emit (url, age) pairs"
+  heading="exercise-sort-merge-join"
+  lang="python"
+  filename="main.py"
+  prompt="Implement join_user(profile, events) where profile is a dict with 'birth_year', and events is a list of dicts each with 'url' and 'year' (the year the event happened). Return a list of (url, age) tuples, where age = event year - birth_year."
+  sampleLog={`(no input)
+[('/blog', 25), ('/about', 30)]`}
+  starter={`def join_user(profile, events):
+    # profile: {"birth_year": 1994}
+    # events: [{"url": "/blog", "year": 2019}, {"url": "/about", "year": 2024}]
+    # TODO: return [(url, age), ...] where age = event["year"] - profile["birth_year"]
+    pass
+
+profile = {"birth_year": 1994}
+events = [{"url": "/blog", "year": 2019}, {"url": "/about", "year": 2024}]
+print(join_user(profile, events))
+`}
+  hint="Use a list comprehension: [(e['url'], e['year'] - profile['birth_year']) for e in events]"
+  solution={`def join_user(profile, events):
+    return [(e["url"], e["year"] - profile["birth_year"]) for e in events]
+
+profile = {"birth_year": 1994}
+events = [{"url": "/blog", "year": 2019}, {"url": "/about", "year": 2024}]
+print(join_user(profile, events))
+`}
+  sourceChecks={[
+    { name: 'computes age from birth_year', pattern: 'birth_year', must: true, hint: 'subtract profile["birth_year"] from each event\'s year' },
+  ]}
+  tests={[
+    { name: 'joins profile with events to produce (url, age) pairs', stdin: '', equals: "[('/blog', 25), ('/about', 30)]" },
+  ]}
+/>
+
+### Check: reduce-side joins
+
+<MultipleChoice
+  id="ddia-batch-reduceside-joins"
+  title="Sort-merge joins, GROUP BY, and skew"
+  questions={[
+    {
+      prompt: 'Why does copying the user database into the same distributed filesystem as the activity log outperform querying the database live for every event?',
+      choices: [
+        'It does not actually outperform live querying in any scenario',
+        'It eliminates per-record network round-trips entirely, avoids overwhelming the remote database with a flood of parallel queries, and makes the job deterministic by removing dependence on data that could change mid-run',
+        'Copying data is always faster than any network operation regardless of volume',
+        'The distributed filesystem automatically caches all remote database queries',
+      ],
+      answer: 1,
+      why: 'The three specific costs of live querying — round-trip latency, database overload risk, and nondeterminism — are each directly eliminated by localizing the data first.',
+    },
+    {
+      prompt: 'In a sort-merge join, why do the mapper output keys act like "destination addresses" for the reducers?',
+      choices: [
+        'Because mapper output keys are literally IP addresses',
+        'Because every key-value pair sharing the same key is guaranteed to be delivered to the same reducer call, regardless of which mapper produced it — letting the mapper effectively choose which reducer\'s call will receive its output just by choosing what key to emit',
+        'Because reducers choose which mappers to pull data from at random',
+        'Because mapper output keys determine which physical machine runs the job',
+      ],
+      answer: 1,
+      why: 'The key-to-reducer guarantee is exactly what lets a mapper "route" data to the right reducer call purely through its choice of output key, cleanly separating routing from logic.',
+    },
+    {
+      prompt: 'Why does a hot key (e.g. a celebrity account) create a bottleneck for the ENTIRE MapReduce job, not just for that one key\'s processing?',
+      choices: [
+        'Hot keys have no actual effect on overall job completion time',
+        'A MapReduce job is only considered complete once every reducer has finished — so if one reducer is overloaded by a disproportionate share of records for a hot key, the whole job must wait for that single slow reducer, even though every other reducer finished long ago',
+        'Hot keys cause the entire job to fail immediately rather than run slowly',
+        'This problem only occurs with GROUP BY operations, never with joins',
+      ],
+      answer: 1,
+      why: 'Job completion is gated on the SLOWEST reducer, so a skewed key that overloads just one reducer directly delays the entire job\'s finish time.',
+    },
+  ]}
+/>
+
+---
+
+## Map-Side Joins: Skipping the Shuffle Entirely
+
+Reduce-side joins make no assumptions about the input — but all that sorting, network copying, and merging is genuinely expensive, sometimes forcing data to be written to disk multiple times as it moves through MapReduce's stages. If you *can* make assumptions about your inputs' size, partitioning, or sort order, a **map-side join** skips the reduce stage — and the shuffle — entirely: no reducers, no sorting, each mapper just reads one input block and writes one output file, done.
+
+### Broadcast Hash Joins
+
+If one side of the join is small enough to fit entirely in memory (the user database, say), skip partitioning it at all: **every** mapper loads the *whole* small dataset into an in-memory hash table on startup, then simply streams through its own slice of the large dataset, doing an in-memory hash lookup per record. The name reflects both halves of the mechanism: **broadcast**, because the small input is effectively replicated ("broadcast") to every mapper processing the large input, and **hash**, because of the in-memory lookup structure. (A close variant swaps the in-memory hash table for a read-only on-disk index instead — the OS page cache keeps hot parts of it effectively memory-speed, without requiring the whole dataset to fit in RAM.)
+
+### Partitioned Hash Joins
+
+If **both** join inputs happen to already be partitioned the same way — same key, same hash function, same partition count (say, both split by the last digit of user ID) — the hash-join trick can run **per partition independently**: mapper 3 loads only partition 3 of the small input into its hash table, then scans only partition 3 of the large input. Each mapper's hash table shrinks to a fraction of the full small dataset — a real win, but one that only applies when a prior MapReduce job already produced both inputs in matching, compatible partitions.
+
+### Map-Side Merge Joins
+
+If both inputs are **not only** identically partitioned but **also already sorted** by the join key, memory size stops mattering entirely — a mapper can perform the exact same incremental, ascending-key merge a reducer would, without ever needing either input to fit in memory. This is really the sort-merge join's core merge logic, just relocated to run in the map phase because the sorting work was already done by an earlier job.
+
+### Map-Side Joins Change Downstream Structure
+
+A subtle but important consequence for chained workflows: a **reduce-side** join's output ends up partitioned and sorted by the *join key* — but a **map-side** join's output stays partitioned and sorted exactly like its large input was, since one map task runs per block of that large input regardless of join strategy. Any *downstream* job consuming that output has to know this — which means knowing about a dataset's physical partitioning and sort order, not just its file format, becomes genuinely important metadata (in the Hadoop ecosystem, typically tracked in HCatalog / the Hive metastore).
+
+### Practice: a broadcast hash join
+
+Implement the broadcast-hash-join pattern directly: load the small dataset into a dict, then stream through the large dataset doing lookups.
+
+<CodeExercise
+  title="Broadcast hash join"
+  heading="exercise-broadcast-join"
+  lang="python"
+  filename="main.py"
+  prompt="Implement broadcast_join(small, large) where small is a list of (id, name) tuples and large is a list of (id, action) tuples. Load small into a dict, then return a list of (name, action) tuples for every entry in large whose id is found in small (skip ids not found)."
+  sampleLog={`(no input)
+[('alice', 'login'), ('bob', 'purchase'), ('alice', 'logout')]`}
+  starter={`def broadcast_join(small, large):
+    # small: [(1, "alice"), (2, "bob")]
+    # large: [(1, "login"), (2, "purchase"), (1, "logout"), (99, "ignored")]
+    # TODO: build a dict from small (id -> name), then for each
+    # (id, action) in large where id is a known key, output (name, action).
+    pass
+
+small = [(1, "alice"), (2, "bob")]
+large = [(1, "login"), (2, "purchase"), (1, "logout"), (99, "ignored")]
+print(broadcast_join(small, large))
+`}
+  hint="lookup = dict(small); result = [(lookup[i], action) for i, action in large if i in lookup]"
+  solution={`def broadcast_join(small, large):
+    lookup = dict(small)
+    return [(lookup[i], action) for i, action in large if i in lookup]
+
+small = [(1, "alice"), (2, "bob")]
+large = [(1, "login"), (2, "purchase"), (1, "logout"), (99, "ignored")]
+print(broadcast_join(small, large))
+`}
+  sourceChecks={[
+    { name: 'builds a lookup dict from the small input', pattern: 'dict\\(small\\)', must: true, hint: 'convert small into a dict for O(1) lookups' },
+  ]}
+  tests={[
+    { name: 'joins large against the small lookup table, skipping unknown ids', stdin: '', equals: "[('alice', 'login'), ('bob', 'purchase'), ('alice', 'logout')]" },
+  ]}
+/>
+
+### Check: map-side joins
+
+<MultipleChoice
+  id="ddia-batch-mapside-joins"
+  title="Broadcast, partitioned, and merge map-side joins"
+  questions={[
+    {
+      prompt: 'What is the essential requirement for a broadcast hash join to be usable at all?',
+      choices: [
+        'Both join inputs must be exactly the same size',
+        'One of the two join inputs must be small enough to fit entirely in memory, since every mapper processing the large input loads a full copy of it',
+        'Both inputs must already be sorted by the join key',
+        'The join must involve exactly two mappers total',
+      ],
+      answer: 1,
+      why: 'The whole mechanism depends on being able to hold the "small" side entirely in each mapper\'s memory (or a fast local index) — without that, the approach doesn\'t apply.',
+    },
+    {
+      prompt: 'What extra condition does a partitioned hash join require beyond what a broadcast hash join needs, and what benefit does it buy?',
+      choices: [
+        'It requires no additional conditions and provides no additional benefit',
+        'It requires both join inputs to already be partitioned identically (same key, same hash function, same partition count) — in exchange, each mapper only needs to load ONE partition\'s worth of the small input into memory, rather than the entire small dataset',
+        'It requires the large input to be small enough to fit in memory instead',
+        'It requires both inputs to be stored in the same file',
+      ],
+      answer: 1,
+      why: 'Matching partitioning lets the join be decomposed per-partition, shrinking each mapper\'s in-memory hash table to a fraction of the full small dataset.',
+    },
+    {
+      prompt: 'Why does a map-side join\'s output end up partitioned and sorted differently from a reduce-side join\'s output, given the same two input datasets?',
+      choices: [
+        'They actually always produce identically structured output',
+        'A reduce-side join\'s output is partitioned and sorted by the JOIN KEY (a byproduct of the shuffle); a map-side join runs one map task per block of the LARGE input with no shuffle at all, so its output inherits the large input\'s own existing partitioning and sort order instead',
+        'Map-side joins never produce any output at all',
+        'Reduce-side joins always produce unsorted output while map-side joins are always sorted',
+      ],
+      answer: 1,
+      why: 'The presence or absence of a shuffle stage is exactly what determines whether the output gets re-partitioned/re-sorted by join key (reduce-side) or simply inherits the large input\'s existing layout (map-side).',
+    },
+  ]}
+/>
+
+---
+
+:::important Key takeaways
+- A batch-context "join" means resolving **every** occurrence of an association across a whole dataset — a full scan, not an index lookup — which is exactly why copying data locally beats querying a live remote database per record.
+- **Reduce-side (sort-merge) joins** make no assumptions about input structure: mappers extract a shared key from both sides, the shuffle brings matching keys together, and the reducer merges them — the same mechanism underlies both joins and `GROUP BY`.
+- **Skewed (hot) keys** bottleneck an entire job, since completion waits on the slowest reducer — sampling-based random routing, explicit hot-key handling, and two-stage aggregation are the standard mitigations.
+- **Map-side joins** (broadcast, partitioned, or merge) skip the shuffle entirely by exploiting known properties of the input — small size, matching partitioning, or matching sort order — trading input assumptions for real performance, at the cost of the output inheriting the large input's layout instead of being reorganized by join key.
+:::
+
+## Further Reading
+
+- Martin Kleppmann — *Designing Data-Intensive Applications* (O'Reilly, 2017), Chapter 10
+- [Batch Processing with Unix and MapReduce](./batch-processing-with-unix-and-mapreduce) — this series' previous lesson
+- [Beyond MapReduce: Dataflow Engines and Graphs](./beyond-mapreduce-dataflow-engines-and-graphs) — this series' next lesson
+- [Partitioning of Key-Value Data](../distributed-data/partitioning-of-key-value-data) — the hash-partitioning mechanics reused throughout the shuffle

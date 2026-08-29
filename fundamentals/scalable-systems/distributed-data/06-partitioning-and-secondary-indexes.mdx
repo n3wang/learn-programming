@@ -1,0 +1,189 @@
+---
+sidebar_position: 6
+title: Partitioning and Secondary Indexes
+---
+
+# Partitioning and Secondary Indexes
+
+> **Adapted from:** Martin Kleppmann, *Designing Data-Intensive Applications* (O'Reilly, 2017), Chapter 6 — rewritten and condensed for teaching.
+
+[Partitioning of Key-Value Data](./partitioning-of-key-value-data) covered the clean case: look a record up by its primary key, and that key alone tells you exactly which partition to query. Real applications need more than that — **secondary indexes** answer questions like "find every listing where `color = red`" or "find all of user 123's posts," where the thing you're searching *by* doesn't uniquely identify one record at all. Secondary indexes are everywhere in relational and document databases, and they're the entire reason search servers like Solr and Elasticsearch exist.
+
+The problem: secondary indexes don't map cleanly onto a partitioning scheme built purely around primary keys. There are exactly two real strategies for handling this, and they trade off against each other in opposite directions.
+
+---
+
+## Document-Partitioned (Local) Indexes
+
+Picture a used-car marketplace, partitioned by listing ID — IDs 0–499 on partition 0, 500–999 on partition 1, and so on. Users need to filter by `color` and `make`, so each of those needs a secondary index. The straightforward approach: **each partition maintains its own secondary index, covering only the documents that already live in that partition.** Add a red car to partition 1, and partition 1 alone updates its own `color:red` entry — it has no idea, and no need to know, what's happening in any other partition. This is exactly why it's called a **local index** — every partition's index is self-contained.
+
+Writes are simple this way: adding, updating, or deleting a document only ever touches the *one* partition that document already lives on — no coordination with any other partition required. Reads are where the cost shows up: since there's no reason red cars would cluster on any particular partition, a search for `color:red` might match documents scattered across *every* partition. Answering it means querying **every** partition and merging the results — a pattern called **scatter/gather**. Even run in parallel, scatter/gather is genuinely expensive: it's directly exposed to **tail latency amplification** (the more partitions a query touches, the higher the chance *at least one* of them is having a slow moment, and the whole query waits on the slowest response). Despite that cost, it's extremely common in practice — MongoDB, Riak, Cassandra, Elasticsearch, SolrCloud, and VoltDB all use document-partitioned secondary indexes. Most vendors recommend structuring your partitioning so common secondary-index queries *can* be answered from one partition when possible — but that gets genuinely hard once a query filters on more than one secondary index at a time (color *and* make, simultaneously).
+
+### Practice: build a local index and scatter/gather
+
+Implement both halves of a document-partitioned index directly: building each partition's own local index, then a scatter/gather query that checks every partition and merges the results.
+
+<CodeExercise
+  title="Local index and scatter/gather search"
+  heading="exercise-scatter-gather"
+  lang="python"
+  filename="main.py"
+  prompt="Implement build_local_index(docs) to map each color to the list of doc IDs with that color, and scatter_gather(partition_indexes, color) to merge matching doc IDs across every partition's local index, sorted."
+  sampleLog={`(no input)
+[101, 205, 301]`}
+  starter={`def build_local_index(docs):
+    # docs: list of (doc_id, color) tuples in ONE partition.
+    # Return a dict: color -> list of doc_ids with that color.
+    pass
+
+def scatter_gather(partition_indexes, color):
+    # partition_indexes: list of local indexes (one dict per partition,
+    # as built by build_local_index).
+    # Query every partition's index for the given color and merge all
+    # matching doc_ids into one sorted list.
+    pass
+
+partition0 = build_local_index([(101, "red"), (102, "blue")])
+partition1 = build_local_index([(205, "red"), (206, "green")])
+partition2 = build_local_index([(301, "red"), (302, "blue")])
+
+print(scatter_gather([partition0, partition1, partition2], "red"))
+`}
+  hint="In build_local_index, append each doc_id to index.setdefault(color, []). In scatter_gather, collect index.get(color, []) from every partition and sort the combined list."
+  solution={`def build_local_index(docs):
+    index = {}
+    for doc_id, color in docs:
+        index.setdefault(color, []).append(doc_id)
+    return index
+
+def scatter_gather(partition_indexes, color):
+    results = []
+    for index in partition_indexes:
+        results.extend(index.get(color, []))
+    return sorted(results)
+
+partition0 = build_local_index([(101, "red"), (102, "blue")])
+partition1 = build_local_index([(205, "red"), (206, "green")])
+partition2 = build_local_index([(301, "red"), (302, "blue")])
+
+print(scatter_gather([partition0, partition1, partition2], "red"))
+`}
+  sourceChecks={[
+    { name: 'queries every partition', pattern: 'for\\s+index\\s+in\\s+partition_indexes', must: true, hint: "loop over every partition's index inside scatter_gather" },
+  ]}
+  tests={[
+    { name: 'merges matching doc ids across all partitions', stdin: '', equals: '[101, 205, 301]' },
+  ]}
+/>
+
+### Check: document-partitioned indexes
+
+<MultipleChoice
+  id="ddia-secondaryindex-local"
+  title="Document-partitioned (local) secondary indexes"
+  questions={[
+    {
+      prompt: 'Why is a document-partitioned secondary index called a "local" index?',
+      choices: [
+        'Because it can only be queried from the same physical machine that hosts the database',
+        'Because each partition builds and maintains its own secondary index, covering only the documents already stored in that partition, with no awareness of what other partitions contain',
+        'Because it only indexes documents smaller than a certain size',
+        'Because "local" refers to the geographic region of the datacenter',
+      ],
+      answer: 1,
+      why: 'The defining property is scope: each partition\'s index is self-contained and independent of every other partition\'s index.',
+    },
+    {
+      prompt: 'Why are writes simple, but reads expensive, under document-partitioned secondary indexing?',
+      choices: [
+        'Both writes and reads are equally simple and cheap under this scheme',
+        'A write only ever touches the single partition the document already belongs to (no coordination needed); but since matching documents for a secondary-index query can be scattered across every partition, a read must query ALL partitions and merge results (scatter/gather)',
+        'Writes are actually the expensive operation, not reads',
+        'Reads are cheap because secondary indexes are always fully replicated on every partition',
+      ],
+      answer: 1,
+      why: 'The asymmetry follows directly from locality: writes stay local to one partition, but a value like "red" could legitimately appear on any partition, forcing reads to check everywhere.',
+    },
+    {
+      prompt: 'Why is scatter/gather described as being especially exposed to "tail latency amplification"?',
+      choices: [
+        'Scatter/gather queries are always faster than single-partition queries',
+        'Because a scatter/gather query has to wait on responses from every partition it queries, the overall response time is bounded by whichever partition responds SLOWEST — and the more partitions involved, the higher the chance that at least one of them is having a slow moment',
+        'Tail latency amplification only affects write operations, never reads',
+        'This term describes a problem unrelated to how many partitions are queried',
+      ],
+      answer: 1,
+      why: 'Waiting on the slowest of many parallel responses is exactly the mechanism that makes scatter/gather queries more exposed to tail latency as the number of partitions queried grows.',
+    },
+  ]}
+/>
+
+---
+
+## Term-Partitioned (Global) Indexes
+
+The alternative: build **one global index** spanning every partition's data — a `color:red` entry that can reference matching documents from *anywhere* in the dataset, not just one partition. That global index can't just live on a single node (that would simply relocate the bottleneck, not remove it) — so it gets **partitioned too**, just independently of how the primary data happens to be partitioned. This is called a **term-partitioned index**, since it's the search *term* itself (`color:red`, say) that determines which index partition holds it — terminology borrowed straight from full-text search, where a "term" is just a word appearing somewhere in a document.
+
+A term-partitioned index can itself be split either by the term's own value (handy for range queries — e.g., an index on numeric price) or by a **hash** of the term (trading that range-query capability for a more even load spread) — the exact same range-vs-hash choice from the previous lesson, just one level up, applied to the index rather than the primary data.
+
+The payoff: reads get **cheap** again. A client only has to contact the *one* index partition that owns the term it's searching for — no scatter/gather, no querying every node. The cost shows up squarely on the **write** side instead: a single document write can touch *several* terms simultaneously (this car is both `red` *and* a `Toyota`), and those terms can easily live on entirely different index partitions, on different nodes. Keeping a global index perfectly, instantaneously up to date on every write would mean a full **distributed transaction** spanning every affected partition — support for which isn't universal, and which later lessons in this series cover in depth.
+
+In practice, most real systems sidestep that cost by making global secondary index updates **asynchronous** — a document write commits immediately, and the corresponding index entries catch up shortly afterward. Amazon DynamoDB, for instance, documents its global secondary indexes as typically updating within a fraction of a second under normal conditions, with longer delays possible during infrastructure trouble. That's a genuine, visible trade-off: a client reading the global index *immediately* after a write may not yet see it reflected there. Riak's search feature and Oracle's data warehouse (which lets you choose local *or* global indexing per index) are two other real examples of this design.
+
+### Check: term-partitioned indexes
+
+<MultipleChoice
+  id="ddia-secondaryindex-global"
+  title="Term-partitioned (global) secondary indexes"
+  questions={[
+    {
+      prompt: 'Why must a term-partitioned (global) secondary index itself be partitioned, rather than stored entirely on one node?',
+      choices: [
+        'It technically could live on one node with no downside; partitioning it is purely optional polish',
+        'Storing the entire global index on a single node would just relocate the scalability bottleneck onto that one node, defeating the purpose of partitioning the primary data in the first place',
+        'Global indexes are always smaller than local indexes, so this concern does not apply',
+        'Term-partitioned indexes cannot technically be stored on more than one node',
+      ],
+      answer: 1,
+      why: 'A single-node global index would become exactly the kind of bottleneck partitioning is meant to eliminate, so it needs to be spread across nodes just like the primary data.',
+    },
+    {
+      prompt: 'What is the key advantage a term-partitioned (global) index has over a document-partitioned (local) index, and what is the corresponding cost?',
+      choices: [
+        'Global indexes have no advantages over local indexes in any scenario',
+        'Reads become cheap — a query only needs to contact the one partition owning the relevant term, avoiding scatter/gather — but writes become more expensive, since a single document write can touch multiple terms living on different index partitions',
+        'Writes become cheaper under a global index, with no change to read cost',
+        'Global indexes eliminate the need for any indexing at all',
+      ],
+      answer: 1,
+      why: 'This is the mirror image of the local-index trade-off: global indexing shifts the cost from reads (cheap scatter/gather-free lookups) onto writes (multi-partition updates for a single document).',
+    },
+    {
+      prompt: 'Why do many real-world systems (like DynamoDB) update global secondary indexes asynchronously rather than as part of the same atomic write?',
+      choices: [
+        'Asynchronous updates are purely a legacy limitation with no real justification',
+        'Keeping a global index perfectly up to date on every write would require a distributed transaction spanning every partition the write\'s terms touch — support for which is not universal and carries real overhead — so many systems accept a small propagation delay instead',
+        'Global indexes are never actually updated after their initial creation',
+        'Asynchronous updates are required by law for compliance reasons',
+      ],
+      answer: 1,
+      why: 'The cost of a fully synchronous, always-consistent global index is a distributed transaction across potentially many partitions — accepting brief staleness is the common, pragmatic trade-off instead.',
+    },
+  ]}
+/>
+
+---
+
+:::important Key takeaways
+- Secondary indexes don't map cleanly onto primary-key partitioning, because the value being searched for (a color, a make) doesn't identify a single record or partition the way a primary key does.
+- **Document-partitioned (local) indexes** keep each partition's index self-contained — writes stay cheap and single-partition, but reads require **scatter/gather** across every partition, with real tail-latency exposure.
+- **Term-partitioned (global) indexes** partition the index independently of the primary data, by term (or a hash of it) — reads become cheap single-partition lookups, but a single document write can now touch several index partitions at once, which is exactly why global indexes are so often updated **asynchronously** in practice.
+- Neither approach is strictly better — it's the same fundamental read/write trade-off partitioning always makes, just applied one level up, to the index rather than the primary data.
+:::
+
+## Further Reading
+
+- Martin Kleppmann — *Designing Data-Intensive Applications* (O'Reilly, 2017), Chapter 6
+- [Partitioning of Key-Value Data](./partitioning-of-key-value-data) — this series' previous lesson
+- [Rebalancing and Request Routing](./rebalancing-and-request-routing) — this series' next lesson
+- [B-Trees and Other Indexing Structures](../designing-data-intensive-applications/b-trees-and-other-indexing-structures) — this series' earlier lesson on secondary indexes, heap files, and covering indexes in a single-node context

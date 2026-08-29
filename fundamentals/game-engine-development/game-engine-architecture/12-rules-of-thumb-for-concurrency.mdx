@@ -1,0 +1,146 @@
+---
+sidebar_position: 12
+title: Rules of Thumb for Concurrency
+---
+
+# Rules of Thumb for Concurrency
+
+> **Adapted from:** Jason Gregory, *Game Engine Architecture*, 3rd ed. (CRC Press, 2018), Chapter 4, Section 4.8 — rewritten and condensed for teaching.
+
+The dining-philosophers solutions from [Problems with Lock-Based Concurrency](./problems-with-lock-based-concurrency) — global chopstick ordering, a central arbiter, the N−1 trick — aren't just puzzle-specific tricks. Squint at them and a handful of genuinely general principles fall out, ones that apply to almost any concurrent programming problem you'll actually face. This lesson collects four of the most useful.
+
+---
+
+## Global Ordering Rules
+
+In a single-threaded program, the order instructions *appear* in your source is the order they execute in — full stop. Concurrency breaks that assumption completely: if your program needs a guaranteed order across threads, that order has to be imposed **globally**, across every thread that touches the data — nothing about "program order" within any one thread gets you there for free anymore.
+
+This is exactly why a **doubly linked list** is a poor fit for concurrent access. Its whole design — O(1) insertion and deletion anywhere in the list — rests on an unstated assumption: *program order equals data order*. Given the ordered list `{ A, B, C }`, if one thread inserts `D` before `C` and then another inserts `E` before `C`, a single-threaded program guarantees the result is `{ A, B, D, E, C }`. Concurrently, program order says nothing about data order anymore — the same two operations racing against each other can legitimately produce `{ A, B, D, E, C }`, `{ A, B, E, D, C }`, or — if the operations aren't properly protected by critical sections — outright **corruption**, such as both `D`'s and `E`'s `next` pointers ending up pointing at `C` simultaneously.
+
+The fix isn't a cleverer locking scheme bolted onto a doubly linked list — it's asking a more basic question first: **does order even matter here?** If not, a singly linked list with append-only inserts can be implemented reliably, with locks or even lock-free. If order genuinely does matter, you need a **stable, deterministic ordering criterion that doesn't depend on the accident of which thread's instructions happened to run first** — alphabetical, by priority, by timestamp, whatever fits the problem — and that criterion, not incidental program order, is what should actually drive the choice of data structure. Forcing a doubly linked list into concurrent, multi-writer use without solving this first is — in the memorable phrase — like hammering a square peg into a round hole.
+
+### Check: global ordering
+
+<MultipleChoice
+  id="ge-ch4-rot-ordering"
+  title="Global ordering rules"
+  questions={[
+    {
+      prompt: 'Why does a doubly linked list make a poor concurrent data structure when multiple threads insert into it simultaneously?',
+      choices: [
+        'Doubly linked lists are always slower than arrays, regardless of concurrency',
+        'Its design assumes program order equals data order — that performing operations in a given sequence produces correspondingly ordered results — an assumption that silently breaks once multiple threads race to insert at the same time, without a global ordering rule to arbitrate them',
+        'Doubly linked lists cannot be protected by critical sections under any circumstances',
+        'Linked lists can only ever be read by one thread at a time, by definition',
+      ],
+      answer: 1,
+      why: 'The list\'s O(1) insertion design is built on a single-threaded assumption about ordering that concurrent, unarbitrated access directly violates.',
+    },
+    {
+      prompt: 'According to this lesson, what is the FIRST question to ask before trying to make an ordered data structure safe for concurrent multi-writer access?',
+      choices: [
+        'Which specific mutex implementation is fastest on the target hardware',
+        'Whether the order of elements actually matters at all for this use case — if not, a simpler structure (like an append-only singly linked list) avoids the problem entirely; if so, a stable, deterministic ordering criterion independent of thread timing must be identified first',
+        'How many CPU cores the target machine has',
+        'Whether the language supports templates',
+      ],
+      answer: 1,
+      why: 'The lesson frames this as a design question that comes before any locking strategy — you can\'t engineer around an ordering problem without first deciding whether ordering is actually required and, if so, by what criterion.',
+    },
+  ]}
+/>
+
+---
+
+## Transaction-Based Algorithms
+
+The central-arbiter solution to dining philosophers hands out chopsticks **in pairs** — a philosopher gets everything they need, or nothing at all. That's a **transaction**: an indivisible bundle of resources and/or operations. Threads submit transaction requests to some central arbiter; each transaction either succeeds completely, or fails completely (typically because another thread's transaction was mid-flight when the request arrived) — and on failure, the requesting thread simply **resubmits** until it succeeds, possibly with a short wait between attempts.
+
+This pattern shows up constantly in concurrent and distributed systems programming, and — as covered in the next few lessons — it's also the conceptual foundation underneath essentially every lock-free data structure and algorithm: prepare your change locally, then attempt to commit it as one atomic, all-or-nothing step, retrying on failure.
+
+## Minimizing Contention
+
+The theoretical best-case concurrent system is one where no thread ever waits on a lock at all — an ideal that's never fully achievable in practice, but one worth actively designing toward. Take a group of threads all producing data into one shared, central repository: every single write contends with every other thread's write for that one resource. A simple, often-effective fix: give each thread its **own private** repository to write into, so production happens with zero contention, and have one thread **collate** all the results only once everyone's finished producing.
+
+The dining-philosophers analog: if every philosopher simply started with their own two chopsticks, all contention (and, not coincidentally, all *concurrency*) vanishes instantly — no sharing, no problem. Real systems can't eliminate sharing entirely like that, but the underlying lesson generalizes cleanly: **actively look for ways to shrink what's actually shared**, since less sharing directly means less contention.
+
+## Thread Safety
+
+A class or API is **thread-safe** when any thread can safely call its functions without external synchronization — typically implemented by having each function enter a critical section on entry and leave it just before returning. A class whose functions are *all* thread-safe this way is sometimes called a **monitor**.
+
+Thread safety is genuinely convenient — but it isn't free, and blanket-applying it has two real costs:
+
+1. **Wasted overhead.** Locking machinery you don't need is pure cost when the interface is only ever used single-threaded, or exclusively by one thread even inside an otherwise multithreaded program.
+2. **Broken reentrancy.** If a thread-safe class exposes functions `A()` and `B()`, and `B()`'s implementation needs to call `A()` internally, you get an instant self-deadlock — `B()` already holds the lock when it tries to enter `A()`'s own critical section. Two real fixes: **reentrant locks** (covered in a later lesson, letting the same thread re-enter a lock it already holds), or splitting the interface into "unsafe" internal functions plus thin, thread-safe public wrappers that just enter a critical section, call the unsafe version, and leave.
+
+:::important A stronger claim worth internalizing
+Reflexively making *everything* 100% thread-safe is usually the wrong instinct. It produces needlessly heavyweight interfaces, and — worse — it quietly encourages programmers to write code as if concurrency weren't even happening, since the class "handles it for them." The better goal: **explicitly design** data structures and algorithms around the concurrency that's actually present, deliberately minimizing both contention *and* outright lock usage. Getting all the way to fully lock-free is a lot of genuinely hard work (the subject of the next several lessons) — but *striving* toward fewer locks beats reflexively over-locking everything in a doomed attempt to let programmers pretend concurrency isn't there.
+:::
+
+### Check: transactions, contention, and thread safety
+
+<MultipleChoice
+  id="ge-ch4-rot-transactions"
+  title="Transactions, contention, and thread safety"
+  questions={[
+    {
+      prompt: 'What defines a "transaction" in the sense used by the central-arbiter dining philosophers solution?',
+      choices: [
+        'Any operation that takes longer than one clock cycle',
+        'An indivisible bundle of resources and/or operations that either succeeds completely or fails completely — never partially — with the requesting thread retrying on failure until it succeeds',
+        'A financial exchange of resources between two threads',
+        'Any function call that acquires at least one lock',
+      ],
+      answer: 1,
+      why: 'The defining property is all-or-nothing atomicity at the level of the whole bundle, plus retry-on-failure — exactly what the central arbiter enforces by handing out chopsticks strictly in pairs.',
+    },
+    {
+      prompt: 'In the "minimizing contention" example, why does giving each producer thread its own private repository (collated by one thread at the end) reduce contention?',
+      choices: [
+        'It does not actually reduce contention at all',
+        'Each thread can now produce data completely independently, with no shared resource to contend over during production — contention is deferred to a single, one-time collation step instead of happening continuously on every write',
+        'Private repositories automatically run faster regardless of contention',
+        'This technique only works if there is exactly one producer thread',
+      ],
+      answer: 1,
+      why: 'Removing the shared write target during the bulk of the work is exactly what eliminates the ongoing contention; the trade-off is a single collation step at the end.',
+    },
+    {
+      prompt: 'Why can wrapping two thread-safe functions A() and B() such that B() internally calls A() lead to a self-deadlock?',
+      choices: [
+        'It never causes a deadlock, this is a purely theoretical concern',
+        'B() enters its own critical section on entry; if B() then calls A(), and A() tries to enter what is effectively the same lock, the calling thread ends up waiting on a lock it already holds itself — a classic self-deadlock, unless a reentrant lock or an "unsafe" internal function is used instead',
+        'A() and B() must always be called from different threads, so this scenario cannot occur',
+        'This only happens if A() and B() are declared virtual',
+      ],
+      answer: 1,
+      why: 'A standard (non-reentrant) lock cannot be re-acquired by the same thread that already holds it, which is exactly the trap naive thread-safe wrapping falls into when one safe function calls another.',
+    },
+    {
+      prompt: 'Why does the lesson argue against reflexively making every class and API 100% thread-safe by default?',
+      choices: [
+        'Thread safety is always free and has no downsides',
+        'Blanket thread-safety adds unnecessary overhead when concurrency protection isn\'t actually needed, and it can encourage programmers to write code as though concurrency doesn\'t exist — the better approach is designing explicitly around the concurrency that\'s actually present, minimizing contention and lock usage deliberately',
+        'Thread-safe classes are illegal in most game engine codebases',
+        'It is technically impossible to make a class fully thread-safe',
+      ],
+      answer: 1,
+      why: 'The lesson explicitly frames "100% thread-safe by default" as a trap that hides concurrency concerns rather than addressing them, favoring deliberate design over blanket, heavyweight locking.',
+    },
+  ]}
+/>
+
+---
+
+:::important Key takeaways
+- **Program order is not data order** in a concurrent system — any ordering requirement has to be imposed globally, which is exactly why unarbitrated concurrent access to a doubly linked list is a design smell, not just a locking inconvenience.
+- **Transaction-based algorithms** (all-or-nothing, retry-on-failure) are the conceptual seed of essentially every lock-free technique covered in the lessons ahead.
+- **Minimizing contention** — even by something as simple as giving each thread its own private workspace — is often more effective than any clever locking scheme applied to a fully shared resource.
+- **Thread safety is a tool, not a default.** Blanket-applying it adds needless overhead, can break reentrancy, and can encourage programmers to stop thinking about concurrency altogether — deliberately designing for the concurrency that's actually present is the better goal.
+:::
+
+## Further Reading
+
+- Jason Gregory — *Game Engine Architecture*, 3rd ed. (CRC Press, 2018), Chapter 4, Section 4.8
+- [Problems with Lock-Based Concurrency](./problems-with-lock-based-concurrency) — this series' previous lesson, including the dining philosophers solutions these rules of thumb generalize from
+- [Causes of Data Races and Atomic Instructions](./causes-of-data-races-and-atomic-instructions) — this series' next lesson, where transaction-based thinking becomes the foundation of lock-free programming

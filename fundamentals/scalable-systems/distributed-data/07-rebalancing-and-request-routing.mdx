@@ -1,0 +1,214 @@
+---
+sidebar_position: 7
+title: Rebalancing and Request Routing
+---
+
+# Rebalancing and Request Routing
+
+> **Adapted from:** Martin Kleppmann, *Designing Data-Intensive Applications* (O'Reilly, 2017), Chapter 6 — rewritten and condensed for teaching.
+
+[Partitioning and Secondary Indexes](./partitioning-and-secondary-indexes) assumed a fixed set of nodes. Real clusters don't stay fixed — query throughput grows, datasets grow, and machines fail and need replacing. Every one of those events means moving data and requests between nodes, a process called **rebalancing**. This lesson covers how to do that without either destabilizing the cluster or moving far more data than necessary — and once partitions can move around, the follow-up question: how does a client even know which node to talk to?
+
+---
+
+## What Rebalancing Has to Guarantee
+
+Whatever mechanism you use, rebalancing is expected to hit three targets simultaneously: **fair load** afterward (data and query load genuinely spread across the cluster, not just nominally), **uninterrupted service** throughout (reads and writes keep working *while* rebalancing is actively happening, not just before and after), and **minimal data movement** (shifting only what's actually necessary — extra movement just burns network and disk I/O for no benefit).
+
+## Strategies for Rebalancing
+
+### How Not to Do It: Hash mod N
+
+The tempting-but-wrong approach: with `n` nodes, assign `key` to node `hash(key) mod n`. It's trivial to implement and evenly distributes keys — right up until `n` itself changes. Say `hash(key) = 123456`: with 10 nodes, `123456 mod 10 = 6`, so it lives on node 6. Grow to 11 nodes and `123456 mod 11 = 3` — it now belongs on a completely different node. Grow again to 12 and it moves *again*, to node 0. **Adding or removing even one node reshuffles the overwhelming majority of keys** — turning what should be a routine capacity change into an enormously expensive, disruptive data migration.
+
+### Practice: quantify the mod-N problem
+
+Before looking at the real fix, it's worth seeing the actual scale of the mod-N problem in numbers, not just the one worked example above.
+
+<CodeExercise
+  title="Measuring hash-mod-N churn"
+  heading="exercise-mod-n-churn"
+  lang="python"
+  filename="main.py"
+  prompt="Implement reassigned_count(keys, old_n, new_n) to count how many keys change their assigned node (hash(key) % n) when the node count changes from old_n to new_n."
+  sampleLog={`(no input)
+910`}
+  starter={`def reassigned_count(keys, old_n, new_n):
+    # Count how many keys have a DIFFERENT hash(key) % n result
+    # when n changes from old_n to new_n.
+    pass
+
+keys = [f"key-{i}" for i in range(1000)]
+print(reassigned_count(keys, 10, 11))
+`}
+  hint="For each key, compare abs(hash(key)) % old_n to abs(hash(key)) % new_n, and count the mismatches."
+  solution={`def reassigned_count(keys, old_n, new_n):
+    count = 0
+    for key in keys:
+        old_node = abs(hash(key)) % old_n
+        new_node = abs(hash(key)) % new_n
+        if old_node != new_node:
+            count += 1
+    return count
+
+keys = [f"key-{i}" for i in range(1000)]
+print(reassigned_count(keys, 10, 11))
+`}
+  sourceChecks={[
+    { name: 'compares node assignment under both n values', pattern: 'old_n[\\s\\S]*new_n', must: true, hint: 'compute hash(key) % old_n and hash(key) % new_n for comparison' },
+  ]}
+  tests={[
+    { name: 'the overwhelming majority of keys are reassigned', stdin: '', includes: ['9'] },
+  ]}
+/>
+
+:::note Why the test above just checks "starts with 9"
+Python's `hash()` for strings is randomized per process by default (a security feature), so the *exact* count of reassigned keys will vary slightly run to run — but it will always land in the 900s out of 1,000, since that's simply the mathematics of `mod` changing. The takeaway isn't the precise number; it's that it's consistently enormous.
+:::
+
+### Fixed Number of Partitions
+
+The actual fix: decouple the number of **partitions** from the number of **nodes** entirely. Create far more partitions than nodes up front — a 10-node cluster might start with 1,000 partitions, roughly 100 per node — and rebalancing then means moving whole *partitions* between nodes, never touching the partition boundaries or the assignment of keys to partitions at all. Add an eleventh node, and it simply "steals" a share of partitions from each existing node until things even out again; remove a node, and the reverse happens. Since the transfer of a partition's data takes real time over the network, reads and writes keep flowing against the *old* assignment until the transfer for that specific partition completes — satisfying the "keep serving requests throughout" requirement directly. As a bonus, you can deliberately assign *more* partitions to more powerful nodes, letting heterogeneous hardware carry a proportionally larger share. Riak, Elasticsearch, Couchbase, and Voldemort all rebalance this way.
+
+The catch: this number is normally **fixed once, at setup, and never changed again** afterward (partition splitting/merging is technically possible but operationally complex enough that many fixed-partition systems just don't implement it) — which means the partition count you choose at day one effectively caps how many nodes you can ever meaningfully grow into, so it has to be picked generously for future growth, while a partition count set *too* high adds real per-partition management overhead. Getting it "just right" is genuinely hard when the dataset's eventual size is uncertain — since each partition holds a fixed *fraction* of the total, individual partition size still scales up right alongside overall data volume, no matter how many partitions you started with.
+
+### Dynamic Partitioning
+
+Fixed partition counts pair badly with **key range** partitioning specifically: getting the initial boundaries wrong could dump the entire dataset onto one partition while every other one sits empty, and reconfiguring boundaries by hand is painfully manual. HBase and RethinkDB instead partition **dynamically**: once a partition grows past a configured size (10 GB is HBase's default), it **splits** into two, each taking roughly half the data — and conversely, partitions that shrink enough (from deletions) can **merge** back together. This should feel familiar — it's the same splitting/merging shape a B-tree's own internal pages use to stay balanced (see [B-Trees and Other Indexing Structures](../designing-data-intensive-applications/b-trees-and-other-indexing-structures)). Each node can still own several partitions, and after a split, one of the two resulting halves can transfer to a different node to rebalance load.
+
+The clear advantage: the partition count now **tracks the actual data volume** — small datasets stay cheap (few partitions, little overhead), and large ones automatically get more, smaller partitions instead of a handful of unmanageably huge ones. The catch shows up at the very start: a brand-new, empty database only has *one* partition to begin with (there's no principled way to draw boundaries before any data exists), so every write funnels through that one node until the first split finally happens — which is exactly why HBase and MongoDB support **pre-splitting**: configuring a reasonable set of initial partitions on an empty database, provided you already have some idea what the eventual key distribution will look like. Dynamic partitioning isn't exclusive to range partitioning either — MongoDB (since 2.4) applies the identical split/merge mechanics to hash-partitioned data too.
+
+### Partitioning Proportional to Nodes
+
+A third scheme (Cassandra, Ketama) fixes the **partition count per node** instead of the total partition count or the per-partition size — so the total number of partitions scales directly with cluster size. As the dataset grows on an unchanging number of nodes, individual partitions grow with it (same as the fixed-count approach); but adding nodes shrinks partitions back down again, since a bigger dataset generally implies a proportionally bigger cluster to hold it anyway. A newly joining node picks a fixed number of *existing* partitions at random, splits each of them, and takes ownership of half of each split. Any single random split could be unfair, but averaged over Cassandra's default of 256 partitions per node, the new node reliably ends up with a genuinely fair overall share. (This scheme also requires hash-based partitioning specifically, since partition boundaries need to be pickable at random from the hash function's output range — and it's actually the closest real match to the *original*, formal definition of consistent hashing from the previous lesson's note.)
+
+### Check: rebalancing strategies
+
+<MultipleChoice
+  id="ddia-rebalance-strategies"
+  title="Rebalancing strategies"
+  questions={[
+    {
+      prompt: 'What is the core problem with the naive hash(key) mod n approach to assigning keys to nodes?',
+      choices: [
+        'It does not distribute keys evenly at all',
+        'Whenever n (the number of nodes) changes, the mod result for the overwhelming majority of keys changes too, forcing an enormous, unnecessary data migration for what should be a routine capacity change',
+        'It only works for numeric keys, never for strings',
+        'It requires a distributed consensus protocol to compute',
+      ],
+      answer: 1,
+      why: 'The mod operation has no stability property across changes to the divisor — a small change in node count reshuffles almost every key\'s assignment.',
+    },
+    {
+      prompt: 'How does the "fixed number of partitions" strategy avoid the mod-N reassignment problem?',
+      choices: [
+        'It does not actually avoid the problem; it has the exact same issue',
+        'By decoupling the number of partitions (fixed, and much larger than the node count) from the number of nodes — rebalancing only moves whole PARTITIONS between nodes, never changing partition boundaries or which keys belong to which partition, so far less data needs to move',
+        'By eliminating the need for partitions altogether',
+        'By requiring the number of nodes to always stay exactly the same',
+      ],
+      answer: 1,
+      why: 'Separating "which partition a key belongs to" (fixed) from "which node owns that partition" (adjustable) is exactly what lets rebalancing move far less data than a naive mod-based reassignment would.',
+    },
+    {
+      prompt: 'Why is dynamic partitioning generally a better fit for key-range partitioning than a fixed partition count is?',
+      choices: [
+        'Dynamic partitioning cannot be used with key-range partitioning at all',
+        'Fixed partition counts require manually choosing key-range boundaries in advance, risking a badly skewed initial split (all data on one partition); dynamic partitioning instead splits and merges partitions automatically based on actual observed data volume, adapting to real key distribution without manual boundary tuning',
+        'Dynamic partitioning is only compatible with hash partitioning, never key-range partitioning',
+        'Fixed partition counts always produce perfectly balanced key ranges automatically',
+      ],
+      answer: 1,
+      why: 'Range partitioning is especially sensitive to bad manual boundary choices; dynamic splitting/merging removes the need to predict the "right" boundaries ahead of time.',
+    },
+  ]}
+/>
+
+---
+
+## Automatic or Manual Rebalancing?
+
+Rebalancing can sit anywhere on a spectrum from **fully automatic** (the system decides on its own when to move partitions, no human involved) to **fully manual** (an administrator explicitly commits every change). Couchbase, Riak, and Voldemort land in between by design — the system computes a *suggested* rebalancing plan, but a human has to approve it before it actually executes.
+
+Full automation cuts real day-to-day operational burden — but rebalancing itself is expensive (rerouting live requests, shipping large amounts of data over the network), and doing it carelessly can visibly degrade performance for *other*, unrelated requests while it's in flight. There's a genuinely dangerous interaction worth calling out explicitly: pairing automatic rebalancing with automatic failure detection. An overloaded node that's just been slow to respond can get mistakenly declared "dead," triggering an automatic rebalance that shifts *more* load onto the remaining nodes and the network — worsening the exact overload condition that caused the false alarm in the first place, potentially cascading into a much bigger outage. This risk is precisely why plenty of teams deliberately keep a human in the loop for rebalancing specifically — slower, but safer against exactly this kind of self-inflicted spiral.
+
+---
+
+## Request Routing
+
+Partitions moving between nodes over time raises an unavoidable follow-up question: given a key, which IP address and port does a client actually connect to *right now*? This is a specific case of a broader, very general problem called **service discovery**, and it shows up for any networked service that runs redundantly across multiple machines, not just databases. Three real architectural answers:
+
+1. **Ask any node.** Clients connect to an arbitrary node (e.g., behind a plain round-robin load balancer). If that node happens to own the relevant partition, it answers directly; otherwise it forwards the request internally to whichever node *does* own it, and relays the reply back.
+2. **A dedicated routing tier.** Every client request goes first to a tier whose only job is figuring out the right node and forwarding accordingly — a partition-*aware* load balancer that never actually handles a request's data itself.
+3. **Partition-aware clients.** Clients themselves know the full partition-to-node mapping and connect directly to the correct node — no intermediary hop at all.
+
+Whichever shape you pick, the real challenge is identical: however routing decisions get made, that component has to find out about partition reassignments **promptly and correctly**, and — critically — everyone making routing decisions has to **agree**, or requests silently end up at the wrong node. Achieving that kind of agreement in a distributed system is itself a consensus problem, covered in depth in a later lesson.
+
+Many real systems solve this with a dedicated **coordination service** — commonly **ZooKeeper** — as the single source of truth for cluster metadata. Every node registers itself with ZooKeeper; ZooKeeper keeps the authoritative partition-to-node mapping; routing tiers or partition-aware clients subscribe to it and get notified the moment anything changes. HBase, SolrCloud, Kafka, and LinkedIn's Espresso (via Helix, itself built on ZooKeeper) all follow this pattern; MongoDB does something architecturally similar using its own purpose-built config servers and `mongos` routing daemons.
+
+Cassandra and Riak instead take a **gossip protocol** approach — nodes propagate cluster-state changes directly to each other, with no external coordination service at all. A client can hit *any* node, which internally forwards to wherever the request actually needs to go (matching approach 1 above). This trades a somewhat more complex node implementation for the operational simplicity of not depending on a separate coordination system. Couchbase sits at yet another point on this spectrum: it doesn't rebalance automatically at all, and typically pairs with a routing tier (`moxi`) that just learns routing changes directly from the cluster nodes.
+
+One practical footnote: even once a routing decision names the *right* node, the client still needs that node's actual IP address. Since node IPs churn far less often than partition-to-node assignments do, plain **DNS** is usually perfectly sufficient for that last step.
+
+## Parallel Query Execution
+
+Everything covered so far handles simple point lookups (plus scatter/gather for secondary indexes) — roughly the ceiling of what most NoSQL distributed stores support. **Massively parallel processing (MPP)** relational databases, built for analytics, go considerably further: a typical data-warehouse query might chain several joins, filters, groupings, and aggregations together, and an MPP query optimizer breaks that whole pipeline into stages that run in parallel across many nodes at once — a big win specifically for queries that scan large fractions of the dataset. This is a deep, specialized topic in its own right, one this series returns to when covering batch and stream processing.
+
+### Check: request routing
+
+<MultipleChoice
+  id="ddia-request-routing"
+  title="Request routing and service discovery"
+  questions={[
+    {
+      prompt: 'What is the shared core challenge across all three request-routing architectures (ask any node, dedicated routing tier, partition-aware clients)?',
+      choices: [
+        'There is no shared challenge; the three approaches solve completely unrelated problems',
+        'Whichever component makes the routing decision must learn about partition-to-node reassignments promptly, and every component making such decisions across the system must agree — otherwise requests get silently misrouted to the wrong node',
+        'Only the "ask any node" approach requires any coordination at all',
+        'DNS alone is sufficient to solve the entire routing problem in every architecture',
+      ],
+      answer: 1,
+      why: 'Regardless of WHERE the routing decision is made, keeping that decision correct and consistent as partitions move is the universal hard part.',
+    },
+    {
+      prompt: 'What is the key architectural difference between how ZooKeeper-based systems (like HBase) and gossip-based systems (like Cassandra) track cluster metadata?',
+      choices: [
+        'They are functionally identical approaches with different names',
+        'ZooKeeper-based systems rely on a separate, dedicated coordination service as the single authoritative source of cluster metadata that other components subscribe to; gossip-based systems have nodes propagate state changes directly to each other with no external coordination service at all',
+        'Gossip protocols require a dedicated routing tier, while ZooKeeper-based systems never use one',
+        'ZooKeeper-based systems cannot support partition reassignment of any kind',
+      ],
+      answer: 1,
+      why: 'The presence (ZooKeeper) versus absence (gossip) of an external, dedicated coordination service is exactly the architectural line this lesson draws between the two approaches.',
+    },
+    {
+      prompt: 'Why is DNS usually sufficient for clients to resolve a node\'s actual IP address, even in a frequently-rebalancing cluster?',
+      choices: [
+        'DNS is never actually used in real distributed database deployments',
+        'Node IP addresses change far less frequently than partition-to-node assignments do — the rebalancing churn is about WHICH partitions a node owns, not about nodes themselves appearing and disappearing at the same high frequency',
+        'DNS updates propagate instantly with zero caching delay anywhere in the world',
+        'DNS is used specifically to track partition-to-node assignments directly',
+      ],
+      answer: 1,
+      why: 'The lesson distinguishes two different rates of change: partition ownership shifts often during rebalancing, while the underlying set of physical node addresses is comparatively stable — exactly the gap DNS is well suited to cover.',
+    },
+  ]}
+/>
+
+---
+
+:::important Key takeaways
+- Rebalancing must simultaneously achieve fair post-rebalance load, uninterrupted service *during* the move, and minimal unnecessary data movement.
+- **Hash mod N** is the textbook anti-pattern — changing the node count reshuffles nearly every key. **Fixed partition counts**, **dynamic partitioning**, and **partitioning proportional to node count** are the three real strategies that avoid this, each with different trade-offs around setup complexity and how well partition size adapts to data volume.
+- Automatic rebalancing reduces operational toil but can interact dangerously with automatic failure detection — an overloaded node's slow responses can trigger a rebalance that makes the overload measurably worse, which is exactly why many teams deliberately keep rebalancing human-approved.
+- **Request routing** is a specific instance of the general **service discovery** problem — solved either via a dedicated coordination service (ZooKeeper and similar), a gossip protocol between nodes, or a simpler non-rebalancing design paired with a routing tier that just observes cluster state.
+- Beyond simple point lookups, **MPP analytics databases** parallelize genuinely complex multi-stage queries (joins, filters, aggregations) across many nodes at once — a deep topic covered later in this series' batch and stream processing material.
+:::
+
+## Further Reading
+
+- Martin Kleppmann — *Designing Data-Intensive Applications* (O'Reilly, 2017), Chapter 6
+- [Partitioning and Secondary Indexes](./partitioning-and-secondary-indexes) — this series' previous lesson
+- [Leaderless Replication](./leaderless-replication) — this series' earlier lesson introducing consistent hashing terminology
+- [Apache ZooKeeper documentation](https://zookeeper.apache.org/doc/current/) — the coordination service underlying much of this lesson's request-routing discussion

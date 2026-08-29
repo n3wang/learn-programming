@@ -1,0 +1,354 @@
+---
+sidebar_position: 5
+title: Modes of Dataflow
+---
+
+# Modes of Dataflow
+
+> **Adapted from:** Martin Kleppmann, *Designing Data-Intensive Applications* (O'Reilly, 2017), Chapter 4 — rewritten and condensed for teaching.
+
+[Formats for Encoding Data](./formats-for-encoding-data) covered *how* data gets turned into bytes, and how that choice determines whether old and new code can coexist safely. But compatibility is really a relationship between **whoever encodes** the data and **whoever decodes** it — and there's more than one way those two parties can be arranged. This lesson covers the three shapes that relationship most commonly takes: **through a database**, **through a service call**, and **through asynchronous message passing**.
+
+---
+
+## Dataflow Through Databases
+
+The simplest case: **the process that writes encodes the data; the process that reads decodes it.** If it's the same process at two different points in time, storing something in a database is really just sending a message to your own future self — which makes backward compatibility non-negotiable: your future self has to be able to read what you wrote today.
+
+More realistically, several processes share one database at once — multiple services, or multiple instances of the same service running for scale or fault tolerance. During a rolling upgrade, some of those instances run old code and some run new code, simultaneously, against the *same* data. That means **forward compatibility matters here too** — old code has to survive reading records a newer sibling process already wrote.
+
+### The Read-Modify-Write Trap
+
+Here's a scenario worth internalizing: newer code adds a field and writes a value into it. Later, *older* code (which has no idea that field exists) reads that same record, modifies something unrelated, and writes the whole record back. The field the old code never learned about is now at risk of quietly vanishing — not because the *encoding format* failed to preserve it (Thrift/Protobuf/Avro all handle unknown fields fine at the wire level), but because the **application code in between might not.** If a database value gets decoded into an application-level model object and later re-encoded from that same object, any field the model class doesn't know about can get dropped in translation — an application-level bug, not an encoding-format bug, and one that's easy to miss unless you're specifically watching for it.
+
+### Data Outlives Code
+
+A database can hold a five-millisecond-old record right next to a five-year-old one, still sitting in whatever encoding was current when it was written. Deploying new application code might take minutes; migrating an entire dataset to a new schema is usually expensive enough that most systems just... don't, unless forced to. This is often summarized as: **data outlives code.**
+
+Most relational databases lean into this directly — adding a nullable column doesn't require rewriting existing rows; the database just returns `null` (or the column's default) for any row that predates the column. Schema evolution is what makes an entire database *appear* to follow one consistent schema, even when the bytes on disk actually span several historical schema versions.
+
+For **archival snapshots** — periodic dumps for backup or analytics — there's no reason to preserve that historical mess: since you're copying the data anyway, encode the copy consistently under the *latest* schema. An immutable, one-shot dump like this is exactly what a format like Avro's object container files (or an analytics-oriented column format) is built for.
+
+### Check: dataflow through databases
+
+<MultipleChoice
+  id="ddia-dataflow-databases"
+  title="Databases as a dataflow mechanism"
+  questions={[
+    {
+      prompt: 'Why does a database inherently require BOTH forward and backward compatibility, once more than one process (or a rolling upgrade) is involved?',
+      choices: [
+        'Databases never actually require any compatibility guarantees',
+        'A record written by a newer process might later be read by an older process still running (forward compatibility), and a record written long ago must still be readable by the current code (backward compatibility) — both directions are simultaneously in play',
+        'Only backward compatibility ever matters for databases',
+        'Only forward compatibility ever matters for databases',
+      ],
+      answer: 1,
+      why: 'Rolling upgrades and long-lived data together guarantee that both "old code reads new data" and "new code reads old data" scenarios actually occur.',
+    },
+    {
+      prompt: 'In the scenario where an unknown field silently disappears after an old process reads, modifies, and rewrites a record, where does the actual bug live?',
+      choices: [
+        'In the wire encoding format itself, which failed to preserve the field',
+        'Typically in the application code — if a value is decoded into a model object that doesn\'t know about the new field, and later re-encoded from that same object, the unknown field can be lost in that translation, even though the encoding format itself preserves unknown fields fine',
+        'In the database engine, which deletes unrecognized fields automatically',
+        'This scenario cannot actually happen with any modern encoding format',
+      ],
+      answer: 1,
+      why: 'Thrift/Protobuf/Avro all support preserving unknown fields at the wire level — the risk is specifically in an application\'s decode-then-reencode round trip through a model object.',
+    },
+    {
+      prompt: 'What does the phrase "data outlives code" mean in the context of schema evolution?',
+      choices: [
+        'Code changes are always slower to deploy than data changes',
+        'A running application\'s code can be entirely replaced within minutes, but the data already sitting in a database — potentially written years ago under an older schema — usually stays exactly as originally encoded unless explicitly migrated, since rewriting a large dataset is expensive',
+        'Data is deleted automatically whenever code is updated',
+        'Old code and old data are always deleted together during a deployment',
+      ],
+      answer: 1,
+      why: 'This is precisely why schema evolution rules matter so much for databases specifically — old-format data realistically sticks around far longer than any one version of the code that wrote it.',
+    },
+  ]}
+/>
+
+---
+
+## Dataflow Through Services: REST and RPC
+
+The second shape: **client and server**, with the server exposing an API (a **service**) that clients call over a network. The web itself works this way — browsers are clients, web servers expose HTTP as the API. A server can also be a client to some *other* service, which is exactly how a large application decomposes into a **service-oriented** or **microservices** architecture — the whole point being that each service can be deployed and evolved independently, which means old and new versions of both clients and servers must coexist, which brings us right back to the compatibility question this whole chapter is about.
+
+### REST vs. SOAP
+
+**REST** isn't a protocol — it's a design philosophy built directly on top of HTTP's own primitives: URLs identify resources, HTTP verbs express intent, and caching/auth/content negotiation reuse HTTP's own built-in machinery. An API that follows these conventions is called **RESTful**.
+
+**SOAP** takes the opposite approach: an XML-based protocol that treats HTTP as just one possible transport underneath a large, separately-specified family of standards (collectively "WS-*"). A SOAP API is described in **WSDL**, which enables strong code generation for statically typed languages — genuinely useful there, considerably less useful for anything dynamically typed, and SOAP tooling in general leans hard on code generation and heavyweight IDE support to be usable at all. Despite formal standardization, cross-vendor SOAP interoperability has historically been a real pain point — one reason it's fallen out of favor outside large enterprises, while REST has become the default, especially for cross-organization integration.
+
+### Why RPC Keeps Reinventing Itself — and Keeps Hitting the Same Wall
+
+Long before REST, a whole lineage of technologies — EJB, Java RMI, DCOM, CORBA — tried to make a network call to another machine *look and feel* like an ordinary local function call. This idea is called **Remote Procedure Call (RPC)**, and the ambition of "the network should be invisible" is called **location transparency**. It's a fundamentally leaky abstraction, for reasons that don't go away no matter how good the tooling gets:
+
+| Local function call | Network request |
+|---|---|
+| Succeeds or fails predictably | Can be lost, delayed, or fail for reasons entirely outside your control |
+| Returns, throws, or never returns | Can also **time out** — leaving you with no idea whether it actually happened |
+| Retrying is always safe | Retrying a *lost response* (not a lost request) can silently duplicate the action, unless you build in deduplication |
+| Roughly constant latency | Latency can range from sub-millisecond to many seconds under load |
+| Pass pointers to local memory cheaply | Every argument must be fully encoded into bytes — fine for small values, awkward for large ones |
+| Same language, same type system on both ends | Client and server may use different languages entirely, forcing the RPC framework to reconcile mismatched type systems |
+
+None of this means RPC is a bad idea to *use* — it means it's a bad idea to *pretend* a network call is a local one. Modern RPC frameworks (gRPC on Protocol Buffers, Thrift's own RPC support, Avro RPC, Finagle) mostly embrace this now rather than hiding it: they expose calls as **futures/promises** that can explicitly fail, and some (gRPC) support genuine **streaming** — an ongoing series of requests and responses over time, not a single call-and-response.
+
+### Practice: fix the retry bug
+
+The "retrying a lost response can duplicate an action" problem above is exactly the kind of thing worth feeling in code, not just reading about. Below, `charge_customer` gets called multiple times for what should be *one* logical charge (simulating an automatic retry after an ambiguous timeout). Add **idempotency** using a request ID, so a repeated call with the *same* ID never charges twice.
+
+<CodeExercise
+  title="Idempotent retries"
+  heading="exercise-idempotent-retry"
+  lang="python"
+  filename="main.py"
+  prompt="Modify charge_customer so that calling it twice with the same request_id only actually charges once — track which request_ids have already been processed, and skip (rather than re-charge) on a repeat."
+  sampleLog={`(no input)
+Charged $50 (request-1)
+Skipped duplicate (request-1)
+Charged $50 (request-2)
+Total charged: 100`}
+  starter={`processed_requests = set()
+total_charged = 0
+
+def charge_customer(request_id, amount):
+    global total_charged
+    # TODO: if request_id has already been processed, print
+    # f"Skipped duplicate ({request_id})" and return without charging.
+    # Otherwise, charge as below AND remember that this request_id
+    # has now been processed.
+    total_charged += amount
+    print(f"Charged \${amount} ({request_id})")
+
+# Simulates a client that retries after an ambiguous timeout,
+# accidentally sending the same request_id twice.
+charge_customer("request-1", 50)
+charge_customer("request-1", 50)   # retry of the same request
+charge_customer("request-2", 50)   # a genuinely new request
+
+print("Total charged:", total_charged)
+`}
+  hint='At the top of charge_customer: if request_id in processed_requests: print(f"Skipped duplicate ({request_id})"); return. After charging: processed_requests.add(request_id).'
+  solution={`processed_requests = set()
+total_charged = 0
+
+def charge_customer(request_id, amount):
+    global total_charged
+    if request_id in processed_requests:
+        print(f"Skipped duplicate ({request_id})")
+        return
+    total_charged += amount
+    processed_requests.add(request_id)
+    print(f"Charged \${amount} ({request_id})")
+
+charge_customer("request-1", 50)
+charge_customer("request-1", 50)
+charge_customer("request-2", 50)
+
+print("Total charged:", total_charged)
+`}
+  sourceChecks={[
+    { name: 'tracks processed request ids', pattern: 'processed_requests', must: true, hint: 'use the processed_requests set to detect duplicate request_ids' },
+  ]}
+  tests={[
+    { name: 'duplicate request is skipped, total is correct', stdin: '', equals: 'Charged $50 (request-1)\nSkipped duplicate (request-1)\nCharged $50 (request-2)\nTotal charged: 100' },
+  ]}
+/>
+
+### Encoding and Evolution for RPC
+
+RPC gets one simplifying assumption that plain databases don't: it's usually reasonable to assume **servers get upgraded before clients do.** That narrows the requirement to **backward compatibility on requests** (the server must handle requests from not-yet-upgraded clients) and **forward compatibility on responses** (an old client must tolerate responses from an already-upgraded server). Whatever compatibility guarantees the underlying encoding provides — Thrift/gRPC/Avro's tag or name-based rules from the previous lesson — carry straight through to the RPC layer built on top of them.
+
+Compatibility gets genuinely harder across **organizational boundaries**: you can't force an external client to upgrade on your schedule, so a public API's compatibility promises may effectively need to hold *indefinitely* — which is exactly why so many public APIs end up maintaining several API versions side by side, using a version number embedded in a URL, an HTTP header, or a stored per-client setting.
+
+### Check: services, REST, and RPC
+
+<MultipleChoice
+  id="ddia-dataflow-rpc"
+  title="REST, SOAP, and the problems with RPC"
+  questions={[
+    {
+      prompt: 'What is the core philosophical difference between REST and SOAP?',
+      choices: [
+        'REST and SOAP are actually the exact same thing with different names',
+        'REST is a design philosophy built directly on HTTP\'s existing primitives (URLs, verbs, caching); SOAP is an XML-based protocol that treats HTTP as merely one possible transport underneath its own large, separately-specified family of standards',
+        'SOAP only works over HTTPS, while REST only works over plain HTTP',
+        'REST requires code generation; SOAP does not',
+      ],
+      answer: 1,
+      why: 'REST leans into HTTP\'s own conventions; SOAP deliberately abstracts away from HTTP specifics via its own WS-* standards stack.',
+    },
+    {
+      prompt: 'Why is a network request fundamentally riskier than a local function call, specifically regarding retries?',
+      choices: [
+        'Retries are never necessary for network requests',
+        'If a request actually succeeded but its RESPONSE was lost (e.g. due to a timeout), retrying can cause the action to be performed a second time — a risk that simply doesn\'t exist for a local function call, unless the protocol explicitly builds in deduplication (idempotency)',
+        'Local function calls can also silently execute twice, just like network requests',
+        'Network requests are risky only because they use more CPU than local calls',
+      ],
+      answer: 1,
+      why: 'The ambiguity between "request never arrived" and "response never arrived" is exactly the failure mode a local call can never experience, and idempotency keys are the standard fix.',
+    },
+    {
+      prompt: 'Why can RPC frameworks make a simplifying assumption about compatibility direction that plain database access cannot?',
+      choices: [
+        'RPC requires no compatibility guarantees at all',
+        'It\'s reasonable to assume servers get upgraded before their clients do, which narrows the requirement to backward compatibility on requests and forward compatibility on responses — a database has no such "server upgrades first" guarantee among the many processes sharing it',
+        'RPC and database access have identical compatibility requirements in every case',
+        'Clients are always upgraded before servers in RPC systems',
+      ],
+      answer: 1,
+      why: 'This assumption (servers first, clients later) is exactly what narrows RPC\'s compatibility requirements compared to a database, where any mix of old/new processes might be reading and writing at once.',
+    },
+  ]}
+/>
+
+---
+
+## Message-Passing Dataflow
+
+The third shape sits between the other two: **asynchronous message passing**, typically through a **message broker** (a.k.a. message queue). Like RPC, a message reaches its destination with relatively low latency. Like a database, it's not a direct connection — the broker durably stores the message temporarily, decoupling sender from receiver in time as well as space.
+
+Routing messages through a broker buys several things a raw RPC call doesn't:
+
+- **Buffering** when a recipient is slow or temporarily unavailable, instead of the call simply failing.
+- **Automatic redelivery** if a consumer crashes before finishing, preventing silent message loss.
+- **No need to know the recipient's address** — useful anywhere the actual location of a service instance is fluid, like cloud deployments where machines come and go.
+- **Fan-out** — one message, many recipients.
+- **Logical decoupling** — the sender publishes and moves on; it doesn't need to know or care who (if anyone) actually consumes the message.
+
+The trade-off: message passing is normally **one-way**. A sender fires a message and doesn't wait around for a reply (any actual response typically travels back over a *separate* channel, if one exists at all) — a genuinely different interaction shape than RPC's call-and-wait.
+
+Concretely, brokers like **RabbitMQ**, **ActiveMQ**, and **Apache Kafka** work by having producers publish to a named **queue or topic**, with the broker fanning that out to one or more consumers/subscribers. A message broker imposes essentially no data model of its own — a message is just bytes plus some metadata — so the whole compatibility discussion from the previous lesson applies directly: pick an encoding with solid forward/backward compatibility, and publishers and consumers can be deployed, upgraded, and restarted independently, in any order.
+
+### Practice: build a minimal message broker
+
+Implement the fan-out mechanic directly — one topic, potentially many subscribers, and a publish call that delivers to every current subscriber of that topic.
+
+<CodeExercise
+  title="Publish/subscribe broker"
+  heading="exercise-pubsub"
+  lang="python"
+  filename="main.py"
+  prompt="Implement a Broker class with subscribe(topic, callback) to register a callback for a topic, and publish(topic, message) to call every callback registered for that topic, in the order they subscribed."
+  sampleLog={`(no input)
+billing got: order-placed
+shipping got: order-placed`}
+  starter={`class Broker:
+    def __init__(self):
+        self.subscribers = {}  # topic -> list of callbacks
+
+    def subscribe(self, topic, callback):
+        # TODO: register callback under this topic
+        pass
+
+    def publish(self, topic, message):
+        # TODO: call every callback subscribed to this topic, with message
+        pass
+
+broker = Broker()
+broker.subscribe("orders", lambda msg: print(f"billing got: {msg}"))
+broker.subscribe("orders", lambda msg: print(f"shipping got: {msg}"))
+broker.publish("orders", "order-placed")
+`}
+  hint="In subscribe: self.subscribers.setdefault(topic, []).append(callback). In publish: for cb in self.subscribers.get(topic, []): cb(message)."
+  solution={`class Broker:
+    def __init__(self):
+        self.subscribers = {}
+
+    def subscribe(self, topic, callback):
+        self.subscribers.setdefault(topic, []).append(callback)
+
+    def publish(self, topic, message):
+        for callback in self.subscribers.get(topic, []):
+            callback(message)
+
+broker = Broker()
+broker.subscribe("orders", lambda msg: print(f"billing got: {msg}"))
+broker.subscribe("orders", lambda msg: print(f"shipping got: {msg}"))
+broker.publish("orders", "order-placed")
+`}
+  sourceChecks={[
+    { name: 'stores subscribers per topic', pattern: 'self\\.subscribers', must: true, hint: "store each topic's list of callbacks on self.subscribers" },
+  ]}
+  tests={[
+    { name: 'delivers to both subscribers in order', stdin: '', equals: 'billing got: order-placed\nshipping got: order-placed' },
+  ]}
+/>
+
+### Distributed Actor Frameworks
+
+The **actor model** is a concurrency model where independent **actors** each hold private local state and talk to each other *only* via asynchronous messages — no shared memory, no locks, no manual thread juggling. Each actor processes one message at a time, so an individual actor's own logic never has to reason about concurrency at all.
+
+**Distributed actor frameworks** stretch this same idea across machines: the exact same "send a message to an actor" call works whether the recipient is in the same process or on a different continent — if it's remote, the framework transparently encodes the message, ships it over the network, and decodes it on arrival. Location transparency arguably works *better* here than in RPC, precisely because the actor model already assumes messages can be dropped or delayed even *within* a single process — remote delivery just makes an already-expected failure mode somewhat more likely, rather than introducing a brand-new one.
+
+A distributed actor framework is, in effect, a message broker and the actor programming model fused into one package — which means the exact same rolling-upgrade compatibility concerns from this whole chapter still apply, since a message can easily be sent from a node already running new code to one still running old code, or vice versa. Three well-known frameworks land in noticeably different places on this:
+
+- **Akka** defaults to Java's built-in serialization (no compatibility guarantees at all, by default) but can be reconfigured to use Protocol Buffers, unlocking real rolling-upgrade support.
+- **Orleans** defaults to a custom encoding with **no** rolling-upgrade support out of the box — the documented upgrade path is standing up an entirely new cluster and migrating traffic over, though custom serialization plugins are possible.
+- **Erlang/OTP** makes changing record schemas surprisingly difficult despite the platform's overall reputation for high availability; rolling upgrades are possible, but need real up-front planning (Erlang's newer, JSON-like `maps` datatype may ease this over time).
+
+### Check: message passing and actors
+
+<MultipleChoice
+  id="ddia-dataflow-messaging"
+  title="Message brokers and distributed actors"
+  questions={[
+    {
+      prompt: 'What capability does routing messages through a broker provide that a direct RPC call does not?',
+      choices: [
+        'Brokers make every message delivery instantaneous with zero latency',
+        'A broker can buffer messages when a recipient is unavailable, automatically redeliver to a crashed consumer, decouple sender from needing to know the recipient\'s address, and fan a single message out to multiple recipients',
+        'Brokers eliminate the need for any data encoding at all',
+        'Brokers guarantee a response will always be returned to the sender',
+      ],
+      answer: 1,
+      why: 'These are exactly the resilience and decoupling benefits the lesson attributes to routing through an intermediary broker instead of a direct call.',
+    },
+    {
+      prompt: 'Why does message-passing dataflow typically NOT involve the sender waiting for a response, unlike RPC?',
+      choices: [
+        'Message brokers technically cannot deliver more than one message per connection',
+        'Message-passing communication is normally one-way by design — a sender publishes a message and moves on without waiting; any actual reply, if one exists, usually travels over a separate channel entirely',
+        'Responses are impossible to implement with message brokers under any circumstances',
+        'RPC is also always one-way, making this comparison meaningless',
+      ],
+      answer: 1,
+      why: 'This asynchronous, fire-and-forget shape is exactly what distinguishes message-passing dataflow\'s interaction pattern from RPC\'s call-and-wait pattern.',
+    },
+    {
+      prompt: 'Why does location transparency (treating remote and local calls identically) arguably work better in the actor model than in traditional RPC?',
+      choices: [
+        'Because actor frameworks never actually send messages over a real network',
+        'Because the actor model already assumes message delivery can fail or be delayed even WITHIN a single process, so remote delivery is just a variation on an already-expected failure mode, rather than introducing a fundamentally new one the way RPC\'s "looks just like a local call" illusion does',
+        'Because actors are always faster than RPC calls over any network',
+        'Because RPC frameworks never experience any network failures',
+      ],
+      answer: 1,
+      why: 'RPC tries to hide a genuine local/remote mismatch; the actor model never assumed reliable, instantaneous delivery in the first place, so the local/remote gap it has to paper over is much smaller.',
+    },
+  ]}
+/>
+
+---
+
+:::important Key takeaways
+- **Databases** as a dataflow mechanism require both compatibility directions simultaneously, since old and new code (and old and new data) routinely coexist — and because **data outlives code**, migrations are the exception, not the default.
+- **REST** builds on HTTP's own conventions and has become the dominant style for public APIs; **SOAP** wraps HTTP in a much larger, separately-specified standards stack, leaning heavily on code generation.
+- **RPC** tries to make a network call look like a local one, but a network call has failure modes (loss, timeouts, unpredictable latency, ambiguous partial failure) a local call never has — modern frameworks (gRPC, Thrift RPC, Avro RPC) increasingly embrace that difference explicitly rather than hiding it, and **idempotency keys** are the standard fix for the retry-duplication problem specifically.
+- RPC gets a simplifying assumption databases don't: servers usually upgrade before clients, narrowing the requirement to backward-compatible requests and forward-compatible responses — though cross-organization APIs often need to maintain compatibility indefinitely.
+- **Message brokers** enable durable, decoupled, one-to-many, typically one-way dataflow; **distributed actor frameworks** fuse a broker with the actor concurrency model, but still inherit every rolling-upgrade compatibility concern from this whole chapter.
+:::
+
+## Further Reading
+
+- Martin Kleppmann — *Designing Data-Intensive Applications* (O'Reilly, 2017), Chapter 4
+- [Formats for Encoding Data](./formats-for-encoding-data) — this series' previous lesson
+- [B-Trees and Other Indexing Structures](./b-trees-and-other-indexing-structures) — earlier lesson on storage engines
+- [gRPC documentation](https://grpc.io/docs/) and [Apache Kafka documentation](https://kafka.apache.org/documentation/)
+- Roy Fielding's dissertation, ["Architectural Styles and the Design of Network-based Software Architectures"](https://www.ics.uci.edu/~fielding/pubs/dissertation/top.htm) — the original definition of REST

@@ -1,0 +1,247 @@
+---
+sidebar_position: 3
+title: Multi-Leader Replication
+---
+
+# Multi-Leader Replication
+
+> **Adapted from:** Martin Kleppmann, *Designing Data-Intensive Applications* (O'Reilly, 2017), Chapter 5 — rewritten and condensed for teaching.
+
+[Problems with Replication Lag](./problems-with-replication-lag) assumed a single leader throughout. But single-leader replication has one structural weakness: if a client can't reach the leader — a network partition, an outage, anything — it simply cannot write, full stop. **Multi-leader replication** (a.k.a. *master–master* or *active/active*) relaxes that: more than one node can accept writes, and every leader acts as a follower to every other leader, propagating whatever it accepts outward to the rest.
+
+---
+
+## When Multiple Leaders Actually Make Sense
+
+Multi-leader setups rarely earn their complexity *within* a single datacenter — but three real scenarios justify it.
+
+### Multi-Datacenter Operation
+
+Run one leader per datacenter, with regular leader-follower replication *inside* each datacenter and cross-datacenter replication happening leader-to-leader. Compared to single-leader replication spanning the same datacenters:
+
+| | Single leader | Multi-leader |
+|---|---|---|
+| **Write latency** | Every write crosses the internet to the one datacenter holding the leader | Every write lands in the *local* datacenter — cross-datacenter delay is hidden from the user entirely |
+| **Datacenter outage** | Requires promoting a follower elsewhere (failover) | Each datacenter keeps running independently; the recovering one just catches up once it's back |
+| **Network problems** | A flaky inter-datacenter link directly stalls writes, since they're synchronous with the leader | Cross-datacenter replication is normally asynchronous, so a temporary link outage doesn't block local writes at all |
+
+The real cost: the **same** data can now be modified concurrently in two different datacenters, and those conflicting writes have to be reconciled somehow — the whole subject of the next section. Multi-leader support is often bolted onto a database that wasn't originally built around it (Tungsten Replicator for MySQL, BDR for Postgres, GoldenGate for Oracle), which is exactly why it tends to interact in surprising ways with features like autoincrementing keys, triggers, and integrity constraints — reasons enough that plenty of teams treat multi-leader as a last resort, not a default.
+
+### Offline-Capable Clients
+
+Think of a calendar app that has to keep working with zero connectivity — reading and writing meetings on a plane, say — then syncing everything once you're back online. Here, **every device is effectively its own leader**, syncing asynchronously with every other copy whenever a connection exists. Structurally this is multi-leader replication taken to its logical extreme: each "datacenter" is a phone or laptop, and the "network" between them can be offline for hours or days at a stretch. (The long, well-documented history of buggy calendar-sync implementations is a decent hint at how genuinely hard this is to get right.)
+
+### Real-Time Collaborative Editing
+
+Google Docs- or Etherpad-style simultaneous editing shares more with the offline-client case than you might expect: each keystroke applies instantly to the editor's own local copy, then propagates asynchronously to the server and every other collaborator. Locking the whole document per edit would sidestep conflicts entirely — but that's just single-leader replication with transactions in disguise, and it kills the "everyone edits at once" experience the tool exists to provide. Fine-grained, lock-free collaboration means accepting every challenge multi-leader replication brings with it, keystroke-level conflicts included.
+
+### Check: multi-leader use cases
+
+<MultipleChoice
+  id="ddia-multileader-usecases"
+  title="When multi-leader replication makes sense"
+  questions={[
+    {
+      prompt: 'In a multi-datacenter deployment, why does multi-leader replication typically offer better perceived write latency than single-leader replication?',
+      choices: [
+        'Multi-leader replication does not actually improve latency in any scenario',
+        'Each datacenter has its own local leader, so writes are processed locally and the cross-datacenter replication delay happens asynchronously, hidden from the user — whereas single-leader replication forces every write to cross the network to wherever the one leader lives',
+        'Multi-leader replication eliminates the need for any network communication between datacenters',
+        'Single-leader replication is always faster regardless of datacenter topology',
+      ],
+      answer: 1,
+      why: 'Local-write, asynchronous-cross-datacenter-propagation is exactly the mechanism that hides inter-datacenter latency from the end user in a multi-leader setup.',
+    },
+    {
+      prompt: 'Why is a fully offline-capable calendar app considered structurally the same problem as multi-datacenter multi-leader replication?',
+      choices: [
+        'It is not related at all; offline apps use a completely different mechanism',
+        'Each device acts as its own leader, accepting local writes independently and syncing asynchronously with other copies whenever connectivity exists — the same shape as datacenters each running their own leader and reconciling periodically, just with a much less reliable "network" between them',
+        'Offline apps never need to reconcile data with other devices',
+        'Calendar apps only ever have one true leader: the cloud server',
+      ],
+      answer: 1,
+      why: 'Both scenarios involve independent nodes accepting writes locally and reconciling asynchronously — the structural pattern is identical even though the "nodes" are phones instead of datacenters.',
+    },
+  ]}
+/>
+
+---
+
+## Handling Write Conflicts
+
+The unavoidable cost of multiple leaders: the *same* record can be modified concurrently on two different leaders, and by the time replication catches up, both changes exist and disagree with each other.
+
+### Detection Is Necessarily Asynchronous
+
+In single-leader replication, a second conflicting write simply blocks or gets rejected outright — there's only ever one leader serializing everything. In multi-leader replication, **both** writes succeed *locally*, on their own leader, and the conflict is only discovered later, once replication actually delivers both sides to each other — by which point it's generally too late to just ask the original user to sort it out interactively. You could force conflict detection to be synchronous (wait for full replication before confirming success to the client) — but that throws away the entire point of having multiple leaders in the first place: local, independent write acceptance. If you need synchronous detection, you've essentially reinvented single-leader replication.
+
+### Three Strategies, in Order of How Much Work They Take
+
+**1. Avoid conflicts entirely.** If every write for a given record can be steered to the *same* leader, conflicts become structurally impossible. A common pattern: route each user consistently to their "home" datacenter for both reads and writes of their own data. This holds — right up until you need to move a user's home leader (a failed datacenter, someone relocating), at which point you're back to handling real concurrent writes.
+
+**2. Converge automatically toward one final value.** If every write for a record is applied in the *same order* everywhere, that's trivial — but with multiple leaders there's no natural global write order, so different replicas can genuinely disagree about which write happened "last." A few concrete strategies:
+
+   - **Last write wins (LWW).** Attach a timestamp (or a big random ID) to every write; the highest one wins, all others are discarded. Simple, and *the* built-in mechanism in Cassandra — but it silently drops data, since a "losing" write may have already been reported as successful to its own client.
+   - **Replica priority.** Give every replica a fixed rank; writes from higher-ranked replicas always beat writes from lower-ranked ones. Same fundamental problem as LWW — data loss, just via a different tiebreaker.
+   - **Merge the values.** Order and concatenate them (`"B"` and `"C"` becoming `"B/C"`), or — for something like a shopping cart — take the union of both sides.
+   - **Preserve everything, resolve later.** Record the conflict explicitly, without picking a winner immediately, and let application code (possibly with the user's own input) resolve it after the fact.
+
+**3. Write custom resolution logic.** Most multi-leader tools let you plug in your own conflict handler, invoked either **on write** (as soon as the conflict is detected in the replicated log — Bucardo lets you write this in Perl, for instance; it must run fast, in the background, with no ability to prompt a user) or **on read** (all conflicting versions get stored, and the *next* read simply returns every version, leaving the application — or the user directly — to reconcile them; this is how CouchDB works). One important scoping detail: conflict resolution is almost always evaluated **per row or document**, not per transaction — even a single atomic multi-write transaction still has each of its individual writes considered separately for conflict purposes.
+
+### Practice: merge conflicting shopping carts
+
+The classic conflict-avoidance example from this lesson: two leaders each accept a concurrent addition to the *same* shopping cart. A reasonable resolution — same one real systems like Riak's CRDT-based counters use — is to merge by taking the union of items.
+
+<CodeExercise
+  title="Merge concurrent cart edits"
+  heading="exercise-cart-merge"
+  lang="python"
+  filename="main.py"
+  prompt="Implement merge_carts(cart_a, cart_b) to return the union of two carts (each a list of item names) as a sorted list with no duplicates — the standard way to converge two concurrently-edited replicas of the same cart."
+  sampleLog={`(no input)
+['bread', 'eggs', 'milk']`}
+  starter={`def merge_carts(cart_a, cart_b):
+    # cart_a and cart_b are lists of item names, possibly overlapping.
+    # Return the union, sorted, with no duplicates.
+    pass
+
+leader1_cart = ["milk", "eggs"]
+leader2_cart = ["milk", "bread"]
+print(merge_carts(leader1_cart, leader2_cart))
+`}
+  hint="Use set(cart_a) | set(cart_b) to union them, then sorted(...) to get a deterministic order."
+  solution={`def merge_carts(cart_a, cart_b):
+    return sorted(set(cart_a) | set(cart_b))
+
+leader1_cart = ["milk", "eggs"]
+leader2_cart = ["milk", "bread"]
+print(merge_carts(leader1_cart, leader2_cart))
+`}
+  sourceChecks={[
+    { name: 'takes a set union', pattern: '\\|', must: true, hint: 'use the set union operator | (or .union(...)) to merge both carts' },
+  ]}
+  tests={[
+    { name: 'merges and deduplicates both carts', stdin: '', equals: "['bread', 'eggs', 'milk']" },
+  ]}
+/>
+
+:::note Union-merging has its own trap
+Taking the union works fine for *additions* — but if an item is ever *removed* from one cart, a naive union-merge will happily resurrect it, since the other (unmodified) replica still lists it. Real fixes for this need an explicit **tombstone** marking the removal, so the merge process knows to honor a deletion instead of quietly reverting it — Amazon's own shopping cart hit exactly this bug for a stretch of time in production.
+:::
+
+### Automatic Conflict Resolution Research
+
+Because hand-written conflict handlers are genuinely error-prone, real research effort has gone into resolving conflicts *automatically*, in mathematically well-defined ways:
+
+- **CRDTs (conflict-free replicated data types)** — a family of purpose-built structures (sets, maps, ordered lists, counters) that merge concurrent edits automatically and predictably; implemented in Riak 2.0's built-in datatypes.
+- **Mergeable persistent data structures** — explicitly track history (think Git) and use three-way merges instead of CRDTs' two-way merges.
+- **Operational transformation** — the algorithm underneath Etherpad- and Google Docs-style collaborative editing, purpose-built for concurrently edited *ordered* sequences like the characters in a text document.
+
+### What Even Counts as a Conflict?
+
+Not every conflict is as obvious as "two writes touched the same field." Consider a meeting-room booking system: two *different* room-time bookings, each individually valid, that happen to overlap because they were created on two different leaders before either replicated to the other. The application checked availability *before* accepting each booking — the check just didn't (and couldn't) see the other leader's not-yet-replicated booking. Detecting this class of conflict is a genuinely open problem this series returns to later.
+
+### Check: handling write conflicts
+
+<MultipleChoice
+  id="ddia-multileader-conflicts"
+  title="Detecting and resolving conflicts"
+  questions={[
+    {
+      prompt: 'Why must conflict detection in multi-leader replication necessarily happen asynchronously, rather than the moment a conflicting write occurs?',
+      choices: [
+        'It does not have to be asynchronous; synchronous detection is the default and free of trade-offs',
+        'Both conflicting writes succeed independently and immediately on their own local leader — the conflict is only discoverable once replication actually delivers both sides to each other, by which point synchronous, in-the-moment user intervention is no longer possible; forcing synchronous detection would eliminate the whole point of having independent leaders',
+        'Multi-leader systems never actually detect conflicts at all',
+        'Conflicts are always detected before either write is accepted',
+      ],
+      answer: 1,
+      why: 'Each leader accepts writes independently and immediately — that independence is multi-leader replication\'s whole value proposition, and it\'s exactly what makes synchronous, pre-acceptance conflict detection impossible without giving that up.',
+    },
+    {
+      prompt: 'What is the fundamental risk shared by both "last write wins" and "replica priority" conflict resolution strategies?',
+      choices: [
+        'They have no risk at all and are always safe to use',
+        'Both strategies pick one write as the "winner" and simply discard the other — meaning a write that was already reported successful to its own client can be silently lost',
+        'They only work with exactly two leaders and fail with three or more',
+        'They require synchronous replication to function',
+      ],
+      answer: 1,
+      why: 'Any strategy that picks a single winner and drops the rest carries the same fundamental data-loss risk, regardless of the specific tiebreaker (timestamp vs. replica rank) used to choose the winner.',
+    },
+    {
+      prompt: 'Why can naively merging two concurrently-edited shopping carts by taking their union cause a bug when items can also be REMOVED?',
+      choices: [
+        'Union-merging can never be used for any data structure',
+        'If an item was removed from one replica\'s cart but the other replica never saw that removal, a plain union-merge will pull the item back in from the unmodified replica, effectively undoing the deletion — an explicit deletion marker (tombstone) is needed to prevent this',
+        'Removed items are automatically excluded from any set operation in every programming language',
+        'This is not actually a real problem in practice',
+      ],
+      answer: 1,
+      why: 'A union operation has no way to distinguish "never added" from "added then removed" without an explicit marker — which is exactly the tombstone mechanism the lesson describes, and exactly the bug Amazon hit in production.',
+    },
+  ]}
+/>
+
+---
+
+## Replication Topologies
+
+With exactly two leaders, there's only one sensible arrangement — each replicates directly to the other. With three or more, the shape of *who sends writes to whom* — the **replication topology** — becomes a real design choice:
+
+- **All-to-all** — every leader sends its writes to every other leader directly. The most fault-tolerant option, since a single node failure doesn't cut off communication between the others — messages simply route around it.
+- **Circular** — each node forwards to exactly one neighbor (MySQL's default multi-leader topology). A single failed node breaks the entire circle until it's fixed or the topology is manually reconfigured.
+- **Star** (generalizing to a tree) — one root node forwards to everyone else. Same single-point-of-failure fragility as a circular topology.
+
+Circular and star topologies both need writes to pass through several intermediate nodes before reaching everyone — so each write gets tagged with the identifiers of every node it's already passed through, letting a node recognize (and discard) a write it's already seen, preventing infinite replication loops.
+
+All-to-all's extra fault tolerance comes with its own wrinkle: since different network links can have wildly different latency, replication messages can genuinely **overtake** each other. A write that inserts a row might arrive at some node *after* a later write that updates that same (not-yet-existent, from that node's point of view) row — a causality problem structurally identical to the [consistent prefix reads](./problems-with-replication-lag#consistent-prefix-reads) issue from the previous lesson. Slapping a wall-clock timestamp on each write doesn't reliably fix this, since clocks across machines can't be trusted to stay tightly enough in sync (a topic a later lesson covers in depth) — the real fix is a technique called **version vectors**, covered in the next lesson. Worth knowing in practice: plenty of real multi-leader systems handle this only partially — PostgreSQL's BDR doesn't provide causal ordering of writes at all, and MySQL's Tungsten Replicator doesn't even attempt conflict detection.
+
+### Check: replication topologies
+
+<MultipleChoice
+  id="ddia-multileader-topology"
+  title="Multi-leader replication topologies"
+  questions={[
+    {
+      prompt: 'Why is an all-to-all replication topology generally more fault-tolerant than a circular or star topology?',
+      choices: [
+        'All-to-all topologies use less network bandwidth overall',
+        'If one node fails in an all-to-all topology, messages can still route between the remaining nodes directly; in circular or star topologies, a single failed node can break the chain of forwarding and cut off communication between other nodes entirely',
+        'Circular and star topologies are actually more fault-tolerant than all-to-all',
+        'Fault tolerance is identical across all three topology types',
+      ],
+      answer: 1,
+      why: 'The direct node-to-node connections in all-to-all mean there\'s no single relay point whose failure isolates other nodes from each other, unlike the forwarding chains in circular/star topologies.',
+    },
+    {
+      prompt: 'Why can an all-to-all topology cause a write to arrive at some node in the "wrong" order relative to a causally-related earlier write?',
+      choices: [
+        'All-to-all topologies guarantee writes always arrive in the correct order everywhere',
+        'Because different network links between leaders can have different latencies, replication messages can overtake one another — a later write (e.g. an update) can arrive at a node before an earlier write it causally depends on (e.g. the insert that created the row)',
+        'Because all-to-all topologies do not actually transmit writes over a network',
+        'This problem is unique to circular topologies and cannot occur in all-to-all',
+      ],
+      answer: 1,
+      why: 'Variable network latency across independent direct links is exactly what allows message overtaking in an all-to-all topology — a problem circular/star topologies avoid only because they force writes through a single ordered path.',
+    },
+  ]}
+/>
+
+---
+
+:::important Key takeaways
+- **Multi-leader replication** lets more than one node accept writes, trading single-leader's simplicity for resilience against any one leader (or datacenter) being unreachable — at the cost of real, unavoidable write conflicts.
+- It earns its complexity in three recurring situations: **multi-datacenter** deployments, **offline-capable clients**, and **real-time collaborative editing** — all structurally the same underlying pattern.
+- Conflicts can only be detected **asynchronously**, after the fact — resolved by **avoiding** them (route by ownership), converging automatically (**LWW**, replica priority, or merging), or **custom application logic** (on write or on read).
+- **CRDTs**, mergeable persistent structures, and **operational transformation** are active research directions for resolving conflicts automatically and predictably, without hand-written merge logic.
+- **Replication topology** (all-to-all, circular, star) trades off fault tolerance against message-ordering guarantees — all-to-all is the most resilient to node failure, but is also the topology most exposed to messages **overtaking** each other, a problem **version vectors** (next lesson) are built to solve.
+:::
+
+## Further Reading
+
+- Martin Kleppmann — *Designing Data-Intensive Applications* (O'Reilly, 2017), Chapter 5
+- [Problems with Replication Lag](./problems-with-replication-lag) — this series' previous lesson
+- [Leaderless Replication](./leaderless-replication) — this series' next lesson: quorums and version vectors
+- [Riak's CRDT documentation](https://docs.riak.com/riak/kv/latest/developing/data-types/) — CRDTs in a real production database

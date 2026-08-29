@@ -22,6 +22,10 @@ Foundational software-engineering knowledge for game programmers — object-orie
 - [Introduction to Concurrent Programming](./game-engine-architecture/introduction-to-concurrent-programming) — Rob Pike's definition of concurrency, message passing vs. shared memory, race conditions and Heisenbugs, data races (with a hands-on interleaving-simulation exercise), and atomicity (invocation/response, serialization)
 - [Thread Synchronization Primitives](./game-engine-architecture/thread-synchronization-primitives) — mutexes (POSIX/C++11/Windows) and RAII locking, Windows critical sections and futexes, condition variables (busy-waiting vs. sleep/wake, spurious wakeups), semaphores (mutex vs. binary semaphore, producer-consumer, building one from a mutex+CV), and a code activity building a real atomic spinlock
 - [Problems with Lock-Based Concurrency](./game-engine-architecture/problems-with-lock-based-concurrency) — deadlock and the Coffman conditions (with a global-lock-ordering code activity), livelock, starvation, priority inversion, and the dining philosophers
+- [Rules of Thumb for Concurrency](./game-engine-architecture/rules-of-thumb-for-concurrency) — global ordering rules (why doubly linked lists resist concurrency), transaction-based algorithms, minimizing contention, and the trade-offs of blanket thread safety
+- [Causes of Data Races and Atomic Instructions](./game-engine-architecture/causes-of-data-races-and-atomic-instructions) — the blocking/obstruction-free/lock-free/wait-free hierarchy, the three true causes of data races, and atomic instructions (test-and-set, compare-and-swap, the ABA problem, load-linked/store-conditional) with a CAS-retry-loop code exercise
+- [Memory Fences and the C++ Memory Model](./game-engine-architecture/memory-fences-and-the-cpp-memory-model) — why volatile doesn't help in C/C++, compiler barriers, the MESI cache coherency protocol and how it can still go wrong, memory fences (acquire/release/full fence), and std::atomic with explicit memory_order (with a code exercise)
+- [Spin Locks and Lock-Free Data Structures](./game-engine-architecture/spin-locks-and-lock-free-data-structures) — a correctly-fenced spin lock, scoped/reentrant/readers-writer locks, lock-not-needed assertions, and a from-scratch lock-free linked list (with two code exercises)
 
 ## Planned Topics
 
@@ -32,7 +36,6 @@ Foundational software-engineering knowledge for game programmers — object-orie
 
 ### Concurrent Programming
 - SIMD vector processing and GPGPU programming
-- Lock-free programming and memory ordering
 
 ### Low-Level Foundations
 - Data-oriented design vs. object-oriented design

@@ -1,0 +1,258 @@
+---
+sidebar_position: 1
+title: Batch Processing with Unix and MapReduce
+---
+
+# Batch Processing with Unix and MapReduce
+
+> **Adapted from:** Martin Kleppmann, *Designing Data-Intensive Applications* (O'Reilly, 2017), Chapter 10 — rewritten and condensed for teaching.
+
+Everything in [Distributed Data](../distributed-data/leaders-and-followers) assumed a request/response shape: a client asks, the system answers, and response time is what you optimize. That shape is so common on the web that it's easy to forget it isn't the only one. Three genuinely distinct system types exist:
+
+| Type | Waits for | Optimizes for |
+|---|---|---|
+| **Services (online)** | A request arrives; respond as fast as possible | Response time, availability |
+| **Batch processing (offline)** | Nothing — runs on a schedule over a fixed, bounded input | Throughput over a known dataset size |
+| **Stream processing (near-real-time)** | Events, processed shortly after they happen | Low latency, but on an *unbounded* input |
+
+This lesson (and the two after it) is about the middle row. **MapReduce**, published by Google in 2004, became — for a while — almost synonymous with "how Google scales." It's a genuinely simple, almost blunt programming model by today's standards, and its influence has been declining as newer dataflow engines take over. But understanding it clearly explains *why* batch processing works the way it does, and every modern engine still solves the same two core problems MapReduce first solved at scale.
+
+---
+
+## Batch Processing with Unix Tools
+
+Before touching a cluster, it's worth seeing batch processing's core ideas on a single machine, where they're easiest to see clearly.
+
+### A Concrete Example: Finding the Top 5 Pages
+
+Given an nginx access log, one line per request, finding the five most-requested URLs is a five-command Unix pipeline:
+
+```bash
+cat access.log |
+  awk '{print $7}' |   # extract the 7th whitespace-separated field: the URL
+  sort             |   # alphabetically sort — same URL now sits in a run
+  uniq -c          |   # collapse each run into "count url"
+  sort -r -n       |   # sort numerically, descending, by that count
+  head -n 5             # keep only the top 5
+```
+
+This processes gigabytes in seconds, and adapting it is trivial — swap the `awk` pattern to `'$7 !~ /\.css$/ {print $7}'` to exclude CSS files, or `'{print $1}'` to rank client IPs instead of pages.
+
+### Two Ways to Get There
+
+The same computation in Ruby keeps an in-memory hash table (`url → count`), incrementing as it scans the file, then sorts and takes the top 5 at the end. Which is "better" — the pipeline's **sort-based** approach, or the script's **in-memory hash table**? It genuinely depends on the **working set** — the amount of data the job needs random access to:
+
+- If every distinct URL plus its counter comfortably fits in memory (true for most sites — a million hits on one URL still costs the space of *one* URL entry), an in-memory hash table works great, even on a laptop.
+- If the working set exceeds available memory, sorting wins, because it degrades gracefully to disk — chunks get sorted in memory, spilled to disk as segment files, then merged (exactly the SSTable/LSM-tree idea from [Hash Indexes and LSM-Trees](../designing-data-intensive-applications/hash-indexes-and-lsm-trees)). Mergesort's access pattern is sequential, which is exactly what disks are good at. GNU `sort` already does this automatically — spilling to disk and parallelizing across cores — which is precisely why the five-command pipeline above scales far past what fits in RAM without you doing anything special.
+
+### The Unix Philosophy
+
+None of this pipeline composability is an accident — it's a deliberate design philosophy, articulated in 1978:
+
+1. Make each program do one thing well.
+2. Expect a program's output to become another program's input — don't clutter it with extras.
+3. Design for early, iterative use — throw away and rebuild the clumsy parts.
+4. Prefer building small tools over brute-force manual effort.
+
+Notice how closely this reads like modern Agile/DevOps thinking, four decades early. `sort` is the clearest example: arguably a better sorting implementation than most languages' standard libraries (it spills to disk and multithreads automatically), yet nearly useless *alone* — its power comes entirely from composing with tools like `uniq`.
+
+What actually *enables* that composition:
+
+- **A uniform interface.** Every Unix tool speaks the same interface: a file — really, just an ordered byte sequence — whether it's a real file, a socket, `stdin`/`stdout`, or a device driver. By convention, most tools further agree that bytes mean newline-separated ASCII records. That shared, almost dumb-simple convention is what lets tools written by completely unrelated people plug together at all.
+- **Separation of logic and wiring.** A well-behaved Unix program reads `stdin` and writes `stdout`, without caring or knowing *where* those are actually connected — a keyboard, a file, another program's output. That indifference is what lets a shell freely rewire input/output between programs without touching either program's code.
+- **Transparency.** Unix commands treat input as immutable, so you can rerun freely without fear of damaging it; you can pipe any intermediate stage into `less` to sanity-check it; you can materialize any stage to a file and resume from there instead of rerunning everything. All three properties make Unix pipelines unusually easy to debug and experiment with.
+
+The one hard limit: **it's all confined to a single machine.** That's exactly the gap Hadoop and MapReduce exist to fill.
+
+### Practice: a Unix pipeline, in Python
+
+Piston's sandbox has no shell pipes, but the exact same mapper→sort→reducer shape translates directly into Python. Implement the same "top 5 URLs" computation as three explicit stages, mirroring `awk` → `sort`/`uniq -c` → `sort -rn`/`head`.
+
+<CodeExercise
+  title="Top-N URL counter"
+  heading="exercise-topn"
+  lang="python"
+  filename="main.py"
+  prompt="Implement top_n(log_lines, n): extract the URL (field index 6, 0-indexed) from each line, count occurrences, and return the top n (url, count) pairs sorted by count descending, then alphabetically for ties."
+  sampleLog={`(no input)
+[('/', 3), ('/about', 2), ('/contact', 1)]`}
+  starter={`def top_n(log_lines, n):
+    # Each line looks like: '1.2.3.4 - - [10/Oct/2000:13:55:36 -0700] "GET /path HTTP/1.1" 200 ...'
+    # The bracketed timestamp contains a space, so after splitting on
+    # whitespace, the URL lands at field index 6.
+    # TODO: count occurrences of each URL, then return the top n
+    # as a list of (url, count) tuples, sorted by count descending
+    # (ties broken alphabetically by url).
+    pass
+
+log_lines = [
+    '1.1.1.1 - - [10/Oct/2000:13:55:36 -0700] "GET / HTTP/1.1" 200 1',
+    '1.1.1.2 - - [10/Oct/2000:13:55:37 -0700] "GET /about HTTP/1.1" 200 1',
+    '1.1.1.3 - - [10/Oct/2000:13:55:38 -0700] "GET / HTTP/1.1" 200 1',
+    '1.1.1.4 - - [10/Oct/2000:13:55:39 -0700] "GET /contact HTTP/1.1" 200 1',
+    '1.1.1.5 - - [10/Oct/2000:13:55:40 -0700] "GET /about HTTP/1.1" 200 1',
+    '1.1.1.6 - - [10/Oct/2000:13:55:41 -0700] "GET / HTTP/1.1" 200 1',
+]
+print(top_n(log_lines, 3))
+`}
+  hint="Build a dict of counts using line.split()[6] as the key, then sorted(counts.items(), key=lambda kv: (-kv[1], kv[0]))[:n]."
+  solution={`def top_n(log_lines, n):
+    counts = {}
+    for line in log_lines:
+        url = line.split()[6]
+        counts[url] = counts.get(url, 0) + 1
+    ranked = sorted(counts.items(), key=lambda kv: (-kv[1], kv[0]))
+    return ranked[:n]
+
+log_lines = [
+    '1.1.1.1 - - [10/Oct/2000:13:55:36 -0700] "GET / HTTP/1.1" 200 1',
+    '1.1.1.2 - - [10/Oct/2000:13:55:37 -0700] "GET /about HTTP/1.1" 200 1',
+    '1.1.1.3 - - [10/Oct/2000:13:55:38 -0700] "GET / HTTP/1.1" 200 1',
+    '1.1.1.4 - - [10/Oct/2000:13:55:39 -0700] "GET /contact HTTP/1.1" 200 1',
+    '1.1.1.5 - - [10/Oct/2000:13:55:40 -0700] "GET /about HTTP/1.1" 200 1',
+    '1.1.1.6 - - [10/Oct/2000:13:55:41 -0700] "GET / HTTP/1.1" 200 1',
+]
+print(top_n(log_lines, 3))
+`}
+  sourceChecks={[
+    { name: 'extracts field index 6 as the URL', pattern: 'split\\(\\)\\[6\\]|split\\(\\)\\s*\\[6\\]', must: true, hint: 'use line.split()[6] to extract the URL field' },
+  ]}
+  tests={[
+    { name: 'top 3 URLs by count, ties broken alphabetically', stdin: '', equals: "[('/', 3), ('/about', 2), ('/contact', 1)]" },
+  ]}
+/>
+
+### Check: Unix philosophy and batch fundamentals
+
+<MultipleChoice
+  id="ddia-batch-unix-philosophy"
+  title="Unix tools and the three system types"
+  questions={[
+    {
+      prompt: 'What is the primary performance metric for a batch processing system, as opposed to an online service?',
+      choices: [
+        'Response time to an individual request, same as an online service',
+        'Throughput — how long it takes to process an input dataset of a given size — since there is typically no user waiting on any single result',
+        'Number of concurrent users connected at once',
+        'Uptime percentage, identical to availability for a service',
+      ],
+      answer: 1,
+      why: 'Batch jobs run without a waiting user, so throughput over the whole dataset — not latency of any single response — is what matters.',
+    },
+    {
+      prompt: 'Why does the choice between an in-memory hash table and a sort-based approach for counting URL occurrences depend on the "working set" size?',
+      choices: [
+        'The working set size is irrelevant; sorting is always faster',
+        'If the set of distinct keys (plus counters) fits comfortably in memory, a hash table works great even on modest hardware; if it exceeds available memory, the sort-based approach degrades gracefully to disk via sequential I/O, which a naive in-memory structure cannot do',
+        'Hash tables can only be used for numeric data, not URLs',
+        'Sorting only works when the entire file already fits in memory',
+      ],
+      answer: 1,
+      why: 'This is exactly the trade-off the lesson draws: memory-resident structures are fast until they no longer fit, while sorting is built around graceful degradation to sequential disk access.',
+    },
+    {
+      prompt: 'What specifically enables Unix tools written by completely unrelated authors to compose into pipelines?',
+      choices: [
+        'All Unix tools are written by the same small group of core developers',
+        'A uniform interface — every tool reads and writes the same basic abstraction (an ordered byte sequence, conventionally newline-separated ASCII records) — combined with separation of logic from wiring, so a program never needs to know or care where its stdin/stdout are actually connected',
+        'Unix tools require a shared configuration file listing every other tool they are compatible with',
+        'Pipelines only work between tools written in the same programming language',
+      ],
+      answer: 1,
+      why: 'The shared byte-stream interface plus indifference to actual input/output source is exactly what the lesson identifies as enabling arbitrary composition.',
+    },
+  ]}
+/>
+
+---
+
+## MapReduce and Distributed Filesystems
+
+MapReduce is, structurally, the Unix pipeline idea stretched across potentially thousands of machines — blunt and simple, but surprisingly effective at scale. Where Unix tools read/write `stdin`/`stdout`, MapReduce jobs read and write files on a **distributed filesystem** — Hadoop's implementation is **HDFS**, an open-source reimplementation of Google's GFS.
+
+### HDFS in Brief
+
+HDFS follows the **shared-nothing** principle (ordinary machines connected over an ordinary datacenter network — no exotic shared-storage hardware required): a daemon runs on every machine, exposing whatever files it stores locally to the rest of the cluster, while a central **NameNode** tracks which blocks live where. Every file block gets **replicated** across multiple machines (either straightforward copies, as in [Leaders and Followers](../distributed-data/leaders-and-followers), or a more storage-efficient erasure-coding scheme), so individual disk or machine failures don't lose data. This design scales genuinely far — production HDFS deployments have run on tens of thousands of machines holding hundreds of petabytes — precisely because it's built entirely from cheap, commodity hardware rather than specialized storage appliances.
+
+### The MapReduce Job Pattern
+
+Map straight back to the log-analysis pipeline — MapReduce is the *exact same* four-step pattern:
+
+1. **Read input, split into records** — one line of the log = one record (handled by an input-format parser, not code you write).
+2. **Mapper** extracts a key and value from each record — `awk '{print $7}'`, conceptually: key = URL, value = empty.
+3. **Sort all key-value pairs by key** — implicit; the framework always sorts mapper output before handing it to reducers, so you never write this step yourself.
+4. **Reducer** iterates over the now-adjacent, same-keyed pairs — `uniq -c`, conceptually: count how many times each key showed up.
+
+You write the **mapper** and **reducer** callbacks; the framework handles steps 1 and 3 for you. A mapper runs **once per input record**, independently, with **no memory of prior records** — it may emit any number of key-value pairs, including zero. A reducer runs **once per distinct key**, receiving an iterator over every value that arrived under that key.
+
+### How Execution Is Actually Distributed
+
+The real magic, compared to a Unix pipeline: **you never write parallelism-handling code**. Mappers and reducers only ever see one record (or one key's values) at a time — they have no idea where their input came from or where their output is going — which is exactly what frees the framework to distribute the work across many machines transparently.
+
+Concretely: the input directory in HDFS is split into blocks, and each block becomes a separate **map task**. The scheduler tries to run each map task on a machine that *already* holds a replica of that block — **putting computation near the data**, avoiding an unnecessary network copy of the input. The number of **reduce** tasks, unlike map tasks, is chosen by the job author, and the framework routes each key-value pair to its reducer by **hashing the key** (exactly the hash-partitioning idea from [Partitioning of Key-Value Data](../distributed-data/partitioning-of-key-value-data)) — guaranteeing every pair for a given key lands on the same reducer.
+
+Since the full key-value dataset is usually too big to sort on one machine, sorting happens in **stages**: each mapper partitions its own output by destination reducer (via that same key hash), sorting each partition locally and writing it to its own local disk — again, the SSTable-style technique from earlier in this series. Once a mapper finishes, reducers are notified they can start pulling their partition's sorted files directly from that mapper. This whole partition → sort → copy sequence is called the **shuffle** (a slightly misleading name — there's nothing random about it; every step is fully deterministic). Reducers then **merge** the sorted files they receive from every mapper, preserving order, so records sharing a key end up genuinely adjacent by the time the reducer callback actually runs.
+
+### Chaining Jobs into Workflows
+
+A single MapReduce job can't do everything — the log example's *second* sort (ranking URLs by count) genuinely needs its own separate pass. Real pipelines routinely **chain** MapReduce jobs, wiring one job's output directory to the next job's input directory — Hadoop itself has no built-in notion of a "workflow"; that chaining is external, and dedicated **workflow schedulers** (Oozie, Azkaban, Luigi, Airflow) exist specifically to track job dependencies, since a downstream job can only safely start once every upstream job it depends on has **fully succeeded** (partial output from a failed job is always discarded). Production recommendation systems commonly chain 50–100 MapReduce jobs together — genuinely large, cross-team workflows that need real tooling to stay manageable.
+
+### Check: MapReduce and HDFS
+
+<MultipleChoice
+  id="ddia-batch-mapreduce-basics"
+  title="MapReduce, HDFS, and the shuffle"
+  questions={[
+    {
+      prompt: 'Why does the MapReduce scheduler try to run a map task on a machine that already holds a replica of that task\'s input block ("putting computation near the data")?',
+      choices: [
+        'It has no real performance benefit and is done purely for historical reasons',
+        'It avoids copying the input block across the network to reach the compute node, reducing network load and taking advantage of the fact that reading from local disk is typically cheaper than a network transfer',
+        'HDFS requires computation to happen on the exact machine storing the data, with no alternative possible',
+        'It ensures every mapper processes the entire dataset rather than just one partition',
+      ],
+      answer: 1,
+      why: 'Data locality specifically saves the network cost of shipping the (potentially large) input block to wherever the task happens to run.',
+    },
+    {
+      prompt: 'Why is the "shuffle" step in MapReduce a somewhat misleading name?',
+      choices: [
+        'Because no data movement actually occurs during the shuffle',
+        'Because unlike shuffling a deck of cards, the process (partitioning by hash of key, sorting, and copying to reducers) is entirely deterministic — the same key always ends up on the same reducer, with no randomness involved',
+        'Because "shuffle" actually refers to a completely unrelated step in a different framework',
+        'Because the shuffle step only applies to numeric keys',
+      ],
+      answer: 1,
+      why: 'The lesson explicitly calls out this naming quirk — the shuffle\'s partition-sort-copy sequence is fully deterministic despite its randomness-suggesting name.',
+    },
+    {
+      prompt: 'Why must a downstream job in a chained MapReduce workflow wait for ALL of its upstream jobs to fully succeed before starting, rather than starting as soon as some output appears?',
+      choices: [
+        'This restriction does not actually exist; downstream jobs can start immediately',
+        'A batch job\'s output is only considered valid once the whole job completes successfully — MapReduce discards the partial output of any failed job — so a downstream job reading that output directory must wait for genuine, complete success, not partial progress',
+        'Workflow schedulers like Oozie physically prevent jobs from running in parallel under any circumstances',
+        'MapReduce jobs are incapable of writing to a directory more than once',
+      ],
+      answer: 1,
+      why: 'Since failed jobs\' partial output is discarded, only full success produces a trustworthy, complete output directory — which is exactly the dependency a downstream job needs to be sure of before consuming it.',
+    },
+  ]}
+/>
+
+---
+
+:::important Key takeaways
+- Three system types exist for a reason: **services** optimize response time on unbounded, one-request-at-a-time load; **batch processing** optimizes throughput over a bounded, known-size input; **stream processing** sits in between, reacting to unbounded input shortly after it arrives.
+- The **Unix philosophy** — small tools, a uniform byte-stream interface, separation of logic from wiring, and treating input as immutable — is what makes pipelines like `awk | sort | uniq -c` both powerful and easy to debug, and it's the direct conceptual ancestor of MapReduce.
+- **MapReduce** is that same four-step pattern (read/split, map, implicit sort, reduce) distributed across a cluster — mappers and reducers never need to know where their data comes from or goes, which is precisely what lets the framework hide all the parallelism.
+- The **shuffle** (partition by key hash, sort, copy to reducers) is fully deterministic despite its name, and is the mechanism that guarantees every value for a given key arrives at the same reducer, adjacent to every other value sharing that key.
+- Real-world batch computations routinely require **chaining many MapReduce jobs** into a workflow, which is why dedicated workflow schedulers exist as a category of tool.
+:::
+
+## Further Reading
+
+- Martin Kleppmann — *Designing Data-Intensive Applications* (O'Reilly, 2017), Chapter 10
+- [Fault-Tolerant Consensus](../distributed-data/fault-tolerant-consensus) — this series' previous lesson, closing out Part II
+- [Joins in MapReduce](./joins-in-mapreduce) — this series' next lesson
+- Jeffrey Dean & Sanjay Ghemawat — ["MapReduce: Simplified Data Processing on Large Clusters"](https://static.googleusercontent.com/media/research.google.com/en//archive/mapreduce-osdi04.pdf) (2004), the original paper
+- Doug McIlroy et al. — ["Unix Time-Sharing System: Foreword"](https://man.cat-v.org/unix_7th/7/) (1978), the source of the Unix philosophy principles quoted in this lesson

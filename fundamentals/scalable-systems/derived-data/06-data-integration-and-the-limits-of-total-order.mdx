@@ -1,0 +1,218 @@
+---
+sidebar_position: 6
+title: Data Integration and the Limits of Total Order
+---
+
+# Data Integration and the Limits of Total Order
+
+> **Adapted from:** Martin Kleppmann, *Designing Data-Intensive Applications* (O'Reilly, 2017), Chapter 12 — rewritten and condensed for teaching.
+
+Every earlier lesson in this series described things largely as they are. This one opens the book's final chapter, where Kleppmann shifts to opinion and speculation about how applications *should* be designed — starting from a problem every real organization eventually hits: no single piece of software does everything.
+
+---
+
+## Combining Specialized Tools by Deriving Data
+
+For a problem as simple-sounding as "store some data and look it up again later," [earlier lessons](../designing-data-intensive-applications/hash-indexes-and-lsm-trees) already showed several genuinely different, all-valid approaches — log-structured storage, B-trees, column-oriented storage; single-leader, multi-leader, or leaderless replication. There is no single right answer, only approaches that fit different circumstances — and a real piece of software has to pick one. Trying to be good at every access pattern at once, in one codebase, is a near-guarantee of being good at none of them.
+
+That specialization creates a second-order problem: real applications rarely need just *one* access pattern. A typical example — an OLTP database needs to be paired with a dedicated full-text search index to handle arbitrary keyword queries well, because search indexes make poor systems of record and general-purpose databases rarely index text as well as a dedicated tool. Scale that up across a real organization and you're routinely combining a system of record with a search index, a cache, a data warehouse, a recommendation engine, and more — one dataset, many representations, no single tool spanning all of them.
+
+### Reasoning About Dataflows
+
+Once several storage systems hold copies of the same underlying data, the question that matters most is: **where does data get written first, and which representations are purely derived from that source?**
+
+The dangerous version of this setup lets an application write directly to *both* the database and the search index. Two clients can then send conflicting writes that arrive at the two systems in a *different* order — neither system is "in charge" of ordering, so they can each make a different, individually reasonable decision and end up permanently, silently inconsistent with each other.
+
+The fix is the same idea driving [Change Data Capture](./databases-and-streams#change-data-capture) and event sourcing: funnel **all** writes through one system that decides the order once, and derive everything else from that single, ordered stream. This is really an application of [state machine replication](../distributed-data/ordering-guarantees#total-order-broadcast) — whether the mechanism is CDC or an event log matters far less than the underlying principle of a single agreed-upon order. Done this way, updating derived data becomes deterministic and idempotent, which is exactly what makes it straightforward to recover from faults.
+
+### Derived Data versus Distributed Transactions
+
+[Distributed transactions](../distributed-data/distributed-transactions-and-two-phase-commit) are the classic alternative for keeping multiple data systems consistent. Both approaches solve the same problem — deciding on one order for writes — through genuinely different mechanisms:
+
+| | Distributed transactions | Log-based derived data |
+|---|---|---|
+| Achieves ordering via | Locks (mutual exclusion) | An append-only log |
+| Guarantees "exactly once" via | Atomic commit | Deterministic retry + idempotence |
+| Timing guarantee | Linearizability (e.g., read-your-writes) | Usually asynchronous — no such default guarantee |
+
+Kleppmann's own opinion here is blunt: XA-style distributed transactions have poor fault-tolerance and performance characteristics that limit their real-world usefulness, and no better, widely-adopted protocol seems imminent. In the absence of one, he considers log-based derived data the more promising path for integrating heterogeneous systems — while still taking seriously that guarantees like read-your-own-writes are genuinely useful, not a comfort to be waved away with "eventual consistency — deal with it."
+
+### Check: combining tools and reasoning about dataflow
+
+<MultipleChoice
+  id="ddia-future-data-integration"
+  title="Deriving data, funneling writes, and derived data vs. distributed transactions"
+  questions={[
+    {
+      prompt: 'Why do complex applications typically end up combining several different data storage/processing tools rather than using just one?',
+      choices: [
+        'Because using multiple tools is always a sign of poor engineering practice',
+        'Because no single storage or processing technology is well-suited to every access pattern a real application needs (e.g., transactional storage vs. full-text search vs. analytics), so different specialized tools each handle the parts they are actually good at',
+        'Because databases are incapable of storing more than one type of data',
+        'Because regulations require using at least three different databases per application',
+      ],
+      answer: 1,
+      why: 'Specialization is exactly the trade-off driving this: a tool built for one access pattern is rarely also the best tool for a very different one, so real applications compose several fit-for-purpose systems instead.',
+    },
+    {
+      prompt: 'Why does allowing an application to write directly and independently to both a database and a search index create a consistency risk?',
+      choices: [
+        'It does not create any risk; writing to multiple systems independently is always safe',
+        'Two concurrent, conflicting writes can be processed in a different order by the two systems, since neither system is authoritative over the overall write order — leaving them free to reach different, permanently inconsistent conclusions',
+        'Search indexes are physically incapable of accepting direct writes',
+        'This only becomes a problem if the two systems are on different continents',
+      ],
+      answer: 1,
+      why: "With no single system deciding the order of writes, each storage system's own locally-observed order can diverge from the other's — exactly the race condition that funneling writes through one ordered log eliminates.",
+    },
+    {
+      prompt: 'What is the core difference in how distributed transactions and log-based derived data systems each achieve a consistent order of writes across systems?',
+      choices: [
+        'They are actually identical mechanisms with different names',
+        'Distributed transactions use locks for mutual exclusion and atomic commit for exactly-once effects, while log-based systems use an ordered log plus deterministic, idempotent retries — achieving a similar goal through very different means, with the log-based approach usually trading away default linearizability guarantees',
+        'Log-based systems always provide stronger consistency guarantees than distributed transactions',
+        'Distributed transactions require no coordination between the participating systems at all',
+      ],
+      answer: 1,
+      why: "This is exactly the contrast Kleppmann draws: locks and atomic commit versus a log and idempotent retries, with linearizability (and its read-your-writes guarantee) as the thing log-based systems usually give up by default.",
+    },
+  ]}
+/>
+
+---
+
+## The Limits of Total Ordering
+
+A single, totally ordered event log works cleanly for small-enough systems — it's exactly what single-leader replication already builds. But it stops scaling cleanly for several concrete reasons:
+
+- **Throughput.** A total order generally requires funneling every event through one leader node. Once event throughput exceeds what one machine can handle, the log has to be [partitioned](../distributed-data/partitioning-of-key-value-data) — and the relative order of events in *different* partitions becomes ambiguous.
+- **Geographic distribution.** Multiple datacenters, kept for fault tolerance, typically mean a separate leader per datacenter (see [Multi-Leader Replication](../distributed-data/multi-leader-replication)), since synchronous cross-datacenter coordination is too slow to be practical — so events originating in different datacenters have no defined relative order either.
+- **Microservices.** A common design keeps each service's durable state fully independent, with nothing shared — so events originating in two different services have no defined order between them.
+- **Offline-capable clients.** Client-side state that updates immediately on user input (without waiting on the server) means clients and servers are likely to observe events in different orders altogether.
+
+Formally, deciding a total order over events is **total order broadcast**, which is equivalent to **consensus** (see [Fault-Tolerant Consensus](../distributed-data/fault-tolerant-consensus)). Most consensus algorithms assume a single node's throughput is sufficient for the whole event stream — designing a consensus algorithm that scales *past* a single node's throughput, and that works well geographically distributed, remains, in Kleppmann's words, an open research problem.
+
+### Ordering Events to Capture Causality
+
+When events have no causal link, the lack of a total order genuinely doesn't matter — concurrent events can be ordered arbitrarily. Some causal cases are also easy: updates to the *same* object can be totally ordered just by routing them all to the same log partition. The harder case is when a causal dependency crosses that boundary.
+
+**The classic example:** two users end a relationship. One removes the other as a friend, then posts a message complaining about their ex to their remaining friends — intending the ex not to see it, since the friend removal happened first. But if friendship status and messages live in *different* systems, that ordering dependency can be lost entirely. A notification service that processes the message-send event before the unfriend event will incorrectly notify the ex — because notifications are effectively a **join** between messages and the current friend list, and joins are exactly where [time-dependence](./joins-in-mapreduce) causes trouble.
+
+There's no fully general fix, but there are starting points:
+
+- **Logical timestamps** (see [Ordering Guarantees](../distributed-data/ordering-guarantees#lamport-timestamps)) give total ordering *without* coordination — but recipients still have to handle events arriving out of order, and extra metadata has to travel with every event.
+- **Referencing the causally-prior event.** If you log an event capturing "the state the user saw right before deciding," with a unique ID, later events can explicitly reference that ID to record the causal dependency directly — turning an implicit ordering assumption into an explicit, checkable link.
+- **Conflict resolution algorithms** (see [Leaderless Replication](../distributed-data/leaderless-replication#detecting-concurrent-writes)) help when events arrive out of order and only *state* needs reconciling — but they don't help once an action has already had an external side effect, like a notification that already went out.
+
+### Practice: capturing a causal dependency explicitly
+
+Implement the "reference the causally-prior event" fix directly: a message references the highest-numbered friend-removal event its sender had already seen, so a downstream consumer can correctly exclude a removed friend even if it processes events out of their true order.
+
+<CodeExercise
+  title="Suppress notifications using an explicit causal reference"
+  heading="exercise-causal-reference"
+  lang="python"
+  filename="main.py"
+  prompt="Implement filter_recipients(messages, unfriend_events). messages is a list of dicts with 'sender', 'recipients' (list of usernames), and 'after_unfriend_seq' (the highest unfriend-event seq the sender had already observed when composing the message). unfriend_events is a list of dicts with 'seq', 'remover', 'removed'. Return a list, one entry per message, of that message's recipients with anyone the sender had already unfriended (per after_unfriend_seq) removed."
+  sampleLog={`(no input)
+[['carol']]`}
+  starter={`def filter_recipients(messages, unfriend_events):
+    # TODO: for each message, drop any recipient that appears in
+    # unfriend_events as removed by this message's sender at or before
+    # the message's own after_unfriend_seq.
+    pass
+
+messages = [
+    {"sender": "alice", "recipients": ["bob", "carol"], "after_unfriend_seq": 5},
+]
+unfriend_events = [
+    {"seq": 5, "remover": "alice", "removed": "bob"},
+]
+print(filter_recipients(messages, unfriend_events))
+`}
+  hint="For each message, build removed = {e['removed'] for e in unfriend_events if e['remover'] == msg['sender'] and e['seq'] <= msg['after_unfriend_seq']}, then filter recipients against it."
+  solution={`def filter_recipients(messages, unfriend_events):
+    result = []
+    for msg in messages:
+        removed = {
+            e["removed"] for e in unfriend_events
+            if e["remover"] == msg["sender"] and e["seq"] <= msg["after_unfriend_seq"]
+        }
+        result.append([r for r in msg["recipients"] if r not in removed])
+    return result
+
+messages = [
+    {"sender": "alice", "recipients": ["bob", "carol"], "after_unfriend_seq": 5},
+]
+unfriend_events = [
+    {"seq": 5, "remover": "alice", "removed": "bob"},
+]
+print(filter_recipients(messages, unfriend_events))
+`}
+  sourceChecks={[
+    { name: 'compares unfriend seq against after_unfriend_seq', pattern: 'after_unfriend_seq', must: true, hint: "only exclude a recipient if the unfriend event's seq is at or before the message's after_unfriend_seq" },
+  ]}
+  tests={[
+    { name: 'excludes an already-unfriended recipient using the explicit causal reference', stdin: '', equals: "[['carol']]" },
+  ]}
+/>
+
+### Check: the limits of total order and capturing causality
+
+<MultipleChoice
+  id="ddia-future-total-order-limits"
+  title="Why total ordering breaks down, and how to recover causality"
+  questions={[
+    {
+      prompt: 'Why does partitioning an event log for higher throughput undermine having a single total order over all events?',
+      choices: [
+        'Partitioning has no effect on event ordering at all',
+        'A total order generally requires funneling events through a single leader node; once the log is split across multiple partitions to scale past one machine\'s throughput, events in different partitions no longer have a defined relative order',
+        'Partitioned logs process events in a random order within each partition',
+        'Partitioning only affects storage, never ordering',
+      ],
+      answer: 1,
+      why: 'Splitting the log across partitions is precisely what removes the single point that was previously deciding a global order, leaving cross-partition ordering ambiguous.',
+    },
+    {
+      prompt: 'Why is deciding a total order over events formally equivalent to solving consensus, and what practical limitation follows from that?',
+      choices: [
+        'They are not actually related problems',
+        'Total order broadcast is equivalent to consensus, and most consensus algorithms assume a single node\'s throughput suffices for the whole event stream — designing one that scales past single-node throughput while working well across geographic distribution remains an open research problem',
+        'Consensus algorithms can already trivially scale to unlimited throughput across any number of datacenters',
+        'Total order broadcast has nothing to do with leader election or fault tolerance',
+      ],
+      answer: 1,
+      why: 'This equivalence is exactly why solutions to one map to the other, and why the practical scaling limitation of consensus algorithms directly limits how far a single total order can be pushed.',
+    },
+    {
+      prompt: 'In the unfriend/message example, why can a system that stores friendship status and messages separately end up incorrectly notifying an ex-partner?',
+      choices: [
+        'The system deliberately notifies everyone regardless of friendship status',
+        'Notifications are effectively a join between the message stream and the current friend list, and if the notification service processes the message-send event before the (causally earlier) unfriend event, it reaches the wrong, stale conclusion about who should be notified',
+        'This scenario is purely hypothetical and could never occur in a real system',
+        'Message-send events always arrive before unfriend events in every system',
+      ],
+      answer: 1,
+      why: 'The notification logic is a time-dependent join over two separately-stored pieces of state, so losing the causal ordering between the two source events directly produces the wrong join result.',
+    },
+  ]}
+/>
+
+---
+
+:::important Key takeaways
+- No single storage or processing tool fits every access pattern, so real applications inevitably combine several specialized systems — making it essential to be explicit about where data is written first and which representations are purely **derived**.
+- Funneling all writes through one system that decides a single order (via CDC or event sourcing) avoids the silent, permanent inconsistency that direct, uncoordinated writes to multiple systems can produce.
+- **Distributed transactions** and **log-based derived data** solve the same ordering problem through different mechanisms — locks and atomic commit vs. an append-only log and idempotent retries — with log-based approaches trading away default linearizability guarantees like read-your-writes.
+- A single **total order** stops scaling cleanly once throughput demands partitioning, multiple datacenters need independent leaders, services keep fully independent state, or clients operate offline — and total order broadcast's equivalence to **consensus** means this is a fundamentally hard, still-open scaling problem.
+- **Causal dependencies** that cross storage-system boundaries can silently vanish; explicitly referencing the causally-prior event's ID is one concrete way to preserve that dependency even when downstream processing sees events out of order.
+:::
+
+## Further Reading
+
+- Martin Kleppmann — *Designing Data-Intensive Applications* (O'Reilly, 2017), Chapter 12
+- [Databases and Streams](./databases-and-streams) — this series' previous lesson
+- [Unifying Batch and Stream Processing](./unifying-batch-and-stream-processing) — this series' next lesson
+- [Fault-Tolerant Consensus](../distributed-data/fault-tolerant-consensus) — the total order broadcast / consensus equivalence this lesson builds on
+- [Ordering Guarantees](../distributed-data/ordering-guarantees) — Lamport timestamps and the causal-vs-total order distinction

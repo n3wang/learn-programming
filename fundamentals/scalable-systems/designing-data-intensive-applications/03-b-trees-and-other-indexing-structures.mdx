@@ -1,0 +1,266 @@
+---
+sidebar_position: 3
+title: B-Trees and Other Indexing Structures
+---
+
+# B-Trees and Other Indexing Structures
+
+> **Adapted from:** Martin Kleppmann, *Designing Data-Intensive Applications* (O'Reilly, 2017), Chapter 3 — rewritten and condensed for teaching.
+
+[Hash Indexes and LSM-Trees](./hash-indexes-and-lsm-trees) covered the log-structured family of storage engines. But the single most widely used indexing structure in databases isn't log-structured at all — it's the **B-tree**, introduced in 1970 and still the default index implementation in nearly every relational database (and plenty of non-relational ones too). This lesson covers B-trees, how they stack up against LSM-trees, and the broader menu of indexing structures beyond a plain key-value lookup.
+
+---
+
+## B-Trees
+
+Like SSTables, B-trees keep key-value pairs sorted by key — which is where the resemblance ends. A B-tree breaks the database into **fixed-size pages** (traditionally 4 KB), reading or writing one page at a time, rather than variable-size, sequentially-written segments. This maps directly onto how disks themselves are organized — in fixed-size blocks.
+
+Every page has an address, letting one page reference another — a pointer, but on disk. This builds a tree of pages: one page is the **root**; every lookup starts there. Each page holds several keys plus references to child pages, and the keys between two references mark the *boundary* of that child's range.
+
+Concretely, looking up key `251`: the root page tells you `251` falls between the boundaries `200` and `300`, so you follow that reference to a child page — which further subdivides `200`–`300` into narrower subranges — and so on, until you reach a **leaf page** holding the actual value (or a reference to where it lives).
+
+The number of child references a page holds is its **branching factor** — typically several hundred in practice, bounded by how much space page references and boundary keys take up. Updating an existing key just means finding its leaf page, changing the value, and writing that one page back — every reference to it stays valid. Adding a *new* key means finding the right page and inserting it there; if the page is full, it **splits** into two half-full pages, and the parent page gets updated to reflect the new split.
+
+This splitting mechanism is what keeps the tree **balanced**: a B-tree holding `n` keys always has depth `O(log n)`. Most real databases fit in a B-tree only three or four levels deep — a 4-level tree of 4 KB pages with a branching factor of 500 can store up to **256 TB**, while every lookup still only follows a handful of page references.
+
+### Check: B-tree structure
+
+<MultipleChoice
+  id="ddia-storage-btree-structure"
+  title="B-tree pages, branching factor, and balance"
+  questions={[
+    {
+      prompt: 'What is the fundamental structural difference between how a B-tree organizes storage compared to a log-structured (LSM-tree) engine?',
+      choices: [
+        'B-trees don\'t keep data sorted by key at all',
+        'A B-tree breaks storage into fixed-size pages (matching disk block sizes) read/written one at a time, while log-structured engines write variable-size, append-only segments sequentially',
+        'B-trees never use disk storage, only memory',
+        'There is no real structural difference between the two approaches',
+      ],
+      answer: 1,
+      why: 'Fixed-size, individually addressable pages vs. sequentially-written variable-size segments is the core design split between B-trees and LSM-trees.',
+    },
+    {
+      prompt: 'What happens when a B-tree page that needs to hold a new key is already full?',
+      choices: [
+        'The new key is silently discarded',
+        'The page splits into two half-full pages, and the parent page is updated to reflect the new subdivision of key ranges — this is exactly what keeps the tree balanced',
+        'The entire tree is rebuilt from scratch',
+        'The database crashes and must be restarted',
+      ],
+      answer: 1,
+      why: 'Page splitting is the mechanism that maintains O(log n) depth as the tree grows — without it, pages would just overflow.',
+    },
+    {
+      prompt: 'Why can a B-tree only 3-4 levels deep store an enormous amount of data (e.g. 256 TB) while keeping lookups fast?',
+      choices: [
+        'Because B-trees compress all data by default',
+        'Because a large branching factor (hundreds of child references per page) means each additional level multiplies capacity dramatically, so depth stays logarithmic (O(log n)) even for huge datasets',
+        'Because B-trees only store a fraction of the actual data',
+        'Because 256 TB is an inaccurate figure and B-trees cannot actually scale that far',
+      ],
+      answer: 1,
+      why: 'A high branching factor is exactly what makes O(log n) depth translate into a shallow tree even at massive scale.',
+    },
+  ]}
+/>
+
+---
+
+## Making B-Trees Reliable
+
+A B-tree's basic write operation is to overwrite a page on disk — in place, with the assumption that its location never moves, so every reference to it stays valid. This is the polar opposite of an LSM-tree, which only ever appends and eventually deletes whole files.
+
+Some operations touch several pages at once — splitting a page means writing the two new pages *and* updating their parent's references. If a crash happens mid-operation, you can end up with a corrupted index (an orphaned page with no valid parent, for instance). The standard fix: a **write-ahead log (WAL)**, a.k.a. **redo log** — an append-only file that every B-tree modification must hit *before* touching the actual tree pages. After a crash, the WAL replays to restore the tree to a consistent state.
+
+Multiple threads touching a B-tree simultaneously also need careful **concurrency control** — typically lightweight locks called **latches** protect the tree's internal structure. Log-structured engines sidestep this entirely: merging happens in the background and never interferes with pages currently serving queries.
+
+### B-Tree Optimizations
+
+A design this old has accumulated plenty of refinements:
+
+- **Copy-on-write** (used by LMDB) writes a modified page to a *new* location and updates parent pages to point at it, rather than overwriting in place — sidestepping the need for a WAL, and helping with concurrency too.
+- **Abbreviated keys** in interior pages — since interior keys only need to mark range *boundaries*, not full values, packing more of them per page raises the branching factor and shortens the tree. (This variant is often called a **B+ tree**.)
+- **Sequential leaf layout** — many implementations try to keep leaf pages physically adjacent on disk, since pages otherwise have no guaranteed physical locality, which would otherwise force a disk seek per page during a large range scan. This is easier for LSM-trees, which naturally rewrite large sequential chunks during merges.
+- **Sibling pointers** — leaf pages linking directly to their left/right neighbors, so a range scan doesn't need to keep bouncing back up to a parent page.
+- **Fractal trees** borrow log-structured ideas to cut down on disk seeks (the name has nothing to do with fractal geometry).
+
+---
+
+## Comparing B-Trees and LSM-Trees
+
+As a rule of thumb: **LSM-trees tend to win on writes; B-trees tend to win on reads** (an LSM-tree read may have to check the memtable *and* several segments at different compaction stages). But real benchmarks are notoriously workload-sensitive — always worth measuring your *own* workload rather than trusting a rule of thumb blindly.
+
+### Where LSM-Trees Win
+
+A B-tree writes every piece of data at least *twice* — once to the WAL, once to the actual tree page (and again on every page split) — plus it must write a whole page even if only a few bytes changed. LSM-trees also rewrite data repeatedly, through repeated compaction and merging. This overall effect — one logical write turning into multiple physical disk writes over a database's lifetime — is called **write amplification**, and it matters a lot on SSDs, which can only tolerate a limited number of block rewrites before wearing out.
+
+LSM-trees typically sustain **higher write throughput** than B-trees: partly lower write amplification (workload-dependent), and partly because they write compact, sequential SSTable files rather than repeatedly overwriting scattered pages — a bigger deal on spinning disks, where sequential writes crush random ones. LSM-trees also tend to produce **smaller files on disk**: B-trees leave unused space behind whenever a page splits or a row doesn't quite fit, while LSM-trees periodically rewrite SSTables and defragment as a side effect (especially with leveled compaction).
+
+:::note SSD firmware complicates this picture
+Many SSD firmwares already translate random writes into sequential writes internally, at the hardware level — which somewhat blunts the write-pattern argument. But lower write amplification and less fragmentation are still worth having: representing data more compactly means more actual read/write requests fit within the drive's available I/O bandwidth.
+:::
+
+### Where LSM-Trees Struggle
+
+Background **compaction can compete with live queries** for scarce disk bandwidth — throughput and average latency usually survive fine, but high-percentile response times can spike noticeably compared to a B-tree's steadier behavior. At very high write throughput, compaction can even **fail to keep up**: unmerged segments pile up, disk fills, and reads slow down (since more segments must be checked) — most SSTable engines don't throttle incoming writes to compensate, so this needs active monitoring.
+
+B-trees also have one structural advantage: **each key exists in exactly one place**, whereas a log-structured engine can have several stale copies of the same key scattered across segments awaiting compaction. Because of this, B-trees are attractive wherever strong transactional semantics matter — many relational databases implement isolation using range locks, and a B-tree gives you a single, obvious place to attach such a lock directly.
+
+Neither structure is going away: B-trees remain deeply embedded in relational database architecture with consistently solid all-around performance; LSM-trees keep gaining ground in newer datastores built around high write throughput. There's no universal answer — test with your actual workload.
+
+### Check: B-trees vs. LSM-trees
+
+<MultipleChoice
+  id="ddia-storage-comparison"
+  title="Comparing B-trees and LSM-trees"
+  questions={[
+    {
+      prompt: 'What is "write amplification," and why does it matter especially on SSDs?',
+      choices: [
+        'It refers to increasing the volume of a hard drive\'s cooling fan',
+        'It\'s the effect where one logical write to the database results in multiple physical writes to disk over time (WAL + page writes + splits, or repeated compaction/merging) — SSDs can only tolerate a limited number of block rewrites before wearing out, so this directly shortens their lifespan and eats into available I/O bandwidth',
+        'It only affects LSM-trees, never B-trees',
+        'It is a purely theoretical concern with no real-world performance impact',
+      ],
+      answer: 1,
+      why: 'Both B-trees (WAL + page rewrites) and LSM-trees (repeated compaction) amplify writes, and this has real, measurable cost on SSD lifespan and available bandwidth.',
+    },
+    {
+      prompt: 'Why are B-trees often preferred in databases that need strong transactional isolation guarantees?',
+      choices: [
+        'Because B-trees are always faster than LSM-trees for every workload',
+        'Because each key exists in exactly one place in a B-tree, giving transaction isolation mechanisms (like range locks) one obvious, unambiguous place to attach a lock — unlike a log-structured engine, which may have several stale copies of a key scattered across segments',
+        'Because LSM-trees do not support locking of any kind',
+        'Because B-trees do not require a write-ahead log',
+      ],
+      answer: 1,
+      why: 'The "one copy per key" property directly simplifies attaching locks for isolation, which the lesson calls out as a genuine structural advantage of B-trees.',
+    },
+    {
+      prompt: 'What happens to an LSM-tree storage engine if sustained write throughput outpaces what background compaction can keep up with?',
+      choices: [
+        'The database automatically throttles incoming writes to match compaction speed',
+        'Unmerged segments accumulate indefinitely, consuming more disk space and slowing down reads (since more segments must be checked) — most engines do not throttle writes automatically, so this requires active monitoring',
+        'The storage engine automatically switches to a B-tree internally',
+        'Nothing changes; compaction always keeps pace regardless of write rate',
+      ],
+      answer: 1,
+      why: 'This is an explicitly called-out downside: without careful configuration and monitoring, a sustained write-heavy workload can outrun compaction and degrade read performance over time.',
+    },
+  ]}
+/>
+
+---
+
+## Other Indexing Structures
+
+Everything so far indexed a **primary key** — the unique identifier for a row, document, or vertex. Real applications need more.
+
+### Secondary Indexes
+
+A **secondary index** differs from a primary key index in exactly one way: its keys aren't unique — many rows can share the same indexed value. Both B-trees and log-structured indexes handle this fine, by either storing a *list* of matching row IDs per key (like a postings list), or by appending a row ID onto the key to force uniqueness.
+
+### Heap Files, Clustered Indexes, and Covering Indexes
+
+An index's value can be one of two things: the **actual row data**, or a **reference** to where the row lives. In the latter case, that storage area is a **heap file** — data with no particular order, referenced by every index that points into it. This avoids duplicating the row itself across multiple secondary indexes; each index just stores a pointer, and there's exactly one copy of the actual data.
+
+- A **clustered index** stores the *actual row data* directly inside the index itself (e.g., MySQL's InnoDB always makes a table's primary key a clustered index).
+- A **covering index** (or index with included columns) is the middle ground: it stores *some* extra columns alongside the key, letting some queries be answered entirely from the index — no trip to the heap file needed.
+
+As with any duplication, clustered/covering indexes trade extra storage and write overhead for faster reads — and the database has to work harder to keep every copy transactionally consistent.
+
+### Multi-Column and Multi-Dimensional Indexes
+
+A **concatenated index** combines several columns into one key by appending them in order — exactly like an old paper phone book indexing `(lastname, firstname) → number`. That structure answers "everyone with this last name" or "this exact last-name/first-name pair" efficiently — but is useless for "everyone with this first name," since sort order only respects the *first* field.
+
+Genuinely simultaneous multi-column queries — like a map app's "restaurants within this rectangle of latitude *and* longitude" — need something else entirely. A plain B-tree or LSM-tree can only ever hand you *one* dimension's range efficiently at a time. **Multi-dimensional indexes** (commonly **R-trees**, as used by PostGIS for geospatial queries) solve this properly. The same idea generalizes past geography, too — a 3D index over `(red, green, blue)` for color-based product search, or a 2D index over `(date, temperature)` for weather queries — anywhere you'd otherwise have to scan one dimension fully and post-filter on the other.
+
+### Full-Text Search and Fuzzy Indexes
+
+Everything above assumes *exact* key matches (or an exact range). Full-text search needs **fuzzy** matching — synonyms, grammatical variants, nearby words, and typo tolerance. Lucene, for instance, can match text within a given **edit distance** (an edit distance of 1 = one character added, removed, or changed). Its term dictionary uses an SSTable-like structure just like the one from the previous lesson, but its in-memory index is a **finite state automaton** over key characters (similar to a trie) rather than a sparse offset list — and that automaton can be transformed into a **Levenshtein automaton** specifically to support efficient edit-distance search.
+
+### Keeping Everything in Memory
+
+Every structure covered so far exists to work *around* disk's awkwardness. As RAM gets cheaper, that trade-off shifts — plenty of datasets fit comfortably in memory, possibly spread across several machines, which is exactly what **in-memory databases** are built for.
+
+- **Memcached** targets pure caching — data loss on restart is acceptable.
+- **VoltDB, MemSQL, and Oracle TimesTen** aim for full durability with a relational model, via battery-backed RAM, an on-disk change log, periodic snapshots, or replication.
+- **Redis** and **Couchbase** offer weaker (asynchronous) durability, but in exchange expose data structures — priority queues, sets — that are hard to implement efficiently on top of disk-based indexes at all.
+
+:::note The real reason in-memory databases are fast
+It's tempting to assume in-memory databases win purely by skipping disk reads — but a disk-based engine with enough RAM barely touches disk either, since the OS caches hot blocks in memory anyway. The *real* speedup comes from **avoiding the overhead of encoding data into an on-disk-safe format** at all — in-memory structures can stay exactly as simple as the problem needs, with no disk-layout compromises baked in.
+:::
+
+Recent research (the "anti-caching" approach) extends in-memory architectures past available RAM by evicting least-recently-used records to disk and reloading them on demand — much like OS virtual memory, but working at the granularity of individual records instead of whole pages, since the database itself knows which records matter.
+
+### Check: other indexing structures
+
+<MultipleChoice
+  id="ddia-storage-other-indexes"
+  title="Secondary indexes, heap files, and beyond"
+  questions={[
+    {
+      prompt: 'What is the key difference between a primary key index and a secondary index?',
+      choices: [
+        'Secondary indexes cannot be built on B-trees, only on hash indexes',
+        'A secondary index\'s keys are not necessarily unique — many rows can share the same indexed value, unlike a primary key',
+        'Secondary indexes are always slower to query than primary indexes',
+        'There is no meaningful difference between the two',
+      ],
+      answer: 1,
+      why: 'Non-uniqueness is the defining trait of a secondary index, handled either via postings-list-style value lists or by appending a row ID to force key uniqueness.',
+    },
+    {
+      prompt: 'Why is a heap file useful when a table has several secondary indexes?',
+      choices: [
+        'It eliminates the need for any indexes at all',
+        'It lets every secondary index store just a reference/pointer into the heap file rather than a full copy of the row, so the actual row data exists in exactly one place regardless of how many indexes point at it',
+        'It automatically sorts all rows by every indexed column simultaneously',
+        'It only works with hash indexes, never B-trees',
+      ],
+      answer: 1,
+      why: 'Avoiding duplicated row data across multiple indexes is exactly the problem a heap file with pointer-based indexes solves.',
+    },
+    {
+      prompt: 'Why can\'t a standard single-column B-tree or LSM-tree index efficiently answer a query like "all restaurants within this rectangle of latitude AND longitude"?',
+      choices: [
+        'Because B-trees cannot store numeric data',
+        'Because a single sorted index can only give an efficient range on one dimension at a time — restricting by latitude range still leaves every longitude to check (or vice versa) — genuinely simultaneous multi-dimensional range queries need a structure like an R-tree instead',
+        'Because latitude and longitude cannot both be stored in the same database',
+        'Because geospatial queries are impossible without a dedicated GPS device',
+      ],
+      answer: 1,
+      why: 'A single sort order can only serve one dimension\'s range efficiently — genuinely two-dimensional constraints need a multi-dimensional structure like an R-tree, which the lesson names explicitly.',
+    },
+    {
+      prompt: 'According to this lesson, what is the actual primary reason in-memory databases tend to be faster than disk-based ones — given that a well-cached disk-based engine rarely touches disk either?',
+      choices: [
+        'In-memory databases use a fundamentally different, faster CPU instruction set',
+        'They avoid the overhead of encoding in-memory data structures into a format safe to write to disk, not simply the avoidance of disk reads (which a well-cached disk-based engine mostly avoids anyway)',
+        'In-memory databases do not need to support concurrent access',
+        'They are faster only because they use less total data',
+      ],
+      answer: 1,
+      why: 'The lesson explicitly attributes the speedup to skipping on-disk-format encoding overhead, not merely to bypassing disk reads that a well-cached engine would already avoid.',
+    },
+  ]}
+/>
+
+---
+
+:::important Key takeaways
+- **B-trees** organize storage into fixed-size pages linked by on-disk references, splitting pages to stay balanced at `O(log n)` depth — the dominant index structure in relational (and many non-relational) databases for over 50 years.
+- B-trees rely on **in-place page overwrites**, made crash-safe with a **write-ahead log**, and use **latches** for concurrency — a sharp contrast to LSM-trees' append-and-background-merge approach.
+- Neither structure strictly dominates: **LSM-trees generally win on write throughput and compactness; B-trees generally win on read latency and offer a single, unambiguous per-key location** that simplifies transactional locking — always benchmark your actual workload.
+- Beyond primary-key lookups: **secondary indexes** handle non-unique keys, **heap files** avoid duplicating row data across indexes (with **clustered**/**covering** indexes trading storage for fewer heap round-trips), **multi-dimensional indexes** (R-trees) handle genuinely simultaneous multi-column range queries, and **fuzzy/full-text indexes** handle approximate matching.
+- **In-memory databases** are fast primarily because they skip the overhead of encoding data into a disk-safe format — not simply because they avoid disk reads, which a well-cached disk-based engine mostly avoids anyway.
+:::
+
+## Further Reading
+
+- Martin Kleppmann — *Designing Data-Intensive Applications* (O'Reilly, 2017), Chapter 3
+- [Hash Indexes and LSM-Trees](./hash-indexes-and-lsm-trees) — this series' previous lesson
+- [Graph-Like Data Models](./graph-like-data-models) — this series' first lesson
+- Rudolf Bayer & Edward M. McCreight — "Organization and Maintenance of Large Ordered Indices" (1970), the original B-tree paper
+- [PostGIS documentation](https://postgis.net/documentation/) — R-tree-based geospatial indexing in practice

@@ -1,0 +1,261 @@
+---
+sidebar_position: 4
+title: Leaderless Replication
+---
+
+# Leaderless Replication
+
+> **Adapted from:** Martin Kleppmann, *Designing Data-Intensive Applications* (O'Reilly, 2017), Chapter 5 — rewritten and condensed for teaching.
+
+[Multi-Leader Replication](./multi-leader-replication) still had *some* node designated a leader for any given write. **Leaderless replication** drops that concept entirely — any replica can accept a write directly from a client, with no leader deciding a canonical order for anything. Some of the earliest replicated systems worked exactly this way, and the style saw a major revival after Amazon described it powering their internal **Dynamo** system — which is why Riak, Cassandra, and Voldemort (all leaderless, Dynamo-inspired) are often called **Dynamo-style** datastores.
+
+---
+
+## Writing When a Node Is Down
+
+Picture three replicas, one currently unreachable (rebooting, say). In a leader-based system, this might force a failover. In a leaderless system, there's no leader to fail over *from* — the client just sends its write to all three replicas **in parallel**, and treats the write as successful once **enough** of them acknowledge it. If two out of three respond, and that's judged sufficient, the write succeeds — the client simply doesn't care that the third replica missed it entirely.
+
+When that missed-the-write replica eventually comes back online, reads against it can return **stale** data. The fix: reads *also* go to multiple replicas in parallel, and if different replicas answer with different values, whichever carries the higher version number wins (the exact mechanism is covered later in this lesson).
+
+Two background mechanisms keep replicas from staying stale forever:
+
+- **Read repair** — when a client's parallel read reveals that one replica returned a stale value, the client writes the newer value back to that stale replica right then. Great for frequently-read data; does nothing for data nobody's currently reading.
+- **Anti-entropy** — a background process that continuously compares replicas and copies over whatever's missing, independent of whether anyone's actually reading it. Not every leaderless store bothers implementing this (Voldemort, notably, doesn't) — and without it, a rarely-read value can sit stale indefinitely, since read repair alone never gets triggered for it.
+
+## Quorums for Reading and Writing
+
+Generalize the "2 out of 3" example: with `n` total replicas, require every write to be confirmed by `w` of them, and every read to query at least `r` of them. As long as **`w + r > n`**, every read is mathematically guaranteed to overlap with at least one replica from the most recent successful write — so at least one of the `r` replicas you read from must be up to date. Reads and writes satisfying this are called **quorum reads and writes**.
+
+A common configuration: pick `n` odd (3 or 5 is typical) and set `w = r = (n + 1) / 2` — a strict majority on both sides. But majorities aren't the only valid choice; all that actually matters is that the write-set and read-set are guaranteed to overlap. The trade-off space is genuinely tunable: a read-heavy, write-light workload might prefer `w = n, r = 1` for maximally fast reads — at the cost that even *one* unreachable node blocks every write outright.
+
+The tolerance math is straightforward: if `w < n`, writes can survive a node being down; if `r < n`, reads can too. `n = 3, w = 2, r = 2` tolerates one unavailable node; `n = 5, w = 3, r = 3` tolerates two.
+
+### Check: writing when a node is down, and quorums
+
+<MultipleChoice
+  id="ddia-leaderless-quorum-basics"
+  title="Leaderless writes, read repair, and quorums"
+  questions={[
+    {
+      prompt: 'In leaderless replication, what happens when a client writes to 3 replicas but one is temporarily unreachable?',
+      choices: [
+        'The write fails entirely, since not all replicas could be reached',
+        'The client sends the write to all replicas in parallel and considers it successful once enough of them (a configured threshold) acknowledge — the unreachable replica simply misses the write and can catch up later',
+        'The system automatically performs a leader failover',
+        'The write silently succeeds on the unreachable replica anyway',
+      ],
+      answer: 1,
+      why: 'There is no leader to fail over from in a leaderless system — success is defined purely by how many of the n replicas acknowledge the write, not by all of them doing so.',
+    },
+    {
+      prompt: 'What is the essential difference between read repair and an anti-entropy process?',
+      choices: [
+        'They are two names for the exact same mechanism',
+        'Read repair fixes a stale replica only when a client happens to read that specific value and notices the discrepancy; an anti-entropy process runs continuously in the background comparing replicas regardless of whether anyone is reading, catching staleness that read repair alone would miss for rarely-read data',
+        'Anti-entropy only works for writes, never for reads',
+        'Read repair requires taking the entire database offline',
+      ],
+      answer: 1,
+      why: 'Read repair is reactive and tied to actual read traffic; anti-entropy is proactive and independent of read patterns — which is exactly why systems lacking anti-entropy can leave rarely-read values stale indefinitely.',
+    },
+    {
+      prompt: 'With n=5 replicas, w=3, and r=3, why does the quorum condition w+r>n (3+3=6 > 5) guarantee an up-to-date read?',
+      choices: [
+        'It does not actually guarantee anything about read freshness',
+        'Since every successful write reaches at least 3 of the 5 replicas, and every read queries at least 3 of the 5, the two sets of 3 (out of only 5 total) are mathematically guaranteed to share at least one replica in common — which must be the one carrying the latest write',
+        'It only works if all 5 replicas are queried on every single read',
+        'The quorum condition only applies to writes, never to reads',
+      ],
+      answer: 1,
+      why: 'The overlap guarantee is pure counting: two subsets of size 3 drawn from a set of 5 cannot both avoid sharing at least one common element.',
+    },
+  ]}
+/>
+
+---
+
+## The Limits of Quorum Consistency
+
+Even with `w + r > n` satisfied, quorums are **not** an ironclad guarantee of freshness — several real edge cases can still surface a stale value: a **sloppy quorum** (next section) can land writes and reads on genuinely different sets of nodes, breaking the overlap guarantee entirely; two writes happening **concurrently** leave it ambiguous which one "should" win, and resolving that with a plain timestamp (last-write-wins) risks quietly dropping data under clock skew; a write **racing** a read can land on only some replicas before the read fires; a write that only partially succeeds (failing on more than `n − w` replicas) doesn't get automatically rolled back on the replicas where it *did* land; and a replica recovering from a backup taken before a write landed can knock the count of "replicas with the new value" back below `w`.
+
+The practical upshot: Dynamo-style databases are built for workloads that can genuinely tolerate **eventual** consistency. Tuning `w` and `r` shifts the *probability* of a stale read up or down — it's a dial, not an on/off guarantee. Notably, none of the stronger guarantees from [Problems with Replication Lag](./problems-with-replication-lag) — read-your-writes, monotonic reads, consistent prefix reads — come for free here; genuinely stronger guarantees require transactions or consensus, both covered in later lessons.
+
+**Monitoring staleness** is correspondingly harder here than under leader-based replication. A leader-based system can just diff a follower's replication-log position against the leader's — a clean, single number. Leaderless systems have no single global write order to measure position *against*, and if a store only implements read repair (no anti-entropy), there's no upper bound at all on how old an infrequently-read value might be.
+
+---
+
+## Sloppy Quorums and Hinted Handoff
+
+Quorums as described so far assume you can always *reach* enough of your designated `n` "home" nodes for a value. A network partition can sever a client from a large chunk of the cluster even while those nodes are perfectly healthy and reachable by *other* clients — from the cut-off client's perspective, they might as well not exist.
+
+In a large enough cluster (well beyond `n` nodes total), the client can often still reach *some* database nodes during a partition — just not necessarily the specific `n` nodes a given value is supposed to live on. That's the fork in the road: **fail every request** that can't reach a proper quorum among a value's designated home nodes, or **accept writes anyway** onto whichever reachable nodes happen to be available, even if they're not among that value's usual `n`. The second option is a **sloppy quorum** — still requiring `w`/`r` successful responses, just not necessarily from the "right" nodes. (The analogy: locked out of your own house, you crash on a neighbor's couch temporarily rather than sleeping outside.)
+
+Once the partition heals, whatever got temporarily written to the "wrong" nodes gets forwarded on to the value's actual home nodes — called **hinted handoff** (your neighbor politely asking for their couch back once you're back in your own house). Sloppy quorums measurably improve **write availability** — writes keep succeeding as long as *any* `w` nodes are reachable, anywhere — but they come at a real cost: `w + r > n` no longer actually guarantees a read sees the latest value, since that latest value might currently be sitting on nodes entirely outside the usual `n`, waiting on hinted handoff to complete. A sloppy quorum, in other words, isn't really a *consistency* mechanism at all — it's a **durability** mechanism: a guarantee the data is stored *somewhere* among `w` nodes, full stop. (Riak enables sloppy quorums by default; Cassandra and Voldemort disable them by default.)
+
+Leaderless replication also suits **multi-datacenter** deployments well, precisely because it's already built to tolerate conflicting writes and network interruptions as a matter of course. Cassandra and Voldemort fold datacenters directly into the normal leaderless model — `n` simply spans every datacenter, and a client typically waits only on a local-datacenter quorum, keeping cross-datacenter latency off the critical path. Riak instead keeps client-facing replication local to one datacenter, syncing between clusters asynchronously in a style closer to multi-leader replication.
+
+### Check: sloppy quorums
+
+<MultipleChoice
+  id="ddia-leaderless-sloppy"
+  title="Sloppy quorums and hinted handoff"
+  questions={[
+    {
+      prompt: 'What problem does a sloppy quorum solve that a strict quorum cannot?',
+      choices: [
+        'It makes reads always return the absolute latest value with perfect certainty',
+        'When a client is cut off (e.g. by a network partition) from enough of a value\'s designated "home" nodes to form a strict quorum, but can still reach OTHER healthy nodes in a larger cluster, a sloppy quorum lets those other nodes temporarily accept the write instead of simply failing the request',
+        'It eliminates the need for read repair entirely',
+        'It guarantees perfect consistency across all datacenters',
+      ],
+      answer: 1,
+      why: 'Sloppy quorums trade strict "correct home nodes" quorum membership for write availability during partial network partitions.',
+    },
+    {
+      prompt: 'Why is a sloppy quorum described as a durability mechanism rather than a consistency mechanism?',
+      choices: [
+        'Because sloppy quorums do not actually store any data reliably',
+        'Because it only guarantees the data is stored SOMEWHERE among w reachable nodes — it does not guarantee that a subsequent read of r nodes will find that data, since it may be sitting on nodes outside the value\'s usual n, awaiting hinted handoff',
+        'Because sloppy quorums always provide stronger consistency than strict quorums',
+        'Because sloppy quorums require synchronous replication to all n home nodes',
+      ],
+      answer: 1,
+      why: 'The w+r>n overlap guarantee assumed reads and writes land on the same designated n nodes — a sloppy quorum breaks that assumption, which is exactly why it only promises durability ("stored somewhere"), not read-time consistency.',
+    },
+  ]}
+/>
+
+---
+
+## Detecting Concurrent Writes
+
+Dynamo-style stores let multiple clients write to the same key concurrently — which means conflicts can arise even with strict quorums, for the same underlying reason multi-leader replication has conflicts: different nodes can receive the *same* set of writes in genuinely **different orders**, due to ordinary network delay and partial failure. If every node just blindly overwrote its stored value with whatever it received last, different nodes could permanently disagree about a key's final value.
+
+### Last Write Wins — and Its Real Cost
+
+The simplest fix: attach a timestamp to every write, keep only the highest one, discard the rest. This is **last write wins (LWW)** — Cassandra's *only* built-in conflict-resolution strategy, and optional in Riak. It absolutely achieves convergence — but at a real durability cost: if several writes race to the same key, only the highest-timestamped one survives, **even if every one of them was already reported successful to its own client.** LWW can even discard writes that weren't truly concurrent at all, purely due to clock skew between machines. The only genuinely safe way to use LWW: treat each key as **write-once, thereafter immutable** — e.g., using a fresh UUID as the key for every new write, so there's never a real collision to lose in the first place.
+
+### What "Concurrent" Actually Means
+
+Two operations are concurrent **not** because they happen to overlap on a wall clock — clocks across machines can't be trusted to agree closely enough for that anyway (a topic a later lesson covers directly). The real definition: operation A **happens-before** B if B knows about A, depends on it, or builds on it in some way. Two operations are **concurrent** precisely when *neither* happens-before the other — neither is aware the other one even happened. Every pair of operations falls into exactly one of three buckets: A happened before B, B happened before A, or the two are genuinely concurrent.
+
+### Capturing Happens-Before With Version Numbers
+
+Here's the mechanism, on a single replica first (multi-replica leaderless systems generalize it with **version vectors**, below): the server keeps one **version number** per key, incrementing it on every write, and every **read** returns the current version number *alongside* the value(s). Every **write**, in turn, must include the version number it read most recently — telling the server exactly which prior state this write is building on.
+
+That single piece of bookkeeping is enough for the server to tell overwrites from real concurrent writes, with no need to understand the value's contents at all:
+
+- A write whose version number **matches or exceeds** everything currently stored **supersedes** it — the old value(s) can be safely discarded.
+- A write's declared version, compared against a value that has since moved to a **higher** version (because some *other* write landed in between), reveals that the two writes were **concurrent** — so *both* values are retained, side by side, as **siblings**, rather than either one silently overwriting the other.
+- A write submitted with **no prior version at all** is, by definition, concurrent with literally everything already stored — it can never overwrite anything; it just gets added as one more sibling.
+
+The genuinely elegant part: none of this requires interpreting the *value* being stored in any way — arbitrary data, any shape, works identically. **Merging siblings back together** afterward is a separate, harder problem — conceptually identical to conflict resolution in multi-leader replication. A reasonable default for something like a shopping cart is a plain **union** of all sibling items (the same merge you'd use for concurrent multi-leader carts) — with the identical caveat from the previous lesson: unioning silently resurrects anything actually *removed* in one sibling but still present in another, unless deletions are marked with an explicit **tombstone** rather than just quietly dropped from the list.
+
+### Practice: resolve siblings by version number
+
+Implement the core of this algorithm directly: given the sibling versions currently stored for a key, and an incoming write's declared base version plus its new value, decide which old siblings get superseded and which survive as still-concurrent siblings.
+
+<CodeExercise
+  title="Version-based sibling resolution"
+  heading="exercise-siblings"
+  lang="python"
+  filename="main.py"
+  prompt="Implement apply_write(siblings, based_on_version, new_value, next_version) where siblings is a list of (version, value) tuples currently stored. Return the new list of siblings: drop any existing sibling whose version is <= based_on_version (it's superseded), keep any sibling with a HIGHER version (it's concurrent with this write), and add (next_version, new_value) to the result."
+  sampleLog={`(no input)
+[(2, 'eggs'), (3, 'milk, flour')]`}
+  starter={`def apply_write(siblings, based_on_version, new_value, next_version):
+    # siblings: list of (version, value) currently stored.
+    # Keep any sibling with version > based_on_version (concurrent).
+    # Drop any sibling with version <= based_on_version (superseded).
+    # Add (next_version, new_value) to what remains.
+    pass
+
+# version 1: [milk] written.
+# client reads version 1, then writes [milk, flour] based on version 1,
+# but meanwhile someone else wrote [eggs] as version 2 (concurrent).
+siblings = [(1, "milk"), (2, "eggs")]
+result = apply_write(siblings, based_on_version=1, new_value="milk, flour", next_version=3)
+print(result)
+`}
+  hint="Build the kept list with a comprehension: [(v, val) for v, val in siblings if v > based_on_version], then append (next_version, new_value)."
+  solution={`def apply_write(siblings, based_on_version, new_value, next_version):
+    kept = [(v, val) for v, val in siblings if v > based_on_version]
+    kept.append((next_version, new_value))
+    return kept
+
+siblings = [(1, "milk"), (2, "eggs")]
+result = apply_write(siblings, based_on_version=1, new_value="milk, flour", next_version=3)
+print(result)
+`}
+  sourceChecks={[
+    { name: 'filters superseded siblings by version', pattern: '>\\s*based_on_version', must: true, hint: 'keep only siblings whose version is greater than based_on_version' },
+  ]}
+  tests={[
+    { name: 'supersedes the based-on version, keeps the concurrent one, adds the new write', stdin: '', equals: "[(2, 'eggs'), (3, 'milk, flour')]" },
+  ]}
+/>
+
+### Version Vectors: Generalizing to Multiple Replicas
+
+A single version number per key is enough on one replica — but leaderless systems have **multiple** replicas all independently accepting writes. The generalization: one version number **per replica, per key**. Each replica increments *its own* counter on a local write, while also tracking the most recent counter it's seen from every *other* replica. The full collection — one number per replica — is a **version vector**, and it plays exactly the role the single version number played above: sent to clients on read, sent back on the next write, letting the database tell a genuine overwrite from a genuinely concurrent write, even across replicas.
+
+(You'll sometimes see "version vector" and "vector clock" used interchangeably — they're related but not identical; Riak 2.0 specifically uses a refinement called **dotted version vectors**.) As before, the application may still need to merge siblings after the fact — but the version vector's entire job is guaranteeing that reading from one replica and later writing back to a *different* one stays safe: siblings might get created along the way, but as long as they're merged correctly afterward, no update is ever silently lost.
+
+### Check: detecting concurrent writes
+
+<MultipleChoice
+  id="ddia-leaderless-concurrent"
+  title="LWW, happens-before, and version vectors"
+  questions={[
+    {
+      prompt: 'What is the fundamental risk of using last write wins (LWW) for conflict resolution?',
+      choices: [
+        'LWW never actually resolves conflicts and leaves the database permanently inconsistent',
+        'LWW keeps only the write with the highest timestamp and silently discards every other concurrent write — even ones that were already reported as successful to their own clients — and clock skew can cause it to discard writes that were not even truly concurrent',
+        'LWW requires a leader node to function, contradicting the leaderless model',
+        'LWW can only be used with string values, never numbers',
+      ],
+      answer: 1,
+      why: 'LWW achieves convergence purely by throwing away data — a real durability cost that only becomes acceptable if keys are treated as effectively write-once and immutable.',
+    },
+    {
+      prompt: 'According to the "happens-before" definition used in this lesson, why are two operations considered concurrent even if their wall-clock execution times don\'t overlap at all?',
+      choices: [
+        'Concurrency is defined purely by whether neither operation was aware of, or built upon, the other — not by whether their execution times overlapped on a physical clock, since clocks across machines cannot be trusted to be tightly synchronized anyway',
+        'Two operations are only concurrent if they run on literally the same CPU core at the same instant',
+        'Concurrency in this context always requires perfectly synchronized clocks',
+        'Operations are never actually concurrent in a real distributed system',
+      ],
+      answer: 0,
+      why: 'The happens-before relationship is about causal awareness, not physical simultaneity — this is exactly why the lesson explicitly decouples "concurrent" from wall-clock overlap.',
+    },
+    {
+      prompt: 'Why does a leaderless system need a full version VECTOR (one counter per replica) instead of the single version number sufficient for a one-replica example?',
+      choices: [
+        'Version vectors are purely a performance optimization with no functional necessity',
+        'With multiple replicas independently accepting writes, a single shared counter cannot capture which specific replica\'s writes a given write has or has not seen — a per-replica counter is needed so the database can still correctly distinguish real overwrites from genuinely concurrent writes across different replicas',
+        'Version vectors are only needed when using last write wins',
+        'A single version number works identically well regardless of how many replicas exist',
+      ],
+      answer: 1,
+      why: 'Generalizing happens-before detection to multiple independently-writing replicas requires tracking each replica\'s own contribution separately — exactly what a version vector\'s per-replica counters provide.',
+    },
+  ]}
+/>
+
+---
+
+:::important Key takeaways
+- **Leaderless replication** has clients write to (and read from) multiple replicas directly and in parallel, with **read repair** and **anti-entropy** as the two mechanisms that eventually bring stale replicas back in sync.
+- **Quorums** (`w + r > n`) guarantee read/write overlap in principle — but sloppy quorums, concurrent writes, and partial failures mean quorums shift the *probability* of staleness, not an absolute guarantee.
+- **Sloppy quorums** and **hinted handoff** trade strict quorum membership for write availability during network partitions — a durability mechanism, not a consistency one.
+- **Concurrency** is defined by mutual unawareness (happens-before), never by literal timestamp overlap — and **last write wins** achieves convergence only by accepting real, silent data loss.
+- **Version numbers** (single-replica) and their generalization, **version vectors** (multi-replica), let a database distinguish genuine overwrites from true concurrent writes without ever needing to interpret the stored value itself — leaving only the harder problem of **merging siblings** back together for the application to handle.
+:::
+
+## Further Reading
+
+- Martin Kleppmann — *Designing Data-Intensive Applications* (O'Reilly, 2017), Chapter 5
+- [Multi-Leader Replication](./multi-leader-replication) — this series' previous lesson
+- [Leaders and Followers](./leaders-and-followers) — this series' first lesson in this section
+- Giuseppe DeCandia et al. — ["Dynamo: Amazon's Highly Available Key-value Store"](https://www.allthingsdistributed.com/files/amazon-dynamo-sosp2007.pdf) (2007), the paper that popularized this entire architecture

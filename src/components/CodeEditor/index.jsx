@@ -7,6 +7,7 @@ import {cpp} from '@codemirror/lang-cpp';
 import {java} from '@codemirror/lang-java';
 import {python} from '@codemirror/lang-python';
 import {javascript} from '@codemirror/lang-javascript';
+import {yaml} from '@codemirror/lang-yaml';
 import {githubLight} from '@uiw/codemirror-theme-github';
 import {oneDark} from '@codemirror/theme-one-dark';
 import useHtmlColorMode from '@site/src/components/codeWorkspace/useHtmlColorMode';
@@ -70,6 +71,9 @@ function languageExt(lang) {
   }
   if (key === 'javascript' || key === 'js') {
     return javascript();
+  }
+  if (key === 'yaml' || key === 'yml') {
+    return yaml();
   }
   return [];
 }

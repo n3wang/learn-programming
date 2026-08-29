@@ -103,3 +103,7 @@ print("\>\▽\<\")
 
 :::
 
+## Next: Kaomoji Composer
+
+Part 2 — variables, lists, loops, and `append`: [Kaomoji Composer](./kaomoji-composer).
+

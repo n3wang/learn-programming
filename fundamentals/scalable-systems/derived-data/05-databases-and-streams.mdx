@@ -1,0 +1,323 @@
+---
+sidebar_position: 5
+title: Databases and Streams
+---
+
+# Databases and Streams
+
+> **Adapted from:** Martin Kleppmann, *Designing Data-Intensive Applications* (O'Reilly, 2017), Chapter 11 — rewritten and condensed for teaching.
+
+[Transmitting Event Streams](./transmitting-event-streams) treated messaging and databases as genuinely different tools — but the comparison table in that lesson hinted at something deeper: log-based brokers already borrow real ideas from databases (durability, replayable history), and it turns out the borrowing runs both directions. This lesson runs it the other way — treating a **database write itself** as just another kind of event — and follows that idea through to two genuinely powerful techniques: **change data capture** and **event sourcing**.
+
+---
+
+## Keeping Systems in Sync
+
+Real applications almost never rely on a single storage technology. A typical stack might combine an OLTP database serving live requests, a cache accelerating hot reads, a full-text search index, and a separate data warehouse for analytics — each holding its **own** copy of overlapping data, in its **own** representation, optimized for its **own** purpose. The moment the same underlying data lives in more than one place, those copies have to be kept in sync: update an item in the primary database, and that same update needs to eventually land in the cache, the search index, and the warehouse too.
+
+Batch-oriented **ETL** (already covered in this series' data-warehousing coverage) is one standard answer — periodically re-extracting, transforming, and bulk-loading a fresh copy. When that periodic-batch cadence is too slow, a tempting-looking alternative is **dual writes**: application code explicitly writes to each system directly whenever data changes — first the database, then the search index, maybe the cache invalidation too, sometimes even concurrently.
+
+### The Race Condition Dual Writes Can't Avoid
+
+Dual writes have a genuinely serious, easy-to-miss problem. Picture two clients concurrently updating the same item `X`: client 1 wants to set it to `A`, client 2 wants to set it to `B`. Both clients write to the database *and* the search index — but nothing guarantees those two writes land in the **same relative order** on both systems. Suppose the database happens to process client 1's write first, then client 2's — leaving the database's final value as `B`. But suppose the search index, due to nothing more than ordinary network timing, happens to receive client 2's write **first**, then client 1's — leaving the search index's final value as `A`. Both systems now hold **permanently different, silently inconsistent** values for the same item — with **no error raised anywhere**, and (absent something like the version vectors from [Leaderless Replication](../distributed-data/leaderless-replication#detecting-concurrent-writes)) no way to even *detect* that this happened after the fact. One value simply, silently overwrote what should have been the "true" final value, in each system independently, with no coordination between them.
+
+A second, entirely separate problem with dual writes: one of the two writes can simply **fail** while the other succeeds — a fault-tolerance issue, not a concurrency one, but with the identical end result — two systems now permanently disagree. Making the two writes succeed or fail **together**, atomically, is precisely the **atomic commit problem** already covered in [Distributed Transactions and Two-Phase Commit](../distributed-data/distributed-transactions-and-two-phase-commit) — genuinely solvable, but expensive, and rarely worth the operational cost it demands.
+
+The deeper diagnosis: [Leaders and Followers](../distributed-data/leaders-and-followers) already established that a **single leader** is precisely what determines a consistent write order that every follower can safely replicate — the state-machine-replication principle. In the dual-writes scenario, there effectively **is** no single leader across the two systems — the database might have its own internal leader, the search index its own, separately, with **neither** deferring to the other — which is exactly the structural shape of [Multi-Leader Replication](../distributed-data/multi-leader-replication), and exactly why the identical class of write conflicts shows up here too. Things would be meaningfully better if there really *were* just one true leader — say, the database itself — with the search index behaving as nothing more than its **follower**. The natural next question: can that actually be made to work in practice?
+
+### Check: dual writes and the race condition
+
+<MultipleChoice
+  id="ddia-dbstreams-dual-writes"
+  title="Keeping systems in sync, and why dual writes fail"
+  questions={[
+    {
+      prompt: 'In the dual-writes race condition example, why do the database and the search index end up with permanently DIFFERENT final values for the same item, even though no error occurred anywhere?',
+      choices: [
+        'Because one of the two systems crashed during the update',
+        'Because nothing guarantees the two concurrent writes (from client 1 and client 2) arrive in the SAME relative order at both systems — the database might process client 1 then client 2 (ending on B), while the search index, due to ordinary network timing, processes client 2 then client 1 (ending on A) — with no coordination between the two write paths',
+        'Because dual writes always fail on the second write attempt',
+        'Because search indexes cannot store the same data type as databases',
+      ],
+      answer: 1,
+      why: 'The lack of any shared ordering mechanism between the two independent write paths is exactly what allows the two systems to silently diverge, purely from network timing differences.',
+    },
+    {
+      prompt: 'Why is the dual-writes problem structurally similar to multi-leader replication\'s write-conflict problem?',
+      choices: [
+        'The two problems are actually completely unrelated to each other',
+        'In both cases, there is effectively no single leader determining a consistent write order — each system (or each leader, in multi-leader replication) independently accepts writes and applies its own ordering, with no coordination forcing agreement, which is exactly what opens the door to conflicting, diverging outcomes',
+        'Dual writes only occur when using single-leader replication',
+        'Multi-leader replication and dual writes both require exactly two database replicas',
+      ],
+      answer: 1,
+      why: 'The absence of one authoritative source of write ordering is precisely the shared root cause behind both dual-writes race conditions and multi-leader replication conflicts.',
+    },
+  ]}
+/>
+
+---
+
+## Change Data Capture
+
+For decades, most databases' internal replication logs were treated as a private implementation detail — never a documented, public API. Applications were expected to interact through the database's own query language, not by reverse-engineering its internal write log — which made it genuinely difficult to reliably pipe a database's changes out to a *different* storage technology like a search index or a cache.
+
+**Change data capture (CDC)** is the practice of observing every write made to a database and extracting it, in order, as a **stream** — ideally delivered essentially immediately, as each write actually happens. The core idea: capture a database's changes once, then continuously apply that **identical, ordered** stream of changes to a search index (or any other derived system). As long as every downstream consumer applies changes in that exact same order, its data stays in sync with the source, by construction — the search index (and any other derived system) is simply another **consumer** of that one shared, authoritative change stream.
+
+### Implementing CDC
+
+Under this framing, the search index and every other derived system are just **derived data systems**, in the precise sense this whole series has used the term — data that is, at its core, just another *view* onto the data already living in the true system of record. Change data capture is the specific mechanism that keeps every one of those views honestly, accurately synchronized with that record. In effect, CDC makes exactly **one** database the leader (the one changes are captured *from*) and turns every other participating system into its **follower** — and a log-based message broker (from [Transmitting Event Streams](./transmitting-event-streams#partitioned-logs-combining-database-durability-with-messagings-low-latency)) is a particularly good fit for actually transporting that change stream, precisely because it preserves ordering, sidestepping the redelivery-reordering problem covered in that same lesson.
+
+Two broad implementation strategies exist: **database triggers** (registering a trigger that observes every table change and appends a corresponding entry to a separate changelog table) — genuinely simple to set up, but historically fragile and carrying real performance overhead — or **directly parsing the database's own replication log** (PostgreSQL's write-ahead log, MySQL's binlog, MongoDB's oplog), a more robust approach at the cost of extra complexity, particularly around handling schema changes gracefully. Real production tools built on the latter approach include Debezium and Maxwell for MySQL, and Bottled Water for PostgreSQL.
+
+Like messaging generally, CDC is normally **asynchronous** — the system of record doesn't block a write waiting for every downstream consumer to catch up. That keeps a slow consumer from dragging down the primary system's own performance, but it directly inherits every one of the [replication-lag problems](../distributed-data/problems-with-replication-lag) already covered earlier in this series.
+
+### The Initial Snapshot Problem
+
+Given the *entire* history of changes ever made to a database, you could, in principle, reconstruct its full current state purely by replaying that log from the very beginning. In practice, though, keeping every change **forever** would demand an unreasonable amount of disk space, and replaying all of it would take an unreasonable amount of time — so change logs get **truncated** eventually. Building a brand-new full-text index, for instance, genuinely needs a **complete** copy of the database — a log of only *recent* changes would be silently missing every item that simply hasn't been touched recently. The practical fix: start from a **consistent snapshot** (the same technique already covered for [setting up new replication followers](../distributed-data/leaders-and-followers#setting-up-new-followers)), explicitly tied to a specific, known position in the change log, so a consumer knows exactly where to resume applying changes once the snapshot itself has been fully loaded.
+
+### Log Compaction: A Genuine Alternative to Repeated Snapshots
+
+Without that full change history retained, spinning up a brand-new derived system means going through the full snapshot dance every single time. **Log compaction** — already covered for hash-index storage engines in [Hash Indexes and LSM-Trees](../designing-data-intensive-applications/hash-indexes-and-lsm-trees#hash-indexes) — offers a genuinely elegant alternative. The underlying principle carries over directly: periodically scan the log for entries sharing the same key, discard everything but the **most recent** update for each one (a special `null`-valued **tombstone** entry marks a deletion, causing that key to be fully dropped during compaction). Disk space needed for a compacted log depends only on the database's **current** contents, never on the total historical volume of writes.
+
+Applied to CDC specifically, this gives you something genuinely powerful: as long as every change carries a primary key, and every update for that key fully replaces the previous one, a compacted log is guaranteed to still hold the **latest** value for **every** key that's ever existed — even after old duplicate updates have long since been garbage-collected. Rebuilding a derived system from scratch, then, is as simple as starting a fresh consumer at offset `0` of the compacted topic and reading straight through — no separate, special-cased snapshot mechanism required at all. Apache Kafka directly supports this feature, which is precisely what lets it double as genuine durable storage, not merely a transient messaging layer.
+
+### Practice: log-compact a CDC change stream
+
+Implement the exact mechanic that makes rebuilding a derived system from a compacted log possible: given a raw stream of `(key, value)` changes — where a `None` value represents a tombstone deletion — reduce it down to only the latest surviving value per key.
+
+<CodeExercise
+  title="Compact a CDC change stream"
+  heading="exercise-cdc-compaction"
+  lang="python"
+  filename="main.py"
+  prompt="Implement compact(changes) where changes is a list of (key, value) tuples in the order they were written. Keep only the LATEST value per key, and OMIT any key whose latest value is None (a tombstone, meaning it was deleted). Return the result as a list of (key, value) tuples sorted by key."
+  sampleLog={`(no input)
+[('alice', 'active'), ('carol', 'pending')]`}
+  starter={`def compact(changes):
+    # TODO: keep only the most recent value per key (later entries in the
+    # list override earlier ones for the same key). Drop any key whose
+    # final value is None (a tombstone). Return sorted by key.
+    pass
+
+changes = [
+    ("alice", "new"),
+    ("bob", "new"),
+    ("alice", "active"),
+    ("bob", None),       # bob's account was deleted
+    ("carol", "pending"),
+]
+print(compact(changes))
+`}
+  hint="Build a dict by iterating changes in order (later writes naturally overwrite earlier ones), then filter out entries whose value is None, then return sorted(items())."
+  solution={`def compact(changes):
+    latest = {}
+    for key, value in changes:
+        latest[key] = value
+    return sorted((k, v) for k, v in latest.items() if v is not None)
+
+changes = [
+    ("alice", "new"),
+    ("bob", "new"),
+    ("alice", "active"),
+    ("bob", None),
+    ("carol", "pending"),
+]
+print(compact(changes))
+`}
+  sourceChecks={[
+    { name: 'drops tombstoned keys', pattern: 'is not None|!=\\s*None', must: true, hint: 'filter out any key whose final value is None (a tombstone)' },
+  ]}
+  tests={[
+    { name: 'keeps latest value per key and drops deleted keys', stdin: '', equals: "[('alice', 'active'), ('carol', 'pending')]" },
+  ]}
+/>
+
+### First-Class API Support for Change Streams
+
+CDC used to always mean *retrofitting* change extraction onto a database never designed with it in mind — but modern systems increasingly expose change streams as a genuine, first-class, **designed-in** interface: RethinkDB lets a query subscribe directly to notifications when its own results change; Firebase and CouchDB both build data synchronization directly around a native change feed; VoltDB lets a transaction explicitly export tuples into a dedicated, insert-only, non-queryable output stream table. **Kafka Connect** specifically exists to unify CDC support across a wide range of source database systems, feeding that unified change stream directly into Kafka — from which it can update derived systems, or feed straight into the kind of stream-processing systems this series continues on to next.
+
+### Check: change data capture
+
+<MultipleChoice
+  id="ddia-dbstreams-cdc"
+  title="Change data capture, snapshots, and log compaction"
+  questions={[
+    {
+      prompt: 'How does change data capture avoid the dual-writes race condition covered earlier in this lesson?',
+      choices: [
+        'CDC does not actually avoid this problem in any way',
+        'CDC captures changes directly from ONE authoritative source (the database\'s own write/replication log) in the exact order they genuinely occurred, and every derived system consumes that SAME ordered stream — eliminating the possibility of two independent write paths disagreeing about ordering, since there is only ever one true order to begin with',
+        'CDC works by having each derived system independently poll the database on its own schedule',
+        'CDC only works if there is exactly one derived system consuming the stream',
+      ],
+      answer: 1,
+      why: 'Deriving from one single, authoritative, correctly-ordered source (rather than two independent write paths racing each other) is exactly what structurally eliminates the dual-writes race condition.',
+    },
+    {
+      prompt: 'Why is a full, fresh snapshot still necessary when spinning up a brand-new derived system like a full-text index, even if a complete change log exists?',
+      choices: [
+        'Snapshots are never actually necessary for any derived system',
+        'A log of only RECENT changes would be missing every item that has not been recently updated — a full-text index needs a COMPLETE copy of the database, so a snapshot is needed as a known starting point, with the log then applied forward from that exact point',
+        'Snapshots are only needed for databases that do not support change data capture at all',
+        'A full-text index can always be built directly from an empty state with no data at all',
+      ],
+      answer: 1,
+      why: 'Change logs, by design, only capture recent activity — reconstructing a complete initial state for anything that hasn\'t changed recently requires a separate, complete snapshot as the actual starting point.',
+    },
+    {
+      prompt: 'Why does log compaction let you rebuild a derived system WITHOUT a separate snapshot mechanism, as long as every CDC change carries a primary key and fully replaces the prior value for that key?',
+      choices: [
+        'Log compaction actually has nothing to do with rebuilding derived systems',
+        'A compacted log is guaranteed to retain the LATEST value for every key that has ever existed (older duplicate updates for the same key get discarded during compaction), so reading the entire compacted log from the beginning is functionally equivalent to reading a full, up-to-date snapshot',
+        'Log compaction deletes all historical data, leaving nothing useful to rebuild from',
+        'Log compaction only works for keys that have never been updated more than once',
+      ],
+      answer: 1,
+      why: 'Because compaction guarantees the latest value per key survives indefinitely, reading a compacted log start-to-finish reconstructs the complete current state — no separate snapshot step required.',
+    },
+  ]}
+/>
+
+---
+
+## Event Sourcing
+
+**Event sourcing** — developed within the domain-driven design community — shares CDC's core instinct (store every change as an immutable log of events) but applies it at a genuinely **different level of abstraction**:
+
+| | Change data capture | Event sourcing |
+|---|---|---|
+| **Application's own model** | The application freely mutates the database — updating and deleting records directly | The application is explicitly built around immutable events from the start; the event store is append-only, and mutation/deletion is actively discouraged or outright disallowed |
+| **Where the log comes from** | Extracted *after the fact*, at a low level (parsing a replication log) — the application doesn't even need to know CDC is happening | The event log **is** the primary source of truth — the application deliberately writes to it directly |
+| **What an event records** | A low-level state change (a row updated, a field changed) | A meaningful, application-level occurrence ("student cancelled their enrollment"), deliberately framed at a higher level of intent |
+
+That difference in framing is a genuinely powerful **data modeling** tool in its own right. Recording "student cancelled their course enrollment" as one clear, intent-carrying event is meaningfully more expressive than recording its side effects directly — "one row deleted from `enrollments`, one row added to `feedback`" — since those side effects already bake in a lot of *assumptions* about exactly how the data will end up being used later. Introduce a genuinely new feature down the line — say, "automatically offer the freed-up seat to the next person on the waitlist" — and the event-sourcing model lets that new behavior simply **chain off** the *existing*, already-recorded event, with zero need to retroactively rewrite history. Beyond that expressiveness, event sourcing also tends to make an application meaningfully easier to evolve over time, easier to debug (the full causal history of *why* something happened is right there, explicitly, in the log itself), and more resistant to entire categories of application bugs.
+
+### Deriving Current State From the Event Log
+
+An event log **by itself** isn't directly useful to most users — a shopping-cart user wants to see their **current** cart contents, not a raw, unfiltered, append-only history of every add and remove they've ever performed. Applications built around event sourcing therefore need a **deterministic transformation** that takes the full event log and derives current, presentable application state from it — replaying that same log always has to produce the identical result, every single time.
+
+This has a genuine, important consequence for **log compaction** specifically, and it's where event sourcing and CDC meaningfully diverge: a CDC event typically carries the entire **new** version of a record, so the *current* value for any given key is fully determined by that key's single most recent event alone — compaction can freely discard everything older. Event sourcing's events, by contrast, are deliberately framed at a **higher** level — an "add item to cart" event doesn't, by itself, tell you the cart's full current contents; it only tells you what *changed*. Later events generally don't fully **override** earlier ones the way a CDC update does — reconstructing the true current state genuinely requires the **complete** history, in order, not merely the newest entry per key. Simple key-based log compaction, as a direct consequence, **doesn't** apply the same way here. (Real event-sourced applications typically still take periodic **snapshots** of derived state purely as a performance optimization — to avoid replaying the entire history from scratch on every single read — but conceptually, the underlying assumption remains that the complete raw event history stays available, and could always, in principle, be fully replayed from the beginning if genuinely needed.)
+
+### Practice: derive cart state by replaying an event log
+
+Implement exactly this deterministic-replay mechanic: given an ordered log of cart events, derive the cart's current contents — demonstrating directly why simple "keep only the latest entry per key" compaction genuinely doesn't work here, since a later `add` for an item already in the cart, or a `remove`, both depend on the item's prior state, not merely its own most recent mention.
+
+<CodeExercise
+  title="Replay a cart event log"
+  heading="exercise-event-sourcing-replay"
+  lang="python"
+  filename="main.py"
+  prompt="Implement replay(events) where events is a list of (action, item) tuples, action being either 'add' or 'remove'. Return the current cart as a sorted list of items still in the cart after applying every event, in order. Removing an item not currently in the cart should have no effect."
+  sampleLog={`(no input)
+['bread', 'milk']`}
+  starter={`def replay(events):
+    # TODO: apply each (action, item) event in order to a running cart
+    # (a set works well). 'add' inserts the item; 'remove' discards it
+    # if present. Return the final cart contents, sorted.
+    pass
+
+events = [
+    ("add", "milk"),
+    ("add", "eggs"),
+    ("remove", "eggs"),
+    ("add", "bread"),
+    ("remove", "cheese"),  # never added -- should be a no-op
+]
+print(replay(events))
+`}
+  hint="cart = set(); for action, item in events: cart.add(item) if action == 'add' else cart.discard(item). Then return sorted(cart)."
+  solution={`def replay(events):
+    cart = set()
+    for action, item in events:
+        if action == "add":
+            cart.add(item)
+        elif action == "remove":
+            cart.discard(item)
+    return sorted(cart)
+
+events = [
+    ("add", "milk"),
+    ("add", "eggs"),
+    ("remove", "eggs"),
+    ("add", "bread"),
+    ("remove", "cheese"),
+]
+print(replay(events))
+`}
+  sourceChecks={[
+    { name: 'handles both add and remove actions', pattern: "'remove'|\\\"remove\\\"", must: true, hint: 'branch on the action being "add" vs "remove"' },
+  ]}
+  tests={[
+    { name: 'replays add/remove events into correct final cart state', stdin: '', equals: "['bread', 'milk']" },
+  ]}
+/>
+
+### Commands vs. Events
+
+Event sourcing draws a careful, deliberate line between **commands** and **events**. A request freshly arriving from a user starts life as a **command** — at that point, it can still, genuinely, fail (a chosen username might already be taken; a specific theater seat might already be booked). The application first has to **validate** that the command can actually succeed. Only *after* that validation genuinely passes does it become an **event** — durable, immutable, and, from that moment forward, an unchangeable **fact**.
+
+Picture a user registering a username, or reserving one specific theater seat — precisely the same uniqueness scenario already covered through the lens of consensus in [Fault-Tolerant Consensus](../distributed-data/fault-tolerant-consensus#defining-consensus-precisely). The application first has to confirm the username or seat genuinely isn't already claimed — **only then** does it generate the corresponding event recording that it now has been. Once that event exists, it's permanently, immutably true — even if the customer later cancels the reservation entirely, the historical fact that they *did* hold it for some span of time remains true forever; a cancellation is recorded as a wholly **separate**, later event layered on top, never as a retroactive rewrite of history.
+
+A genuinely important structural rule falls directly out of this: a **consumer** of the event stream is never permitted to reject an event outright — by the time any consumer actually sees it, it's already been durably committed to the log, and quite possibly already seen by other consumers too. That means all real **command** validation has to happen **synchronously**, strictly *before* anything is allowed to become an event — commonly via a genuinely serializable transaction that atomically validates the command and publishes the resulting event together, as one indivisible unit. An alternative pattern also works well here: split a request like a seat reservation into **two** separate events — first a **tentative** reservation, then a **separate confirmation** event once validation genuinely completes — letting that validation step run fully **asynchronously**, using precisely the total-order-broadcast-based linearizable-storage technique already covered in [Ordering Guarantees](../distributed-data/ordering-guarantees#implementing-linearizable-storage-using-total-order-broadcast).
+
+### Check: event sourcing
+
+<MultipleChoice
+  id="ddia-dbstreams-event-sourcing"
+  title="Event sourcing, deriving state, and commands vs. events"
+  questions={[
+    {
+      prompt: 'Why does recording "student cancelled their course enrollment" as one event tend to be more valuable, from a data-modeling perspective, than directly recording its side effects (a row deleted here, a row added there)?',
+      choices: [
+        'It is not actually more valuable; both approaches are functionally identical',
+        'Recording the intent-carrying event neutrally expresses WHAT happened without baking in assumptions about how that fact will be used later — a later, genuinely new feature (e.g. offering the freed seat to a waitlisted student) can simply chain off the existing event, with no need to retroactively rewrite historical side-effect records',
+        'Because recording side effects is always faster to query than recording events',
+        'Because events cannot be used to reconstruct application state under any circumstances',
+      ],
+      answer: 1,
+      why: 'The neutral, intent-level framing is exactly what gives event sourcing its flexibility to support new downstream behavior later, without needing to retroactively alter already-recorded history.',
+    },
+    {
+      prompt: 'Why does simple key-based log compaction (keep only the latest entry per key) generally NOT work for event-sourced logs the way it does for CDC logs?',
+      choices: [
+        'Log compaction never works for any kind of log under any circumstances',
+        'A CDC update event typically carries the record\'s entire new value, so the latest event per key IS the current state; an event-sourced event (like "add item to cart") only describes a CHANGE relative to prior state, so reconstructing the true current state genuinely requires the full ordered history, not merely each key\'s single most recent mention',
+        'Event-sourced logs never contain more than one event per key, making compaction unnecessary',
+        'CDC logs and event-sourced logs are actually identical in this respect',
+      ],
+      answer: 1,
+      why: 'The difference between "this IS the new state" (CDC) and "this describes a change relative to unknown prior state" (event sourcing) is exactly why naive per-key compaction is safe for one and unsafe for the other.',
+    },
+    {
+      prompt: 'Why must command validation (e.g. checking a username isn\'t already taken) happen SYNCHRONOUSLY, before an event is generated, rather than being handled by a downstream consumer of the event stream?',
+      choices: [
+        'Synchronous validation is not actually required anywhere in event sourcing',
+        'Once an event is committed to the log, no consumer is permitted to reject it — by the time a consumer sees it, it may already be visible to other consumers too — so any validation that could legitimately cause a rejection has to happen BEFORE the event is created, while the request is still just a command',
+        'Consumers of an event stream are always allowed to freely reject any event they disagree with',
+        'Validation only matters for events that will never be replayed',
+      ],
+      answer: 1,
+      why: 'The one-way, no-going-back nature of committed events is exactly why rejection has to happen at the command stage, before anything durable and immutable has been recorded.',
+    },
+  ]}
+/>
+
+---
+
+:::important Key takeaways
+- **Dual writes** (updating multiple systems directly from application code) are genuinely unsafe — concurrent writes can land in different orders on different systems, silently diverging with no error raised, and partial failures create the exact same divergence through a different door.
+- **Change data capture** fixes this by making one database the single leader and turning every other system into its follower — consuming one shared, correctly-ordered change stream instead of racing independent writes against each other.
+- **Log compaction**, applied to a CDC stream, lets a compacted log substitute for a full snapshot — reading it end to end always reconstructs the database's complete current state, since only the latest value per key ever survives compaction.
+- **Event sourcing** applies the same "log of immutable events" idea at the *application* level rather than the database level — events capture meaningful intent, not just raw side effects — but this same reframing means simple per-key log compaction generally doesn't apply, since reconstructing current state genuinely requires the full ordered history.
+- Event sourcing draws a sharp line between **commands** (which can still fail, and must be validated *before* anything is written) and **events** (durable, immutable facts that downstream consumers can never reject) — a distinction that keeps the whole model both simple to reason about and safe to build on.
+:::
+
+## Further Reading
+
+- Martin Kleppmann — *Designing Data-Intensive Applications* (O'Reilly, 2017), Chapter 11
+- [Transmitting Event Streams](./transmitting-event-streams) — this series' previous lesson
+- [Data Integration and the Limits of Total Order](./data-integration-and-the-limits-of-total-order) — this series' next lesson, opening Chapter 12
+- [Fault-Tolerant Consensus](../distributed-data/fault-tolerant-consensus) — the uniqueness-constraint problem this lesson's "commands vs. events" section builds on directly
+- [Debezium documentation](https://debezium.io/documentation/) — a real, widely-used open source change data capture platform
+- Martin Fowler — ["Event Sourcing"](https://martinfowler.com/eaaDev/EventSourcing.html)

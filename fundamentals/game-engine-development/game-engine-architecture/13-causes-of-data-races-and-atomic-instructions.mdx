@@ -1,0 +1,310 @@
+---
+sidebar_position: 13
+title: Causes of Data Races and Atomic Instructions
+---
+
+# Causes of Data Races and Atomic Instructions
+
+> **Adapted from:** Jason Gregory, *Game Engine Architecture*, 3rd ed. (CRC Press, 2018), Chapter 4, Sections 4.9–4.9.2 — rewritten and condensed for teaching.
+
+Every technique in [Thread Synchronization Primitives](./thread-synchronization-primitives) revolved around one idea: wrap a critical operation in a mutex, and let the kernel put waiting threads to sleep. That works, but it isn't free — and it isn't the only option. **Lock-free concurrency** is the alternative: a family of techniques for avoiding data races *without* ever letting a thread go to sleep waiting on a resource.
+
+:::note "Lock-free" is a slight misnomer
+The name doesn't actually mean "no mutexes involved" — it specifically means **no thread is ever allowed to block**. "Blocking-free" would honestly be the more accurate name, but "lock-free" is the term that stuck.
+:::
+
+---
+
+## A Spectrum of Non-Blocking Guarantees
+
+Lock-free programming is one member of a broader family of **non-blocking** techniques, all aimed at guaranteeing *progress* — the property a blocked thread, by definition, loses. These techniques form a genuine hierarchy, each one strictly stronger than the last:
+
+| Category | Guarantee |
+|---|---|
+| **Blocking** | A thread can be put to sleep waiting for a resource — vulnerable to deadlock, livelock, starvation, and priority inversion (all covered in the previous lesson) |
+| **Obstruction-free** | If every *other* thread were suddenly suspended, the one remaining thread is guaranteed to finish in a bounded number of steps (a "solo execution") — impossible for any algorithm using a mutex or spin lock, since a lock held by a now-suspended thread could stall the solo thread forever |
+| **Lock-free** | In any infinitely long run, infinitely many operations complete — informally, *some* thread can always make progress, even if any one thread is arbitrarily suspended. Lock-free algorithms are typically transaction-based: a failed transaction just rolls back and retries. This rules out deadlock, but individual threads can still **starve** indefinitely while others keep succeeding |
+| **Wait-free** | Everything lock-freedom guarantees, *plus* starvation-freedom — every thread makes progress, full stop, with no thread ever starving indefinitely |
+
+"Lock-free" gets used loosely in casual conversation to mean "avoids blocking" in general — but obstruction-free, lock-free, and wait-free algorithms collectively have a proper name: **non-blocking algorithms**. This is a genuinely deep, still-actively-researched field — this lesson and the next few introduce the core principles, not the whole territory.
+
+### Check: the non-blocking hierarchy
+
+<MultipleChoice
+  id="ge-ch4-lockfree-hierarchy"
+  title="Blocking, obstruction-free, lock-free, and wait-free"
+  questions={[
+    {
+      prompt: 'What does the term "lock-free" actually mean, technically, despite what the name might suggest?',
+      choices: [
+        'It means mutex locks are never used anywhere in the implementation',
+        'It specifically means no thread is ever allowed to block (go to sleep waiting on a resource) — mutexes might still be absent as a side effect, but the defining property is the prohibition on blocking, not the literal absence of "locks"',
+        'It means the algorithm runs without needing any CPU synchronization instructions',
+        'It is a synonym for single-threaded programming',
+      ],
+      answer: 1,
+      why: 'The lesson explicitly calls out this naming quirk — "blocking-free" would be the more literally accurate term.',
+    },
+    {
+      prompt: 'Why can no algorithm that uses a mutex or spin lock ever be classified as obstruction-free?',
+      choices: [
+        'Mutexes are always faster than obstruction-free algorithms, making the classification irrelevant',
+        'Obstruction-freedom requires that a single thread, running alone while every other thread is suspended, is guaranteed to finish in a bounded number of steps — but if a suspended thread happens to be holding a lock the solo thread needs, the solo thread could be stuck waiting forever',
+        'Mutexes cannot be implemented using atomic instructions',
+        'Obstruction-free algorithms are not allowed to read shared memory',
+      ],
+      answer: 1,
+      why: 'A lock held by a permanently-suspended thread directly violates the bounded-steps guarantee obstruction-freedom requires.',
+    },
+    {
+      prompt: 'What is the key difference between "lock-free" and "wait-free" guarantees?',
+      choices: [
+        'They are exactly the same guarantee with two different names',
+        'Lock-free guarantees that SOME thread in the system always makes progress, but allows individual threads to starve indefinitely while retrying; wait-free adds starvation-freedom on top, guaranteeing EVERY thread makes progress',
+        'Wait-free is a weaker guarantee than lock-free',
+        'Lock-free only applies to single-core systems, wait-free only to multi-core',
+      ],
+      answer: 1,
+      why: 'Wait-freedom is lock-freedom plus an additional, stronger guarantee — no thread, individually, can be left starving forever, which lock-freedom alone does not promise.',
+    },
+  ]}
+/>
+
+---
+
+## The True Causes of Data Race Bugs
+
+[Introduction to Concurrent Programming](./introduction-to-concurrent-programming) framed a data race as one critical operation interrupted by another critical operation on the same shared data. That's true, but incomplete — there are actually **three** distinct ways a data race can be introduced, and writing correct spin locks or lock-free algorithms requires understanding all of them:
+
+1. **Interruption** — one critical operation interrupted mid-flight by another critical operation on the same object, via preemptive multitasking or genuine parallel execution on separate cores.
+2. **Instruction reordering** — optimizing compilers reorder instructions to reduce pipeline stalls, and a CPU's out-of-order execution logic can *execute* instructions in a different order than they appear in the program (see [Implicit Parallelism](./implicit-parallelism)). Both are engineered to be invisible to a single thread — but they can absolutely break the *ordering* two threads depend on to hand data off safely.
+3. **Memory ordering effects** — a computer's memory controller applies its own aggressive optimizations, which can delay when a read or write's effects actually become visible relative to other reads/writes elsewhere in the system. Just like compiler/CPU reordering, this is engineered to be invisible in a single thread — but it can silently reorder a *critical pair* of reads/writes that two threads were relying on for safe handoff. This lesson series calls these specifically **memory ordering bugs**, and the next lesson digs into exactly how and why they happen.
+
+Guaranteeing a critical operation is truly atomic means ruling out **all three** of these — not just the interruption case most concurrency discussions focus on first.
+
+---
+
+## Implementing Atomicity
+
+Mutex lock/unlock has been treated as a black box that "magically" makes an operation atomic so far. Time to open that box.
+
+### Disabling Interrupts (and Why It Doesn't Really Work)
+
+The most direct-seeming approach: disable interrupts right before a critical operation, then re-enable them right after — preventing the kernel from context-switching to another thread mid-operation. This is done with a real machine instruction (`cli`, "clear interrupt enable bit," on x86). The catch: that instruction only affects the **one core that executed it**. Every other core keeps running its own threads with interrupts (and therefore preemption) fully enabled — so on any genuinely multicore machine, this technique protects against precisely nothing from those other cores' perspective. It's a real technique, but its usefulness is essentially limited to single-core systems.
+
+### Atomic Instructions: The Real Foundation
+
+The actual answer: certain machine instructions are **naturally, hardware-guaranteed atomic** — indivisible at the CPU level, no software trickery required. This is exactly what makes it possible to build mutexes and spin locks in the first place, which then let us build larger-scale atomicity on top. Every CPU's set of atomic instructions falls into two categories: **atomic reads/writes**, and **atomic read-modify-write (RMW)** instructions.
+
+#### Atomic Reads and Writes
+
+On most CPUs, reading or writing a properly **aligned** 32-bit integer is atomic — many CPUs extend this guarantee to other aligned sizes too (a single byte, a 64-bit integer), as long as the object's width doesn't exceed a register (or sometimes a cache line) and it sits at an address that's a multiple of its own size. The mechanism: an aligned access that fits within one memory cycle happens in true lock-step with the CPU's clock, and a memory cycle simply can't be interrupted — not even by another core — making the access atomic essentially for free. **Misaligned** accesses lose this property entirely, since the CPU typically has to compose two separate aligned memory accesses to service them — and a two-part operation can, by definition, be interrupted partway through. (See [Data, Code, and Memory Layout](./data-code-and-memory-layout#object-layout-alignment-and-padding) for more on alignment.)
+
+#### Atomic Read-Modify-Write (RMW)
+
+Plain atomic reads and writes aren't enough to build something like a mutex — that requires reading a value, changing it, and writing the result back, all as one indivisible unit. Every modern CPU provides at least one atomic RMW instruction for exactly this. A few of the most common:
+
+**Test-and-set (TAS)** — despite the name, it doesn't test anything conditionally; it unconditionally sets a boolean to `true` and hands back whatever value was there *before* the set, atomically:
+
+```cpp
+// Conceptually what a TAS instruction does, atomically:
+bool TestAndSet(bool* pLock) {
+    const bool old = *pLock;
+    *pLock = true;
+    return old;
+}
+```
+
+A spin lock built on TAS is almost embarrassingly simple: spin, calling TAS, until it hands back `false` (meaning *you* were the one who just flipped it from unlocked to locked):
+
+```cpp
+void SpinLockAcquire(bool* pLock) {
+    while (TestAndSet(pLock)) {
+        // someone else holds it — busy-wait
+    }
+    // TestAndSet returned false, so we just atomically claimed the lock
+}
+```
+
+**Compare-and-swap (CAS)** is more powerful still: it checks whether a memory location currently holds an *expected* value, and only if it does, atomically swaps in a new one — reporting success or failure either way:
+
+```cpp
+// Conceptually what a CAS instruction does, atomically:
+bool CompareAndSwap(int* pValue, int expected, int newValue) {
+    if (*pValue == expected) {
+        *pValue = newValue;
+        return true;
+    }
+    return false;
+}
+```
+
+The general recipe for building *any* atomic RMW operation out of CAS: read the current value, compute a new value from it, attempt to write the result with CAS instead of a plain store, and **loop** until the CAS actually succeeds. Because CAS reports failure whenever the value it's about to overwrite has changed since you read it, it doubles as a built-in race detector — if nobody else touched the value in between, CAS behaves exactly like an ordinary write; if someone did, CAS fails and you retry with fresh data.
+
+### Practice: atomic increment via compare-and-swap
+
+Implement the canonical CAS-retry-loop pattern directly: read the current value, compute the new one, and keep retrying `compare_exchange_weak` until it actually succeeds.
+
+<CodeExercise
+  title="Atomic increment with CAS"
+  heading="exercise-cas-increment"
+  lang="cpp"
+  filename="main.cpp"
+  prompt="Implement AtomicIncrement(std::atomic<int>* pValue) using a read/compute/compare_exchange_weak retry loop — never just call pValue->fetch_add() directly; the point is to practice the CAS pattern itself."
+  sampleLog={`(no input)
+5`}
+  starter={`#include <iostream>
+#include <atomic>
+using namespace std;
+
+void AtomicIncrement(atomic<int>* pValue) {
+    // TODO: read the current value, compute value+1, and keep
+    // retrying pValue->compare_exchange_weak(oldValue, newValue)
+    // until it succeeds. compare_exchange_weak updates oldValue
+    // to the CURRENT value automatically whenever it fails, so
+    // you don't need to re-read manually inside the loop.
+}
+
+int main() {
+    atomic<int> counter{0};
+    for (int i = 0; i < 5; ++i) {
+        AtomicIncrement(&counter);
+    }
+    cout << counter.load() << endl;
+    return 0;
+}
+`}
+  hint="int oldValue = pValue->load(); int newValue = oldValue + 1; while (!pValue->compare_exchange_weak(oldValue, newValue)) { newValue = oldValue + 1; }"
+  solution={`#include <iostream>
+#include <atomic>
+using namespace std;
+
+void AtomicIncrement(atomic<int>* pValue) {
+    int oldValue = pValue->load();
+    int newValue = oldValue + 1;
+    while (!pValue->compare_exchange_weak(oldValue, newValue)) {
+        // oldValue has been updated to the current value by compare_exchange_weak;
+        // recompute newValue from it and try again.
+        newValue = oldValue + 1;
+    }
+}
+
+int main() {
+    atomic<int> counter{0};
+    for (int i = 0; i < 5; ++i) {
+        AtomicIncrement(&counter);
+    }
+    cout << counter.load() << endl;
+    return 0;
+}
+`}
+  sourceChecks={[
+    { name: 'uses compare_exchange_weak in a retry loop', pattern: 'compare_exchange_weak', must: true, hint: 'use compare_exchange_weak in a while loop, retrying on failure' },
+  ]}
+  tests={[
+    { name: 'increments five times to reach 5', stdin: '', equals: '5' },
+  ]}
+/>
+
+### The ABA Problem
+
+CAS has one specific, sneaky blind spot: it cannot detect a value that changed **and then changed back**. Suppose a thread reads value `A`, but before it can issue its CAS, some other thread swoops in and writes `B`, then writes `A` right back again. When the original thread's CAS finally runs, it sees `A` sitting there — exactly what it expected — and happily proceeds, having no way to know the value was ever anything other than `A` the whole time. This is the **ABA problem**, and it's a genuine correctness hazard in real lock-free data structures (imagine `A` and `B` are actually memory addresses being recycled by an allocator — the CAS can succeed while pointing at a completely different, reused object than the one originally intended).
+
+### Load-Linked / Store-Conditional (LL/SC)
+
+Some CPUs sidestep CAS's single-instruction design entirely, splitting the same idea into a **pair** of instructions. **Load-linked (LL)** atomically reads a value and also stashes its address in a special hardware **link register**. **Store-conditional (SC)** attempts to write a new value to that same address, but only succeeds if the link register still matches — and critically, **any** write to that address by anyone, including an SC failure elsewhere, clears the link register to zero. That means an SC can detect a data race that CAS would completely miss — including exactly the ABA scenario above, since the intervening `B`-then-`A` writes would have cleared the link register regardless of what value ended up back in memory.
+
+```cpp
+// Conceptual usage — LL/SC follow the same retry shape as CAS:
+void AtomicIncrementLLSC(int* pValue) {
+    while (true) {
+        int oldValue = LoadLinked(pValue);
+        int newValue = oldValue + 1;
+        if (StoreConditional(pValue, newValue)) {
+            break; // success!
+        }
+        // SC failed (possibly spuriously) — retry
+    }
+}
+```
+
+LL/SC offers two genuine advantages over a single CAS instruction:
+
+1. **Immunity to ABA.** Since *any* intervening write clears the link register, the exact scenario that fools CAS can't sneak past LL/SC.
+2. **Better pipeline fit.** CAS needs *two* memory-access cycles in one instruction — one to read for comparison, one to conditionally write — which forces a CPU's pipeline to carry an extra, mostly-idle memory-access stage just to accommodate it. LL and SC are each a single memory-access-cycle instruction, fitting naturally into a standard pipeline with just one memory stage.
+
+The trade-off: SC can fail **spuriously** — with no actual data race at all — purely because *some* unrelated write happened to hit the link register. This doesn't threaten correctness (the retry loop just runs an extra iteration or two), which is exactly why C++11's `compare_exchange_weak` — implemented via LL/SC on hardware that has it — is explicitly allowed to fail spuriously, while `compare_exchange_strong` masks spurious failures from the programmer entirely (at some extra cost on LL/SC-based hardware).
+
+### Relative Strength of Atomic Instructions
+
+Not all atomic RMW instructions are created equal when it comes to a deep theoretical property called **consensus** — getting multiple threads to agree on a value even in the presence of failures. TAS, operating on a single boolean, can only solve the **wait-free consensus problem** for **two** threads. CAS, operating on a full 32-bit value, can solve it for **any** number of threads — a genuinely stronger instruction, not just a more convenient one. (Wait-free consensus theory is deep, fault-tolerance-focused territory well beyond this lesson's scope — worth knowing the term exists if you go looking for more.)
+
+### Check: atomic instructions
+
+<MultipleChoice
+  id="ge-ch4-lockfree-atomics"
+  title="TAS, CAS, ABA, and LL/SC"
+  questions={[
+    {
+      prompt: 'Why does disabling interrupts fail as a general-purpose technique for achieving atomicity on a modern multicore machine?',
+      choices: [
+        'Disabling interrupts is illegal in user-mode code on all modern CPUs',
+        'The instruction that disables interrupts only affects the single core that executed it — every other core keeps running its own threads with interrupts (and preemption) still fully enabled, so the technique offers zero protection against those other cores',
+        'Disabling interrupts makes the CPU run significantly slower with no benefit',
+        'Interrupts cannot be disabled on any modern hardware',
+      ],
+      answer: 1,
+      why: 'This is a scope limitation, not a correctness one — the technique genuinely works, just only within the single core it was executed on.',
+    },
+    {
+      prompt: 'What is the ABA problem, and why does compare-and-swap (CAS) fail to detect it?',
+      choices: [
+        'ABA refers to a CPU running out of available registers, unrelated to CAS',
+        'A value is read as A, changed to B and back to A again by another thread before the original thread\'s CAS runs — since CAS only compares the CURRENT value against the expected value, it sees A matches A and proceeds, with no way to know the value was ever briefly something else in between',
+        'ABA only occurs when using test-and-set, never with CAS',
+        'CAS always detects ABA scenarios correctly by design',
+      ],
+      answer: 1,
+      why: 'CAS\'s single point-in-time comparison is exactly what makes it blind to a value that changed and then changed back before the comparison happened.',
+    },
+    {
+      prompt: 'Why is a load-linked/store-conditional (LL/SC) pair immune to the ABA problem in a way that a single CAS instruction is not?',
+      choices: [
+        'LL/SC is not actually immune to ABA either',
+        'The store-conditional instruction fails whenever ANY write occurs to the target address between the load-linked and the store-conditional — including a write that changes the value and then changes it back — so the intervening B-then-A writes would clear the link register and cause the SC to fail, regardless of the final value',
+        'LL/SC only works with boolean values, avoiding the issue entirely',
+        'LL/SC prevents any other thread from ever writing to the same address',
+      ],
+      answer: 1,
+      why: 'The link register\'s clear-on-any-write behavior detects the intervening writes themselves, not just a mismatched final value — exactly the information CAS discards.',
+    },
+    {
+      prompt: 'Why is compare-and-swap (CAS) considered a "stronger" instruction than test-and-set (TAS) in terms of solving the wait-free consensus problem?',
+      choices: [
+        'CAS and TAS are equally strong; there is no meaningful difference',
+        'TAS, operating only on a boolean, can solve wait-free consensus for at most two threads; CAS, operating on a full-width value, can solve wait-free consensus for any number of threads — a genuine difference in theoretical power, not just convenience',
+        'TAS is actually stronger than CAS for this purpose',
+        'Neither instruction can be used to solve any consensus problem',
+      ],
+      answer: 1,
+      why: 'This reflects a real, provable difference in consensus-solving power between the two instruction types, tied to how much information each can atomically compare and update.',
+    },
+  ]}
+/>
+
+---
+
+:::important Key takeaways
+- Non-blocking algorithms form a hierarchy — **blocking** → **obstruction-free** → **lock-free** → **wait-free** — each level adding a strictly stronger progress guarantee than the last.
+- Data races have **three** distinct causes, not one: critical-operation interruption, compiler/CPU instruction reordering, and memory-controller-level reordering effects (memory ordering bugs) — all three must be ruled out for genuine atomicity.
+- **Atomic reads/writes** come essentially free on aligned data; **atomic RMW instructions** (TAS, exchange, CAS, LL/SC) are what make it possible to build mutexes, spin locks, and lock-free algorithms in the first place.
+- **CAS** enables a general read-compute-retry pattern for building any atomic operation, but suffers from the **ABA problem**; **LL/SC** avoids ABA and fits CPU pipelines more naturally, at the cost of occasional spurious failures.
+- Atomic instructions differ in theoretical **consensus-solving power**, not just convenience — TAS caps out at two-thread consensus, while CAS scales to any number of threads.
+:::
+
+## Further Reading
+
+- Jason Gregory — *Game Engine Architecture*, 3rd ed. (CRC Press, 2018), Chapter 4, Sections 4.9–4.9.2
+- [Problems with Lock-Based Concurrency](./problems-with-lock-based-concurrency) — this series' previous lesson
+- [Memory Fences and the C++ Memory Model](./memory-fences-and-the-cpp-memory-model) — this series' next lesson, covering the other two causes of data races in depth
+- [cppreference: std::atomic::compare_exchange_weak](https://en.cppreference.com/w/cpp/atomic/atomic/compare_exchange) — the strong/weak distinction in full detail

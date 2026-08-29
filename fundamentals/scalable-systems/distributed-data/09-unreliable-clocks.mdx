@@ -1,0 +1,267 @@
+---
+sidebar_position: 9
+title: Unreliable Clocks
+---
+
+# Unreliable Clocks
+
+> **Adapted from:** Martin Kleppmann, *Designing Data-Intensive Applications* (O'Reilly, 2017), Chapter 8 — rewritten and condensed for teaching.
+
+[Faults, Partial Failures, and Unreliable Networks](./faults-partial-failures-and-unreliable-networks) established that message delivery time is fundamentally uncertain. Clocks turn out to have an equally uncomfortable problem hiding in plain sight: every machine on a network runs its **own** physical clock — an actual quartz crystal — and no two of them agree perfectly. Applications lean on clocks constantly (has this request timed out? what's the p99 latency? when should this reminder fire? what's the timestamp on this log line?) — and in a distributed system, trusting a clock too much is a genuinely easy way to build something that's subtly, silently wrong.
+
+---
+
+## Two Kinds of Clock, Two Different Jobs
+
+Modern computers actually expose **two** distinct clocks, and conflating them is a real source of bugs.
+
+**Time-of-day clocks** (`clock_gettime(CLOCK_REALTIME)` on Linux, `System.currentTimeMillis()` in Java) report the current date and time against a shared calendar — seconds since the Unix epoch, for instance. They're kept roughly in sync across machines via **NTP** — but they can also **jump**: if a machine's clock has drifted too far from its NTP source, it may be forcibly **reset**, and from the application's point of view, that can look like time suddenly running *backward*. That single property makes time-of-day clocks a genuinely bad tool for measuring how much time has *elapsed* between two points.
+
+**Monotonic clocks** (`clock_gettime(CLOCK_MONOTONIC)`, `System.nanoTime()`) exist specifically to fix that. As the name promises, they only ever move **forward** — perfect for measuring a duration (a timeout, a response time), because you just read the clock, do something, read it again, and subtract. What a monotonic clock's *absolute* value means is entirely arbitrary (often just "nanoseconds since this machine booted") — comparing monotonic readings from two **different** machines is meaningless, since they don't share a reference point at all. NTP is still allowed to gently adjust *how fast* a monotonic clock ticks (called **slewing**, when the underlying quartz is measurably running fast or slow) — but critically, NTP can never make a monotonic clock **jump**, in either direction. For measuring elapsed time (timeouts, above all) inside one process, a monotonic clock is the right tool, precisely because it requires no cross-machine synchronization assumption whatsoever.
+
+### Check: time-of-day vs. monotonic clocks
+
+<MultipleChoice
+  id="ddia-clocks-two-kinds"
+  title="Time-of-day clocks vs. monotonic clocks"
+  questions={[
+    {
+      prompt: 'Why is a time-of-day clock a poor choice for measuring how much time has elapsed between two events?',
+      choices: [
+        'Time-of-day clocks are always less precise than monotonic clocks',
+        'A time-of-day clock can be forcibly reset when it drifts too far from its NTP source, which can make it appear to JUMP backward (or forward) in time — corrupting any elapsed-time calculation that assumed steady forward progress',
+        'Time-of-day clocks cannot be read more than once per second',
+        'Time-of-day clocks are not synchronized by NTP at all',
+      ],
+      answer: 1,
+      why: 'The possibility of a backward (or forward) jump during a forced resync is exactly what makes time-of-day clocks unreliable for duration measurement, which is what monotonic clocks exist to fix.',
+    },
+    {
+      prompt: 'Why is it meaningless to compare a monotonic clock reading from one machine against a monotonic clock reading from a DIFFERENT machine?',
+      choices: [
+        'Monotonic clocks are not real hardware clocks at all',
+        'A monotonic clock\'s absolute value is arbitrary (e.g. nanoseconds since that specific machine booted) — there is no shared reference point between machines, so only differences WITHIN the same machine\'s own readings are meaningful',
+        'Monotonic clocks are always perfectly synchronized across every machine',
+        'Monotonic clocks can only be read once per process lifetime',
+      ],
+      answer: 1,
+      why: 'Because each machine\'s monotonic clock starts counting from its own arbitrary reference point, cross-machine comparison of raw values carries no meaning — only within-machine differences do.',
+    },
+  ]}
+/>
+
+---
+
+## Clock Synchronization and Accuracy: Less Reliable Than You'd Hope
+
+Monotonic clocks need no synchronization at all — but time-of-day clocks are only useful if they're kept roughly aligned with reality, and the tools for doing that are considerably shakier than most people assume:
+
+- **Quartz drift is real and constant.** Google's own internal assumption for its server fleet is 200 parts per million — enough to accumulate roughly 6 ms of drift between 30-second resyncs, or a genuinely alarming 17 seconds of drift over a full day without one.
+- **Forced resets happen**, and when they do, any code observing the clock right around that moment can see time jump backward or leap suddenly forward.
+- **NTP itself can silently fail** — a node accidentally firewalled off from its NTP servers can drift for a long time before anyone notices.
+- **NTP accuracy is capped by network delay itself** — one real measurement study found roughly 35 ms of minimum achievable error even over the internet, with occasional spikes toward a full second under network congestion.
+- **NTP servers themselves are sometimes just wrong** — misconfigured, reporting time off by literal hours. (NTP clients defend against this by querying several servers at once and discarding outliers — which is exactly why NTP clients should always be configured with more than one server.)
+- **Leap seconds** — an occasional 59- or 61-second minute — have crashed real production systems more than once, purely because "every minute has exactly 60 seconds" turned out to be a load-bearing, unstated assumption baked deep into the code.
+- **Virtualization adds its own layer of uncertainty**: when a CPU core is time-shared between VMs, a paused VM's clock effectively jumps forward the moment it resumes, from its own point of view.
+- **Devices you don't fully control** (a user's phone, an embedded device) might have a hardware clock you simply cannot trust at all — sometimes deliberately mis-set by the user themselves.
+
+Genuinely excellent clock accuracy is achievable — European financial regulation (MiFID II) requires high-frequency trading systems to stay synchronized to within 100 **microseconds** of UTC, specifically to help investigators reconstruct the true order of events during incidents like flash crashes — but hitting that bar takes real, dedicated investment: GPS receivers, the **Precision Time Protocol (PTP)**, and continuous, careful monitoring. Left unmonitored, ordinary NTP misconfiguration or firewall issues let clock error creep up quietly, with nothing forcing anyone to notice.
+
+---
+
+## Relying on Synchronized Clocks Is Genuinely Dangerous
+
+The uncomfortable pattern with clocks: unlike a dead CPU or a misconfigured network (which tend to announce themselves loudly and get fixed fast), a **silently drifting clock rarely announces itself at all**. Everything just keeps working, on the surface — until something that quietly depended on clock accuracy produces subtly, silently wrong results instead of a clean, visible crash. Any software that leans on synchronized clocks needs continuous monitoring of clock offsets across every node, specifically so any node whose clock has drifted too far can be caught and pulled from the cluster *before* it causes real damage.
+
+### The Classic Trap: Timestamps for Ordering Events
+
+Picture multi-leader replication (from [Multi-Leader Replication](./multi-leader-replication)): client A writes `x = 1` on node 1; that replicates to node 3; client B then increments it there (`x = 2`); both writes eventually reach node 2. If each write is tagged with the time-of-day clock reading from whichever node it originated on — even with genuinely excellent clock sync, well under 3ms of skew — the timestamps can still come out **wrong relative to true causal order**: `x = 1`'s timestamp might read 42.004s while `x = 2` reads 42.003s, even though `x = 2` unambiguously happened *later*, causally. Node 2, naively trusting the timestamps, concludes `x = 1` is the more recent value and quietly **drops** `x = 2` — client B's increment vanishes without a trace.
+
+This is exactly **last write wins (LWW)**, already covered in [Leaderless Replication](./leaderless-replication) — and seeing it through the clock lens specifically exposes three separate, compounding problems:
+
+1. **Writes can vanish for no visible reason.** A node running a slightly slow clock literally cannot overwrite values from a node running a faster one, until the accumulated skew between them has fully elapsed — silently dropping data with no error surfaced anywhere.
+2. **LWW cannot tell "sequential" from "truly concurrent."** It has no way to distinguish "B's write genuinely happened after A's" from "neither write knew about the other" — that distinction needs a real causality-tracking mechanism (version vectors), not a clock.
+3. **Two writes can land on the exact same timestamp**, especially at millisecond clock resolution — requiring a tiebreaker (often just a large random number), which can *itself* end up violating causal order.
+
+Even *near-perfect* NTP synchronization can't rescue this: it's mathematically possible to send a packet timestamped 100ms (by the sender's clock) that arrives timestamped 99ms (by the receiver's clock) — the packet visibly "arrives before it was sent," which is obviously impossible in reality. NTP's own accuracy ceiling is bounded by network round-trip time — the very same quantity you're trying to measure — so it can never be made reliably more precise than the thing it's meant to help order. **Logical clocks** — simple incrementing counters, unrelated to any oscillating quartz crystal — sidestep this whole mess by tracking only *relative* ordering between events, never wall-clock time at all. (Time-of-day and monotonic clocks, which both measure actual elapsed physical time, are correspondingly called **physical clocks**, in contrast.)
+
+### A Clock Reading Is a Range, Not a Point
+
+Reading a clock to microsecond, even nanosecond, resolution doesn't make that reading **accurate** to that resolution — it almost certainly isn't. A more honest way to think about any given clock reading: not a single precise instant, but a **confidence interval** — "95% confident the real time is somewhere between 10.3 and 10.5 seconds past the minute." If your true uncertainty is ±100ms, the microsecond digits your OS happily hands back are essentially meaningless noise.
+
+Most systems never expose this uncertainty at all — `clock_gettime()` just hands you a number, with zero indication of how far off it might actually be. Google's **TrueTime** API (built for Spanner) is a genuine exception: instead of one timestamp, it explicitly returns `[earliest, latest]` — the true current time is *guaranteed* to fall somewhere inside that interval. If event A's interval and event B's interval **don't overlap at all** — `A_earliest < A_latest < B_earliest < B_latest` — then A is *definitely, unambiguously* before B. If the two intervals **do** overlap, the honest answer is: you genuinely can't be sure which came first.
+
+### Practice: TrueTime-style interval comparison
+
+Implement the core comparison logic directly: given two confidence intervals, decide whether one event is definitely before the other, or whether the ordering is genuinely uncertain.
+
+<CodeExercise
+  title="Confidence interval ordering"
+  heading="exercise-trutime"
+  lang="python"
+  filename="main.py"
+  prompt="Implement happened_before(a, b) where a and b are each (earliest, latest) tuples. Return True only if a's interval ends strictly before b's interval begins (a is DEFINITELY earlier); otherwise return False (the ordering is uncertain, including when the intervals overlap)."
+  sampleLog={`(no input)
+True
+False`}
+  starter={`def happened_before(a, b):
+    # a, b are (earliest, latest) tuples.
+    # Return True only if a is DEFINITELY before b:
+    # a's latest possible time is still earlier than b's earliest possible time.
+    pass
+
+interval_a = (10.1, 10.3)
+interval_b = (10.4, 10.6)
+print(happened_before(interval_a, interval_b))
+
+interval_c = (10.1, 10.5)
+interval_d = (10.4, 10.6)
+print(happened_before(interval_c, interval_d))  # intervals overlap -> uncertain
+`}
+  hint="a is definitely before b only if a[1] (a's latest) < b[0] (b's earliest)."
+  solution={`def happened_before(a, b):
+    a_earliest, a_latest = a
+    b_earliest, b_latest = b
+    return a_latest < b_earliest
+
+interval_a = (10.1, 10.3)
+interval_b = (10.4, 10.6)
+print(happened_before(interval_a, interval_b))
+
+interval_c = (10.1, 10.5)
+interval_d = (10.4, 10.6)
+print(happened_before(interval_c, interval_d))
+`}
+  sourceChecks={[
+    { name: 'compares latest of a against earliest of b', pattern: '<', must: true, hint: "compare a's latest bound against b's earliest bound" },
+  ]}
+  tests={[
+    { name: 'non-overlapping intervals are ordered, overlapping ones are not', stdin: '', equals: 'True\nFalse' },
+  ]}
+/>
+
+Spanner uses exactly this idea to implement cross-datacenter snapshot isolation: it deliberately **waits out the length of the confidence interval** before committing a read-write transaction, guaranteeing any later-reading transaction's interval won't overlap with it — genuinely correct ordering, purchased at the cost of that wait. To keep that wait as short as practical, Google deploys GPS receivers and atomic clocks directly in each datacenter, holding TrueTime's uncertainty down to roughly 7ms. It's a real, working technique — but one that currently requires that kind of dedicated infrastructure investment most systems simply don't have.
+
+### Check: relying on synchronized clocks
+
+<MultipleChoice
+  id="ddia-clocks-relying"
+  title="LWW, confidence intervals, and TrueTime"
+  questions={[
+    {
+      prompt: 'In the multi-leader replication example, why does last write wins (LWW) end up silently dropping client B\'s increment, even though B\'s write causally happened AFTER A\'s?',
+      choices: [
+        'LWW never actually loses any data under any circumstances',
+        'Even with well-synchronized clocks, the timestamp assigned to B\'s write can end up numerically SMALLER than A\'s timestamp (due to per-node clock skew), so a node comparing timestamps concludes A\'s write is "more recent" and discards B\'s — even though B genuinely happened later in causal reality',
+        'LWW always processes writes in the exact order they were causally created',
+        'This scenario is purely theoretical and cannot occur with real clocks',
+      ],
+      answer: 1,
+      why: 'Clock skew between nodes, however small, can invert the apparent timestamp order relative to true causal order — exactly the mechanism that causes LWW to silently drop the causally-later write.',
+    },
+    {
+      prompt: 'Why should a clock reading be thought of as a confidence INTERVAL rather than a single precise point in time?',
+      choices: [
+        'Because computer clocks cannot produce numeric output at all',
+        'Because the fine-grained precision a clock reports (e.g. microseconds) does not imply that level of ACCURACY — the true error could easily be tens or hundreds of milliseconds, so a single reported number without an uncertainty bound is potentially misleading',
+        'Because clocks only update once per day',
+        'Because confidence intervals are purely a statistical concept unrelated to timekeeping',
+      ],
+      answer: 1,
+      why: 'High display resolution and high actual accuracy are different things — treating a reading as a range (as TrueTime explicitly does) is the honest way to represent genuine clock uncertainty.',
+    },
+    {
+      prompt: 'According to TrueTime\'s model, when can you be CERTAIN that event A happened before event B?',
+      choices: [
+        'Whenever A\'s timestamp number is numerically smaller than B\'s',
+        'Only when A\'s confidence interval and B\'s confidence interval do not overlap at all — specifically, A\'s latest possible time is still earlier than B\'s earliest possible time',
+        'You can never be certain about event ordering under any circumstances',
+        'Whenever both events occurred on the same physical machine',
+      ],
+      answer: 1,
+      why: 'Non-overlapping intervals are the only case where the true instant each event occurred is unambiguous relative to the other — any overlap leaves genuine ordering uncertainty.',
+    },
+  ]}
+/>
+
+---
+
+## Process Pauses: When Your Own Thread Goes Missing
+
+Here's a related but distinct danger. Say a database gives out **leases** — lock-with-a-timeout — to whichever node currently believes it's the leader, requiring periodic renewal to stay valid. A naive request-handling loop might check "does my lease still have 10 seconds left?" before processing each request, assuming that gap is more than enough buffer. It quietly assumes something that isn't actually guaranteed: that essentially **no time passes** between checking the lease and finishing the request it's about to handle.
+
+That assumption can break in a genuinely wide range of real, mundane ways:
+
+- **Garbage collection.** Managed-runtime "stop-the-world" GC pauses have been observed running for **minutes**, not milliseconds — and even so-called "concurrent" collectors (like the HotSpot JVM's CMS) still can't avoid pausing entirely.
+- **VM suspension.** Live migration between physical hosts, or simply a laptop's lid being closed, can freeze a process's execution for an arbitrary length of time, resuming later exactly where it left off — with no internal signal that any time passed at all.
+- **OS/hypervisor scheduling.** A thread — or, one level up, an entire VM — can be preempted at literally any point mid-execution; under real load, it might sit in a run queue for a genuinely long stretch before getting scheduled again.
+- **Synchronous disk I/O**, which can silently appear from code that never mentions files explicitly at all — a lazily-loaded class file, for instance.
+- **Swapping/paging**, which under real memory pressure can degenerate all the way into **thrashing** — the OS spending nearly all its time shuffling pages in and out of memory instead of doing useful work (which is exactly why production servers commonly disable swap entirely).
+- A stray **`SIGSTOP`** (Ctrl-Z, or an operator's fat-fingered command) freezing a process outright until something explicitly resumes it.
+
+Every one of these can silently pause a thread **mid-line**, for an unbounded stretch, and then resume it later with **no built-in signal that any of it happened**. In the lease example specifically, the thread might check `lease.isValid()`, get suspended for 15 seconds right there, and only discover — far too late — that the lease actually expired *during* the pause, at which point some other node may have already assumed leadership and started acting on it. This is structurally the exact same problem multi-threaded code faces on a single machine — except the usual single-machine toolbox (mutexes, semaphores, lock-free structures) doesn't translate to a distributed system at all, since there's no shared memory to protect in the first place, only unreliable messages over an unreliable network.
+
+### Hard Real-Time Systems: The Expensive Alternative
+
+Some domains genuinely cannot tolerate an unbounded pause at all — a flight-control system, an airbag controller, industrial robotics — where missing a hard deadline can cause a real, physical failure. **Hard real-time systems** exist specifically to guarantee response within a fixed deadline, in every possible circumstance, but the cost is severe: a dedicated real-time OS with guaranteed CPU-time scheduling, documented worst-case execution times for every library call, tightly restricted (or entirely forbidden) dynamic memory allocation, and an enormous, expensive testing burden to actually validate the guarantee holds. Note carefully: "real-time" here is a very different claim from "high-performance" — a hard real-time system frequently has *lower* overall throughput than an ordinary one, since it must prioritize meeting deadlines above every other consideration, including raw speed. For essentially all server-side data systems, this level of investment simply isn't worth it — which means production software has to be designed defensively against process pauses, rather than eliminating the possibility of them outright.
+
+That said, the *impact* of GC pauses specifically can be meaningfully **reduced**, short of the full real-time treatment: a language runtime that can warn "I'll need a GC pause soon" lets an application proactively stop routing new requests to that node, drain what's in flight, pause cleanly, then resume — hiding the pause from clients entirely (some latency-sensitive financial trading systems genuinely do this in production). A related trick: use the GC only for cheap-to-collect short-lived objects, and periodically **restart** the process outright — one node at a time, shifting traffic away first, much like a rolling upgrade — before enough long-lived garbage accumulates to ever require a full, expensive collection at all.
+
+### Check: process pauses
+
+<MultipleChoice
+  id="ddia-clocks-pauses"
+  title="Process pauses and their consequences"
+  questions={[
+    {
+      prompt: 'In the lease-checking example, what specifically goes wrong if the thread is paused for 15 seconds right after checking that the lease has 10+ seconds remaining?',
+      choices: [
+        'Nothing goes wrong; the lease check already guarantees safety regardless of any pause',
+        'The lease may expire DURING the pause, and another node may take over leadership — but the paused thread has no way to detect that time passed, so when it resumes it may proceed to process the request as if it still safely held the lease',
+        'The pause automatically extends the lease to compensate',
+        'The thread is guaranteed to be killed immediately if a pause exceeds the lease duration',
+      ],
+      answer: 1,
+      why: 'The core danger is that a process pause is invisible to the paused thread itself — it has no built-in way to notice time has passed until it explicitly checks a clock again, by which point unsafe action may already be underway.',
+    },
+    {
+      prompt: 'Why doesn\'t the usual single-machine multi-threading toolbox (mutexes, semaphores, lock-free data structures) directly solve the process-pause problem in a distributed system?',
+      choices: [
+        'Those tools are actually sufficient and are used directly in distributed systems',
+        'That toolbox relies on shared memory that all threads on one machine can access — a distributed system has no shared memory at all between nodes, only unreliable messages sent over an unreliable network, so the coordination mechanisms are fundamentally different',
+        'Mutexes and semaphores do not exist in any real programming language',
+        'Process pauses only ever occur on a single machine, never across a network',
+      ],
+      answer: 1,
+      why: 'The absence of shared memory across nodes is exactly why single-machine concurrency primitives don\'t transfer to the distributed setting — a different class of tools (leases, fencing, consensus) is needed instead.',
+    },
+    {
+      prompt: 'Why is "real-time" in the hard real-time systems sense NOT the same thing as "high-performance"?',
+      choices: [
+        'They are actually identical concepts with different names',
+        'A hard real-time system prioritizes guaranteed, bounded response time above all else — including raw throughput — which can mean it processes FEWER total operations per second than a system optimized purely for average-case speed',
+        'Real-time systems always have higher throughput than non-real-time systems',
+        'Real-time systems are defined purely by how fast they respond on average',
+      ],
+      answer: 1,
+      why: 'The lesson explicitly distinguishes bounded worst-case latency (real-time\'s actual goal) from raw average throughput (performance) — optimizing hard for the former can cost you some of the latter.',
+    },
+  ]}
+/>
+
+---
+
+:::important Key takeaways
+- **Time-of-day clocks** (wall-clock, NTP-synced, can jump) and **monotonic clocks** (always-forward, no cross-machine meaning) serve genuinely different purposes — use monotonic clocks for measuring elapsed time, never time-of-day clocks.
+- Clock synchronization (NTP) is far less reliable than most developers assume — quartz drift, forced resets, misconfigured servers, network-delay-bounded accuracy, and leap seconds have all caused real production incidents.
+- **Last write wins**, built on time-of-day timestamps, can silently drop causally-later writes purely due to ordinary clock skew — a clock reading should be treated as a **confidence interval**, not an exact point in time, and **TrueTime**-style non-overlapping-interval comparison is a genuine (if expensive) fix.
+- **Process pauses** — GC, VM suspension, OS scheduling, disk I/O, swapping, `SIGSTOP` — can freeze any thread mid-execution for an unbounded, undetectable stretch of time, which is exactly what makes naive lease-expiry logic unsafe without additional protection (covered next, via fencing tokens).
+- **Hard real-time systems** can guarantee bounded response time, but only at real, substantial cost to flexibility, tooling, and often raw throughput — not a realistic bar for most server-side data systems, which instead have to be designed defensively around the *possibility* of unbounded pauses.
+:::
+
+## Further Reading
+
+- Martin Kleppmann — *Designing Data-Intensive Applications* (O'Reilly, 2017), Chapter 8
+- [Faults, Partial Failures, and Unreliable Networks](./faults-partial-failures-and-unreliable-networks) — this series' previous lesson
+- [Knowledge, Truth, and Lies](./knowledge-truth-and-lies) — this series' next lesson: fencing tokens, the mechanism that makes lease-based leadership actually safe under process pauses
+- Google — ["Spanner: Google's Globally-Distributed Database"](https://research.google/pubs/pub39966/) — the TrueTime API in full detail

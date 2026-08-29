@@ -1,0 +1,345 @@
+---
+sidebar_position: 10
+title: Knowledge, Truth, and Lies
+---
+
+# Knowledge, Truth, and Lies
+
+> **Adapted from:** Martin Kleppmann, *Designing Data-Intensive Applications* (O'Reilly, 2017), Chapter 8 — rewritten and condensed for teaching.
+
+[Unreliable Networks](./faults-partial-failures-and-unreliable-networks) and [Unreliable Clocks](./unreliable-clocks) both land on the same uncomfortable conclusion: **a node in a distributed system cannot know anything for certain.** It can only make inferences from the messages it happens to receive — or, just as informatively, doesn't receive. If a remote node stops responding, there is genuinely no way to distinguish "it crashed," "it's slow," and "the network between us is broken" from where you're sitting. This lesson works through the practical consequences of that uncertainty: how a distributed system can still establish a workable notion of "truth," and what changes once you can no longer even assume the nodes around you are being honest.
+
+---
+
+## The Truth Is Defined by the Majority
+
+Consider a node with a genuinely strange, **asymmetric** network fault: it receives every message sent to it perfectly fine, but every outgoing message it sends gets silently dropped or delayed. From that node's own point of view, it's working *completely normally* — happily processing every incoming request. From everyone else's point of view, it's gone completely silent, and after the usual timeout, they declare it dead. The node itself might even *notice* its own messages aren't being acknowledged and correctly diagnose a network fault — and it still can't do a single thing about how the rest of the cluster perceives it.
+
+A related, even stranger scenario: a node hits a long stop-the-world GC pause — a full minute, say. Every other node, hearing nothing back, eventually gives up and declares it dead, promoting a replacement. Then the GC finishes, and the "dead" node's threads resume running *exactly where they left off* — completely unaware that an entire minute has passed, let alone that it's been formally declared dead in its absence.
+
+The lesson underneath both stories: **a node cannot fully trust its own judgment of the situation.** A distributed system can't safely hinge a decision on any single node's private belief, because that one node could be wrong, or lagging, or simply cut off, at any moment. This is exactly why so many distributed algorithms lean on a **quorum** — a vote among several nodes — instead: a decision only becomes official once some minimum number of nodes agree on it, deliberately reducing how much the system's correctness depends on any *one* node's individual, possibly-wrong view of reality.
+
+This applies just as much to declaring nodes **dead** as to anything else. If a quorum of the cluster votes that some node is dead, then as far as the system is concerned, **it is dead** — full stop, even if that node still feels perfectly alive and is quietly still processing requests in the background. The most common quorum shape is a strict **majority** — more than half the nodes — precisely because it's structurally impossible for two *different* majorities to exist and disagree with each other at the same moment; with 3 nodes you can tolerate 1 failure, with 5 you can tolerate 2, and so on.
+
+### Check: truth by majority
+
+<MultipleChoice
+  id="ddia-trouble-majority-truth"
+  title="Why distributed systems rely on quorums for truth"
+  questions={[
+    {
+      prompt: 'In the asymmetric network fault scenario (outgoing messages dropped, incoming messages received fine), why can\'t the affected node do anything to prevent being declared dead?',
+      choices: [
+        'The node is actually completely unaware anything is wrong, in every case',
+        'Even if the node correctly diagnoses the fault (its outgoing messages aren\'t being acknowledged), it has no way to actually DELIVER that diagnosis to the other nodes, since its outgoing communication is exactly what\'s broken — so the rest of the cluster still perceives it as unresponsive regardless',
+        'The node can always fix the problem by simply rebooting itself',
+        'This scenario is purely theoretical and does not occur in real systems',
+      ],
+      answer: 1,
+      why: 'The fault specifically breaks the one channel (outgoing messages) the node would need to correct the cluster\'s mistaken belief, no matter how accurately it understands its own situation.',
+    },
+    {
+      prompt: 'Why do distributed systems rely on a QUORUM (vote among several nodes) rather than trusting any single node\'s judgment for important decisions like declaring another node dead?',
+      choices: [
+        'Quorums are used purely to improve performance, not correctness',
+        'A single node\'s belief about the system state can be wrong due to network faults, clock issues, or process pauses — a quorum reduces the system\'s dependence on any ONE node\'s possibly-mistaken view by requiring several nodes to agree before a decision becomes official',
+        'Quorums are only needed when there are fewer than 3 nodes in the cluster',
+        'A single node is always more reliable than a group of nodes voting together',
+      ],
+      answer: 1,
+      why: 'Spreading the decision across multiple independent nodes is exactly what limits the blast radius of any one node\'s incorrect or outdated view of reality.',
+    },
+    {
+      prompt: 'Why is an absolute MAJORITY (more than half the nodes) the most common quorum size used in practice?',
+      choices: [
+        'Because majorities are the only mathematically valid quorum size',
+        'Because it is structurally impossible for two DIFFERENT majorities to exist simultaneously and disagree with each other — guaranteeing at most one majority decision can ever be in effect at a time, while still tolerating some number of node failures',
+        'Because majority quorums require exactly 3 nodes and no other cluster size',
+        'Because majority quorums never require any node to be reachable at all',
+      ],
+      answer: 1,
+      why: 'The impossibility of two disjoint majorities coexisting is precisely what gives a majority quorum its safety guarantee — there can never be two conflicting "official" decisions at once.',
+    },
+  ]}
+/>
+
+---
+
+## The Leader and the Lock
+
+Plenty of real systems need to guarantee **exactly one** of something exists at a time: exactly one leader per partition (to avoid split brain), exactly one client holding a lock on a given resource, exactly one user registered under a given username. Implementing this safely in a distributed system needs real care — because even if a node genuinely, sincerely *believes* "I am the chosen one," that belief alone proves **nothing** about whether a quorum of the rest of the cluster still agrees. A node might have been the leader a moment ago, then gotten declared dead during a GC pause (exactly the scenario from the previous section) and quietly demoted — while it's still off in its pause, blissfully unaware anything changed.
+
+If a node keeps acting on a belief the rest of the cluster has already invalidated, real damage follows. Picture a storage service that only allows one client at a time to write to a given file, enforced via a **lease** obtained from a lock service. Client 1 gets the lease and starts writing — then hits a long pause. While it's paused, its lease **expires**, and client 2 acquires a fresh lease and starts writing to the *same* file. Client 1 eventually resumes, still believing (wrongly) that its original lease is valid, and writes too — and now both clients' writes are interleaved, corrupting the file. (This isn't a hypothetical: HBase genuinely shipped with exactly this bug at one point.)
+
+### Fencing Tokens: Making the Resource Itself Enforce the Rule
+
+The fix doesn't require preventing the pause (impossible, as the previous lesson established) — it requires making sure a node acting on a **stale** belief can't cause damage even when it inevitably tries to. The mechanism: every time the lock service grants a lease, it also hands out a **fencing token** — a number that strictly increases with every new lease granted. Every write to the protected resource must then include the caller's current fencing token — and the resource itself is required to **reject** any write carrying a token *lower* than the highest one it's already seen.
+
+Walk through the earlier scenario again with fencing in place: client 1 gets a lease with token 33, then pauses; its lease expires; client 2 gets a *new* lease with token 34 and writes successfully, tagged with token 34. Client 1 eventually wakes up, still (wrongly) believing it holds a valid lease, and sends its write tagged with its old token, 33. The storage service, having already seen token 34, simply **rejects** client 1's stale write outright — no corruption, no coordination needed between the two clients at all. (ZooKeeper users get this almost for free: its `zxid` or `cversion` are already monotonically increasing by construction, and work perfectly as fencing tokens.)
+
+The crucial detail: this only works if the **resource itself** actively checks tokens and rejects stale ones — it is *not* enough for clients to simply trust their own belief about their lock status, which is precisely the failure mode fencing exists to eliminate. And this constraint, once you sit with it, is arguably a genuine feature rather than an inconvenience: it's simply unwise for any service to assume its clients will always behave well, since clients are frequently written and operated by people whose priorities don't perfectly line up with the service's own.
+
+### Practice: enforce fencing at the storage layer
+
+Implement the resource-side check directly: accept a write only if its token is strictly greater than every token accepted so far.
+
+<CodeExercise
+  title="Fencing token enforcement"
+  heading="exercise-fencing"
+  lang="python"
+  filename="main.py"
+  prompt="Implement StorageService.write(token, data) so it accepts and stores the write (returning True) only if token is strictly greater than every previously-accepted token; otherwise it rejects the write (returning False) without changing the stored data."
+  sampleLog={`(no input)
+True stored: data-from-33
+True stored: data-from-34
+False stored: data-from-34`}
+  starter={`class StorageService:
+    def __init__(self):
+        self.highest_token = None
+        self.data = None
+
+    def write(self, token, data):
+        # TODO: accept only if token > self.highest_token (or no token seen yet).
+        # On accept: update self.highest_token and self.data, return True.
+        # On reject: leave state unchanged, return False.
+        pass
+
+svc = StorageService()
+print(svc.write(33, "data-from-33"), "stored:", svc.data)
+print(svc.write(34, "data-from-34"), "stored:", svc.data)
+print(svc.write(33, "data-from-33-late"), "stored:", svc.data)
+`}
+  hint="if self.highest_token is None or token > self.highest_token: accept and update state, return True. Otherwise return False."
+  solution={`class StorageService:
+    def __init__(self):
+        self.highest_token = None
+        self.data = None
+
+    def write(self, token, data):
+        if self.highest_token is None or token > self.highest_token:
+            self.highest_token = token
+            self.data = data
+            return True
+        return False
+
+svc = StorageService()
+print(svc.write(33, "data-from-33"), "stored:", svc.data)
+print(svc.write(34, "data-from-34"), "stored:", svc.data)
+print(svc.write(33, "data-from-33-late"), "stored:", svc.data)
+`}
+  sourceChecks={[
+    { name: 'compares against highest_token before accepting', pattern: 'highest_token', must: true, hint: 'check token against self.highest_token before accepting a write' },
+  ]}
+  tests={[
+    { name: 'rejects a stale token after a newer one has already landed', stdin: '', equals: 'True stored: data-from-33\nTrue stored: data-from-34\nFalse stored: data-from-34' },
+  ]}
+/>
+
+### Check: leadership and fencing tokens
+
+<MultipleChoice
+  id="ddia-trouble-fencing"
+  title="The leader-and-lock problem and fencing tokens"
+  questions={[
+    {
+      prompt: 'In the HBase-style file corruption bug, what actually causes the file to become corrupted?',
+      choices: [
+        'The storage service crashes and loses all its data',
+        'Client 1\'s lease expires during a long pause; client 2 acquires a fresh lease and starts writing; client 1 then resumes, wrongly believes its original lease is still valid, and writes too — resulting in both clients\' writes interleaving on the same file with no coordination between them',
+        'The two clients are writing to two entirely separate files',
+        'The lock service itself corrupts the data directly',
+      ],
+      answer: 1,
+      why: 'The core failure is a node acting on a stale belief (an expired lease it doesn\'t know has expired) with nothing in place to stop it from actually writing.',
+    },
+    {
+      prompt: 'Why must the STORAGE SERVICE itself check fencing tokens, rather than simply trusting each client to correctly track its own lock status?',
+      choices: [
+        'Client-side checking is always sufficient and server-side checking is redundant',
+        'The entire point of the failure scenario is that a client can be WRONG about its own lock status (e.g. due to a pause it wasn\'t aware of) — if the resource doesn\'t independently verify the token, a client acting on a stale, incorrect belief can still cause damage',
+        'Fencing tokens are purely a client-side concept with no server involvement',
+        'Servers cannot compare numeric values, so client-side checking is required',
+      ],
+      answer: 1,
+      why: 'A client\'s self-belief about holding a valid lock is exactly the unreliable signal fencing tokens are designed to route around — enforcement has to happen at the resource, which can objectively compare tokens.',
+    },
+    {
+      prompt: 'Why does the lesson suggest that requiring server-side token validation is arguably a GOOD design principle, not just a necessary workaround?',
+      choices: [
+        'Because it eliminates the need for any lock service at all',
+        'Because it is generally unwise for a service to assume its clients will always behave correctly, since clients are often operated by people or code whose priorities and reliability may not match the service\'s own assumptions — server-side validation protects the service regardless of client behavior',
+        'Because server-side validation is always faster than client-side validation',
+        'Because clients can never be trusted to send any data correctly',
+      ],
+      answer: 1,
+      why: 'This reflects a broader, defensible principle: a service that protects itself rather than trusting client-reported state is more robust against both bugs and genuinely misbehaving clients.',
+    },
+  ]}
+/>
+
+---
+
+## Byzantine Faults: When Nodes Might Actually Lie
+
+Fencing tokens solve the problem of a node acting on an **honestly outdated** belief — but everything in this series so far has quietly assumed nodes are **unreliable but honest**: they might be slow, or crash, or hold stale state, but if a node responds *at all*, it's assumed to be playing by the protocol's actual rules, to the best of its own knowledge. Drop that assumption, and everything gets dramatically harder: a **Byzantine fault** is a node that might send arbitrary, corrupted, or outright deceptive messages — claiming to have received something it never did, for instance — and the problem of reaching agreement in that kind of genuinely untrusting environment is the classic **Byzantine Generals Problem**: several generals, some secretly traitors, need to agree on a shared battle plan purely by exchanging messengers, with no way to know in advance which of their peers might be actively lying.
+
+A system that keeps working correctly even when some fraction of its nodes are malfunctioning **or actively malicious** is called **Byzantine fault-tolerant**. It's a real, necessary property in a couple of specific settings:
+
+- **Aerospace systems**, where radiation can flip memory bits and cause a node to behave in genuinely unpredictable, arbitrary ways — and where a system failure (a plane crash, a satellite collision) is catastrophically expensive, so flight control software has to be Byzantine fault-tolerant on principle.
+- **Multi-organization systems where participants may not trust each other at all** — peer-to-peer networks like blockchain protocols exist specifically to let mutually distrusting parties agree on a shared, tamper-resistant history without needing any central authority to vouch for anyone.
+
+For essentially everything covered elsewhere in this series — ordinary datacenter systems — **Byzantine fault tolerance genuinely isn't the right tool.** Every node in your own datacenter is presumably under your own organization's control (so, reasonably trusted), and background radiation isn't corrupting your server memory at any meaningful rate. Byzantine-tolerant protocols are also considerably more complex and expensive to run — most require better than **two-thirds** of participating nodes to be honest and correctly functioning, which is a genuinely demanding bar. It's also worth being explicit about a common point of confusion: running four independent copies of the *same buggy software* doesn't magically give you Byzantine fault tolerance against that bug — the bug is identical in all four, so it fails identically everywhere it's deployed, tolerant algorithm or not.
+
+That doesn't mean "assume honesty" means "assume infallibility," though — plenty of **weaker**, cheaper forms of protection against accidental (never malicious) bad data are still absolutely worth building in:
+
+- **Checksums** in application-level protocols catch corrupted packets that occasionally slip past TCP/UDP's own built-in checksums.
+- **Input sanitization and validation** on any publicly-reachable service defends against malformed or malicious user input — SQL injection, XSS, and similarly classic vulnerabilities.
+- **Multi-server NTP queries**, where a client contacts several time servers at once and simply discards outliers, meaningfully improves robustness against a single misconfigured (not malicious, just wrong) time source — already covered as a concrete example in the previous lesson.
+
+### Check: Byzantine faults
+
+<MultipleChoice
+  id="ddia-trouble-byzantine"
+  title="Byzantine faults and when they matter"
+  questions={[
+    {
+      prompt: 'What is the key difference between the "unreliable but honest" node assumption used throughout most of this series, and a Byzantine fault?',
+      choices: [
+        'There is no real difference between the two',
+        'An unreliable-but-honest node may be slow, crash, or hold stale/outdated state, but if it responds at all, it is assumed to be following the protocol truthfully; a Byzantine fault means a node might send arbitrary, corrupted, or deliberately deceptive messages, actively undermining the protocol',
+        'Byzantine faults only ever occur in single-machine systems',
+        'Byzantine faults are simply a synonym for network partitions',
+      ],
+      answer: 1,
+      why: 'The distinction between "unreliable but truthful" and "possibly actively deceptive" is exactly what separates the two assumptions and determines how much harder the corresponding algorithms have to be.',
+    },
+    {
+      prompt: 'Why is Byzantine fault tolerance generally considered unnecessary for ordinary datacenter systems under one organization\'s control?',
+      choices: [
+        'Because Byzantine faults are mathematically impossible to occur anywhere',
+        'Because all the nodes are presumably operated by the same trusted organization, and the physical conditions (like significant background radiation corrupting memory) that cause genuine Byzantine-style faults are not a meaningful risk in a typical datacenter — combined with the real added cost and complexity of Byzantine-tolerant protocols',
+        'Because Byzantine fault tolerance is always cheaper to implement than simpler fault tolerance',
+        'Because datacenters never experience any hardware faults',
+      ],
+      answer: 1,
+      why: 'Trust boundaries (same organization) and physical environment (low radiation, controlled hardware) together are exactly why the extra cost of Byzantine tolerance usually isn\'t justified outside aerospace or genuinely multi-organizational trustless settings.',
+    },
+    {
+      prompt: 'Why doesn\'t running four independent copies of the SAME buggy software give you protection against that particular bug, even using a Byzantine fault-tolerant algorithm?',
+      choices: [
+        'Byzantine fault-tolerant algorithms actually make bugs worse',
+        'Since all four copies run the identical buggy code, the bug manifests identically on all of them at the same time — Byzantine tolerance assumes a MINORITY of nodes misbehave while the rest remain correct, which doesn\'t hold when every replica shares the exact same flaw',
+        'Running multiple copies of software is always impossible in practice',
+        'Byzantine fault tolerance only works with exactly one running instance',
+      ],
+      answer: 1,
+      why: 'Byzantine tolerance relies on a majority of INDEPENDENTLY correct nodes to outvote a minority of faulty ones — identical software sharing an identical bug breaks that independence assumption entirely.',
+    },
+  ]}
+/>
+
+---
+
+## System Models: Formalizing What You're Actually Assuming
+
+Every algorithm discussed anywhere in this series needs to tolerate the faults this chapter has walked through — but stating "it should handle faults" isn't precise enough to actually *design* or *prove* an algorithm against. A **system model** makes that precise: an explicit statement of exactly which assumptions an algorithm is allowed to rely on.
+
+**Timing models** — how much can you assume about delay?
+
+| Model | Assumption |
+|---|---|
+| **Synchronous** | Network delay, process pauses, and clock error all have some fixed, known upper bound — never exceeded | Unrealistic for virtually every real system, as this chapter has shown at length |
+| **Partially synchronous** | Behaves synchronously *most* of the time, but occasionally — unpredictably — exceeds those bounds | The realistic model for almost every real-world system |
+| **Asynchronous** | No timing assumptions permitted at all — not even a clock, so timeouts themselves are off the table | Extremely restrictive, but a useful worst-case theoretical baseline |
+
+**Node failure models** — how can a node actually fail?
+
+| Model | Assumption |
+|---|---|
+| **Crash-stop** | A node can fail exactly one way: it crashes, and once it does, it is gone **forever** |
+| **Crash-recovery** | A node may crash at any time and may come back later; anything in stable (non-volatile) storage survives the crash, but in-memory state is assumed lost |
+| **Byzantine** | A node may do literally anything — including actively lying, exactly as covered above |
+
+For modeling real systems, **partial synchrony paired with crash-recovery** is, in practice, the most broadly useful combination — genuinely matching how real production hardware and networks actually tend to behave.
+
+### Correctness, Safety, and Liveness
+
+Given a model, an algorithm's correctness can be pinned down as a set of concrete **properties** it must satisfy — the same way "sorted" for a list just means "for any two adjacent elements, the left one is ≤ the right one." For a fencing-token generator specifically, reasonable properties look like:
+
+- **Uniqueness** — no two requests ever receive the same token.
+- **Monotonic sequence** — if request x fully completed strictly before request y even began, x's token must be smaller than y's.
+- **Availability** — a node that requests a token, and doesn't itself crash, eventually gets a response.
+
+Notice these three don't all behave the same way — and that distinction has a name. **Uniqueness** and **monotonic sequence** are **safety** properties; **availability** is a **liveness** property. Informally, safety is "nothing bad ever happens," liveness is "something good eventually does" — but the precise, technical distinction matters more:
+
+- **Safety violations are permanent and point-in-time.** If uniqueness is ever violated, you can identify the *exact moment* it happened — and once violated, the damage is done; it can never be un-violated after the fact.
+- **Liveness properties can be temporarily unsatisfied while still eventually holding.** A pending request that hasn't gotten a response *yet* doesn't mean liveness has failed — there's still genuine hope it resolves correctly, later.
+
+This split turns out to be genuinely useful for reasoning about tricky system models: distributed algorithms typically demand that **safety properties hold unconditionally**, in every possible situation the model allows — even total network meltdown, even if every single node crashes at once, the algorithm still may never return an outright *wrong* result. **Liveness properties**, in sharp contrast, are allowed real caveats — "a request eventually gets a response, provided a majority of nodes haven't crashed, and the network eventually recovers" is a perfectly reasonable, common liveness guarantee. (The partially synchronous model's own definition — "eventually returns to synchronous behavior" — is itself exactly this kind of liveness-style caveat, applied to timing.)
+
+### Mapping the Model Back to Reality
+
+System models are a genuinely powerful tool for reasoning rigorously about an algorithm — but they're still a **simplification**, and real implementations eventually collide with the parts reality doesn't respect. The crash-recovery model, for instance, assumes stable storage reliably survives a crash — but what if the disk itself is corrupted, or a firmware bug causes a rebooted server to simply fail to recognize its own drives? Quorum-based algorithms specifically depend on a node genuinely, faithfully remembering what it previously claimed to have durably stored — if a node can somehow "forget" data it swore it had (breaking the crash-recovery model's own core assumption), the quorum guarantee the whole algorithm rests on can quietly break along with it.
+
+A theoretical algorithm's description is free to simply declare "this cannot happen" — and reasoning about non-Byzantine systems genuinely does require drawing that kind of line somewhere. But a **real** implementation still needs actual code for the case where something declared impossible happens anyway — even if that code amounts to nothing more than logging an error and paging a human to clean up the mess by hand. (This gap — between "provably correct on paper" and "handles every real-world edge case in practice" — is arguably a decent working definition of the difference between computer science and software engineering.)
+
+None of this makes the theoretical models worthless — quite the opposite. They're what let you distill an overwhelming, messy reality down into a manageable, precisely statable set of assumptions you can actually reason about and prove things against. Proving an algorithm correct within a stated model doesn't *guarantee* flawless real-world behavior — but it's an excellent, genuinely necessary first step, because that kind of theoretical analysis reliably surfaces subtle problems that might otherwise stay hidden in a real system for a very long time, right up until some unusual, real-world circumstance finally defeats an assumption nobody had thought to question. Theoretical analysis and empirical testing aren't competitors — they're equally essential, complementary halves of actually getting this right.
+
+### Check: system models and correctness
+
+<MultipleChoice
+  id="ddia-trouble-system-models"
+  title="System models, safety, and liveness"
+  questions={[
+    {
+      prompt: 'Why is the "partially synchronous" timing model generally considered the most realistic for modeling real-world distributed systems, compared to the fully synchronous model?',
+      choices: [
+        'Because real systems always behave asynchronously with no exceptions',
+        'Because real networks and processes behave predictably (within some bound) MOST of the time, but occasionally and unpredictably exceed those bounds — exactly matching how actual production systems behave, unlike the fully synchronous model\'s unrealistic assumption of a hard, never-exceeded bound',
+        'Because the synchronous model is actually more accurate for all practical purposes',
+        'Because partial synchrony assumes there is no network at all',
+      ],
+      answer: 1,
+      why: 'The "usually well-behaved, but occasionally not" characterization is exactly what makes partial synchrony the practical, realistic middle ground between the unrealistically strict synchronous model and the overly restrictive asynchronous one.',
+    },
+    {
+      prompt: 'What is the key distinguishing feature of a SAFETY property, as opposed to a liveness property?',
+      choices: [
+        'Safety properties are always easier to guarantee than liveness properties',
+        'If a safety property is ever violated, you can point to the exact moment it broke, and that violation can never be undone afterward — whereas a liveness property can be temporarily unsatisfied while still genuinely holding out hope of being satisfied later',
+        'Safety properties only apply to single-node systems',
+        'Liveness properties are always violated permanently once broken, just like safety properties',
+      ],
+      answer: 1,
+      why: 'The permanence of a safety violation (once broken, always broken) versus the "still might happen eventually" nature of liveness is precisely the formal distinction the lesson draws between the two.',
+    },
+    {
+      prompt: 'Why do distributed algorithms typically require safety properties to hold UNCONDITIONALLY, while allowing real caveats on liveness properties?',
+      choices: [
+        'Because liveness properties are considered unimportant and can be ignored entirely',
+        'Because a safety violation causes irreversible damage (e.g. two nodes given the same fencing token) the moment it happens, so it must never be allowed under any circumstance, whereas liveness (e.g. "eventually get a response") can reasonably be conditioned on things like "as long as a majority of nodes are up" without causing any actual incorrect behavior',
+        'Because safety properties are actually less important than liveness properties',
+        'Because caveats can be applied equally to both kinds of properties with no difference in consequence',
+      ],
+      answer: 1,
+      why: 'The asymmetric cost of violation — permanent and irreversible for safety, merely delayed for liveness — is exactly why algorithms hold safety to an unconditional standard while permitting liveness to depend on stated conditions.',
+    },
+  ]}
+/>
+
+---
+
+:::important Key takeaways
+- No single node can fully trust its own view of a distributed system's state — which is exactly why **quorums** (majority votes among nodes) underpin most important decisions, including declaring another node dead.
+- **Fencing tokens** — strictly increasing numbers issued alongside every lock/lease, checked and enforced by the protected resource itself — are what makes lease-based leadership safe against a node acting on a stale, honestly-outdated belief.
+- **Byzantine faults** (nodes that may actively lie) require a fundamentally different, more expensive class of algorithm — genuinely necessary in aerospace and trustless multi-organization settings, but rarely justified for an ordinary, single-organization datacenter.
+- A **system model** makes an algorithm's assumptions explicit and precise — timing models (synchronous / partially synchronous / asynchronous) and failure models (crash-stop / crash-recovery / Byzantine) — with partial synchrony plus crash-recovery being the most broadly realistic combination.
+- **Safety** properties ("nothing bad ever happens") must hold unconditionally in every situation a model allows; **liveness** properties ("something good eventually happens") are allowed real, explicit caveats — and proving an algorithm correct within a stated model, while never a substitute for real-world testing, reliably surfaces problems that might otherwise stay hidden until reality finally defeats an unstated assumption.
+:::
+
+## Further Reading
+
+- Martin Kleppmann — *Designing Data-Intensive Applications* (O'Reilly, 2017), Chapter 8
+- [Unreliable Clocks](./unreliable-clocks) — this series' previous lesson
+- Leslie Lamport, Robert Shostak, Marshall Pease — ["The Byzantine Generals Problem"](https://lamport.azurewebsites.net/pubs/byz.pdf) (1982), the original paper
+- [Fencing tokens explained (Martin Kleppmann's blog)](https://martin.kleppmann.com/2016/02/08/how-to-do-distributed-locking.html)

@@ -1,0 +1,336 @@
+---
+sidebar_position: 8
+title: Faults, Partial Failures, and Unreliable Networks
+---
+
+# Faults, Partial Failures, and Unreliable Networks
+
+> **Adapted from:** Martin Kleppmann, *Designing Data-Intensive Applications* (O'Reilly, 2017), Chapter 8 — rewritten and condensed for teaching.
+
+Every lesson in this series so far has been quietly optimistic. Replica failover, replication lag, conflict resolution — these all assumed faults are the *exception*, something you handle and move past. This lesson (and the two that follow it) turn that assumption all the way off: we now assume **anything that can go wrong, will go wrong** — with one carve-out, that faults are non-Byzantine (nodes may fail, but they don't actively lie; [Knowledge, Truth, and Lies](./knowledge-truth-and-lies) covers what changes once you drop even that assumption).
+
+---
+
+## Why Distributed Systems Are a Different Kind of Hard
+
+A single computer, running correctly, is close to a deterministic machine: the same CPU instruction always does the same thing, memory you wrote stays intact, and when hardware genuinely does fail, computers are deliberately designed to fail **completely** — a kernel panic, a blue screen — rather than silently returning a wrong answer. A single working computer is essentially binary: fully functional, or fully broken, rarely something confusingly in between.
+
+Distributed systems throw that idealization out entirely. A network connects real machines in the real physical world, and the physical world has an enormous repertoire of ways to misbehave — one systems engineer's list, compiled from ordinary operational experience, includes "long-lived network partitions in a single datacenter, PDU failures, switch failures, accidental power cycles of whole racks, whole-DC backbone failures, whole-DC power failures, and a hypoglycemic driver smashing his truck into a DC's HVAC system." In a distributed system, *some* parts can be broken in unpredictable ways while the rest of the system works perfectly fine — this is a **partial failure**, and it's fundamentally **nondeterministic**: the identical operation might succeed this time and mysteriously fail the next, and — as this lesson explores in depth — you often can't even be sure whether something succeeded at all.
+
+### Supercomputers vs. Cloud Computing: Two Philosophies
+
+High-performance computing (HPC) and cloud computing sit at opposite ends of a real design spectrum, and they respond to faults in genuinely different ways:
+
+| | Supercomputer (HPC) | Cloud / internet service |
+|---|---|---|
+| **On node failure** | Checkpoint periodically; on failure, stop the *entire* cluster and restart from the last checkpoint | Keep serving; route around the failed node |
+| **Hardware** | Specialized, reliable, often shared memory + RDMA | Commodity machines, higher individual failure rates, no shared memory |
+| **Network** | Specialized topologies (meshes, toruses) tuned for known HPC communication patterns | IP/Ethernet, Clos topologies, for high bisection bandwidth at commodity cost |
+| **Downtime tolerance** | Acceptable — a weather simulation can restart | Usually unacceptable — users expect low-latency service at all times |
+| **At scale** | — | With thousands of nodes, *something* is essentially always broken — "give up and restart everything" would mean spending more time recovering than doing useful work |
+
+A supercomputer essentially treats partial failure as **total failure**, deliberately — the same instinct as a single computer's "crash completely rather than return a wrong answer." Internet services can't afford that: rolling upgrades, killing an underperforming cloud VM and getting a fresh one, and geographically distributed deployments (closer to users, over a slower and less reliable public internet) all *require* tolerating partial failure gracefully, not escalating it into total failure.
+
+### You Can Build Reliable Systems From Unreliable Parts
+
+It's tempting to assume a system can only be as reliable as its least reliable component — but that's not actually true, and it isn't a new idea:
+
+- **Error-correcting codes** let digital data survive a communication channel that occasionally flips bits (radio interference, say) — accurately, without a human ever noticing.
+- **TCP**, built on top of an inherently unreliable **IP** (which may drop, delay, duplicate, or reorder packets with zero guarantees), transparently retransmits lost packets, discards duplicates, and reassembles everything back into the order it was sent.
+
+The reliability gain has a real ceiling, though — error-correcting codes only handle a *bounded* rate of bit errors, and TCP hides packet loss and reordering but can never make the *delay itself* disappear. A more reliable layer built on unreliable parts is still genuinely valuable, precisely because it absorbs the trickiest low-level faults, leaving whatever's left over meaningfully easier to reason about and design for.
+
+### Check: partial failure and building reliability
+
+<MultipleChoice
+  id="ddia-trouble-partial-failure"
+  title="Partial failure and reliability from unreliable parts"
+  questions={[
+    {
+      prompt: 'Why is a single, correctly-functioning computer usually either "fully working" or "fully broken," with little in between?',
+      choices: [
+        'Because computers are physically incapable of partial malfunction',
+        'Computers are deliberately designed to fail completely (crash, blue-screen) rather than silently return a wrong result when something goes wrong internally — hiding the messy physical reality underneath an idealized, mathematically deterministic model',
+        'Because software bugs are the only possible cause of computer failure',
+        'Because single computers never experience any hardware faults at all',
+      ],
+      answer: 1,
+      why: 'This deliberate "fail completely, not silently" design choice is exactly what produces the deterministic, mostly-binary behavior of a single working machine.',
+    },
+    {
+      prompt: 'What fundamentally distinguishes a "partial failure" in a distributed system from a failure on a single computer?',
+      choices: [
+        'Partial failures are actually impossible in real distributed systems',
+        'Some parts of the system can be broken in unpredictable, nondeterministic ways while other parts continue working correctly — the same operation might succeed one moment and fail unpredictably the next, unlike a single computer\'s largely deterministic behavior',
+        'Partial failures only occur in supercomputers, never in cloud systems',
+        'Partial failures always resolve themselves automatically within seconds',
+      ],
+      answer: 1,
+      why: 'Nondeterminism and partial, rather than total, breakage are exactly what the lesson identifies as the defining characteristic that makes distributed systems fundamentally harder.',
+    },
+    {
+      prompt: 'Why does a supercomputer typically respond to a single node failure by stopping the ENTIRE cluster and restarting from a checkpoint, rather than routing around the failed node?',
+      choices: [
+        'Because supercomputers cannot detect node failures at all',
+        'Supercomputers effectively treat partial failure as total failure by design — similar to a single computer\'s "crash completely" philosophy — which is acceptable because their offline, batch-style workloads (e.g. weather simulation) can tolerate being stopped and restarted with low impact',
+        'Because checkpointing is impossible in cloud environments',
+        'Because supercomputers never experience node failures in practice',
+      ],
+      answer: 1,
+      why: 'This is explicitly the "let partial failure escalate to total failure" strategy the lesson contrasts against cloud services, which cannot accept that same downtime for online, latency-sensitive workloads.',
+    },
+  ]}
+/>
+
+---
+
+## Unreliable Networks
+
+The systems this whole series has covered are **shared-nothing**: independent machines, each with its own memory and disk, communicating *only* over the network. Both the internet and most datacenter networks are **asynchronous packet networks** — a node can send a message, but the network makes zero promises about *when*, or even *whether*, it arrives.
+
+Send a request and wait for a response, and here's the honest list of what might have actually happened:
+
+1. Your request was lost (a cable got unplugged).
+2. Your request is sitting in a queue somewhere, and will arrive later.
+3. The remote node has failed outright.
+4. The remote node is only *temporarily* unresponsive (a long GC pause, say — covered in the next lesson) and will recover.
+5. The remote node processed your request fine, but the **response** got lost on the way back.
+6. The remote node processed your request fine, but the response is delayed and hasn't arrived yet.
+
+The genuinely uncomfortable part: **these six scenarios are indistinguishable from where you're sitting.** All you actually know is "I haven't gotten a response yet" — nothing in that observation alone tells you which of the six is true. The standard, if unsatisfying, answer is a **timeout**: give up waiting after some interval and assume failure — fully aware that even a timeout firing tells you nothing about whether the remote node actually got your request or not (it might still be sitting in a queue, about to be delivered, entirely unaware you've already given up on it).
+
+### Network Faults in Practice — This Really Happens
+
+Decades of experience building networks hasn't actually solved this. Real studies back up the anecdotes: one medium-sized datacenter measured roughly 12 network faults *per month*, about half of them disconnecting a single machine, the other half taking out an entire rack. Public clouds like EC2 are notoriously prone to transient network glitches; even well-managed private datacenters aren't immune (a switch's software upgrade once delayed packets for over a minute during a topology reconfiguration — and, memorably, sharks have literally bitten and damaged undersea cables). Redundant networking hardware doesn't fix nearly as much as you'd hope either, since it does nothing against the single largest cause of outages: **human misconfiguration**. And some faults are stranger than "down or up" — a network interface that silently drops every *inbound* packet while still sending outbound ones perfectly fine is a documented real failure mode; a working link in one direction says nothing about the opposite direction.
+
+:::note Terminology: network partition
+When part of a network gets cut off from the rest by a fault, that's often called a **network partition** or **netsplit**. This series prefers the more general **network fault**, specifically to avoid confusing it with data *partitioning* (sharding), covered in earlier lessons.
+:::
+
+None of this means network faults are common in *your* environment specifically — but the mere *possibility* means your software still has to handle them gracefully. "Handling" doesn't have to mean full tolerance — showing users a clean error message during a network problem is a perfectly legitimate strategy — but it does mean knowing exactly how your system behaves when the network misbehaves, and testing that behavior deliberately (this is precisely the idea behind Chaos Monkey-style fault injection). Leaving this genuinely undefined is how you end up with a cluster permanently deadlocked even after the network heals, or worse.
+
+### Detecting Faults
+
+Load balancers need to know when to stop routing to a dead node; leader-based replication needs to know when to promote a follower — both need *some* way to detect a faulty node, and the network's fundamental uncertainty makes that hard. A few situations genuinely do give you a clean signal:
+
+- If a machine is reachable but nothing is listening on the target port (the process crashed), the OS itself replies with a TCP **RST** or **FIN** — a real, fast signal. (Though if the crash happened mid-request, you still have no idea how much of your request was actually processed before it died.)
+- If a node's process dies but its OS keeps running, a local script can proactively notify the rest of the cluster — HBase does exactly this — letting failover start immediately instead of waiting out a timeout.
+- With direct access to datacenter switch management interfaces, you can query hardware-level link status directly — though this option disappears the moment you're going over the public internet, or in any shared environment where you don't control the switches.
+- A router that's sure a destination IP is genuinely unreachable can reply with an **ICMP Destination Unreachable** — though the router itself is subject to every one of the exact same network uncertainties as everyone else.
+
+None of these can be *relied on* — even a TCP-acknowledged packet only proves the *network* delivered it, not that the application actually finished handling it. A genuine guarantee needs a **positive response from the application itself**. Absent that, the honest default assumption has to be "no response at all": retry a few times, wait out a timeout, and eventually just declare the node dead if nothing comes back.
+
+### Check: unreliable networks and fault detection
+
+<MultipleChoice
+  id="ddia-trouble-network-faults"
+  title="Unreliable networks and detecting faults"
+  questions={[
+    {
+      prompt: 'If you send a request and receive no response after a while, why can\'t you determine WHICH of several possible causes actually occurred?',
+      choices: [
+        'Because there is only ever one possible cause of a missing response',
+        'A missing response is equally consistent with the request being lost, the request being queued and delayed, the remote node being down, the remote node being temporarily unresponsive, the response being lost, or the response being delayed — all six look identical from the sender\'s point of view',
+        'Because network cards physically cannot report any errors',
+        'Because TCP guarantees every request is either instantly successful or instantly rejected',
+      ],
+      answer: 1,
+      why: 'The lack of any distinguishing signal between these six scenarios is exactly the fundamental uncertainty a timeout has to paper over without actually resolving.',
+    },
+    {
+      prompt: 'Why is a TCP acknowledgment insufficient proof that a request was actually handled successfully?',
+      choices: [
+        'TCP acknowledgments are always unreliable and cannot be trusted at all',
+        'A TCP ACK only confirms the network layer delivered the bytes — it says nothing about whether the receiving application actually processed the request before potentially crashing; a genuine guarantee requires a positive response from the application itself',
+        'TCP does not actually provide any acknowledgment mechanism',
+        'TCP acknowledgments are only sent for failed requests, never successful ones',
+      ],
+      answer: 1,
+      why: 'The gap between "the network delivered the packet" and "the application finished handling it" is exactly why application-level confirmation is necessary for a real success guarantee.',
+    },
+    {
+      prompt: 'Why does redundant networking hardware fail to reduce network faults as much as one might hope?',
+      choices: [
+        'Redundant hardware actually increases the fault rate',
+        'Redundancy protects against hardware component failure, but does nothing to guard against human misconfiguration (e.g. a misconfigured switch), which studies show is a major cause of real-world network outages',
+        'Redundant hardware is never actually deployed in real datacenters',
+        'Redundancy eliminates all possible causes of network faults',
+      ],
+      answer: 1,
+      why: 'The lesson specifically calls out human error as a failure mode that hardware redundancy alone cannot address — a gap no amount of duplicate equipment closes.',
+    },
+  ]}
+/>
+
+---
+
+## Timeouts and Unbounded Delays
+
+If a timeout is genuinely the only reliable fault-detection mechanism available, the obvious next question is: **how long should it be?** There's no clean answer. A long timeout means users wait (and see errors) longer before the system reacts to a real failure. A short timeout reacts faster — but risks declaring a node dead when it was only ever *slow* (an ordinary load spike, a momentary network hiccup), which is genuinely dangerous: if the "dead" node was actually mid-action (sending an email, say) and another node takes over the same work, that action can end up performed **twice**. And every declared-dead node dumps its load onto the *rest* of the cluster — which, if the system was already under strain, can trigger a full-blown cascading failure (worst case: every node eventually declares every other node dead, and the whole system grinds to a halt).
+
+### Why There's No "Correct" Timeout Value
+
+Picture a *hypothetical* network with a guaranteed maximum packet delay `d`, paired with a guarantee that any non-failed node handles a request within time `r`. In that world, `2d + r` would be a mathematically sound timeout — any longer wait genuinely *does* mean something's broken. Real networks and real servers offer **neither** guarantee: asynchronous networks have no upper bound on delay at all, and most real server implementations can't bound their own worst-case response time either. A system merely being fast *most* of the time isn't sufficient for a low timeout to be safe — one transient spike in round-trip time is all it takes to throw the whole thing off balance.
+
+### Where the Variability Actually Comes From: Queueing
+
+Variable network delay is, overwhelmingly, a story about **queueing**, not raw transmission time:
+
+- A switch receiving traffic from several sources bound for the same destination link has to **queue** packets and feed them out one at a time — a busy link means real waiting, and a genuinely overwhelmed switch simply **drops** packets, forcing a retransmission, even though nothing was actually "broken."
+- A destination machine with every CPU core busy **queues** incoming requests at the OS level until some thread is finally free to handle them.
+- In virtualized environments, a VM can be paused for tens of milliseconds while a *different* VM uses the shared core — incoming data just queues up, invisible to the paused VM, for the whole pause.
+- TCP's own **flow control** (a.k.a. congestion avoidance) deliberately throttles a sender's own rate to avoid overwhelming the link or the receiver — meaning still more queueing, this time on the **sending** side, before data even touches the wire.
+
+TCP additionally treats an unacknowledged packet (past a dynamically-computed timeout, based on observed round-trip times) as lost and automatically **retransmits** it — invisible to the application in terms of correctness, but very much *not* invisible in terms of the added delay you actually experience.
+
+:::note TCP vs. UDP: a real trade-off
+Latency-sensitive applications like VoIP often choose **UDP** deliberately — no flow control, no automatic retransmission — trading reliability for avoiding exactly the queueing/retransmission delays described above. This is a genuine trade-off, not a shortcut: when a VoIP packet arrives too late to be useful, there's no point retransmitting it at all — the application just fills that time slot with silence and the human on the call says "sorry, could you repeat that?" The retry, in effect, happens at the **human** layer instead of the protocol layer.
+:::
+
+Multi-tenant clouds compound all of this: switches, links, and even a single machine's own NIC and CPU cores are frequently **shared** with other customers entirely outside your visibility or control — a busy "noisy neighbor" can spike your own delays for reasons you'll never be able to see or diagnose directly. Because there's no principled formula for the right timeout, the practical answer is **empirical**: measure your actual round-trip time distribution, across an extended period and many machines, and pick a threshold balancing detection speed against the risk of false positives. Better still, adapt the timeout dynamically instead of hardcoding a constant — the **Phi Accrual failure detector** (used in Akka and Cassandra) continuously tracks response time and jitter and adjusts its threshold on the fly, the same underlying idea TCP itself already uses for its own retransmission timeouts.
+
+### Practice: a fault detector that reacts to real conditions
+
+A single missed heartbeat shouldn't immediately condemn a node — it might just be a momentary blip. A more robust approach declares a node dead only after several **consecutive** missed heartbeats, resetting the counter the moment a heartbeat succeeds.
+
+<CodeExercise
+  title="Consecutive-miss fault detector"
+  heading="exercise-fault-detector"
+  lang="python"
+  filename="main.py"
+  prompt="Implement FaultDetector.heartbeat(success) so that is_dead() becomes True only after 3 CONSECUTIVE failed heartbeats in a row — a single success should reset the streak back to zero."
+  sampleLog={`(no input)
+False
+False
+True
+False`}
+  starter={`class FaultDetector:
+    def __init__(self):
+        self.consecutive_failures = 0
+
+    def heartbeat(self, success):
+        # TODO: update self.consecutive_failures based on success.
+        # A successful heartbeat resets the streak to 0.
+        # A failed heartbeat increments it.
+        pass
+
+    def is_dead(self):
+        return self.consecutive_failures >= 3
+
+fd = FaultDetector()
+fd.heartbeat(False)
+print(fd.is_dead())
+fd.heartbeat(False)
+print(fd.is_dead())
+fd.heartbeat(False)
+print(fd.is_dead())
+fd.heartbeat(True)
+print(fd.is_dead())
+`}
+  hint="In heartbeat: if success: self.consecutive_failures = 0; else: self.consecutive_failures += 1"
+  solution={`class FaultDetector:
+    def __init__(self):
+        self.consecutive_failures = 0
+
+    def heartbeat(self, success):
+        if success:
+            self.consecutive_failures = 0
+        else:
+            self.consecutive_failures += 1
+
+    def is_dead(self):
+        return self.consecutive_failures >= 3
+
+fd = FaultDetector()
+fd.heartbeat(False)
+print(fd.is_dead())
+fd.heartbeat(False)
+print(fd.is_dead())
+fd.heartbeat(False)
+print(fd.is_dead())
+fd.heartbeat(True)
+print(fd.is_dead())
+`}
+  sourceChecks={[
+    { name: 'tracks consecutive failures', pattern: 'consecutive_failures', must: true, hint: 'update self.consecutive_failures inside heartbeat()' },
+  ]}
+  tests={[
+    { name: 'declares dead after 3 misses, alive after a success', stdin: '', equals: 'False\nFalse\nTrue\nFalse' },
+  ]}
+/>
+
+---
+
+## Synchronous vs. Asynchronous Networks: Why Not Just Fix This in Hardware?
+
+The traditional (non-cellular, non-VoIP) telephone network is *extremely* reliable — dropped calls are rare, delay is consistently low. Why can't datacenter networks be built the same way?
+
+The phone network achieves this via **circuit switching**: placing a call reserves a **fixed** amount of bandwidth along the *entire* route, for the call's whole duration (classic ISDN, for instance, guarantees exactly 16 bits every 250 microseconds, each direction, for as long as the call lasts). Because that bandwidth is *pre-reserved*, there's no queueing possible anywhere along the path — which means a **fixed, bounded** maximum end-to-end delay, guaranteed. This is a genuinely different beast from a TCP connection, which instead **opportunistically** grabs whatever bandwidth happens to be free at any given moment, and simply uses none at all while idle.
+
+Datacenter and internet traffic is **packet-switched**, not circuit-switched, and that's a deliberate trade-off, not an oversight: packet switching is optimized for **bursty** traffic. A phone call needs a steady bit rate for its whole duration — a perfect fit for a reserved circuit. Requesting a web page or sending an email has no particular bandwidth requirement at all — you just want it done **as fast as possible**. Forcing a circuit onto that kind of bursty transfer means guessing a bandwidth allocation up front: guess low and you waste unused capacity; guess high and the circuit might not even be grantable at all. TCP instead dynamically adapts its transfer rate to whatever's actually available in the moment — a much better fit for this kind of workload. (Hybrid approaches genuinely exist — ATM historically, and InfiniBand's link-layer flow control today — but neither has meaningfully displaced ordinary packet-switched Ethernet/IP in general datacenter and internet use.)
+
+### The Real Trade-Off: Static vs. Dynamic Resource Partitioning
+
+Zoom out, and this is really a special case of a much more general trade-off. A reserved phone circuit is **statically** partitioned — it gets the exact same fixed bandwidth slice whether the line is fully loaded or you're the only caller using it at all. The internet instead partitions bandwidth **dynamically** — senders compete moment to moment for whatever capacity is free — which does introduce queueing, but achieves dramatically **better overall utilization** of the same physical wire. (The identical trade-off shows up again with CPU cores shared dynamically across threads — you get better hardware utilization than static allocation, at the cost of variable per-thread scheduling delay — which is also a big part of the motivation behind virtual machines generally.)
+
+**Latency guarantees are absolutely achievable** — but only by statically partitioning resources, which is measurably more expensive because it deliberately leaves capacity unused precisely to guarantee it's always there when needed. Variable network delay isn't some unavoidable law of nature — it's the direct, deliberate consequence of a genuine cost/benefit trade-off multi-tenant datacenters and the public internet have both made, in favor of utilization over guarantees. Since quality-of-service reservations aren't actually enabled in the multi-tenant clouds or the public internet most systems run on today, network congestion and unbounded delay have to simply be assumed — which is exactly why there's no universally "correct" timeout value, only an experimentally-tuned one.
+
+### Check: synchronous networks and resource partitioning
+
+<MultipleChoice
+  id="ddia-trouble-sync-networks"
+  title="Circuit vs. packet switching, and resource partitioning"
+  questions={[
+    {
+      prompt: 'Why does a traditional phone network\'s circuit switching guarantee a fixed, bounded maximum delay, while packet-switched networks (like the internet) cannot?',
+      choices: [
+        'Phone networks use faster physical cables than the internet',
+        'Circuit switching reserves a fixed amount of bandwidth along the ENTIRE route for the whole duration of the call, so there is never any queueing at any hop — packet switching instead lets packets opportunistically compete for available bandwidth, which introduces queueing and therefore variable delay',
+        'Phone calls never actually require any bandwidth reservation',
+        'Packet-switched networks physically cannot transmit data reliably',
+      ],
+      answer: 1,
+      why: 'The absence of queueing — guaranteed by up-front, whole-route bandwidth reservation — is exactly what gives circuit switching its bounded-delay property that packet switching lacks.',
+    },
+    {
+      prompt: 'Why do datacenter and internet traffic use packet switching instead of circuit switching, given that circuit switching offers more predictable delay?',
+      choices: [
+        'Packet switching is simply cheaper to implement in all cases with no other trade-off',
+        'Most internet traffic (web pages, emails, file transfers) is bursty with no fixed bandwidth requirement — forcing it onto reserved circuits would mean guessing a bandwidth allocation up front, wasting capacity if guessed too low or failing to even establish the circuit if guessed too high — whereas packet switching lets each transfer opportunistically use whatever bandwidth is actually available',
+        'Circuit switching is technically impossible to implement over Ethernet or IP',
+        'Packet switching guarantees lower latency than circuit switching in every case',
+      ],
+      answer: 1,
+      why: 'This is precisely the bursty-traffic optimization trade-off the lesson describes as the deliberate reason packet switching won out for general-purpose internet and datacenter use.',
+    },
+    {
+      prompt: 'What is the fundamental trade-off between static and dynamic resource partitioning, as illustrated by phone circuits versus internet bandwidth?',
+      choices: [
+        'There is no real trade-off; dynamic partitioning is strictly better in every respect',
+        'Static partitioning (like a reserved phone circuit) guarantees predictable delay but leaves capacity unused (lower utilization, higher cost); dynamic partitioning (like internet bandwidth sharing) achieves better overall utilization but introduces queueing and therefore variable, unpredictable delay',
+        'Static partitioning always achieves better utilization than dynamic partitioning',
+        'This trade-off only applies to network bandwidth and has no parallel in CPU scheduling',
+      ],
+      answer: 1,
+      why: 'The lesson explicitly generalizes this exact trade-off beyond networking to CPU core scheduling among threads — predictability versus utilization is the recurring theme.',
+    },
+  ]}
+/>
+
+---
+
+:::important Key takeaways
+- **Partial failure** — some parts of a distributed system broken while others work fine, nondeterministically — is the defining characteristic that separates distributed systems from single-machine software, and it has to be designed for explicitly, not hoped away.
+- Cloud/internet services tolerate partial failure by routing around it; supercomputers instead let partial failure escalate into total failure (stop everything, restart from checkpoint) — a valid choice only because their workloads can tolerate that downtime.
+- More reliable systems genuinely *can* be built from unreliable parts (error-correcting codes, TCP on IP) — but the reliability gain always has a real ceiling.
+- An asynchronous network gives **zero guarantees** about message delivery time or even delivery at all — six different failure scenarios are indistinguishable from "no response yet," which is exactly why **timeouts** are the best (imperfect) tool available for fault detection.
+- Network delay variability comes overwhelmingly from **queueing** — at switches, at overloaded machines, inside paused VMs, and inside TCP's own flow control — which is why there's no universally correct timeout value, only an experimentally-derived (ideally adaptive) one.
+- **Circuit-switched** networks (like the phone network) guarantee bounded delay via static bandwidth reservation; **packet-switched** networks (the internet, datacenters) trade that predictability for dramatically better bandwidth utilization on bursty traffic — a deliberate cost/benefit choice, not an unavoidable law of nature.
+:::
+
+## Further Reading
+
+- Martin Kleppmann — *Designing Data-Intensive Applications* (O'Reilly, 2017), Chapter 8
+- [Rebalancing and Request Routing](./rebalancing-and-request-routing) — this series' previous lesson
+- [Unreliable Clocks](./unreliable-clocks) — this series' next lesson
+- [CPU Pipeline Stages](/fundamentals/computer-engineering/virtualization/cpu-pipeline) — this site's earlier coverage of queueing-adjacent hardware concepts

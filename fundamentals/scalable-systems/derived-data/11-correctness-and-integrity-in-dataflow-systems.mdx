@@ -1,0 +1,385 @@
+---
+sidebar_position: 11
+title: Correctness and Integrity in Dataflow Systems
+---
+
+# Correctness and Integrity in Dataflow Systems
+
+> **Adapted from:** Martin Kleppmann, *Designing Data-Intensive Applications* (O'Reilly, 2017), Chapter 12 — rewritten and condensed for teaching.
+
+A **stateless** service is forgiving: if something goes wrong, you fix the bug, restart it, and the world moves on. A **stateful** system — a database, or any of the derived systems this series has spent so long on — is far less forgiving, because it's explicitly built to remember things indefinitely. A bug that corrupts stored state doesn't just cause a bad response; it can leave permanent, silent damage behind. For roughly four decades, **ACID transactions** — atomicity, isolation, durability — have been the default answer to that problem. But this series has already shown cracks in that foundation: weak isolation levels are genuinely confusing (as covered in this series' transactions coverage), leaderless replication abandons transactional guarantees almost entirely for the sake of availability, and it's often surprisingly hard to even determine whether a given isolation level or replication configuration is actually *safe* for a particular application. Kyle Kingsbury's Jepsen testing suite has repeatedly shown real, shipping databases failing to deliver the safety guarantees their own documentation claimed.
+
+Strict correctness — serializable transactions, atomic commit — remains the most bulletproof answer where you can afford it, but that safety has a real cost: it generally only works well within a single datacenter, which rules out geographically distributed architectures and caps how far a system can scale. This lesson explores an alternative way of thinking about correctness — one built around the dataflow, event-driven architectures this series has been assembling piece by piece — that trades some of that airtight simplicity for genuinely better scalability, without giving up on data integrity.
+
+---
+
+## The End-to-End Argument for Databases
+
+Here's an uncomfortable truth: using a data system with strong safety guarantees, like serializable transactions, does **not** by itself guarantee an application is free of data loss or corruption. If application code has a bug that deletes the wrong row or writes garbage into a field, no isolation level anywhere is going to save you — the transaction faithfully, "correctly" commits exactly the mistake it was asked to commit. This is a big part of why this series has previously argued in favor of immutable, append-only data (as covered in [Databases and Streams](./databases-and-streams)) — it's much easier to recover from a bad write when the good data underneath it was never actually destroyed.
+
+But immutability alone doesn't solve every kind of corruption. A subtler example: what happens when the **same** operation gets executed more than once?
+
+### Exactly-Once Execution and Duplicate Suppression
+
+When something goes wrong partway through processing a message, there are really only two options: give up (and accept data loss), or retry. But retrying carries its own risk — the original attempt might have actually succeeded, just without you finding out about it — so retrying can silently process the same message **twice**. Charging a customer's card twice, or incrementing a counter twice, is a genuine form of data corruption, even though nothing "crashed" in any visible way.
+
+**Exactly-once** (or *effectively-once*) semantics means arranging things so the final result is the same whether or not a retry actually happened. By far the most reliable way to get there is **idempotence** — designing an operation so that running it once has the exact same effect as running it five times. A raw "increment the balance by $11" is *not* naturally idempotent (run it twice, and you've added $22); recording "set the balance's *result* to reflect having added $11, tagged with operation ID X" can be made idempotent, but it takes real, deliberate engineering effort — some extra bookkeeping (tracking which operation IDs have already been applied) and, in a failover scenario, the same kind of fencing already covered under ["The leader and the lock"](./transmitting-event-streams) in this series' broader coverage of leader handoff.
+
+This exact same pattern — detecting and discarding duplicates — shows up constantly outside of stream processing too. TCP, for instance, uses sequence numbers specifically so the receiving end can reorder and de-duplicate packets before an application ever sees them. But TCP's deduplication only covers **one connection**. If a client's connection drops right after it sends `COMMIT` but before it hears back, it genuinely doesn't know whether its transaction went through — and if it reconnects and retries the *same* transaction on a **fresh** TCP connection, none of that low-level deduplication machinery applies anymore. A money transfer written as two plain `UPDATE` statements inside one transaction is, perhaps surprisingly, **not** idempotent — retry it after an ambiguous failure, and you may have just moved the money twice. Two-phase commit (covered in this series' distributed-transactions coverage) can let a coordinator safely resume an in-doubt transaction after a network fault — but that still isn't enough, because the client talking to the *coordinator* can suffer the exact same kind of ambiguous failure, one layer further out.
+
+### The End-to-End Argument
+
+Making an operation genuinely idempotent all the way through requires including a unique **operation identifier** generated by the actual client — a UUID attached to a web form as a hidden field, for instance — and carrying that identifier all the way down to the database itself. A table with a `UNIQUE` constraint on that identifier column can then simply reject any transaction that tries to insert an ID that's already been recorded, cleanly turning "retry the whole transaction from scratch" into a safe, idempotent operation. Relational databases can enforce a uniqueness constraint like this correctly even under weak isolation levels — a meaningfully stronger guarantee than an ad hoc "check, then insert" done entirely in application code, which is exactly the kind of check vulnerable to write skew.
+
+This is a specific instance of a much more general principle, first articulated by Saltzer, Reed, and Clark in 1984 as the **end-to-end argument**: a function like duplicate suppression can only be **completely and correctly** implemented with the participation of the application sitting at the true endpoints of the communication — trying to fully implement it at some lower layer in between is never quite enough on its own (though it can still be a valuable **performance** optimization). TCP's own deduplication is a perfect example: genuinely useful, since it saves higher layers from having to deal with routine packet loss and reordering — but not, by itself, sufficient to guarantee that a user's form submission is applied exactly once end to end. The identical logic applies to data **integrity**: a Wi-Fi network's or TLS's checksums can catch corruption introduced on the wire, but they say nothing about a bug that corrupts data before it's ever sent, or bit rot that occurs quietly on disk after it's received — catching *that* requires an end-to-end checksum, computed and verified by the actual endpoints.
+
+:::note Low-level reliability still earns its keep
+None of this means TCP checksums or WAL fsyncs are pointless — quite the opposite. They dramatically reduce how often a problem actually reaches the application layer, which is exactly why end-to-end mechanisms like an operation ID are rare enough in practice to be affordable. The point isn't "don't bother with low-level reliability" — it's "don't mistake it for a substitute for end-to-end correctness."
+:::
+
+### Practice: deduplicate retried requests by operation ID
+
+Implement the exact mechanic Example 12-2 in the book relies on: given a sequence of incoming requests — some of them exact retries carrying the same client-generated request ID — process each **distinct** request exactly once, and silently ignore any repeat.
+
+<CodeExercise
+  title="Deduplicate retried requests"
+  heading="exercise-dedup-by-request-id"
+  lang="python"
+  filename="main.py"
+  prompt="Implement process_requests(requests) where requests is a list of (request_id, amount) tuples, possibly containing exact duplicates (the same request_id appearing more than once, simulating a client retry after an ambiguous failure). For each request IN ORDER: if its request_id has not been seen before, print 'processed: <id> amount <amount>' and add its amount to a running total; if it HAS been seen before, print 'duplicate ignored: <id>' and do nothing else. Return the final total."
+  sampleLog={`(no input)
+processed: id1 amount 11.0
+processed: id2 amount 5.0
+duplicate ignored: id1
+processed: id3 amount 2.5
+duplicate ignored: id2
+18.5`}
+  starter={`def process_requests(requests):
+    # TODO: track which request_ids have already been processed (a set
+    # works well). For a new id, print "processed: <id> amount <amount>"
+    # and add amount to the running total. For an id already seen,
+    # print "duplicate ignored: <id>" and skip it. Return the total.
+    pass
+
+requests = [
+    ("id1", 11.00),
+    ("id2", 5.00),
+    ("id1", 11.00),   # retry -- must NOT be double-counted
+    ("id3", 2.50),
+    ("id2", 5.00),    # retry -- must NOT be double-counted
+]
+print(process_requests(requests))
+`}
+  hint="seen = set(); total = 0.0; for request_id, amount in requests: if request_id in seen: print(...); continue. seen.add(request_id); total += amount; print(...)."
+  solution={`def process_requests(requests):
+    seen = set()
+    total = 0.0
+    for request_id, amount in requests:
+        if request_id in seen:
+            print(f"duplicate ignored: {request_id}")
+            continue
+        seen.add(request_id)
+        total += amount
+        print(f"processed: {request_id} amount {amount}")
+    return total
+
+requests = [
+    ("id1", 11.00),
+    ("id2", 5.00),
+    ("id1", 11.00),
+    ("id3", 2.50),
+    ("id2", 5.00),
+]
+print(process_requests(requests))
+`}
+  sourceChecks={[
+    { name: 'tracks seen request IDs', pattern: 'seen\\s*=\\s*set\\(\\)|seen\\s*=\\s*\\{\\}', must: true, hint: 'keep a set of request_ids already processed' },
+  ]}
+  tests={[
+    { name: 'processes each distinct request once and ignores retries', stdin: '', equals: 'processed: id1 amount 11.0\nprocessed: id2 amount 5.0\nduplicate ignored: id1\nprocessed: id3 amount 2.5\nduplicate ignored: id2\n18.5' },
+  ]}
+/>
+
+### Check: the end-to-end argument
+
+<MultipleChoice
+  id="ddia-correctness-end-to-end"
+  title="Exactly-once semantics and the end-to-end argument"
+  questions={[
+    {
+      prompt: 'Why is a plain two-statement money transfer transaction (debit one account, credit another, inside one BEGIN/COMMIT) NOT actually idempotent, even though it is wrapped in a transaction?',
+      choices: [
+        'Transactions can never contain more than one statement',
+        'If the client loses its connection right after sending COMMIT and does not know whether it succeeded, retrying the exact same transaction from scratch would apply the debit and credit a SECOND time — the transaction itself has no built-in memory of "I already ran once for this logical operation"',
+        'Databases automatically detect and reject any repeated transaction',
+        'This only fails when using a NoSQL database, never a relational one',
+      ],
+      answer: 1,
+      why: 'A transaction guarantees atomicity for its own execution, but says nothing about whether an entire retried transaction is a duplicate of a previous one — that requires a separate mechanism like an operation ID.',
+    },
+    {
+      prompt: 'According to the end-to-end argument, why can\'t TCP\'s packet-level deduplication, by itself, guarantee that a user\'s form submission is applied exactly once?',
+      choices: [
+        'TCP deduplication is actually completely sufficient on its own',
+        'TCP\'s deduplication only operates within the scope of a SINGLE TCP connection — if a request is retried over a brand-new connection (e.g., after a timeout and a user manually resubmitting a form), that retry looks like a completely unrelated request, and only an end-to-end identifier that the application itself generates and checks can catch it',
+        'TCP does not actually perform any deduplication at all',
+        'Form submissions never use TCP as their underlying transport',
+      ],
+      answer: 1,
+      why: 'The end-to-end argument\'s core claim is that a function like duplicate suppression can only be fully, correctly implemented by the endpoints themselves — intermediate layers can help, but can\'t fully substitute for it.',
+    },
+  ]}
+/>
+
+---
+
+## Enforcing Constraints
+
+The end-to-end request ID pattern handles duplicate *submissions* of the same operation. But many applications also need to enforce constraints **across** different operations — a username must be claimed by at most one person, a theater seat can't be double-booked, an account balance shouldn't go negative. This series has already covered these as **uniqueness constraints** in its coverage of write conflicts — now let's look at how to enforce them without necessarily reaching for a full distributed transaction.
+
+### Uniqueness Constraints Require Consensus
+
+As this series established when covering [Fault-Tolerant Consensus](../distributed-data/fault-tolerant-consensus), enforcing uniqueness in a distributed setting is, fundamentally, a consensus problem: when several concurrent requests compete for the same value, **something** has to make a single, agreed-upon decision about which one wins and which ones get rejected. The most common real-world answer is exactly what this series has covered repeatedly: designate a single leader to make that call. Uniqueness checking can still be **scaled out** by partitioning on the value that needs to stay unique (partition by hash of username, for instance, exactly as in this series' partitioning coverage) — but asynchronous multi-leader replication is fundamentally incompatible with strict uniqueness, since two different leaders could each independently, "correctly" accept conflicting values. If you need to reject a conflicting write **immediately**, some form of synchronous coordination is unavoidable.
+
+### Uniqueness in Log-Based Messaging
+
+Here's where this series' recent work on partitioned logs pays off directly. A log guarantees **total order broadcast** — every consumer sees messages in the exact same order — and total order broadcast is formally equivalent to consensus, as covered in this series' ordering-guarantees coverage. A [log-based stream processor](./transmitting-event-streams) reads a single partition strictly sequentially, on one thread — so if the log is partitioned by the value that needs to be unique, the processor can deterministically decide, once and for all, which of several competing requests arrived first:
+
+1. Every request to claim a username is turned into a message and appended to a partition chosen by hashing the username — guaranteeing every request for the **same** username lands in the **same** partition, in true arrival order.
+2. A single-threaded stream processor reads that partition sequentially, maintaining a local table of which usernames are already claimed. The first request for a given username gets a **success**; every subsequent request for that same username gets a **rejection**.
+3. The original client watches an output stream for the message that resolves its own request.
+
+This is essentially the same algorithm this series covered under [implementing linearizable storage using total order broadcast](../distributed-data/ordering-guarantees) — and it scales cleanly, since independent partitions can be processed completely in parallel.
+
+### Practice: claim usernames via a partitioned log
+
+Implement the exact core of that algorithm: process a single partition's worth of username-claim requests, in arrival order, on one thread — the first request for each username wins, every later request for that same username loses.
+
+<CodeExercise
+  title="Claim usernames from a single log partition"
+  heading="exercise-username-claim-log"
+  lang="python"
+  filename="main.py"
+  prompt="Implement claim_usernames(requests) where requests is a list of (requester, username) tuples in the exact order they were appended to one log partition. Process them IN ORDER: the first request for a given username should print '<requester>: SUCCESS <username>'; every later request for a username that is already taken should print '<requester>: REJECTED <username>'."
+  sampleLog={`(no input)
+alice: SUCCESS nel
+bob: SUCCESS carol
+carol: REJECTED nel
+dave: SUCCESS dave99`}
+  starter={`def claim_usernames(requests):
+    # TODO: maintain a set of usernames already claimed. Process requests
+    # in order; print "<requester>: SUCCESS <username>" for the first
+    # claim of a username, "<requester>: REJECTED <username>" for every
+    # later attempt at an already-claimed username.
+    pass
+
+requests = [
+    ("alice", "nel"),
+    ("bob", "carol"),
+    ("carol", "nel"),      # nel is already taken -- rejected
+    ("dave", "dave99"),
+]
+claim_usernames(requests)
+`}
+  hint="taken = set(); for requester, username in requests: if username in taken: print(f'{requester}: REJECTED {username}'); else: taken.add(username); print(f'{requester}: SUCCESS {username}')."
+  solution={`def claim_usernames(requests):
+    taken = set()
+    for requester, username in requests:
+        if username in taken:
+            print(f"{requester}: REJECTED {username}")
+        else:
+            taken.add(username)
+            print(f"{requester}: SUCCESS {username}")
+
+requests = [
+    ("alice", "nel"),
+    ("bob", "carol"),
+    ("carol", "nel"),
+    ("dave", "dave99"),
+]
+claim_usernames(requests)
+`}
+  sourceChecks={[
+    { name: 'checks membership before claiming', pattern: 'in\\s+taken', must: true, hint: 'check whether the username is already in the taken set before deciding SUCCESS vs REJECTED' },
+  ]}
+  tests={[
+    { name: 'first claim of each username succeeds, later claims are rejected', stdin: '', equals: 'alice: SUCCESS nel\nbob: SUCCESS carol\ncarol: REJECTED nel\ndave: SUCCESS dave99' },
+  ]}
+/>
+
+### Multi-Partition Request Processing
+
+Real operations often touch **more than one** partition at once. A money transfer, for instance, involves the request ID's own partition, the payer account's partition, and the payee account's partition — and there's no reason those three would naturally live together. The traditional fix is an atomic commit spanning all three — which forces a strict total order across every transaction touching any of those partitions, throttling throughput.
+
+There's a way to get equivalent correctness without an atomic commit, by breaking the operation into stages across **differently partitioned** logs:
+
+1. The transfer request, tagged with a client-generated request ID, is appended to a log partitioned by that request ID — a single-object write, and therefore atomic in essentially every real storage system.
+2. A stream processor reads that request log and emits **two** separate messages — a debit instruction (partitioned by the payer's account) and a credit instruction (partitioned by the payee's account) — both carrying the same original request ID.
+3. Downstream processors consume the credit and debit streams, deduplicating by request ID exactly as in the earlier exercise, and apply the balance changes.
+
+If the processor in step 2 crashes and resumes from its last checkpoint, it might emit the same debit/credit pair again — but because it's fully **deterministic**, replaying produces identical instructions, which step 3's request-ID deduplication silently absorbs. No cross-partition atomic commit was ever needed; the request log's own single-object atomicity, combined with end-to-end deduplication, is doing all the real work.
+
+### Check: enforcing constraints
+
+<MultipleChoice
+  id="ddia-correctness-constraints"
+  title="Uniqueness constraints, partitioned logs, and multi-partition requests"
+  questions={[
+    {
+      prompt: 'Why does partitioning a log by the value that needs to be unique (e.g., by hash of username) let a stream processor enforce a uniqueness constraint correctly?',
+      choices: [
+        'Partitioning has nothing to do with uniqueness enforcement',
+        'Partitioning by the unique value guarantees every request FOR THAT SAME VALUE lands in the same partition, in true arrival order; a single-threaded consumer reading that partition sequentially can then deterministically decide which request genuinely came first, with no ambiguity',
+        'Partitioning eliminates the need to check anything at all, since duplicates are physically impossible',
+        'Partitioning only works if there is exactly one partition in the whole system',
+      ],
+      answer: 1,
+      why: 'Routing every conflicting request to the same partition, in order, is exactly what turns a distributed consensus problem into a simple sequential, single-threaded decision.',
+    },
+    {
+      prompt: 'In the multi-partition money-transfer example, why doesn\'t crashing and resuming the stream processor in step 2 (mid-way through emitting debit/credit instructions) cause the transfer to be applied twice?',
+      choices: [
+        'Crashes are simply assumed not to happen in this design',
+        'Because the processor is DETERMINISTIC, resuming from its last checkpoint and reprocessing the same request produces the IDENTICAL debit/credit instructions (carrying the same request ID) as before, and step 3\'s request-ID deduplication silently discards the resulting duplicates',
+        'The processor uses a distributed transaction to guarantee it only runs once',
+        'Debit and credit instructions are always applied immediately with no possibility of replay',
+      ],
+      answer: 1,
+      why: 'Determinism plus end-to-end request-ID deduplication is precisely what replaces the need for a cross-partition atomic commit here.',
+    },
+  ]}
+/>
+
+---
+
+## Timeliness and Integrity
+
+ACID transactions bundle together two genuinely distinct properties that are worth pulling apart:
+
+- **Timeliness** — whether a reader sees an up-to-date view of the system. Stale reads (as covered in this series' replication-lag coverage) are a timeliness problem, and they're inherently **temporary**: wait a bit, or retry, and the problem resolves itself. Linearizability (this series' own coverage) is the strongest possible timeliness guarantee; read-after-write consistency is a meaningfully weaker but often sufficient one.
+- **Integrity** — the absence of corruption: no lost data, no contradictory or false records. A search index that's silently missing some documents has an integrity problem, not a timeliness one. Crucially, integrity violations are **permanent** — waiting longer doesn't fix a corrupted database, only explicit detection and repair does.
+
+In slogan form: broken timeliness is "eventual consistency"; broken integrity is "perpetual inconsistency" until someone actively intervenes. And of the two, **integrity matters far more**. A credit card statement that's a day behind on posting a transaction is mildly annoying; a statement whose numbers don't actually add up, or a payment that vanishes between being charged and being paid out, is a genuine catastrophe.
+
+ACID transactions bundle timeliness and integrity together automatically, so the distinction rarely matters if you're using them. But the event-based dataflow architectures this series has been building — [Transmitting Event Streams](./transmitting-event-streams), CDC and event sourcing in [Databases and Streams](./databases-and-streams) — genuinely **decouple** the two. Consuming a stream is inherently asynchronous, so there's no automatic timeliness guarantee (though a client can always explicitly wait for a confirming message on an output stream, as in the username-claiming exercise above). But **integrity** stays fully achievable — through exactly-once processing, deterministic derivation functions, end-to-end request IDs, and immutable, replayable logs, exactly as covered over the last two lessons.
+
+### Loosely Interpreted Constraints
+
+Strict uniqueness genuinely requires synchronous coordination — there's no way around that. But it's worth asking whether every constraint actually **needs** to be strict. Plenty of real businesses already run on looser guarantees, backed by an "apology" process instead of upfront prevention:
+
+- Two customers claim the same seat or username? Apologize to one of them and offer an alternative.
+- Oversold your warehouse stock? Restock, apologize, offer a discount — the exact same workflow you'd need anyway if a forklift accidentally destroyed some inventory.
+- Airlines and hotels deliberately **overbook**, expecting some cancellations, and handle the rare overflow with refunds or upgrades.
+- A bank lets an account go overdrawn, then charges a fee and recovers the balance later, capping its risk with a daily withdrawal limit.
+
+When the cost of an occasional apology is genuinely low, checking a constraint strictly *before* the write is unnecessarily expensive — it may be perfectly reasonable to write optimistically and validate **after the fact**, reserving strict synchronous validation only for operations that would be truly costly or impossible to walk back.
+
+### Coordination-Avoiding Data Systems
+
+Put the last two ideas together: (1) dataflow systems can preserve integrity without atomic commit or synchronous cross-partition coordination, and (2) many real constraints tolerate being checked *after* the write, as long as integrity holds throughout. That combination is the basis for **coordination-avoiding data systems** — architectures that skip synchronous coordination almost entirely while still keeping strong integrity guarantees, at the cost of weaker timeliness. Such a system could run multi-leader across several datacenters, replicating asynchronously, each region continuing to operate independently — genuinely unable to be linearizable, but still fully capable of never losing or corrupting data. Serializable transactions still have a role here, just scoped narrowly to where they're actually needed, rather than paid for by the entire system.
+
+As Kleppmann puts it: coordination and strict constraints reduce how often you have to apologize for an **inconsistency**, but they cost you availability and performance — which can mean apologizing more often for an **outage** instead. There's no way to drive the total number of apologies to zero; the real engineering question is finding the right trade-off for your specific application.
+
+### Check: timeliness, integrity, and coordination
+
+<MultipleChoice
+  id="ddia-correctness-timeliness-integrity"
+  title="Timeliness vs. integrity, and coordination-avoiding design"
+  questions={[
+    {
+      prompt: 'What is the key difference between a "timeliness" violation and an "integrity" violation?',
+      choices: [
+        'There is no meaningful difference between the two',
+        'A timeliness violation (e.g., a stale read) is temporary and resolves itself simply by waiting or retrying; an integrity violation (e.g., lost or corrupted data, or a derived index that no longer matches its source) is PERMANENT and requires explicit detection and repair — it does not fix itself over time',
+        'Integrity violations always resolve themselves within a few seconds',
+        'Timeliness only applies to write operations, never to reads',
+      ],
+      answer: 1,
+      why: 'The self-healing-vs-permanent distinction is exactly why the lesson argues integrity deserves far more engineering attention than timeliness in most applications.',
+    },
+    {
+      prompt: 'Why might an application reasonably choose to validate a constraint (like available warehouse stock) AFTER writing an order, rather than strictly beforehand?',
+      choices: [
+        'Because integrity does not matter for warehouse stock',
+        'Because many businesses already need an "apology" process for unrelated reasons (e.g., damaged inventory), so if the cost of occasionally overselling and apologizing is low, paying for synchronous, strict pre-write validation everywhere is an unnecessary tax on performance and availability',
+        'Because it is technically impossible to validate stock levels before a write',
+        'Because customers always prefer receiving incorrect orders over waiting slightly longer',
+      ],
+      answer: 1,
+      why: 'This is precisely the "loosely interpreted constraints" trade-off — accepting occasional, cheaply-fixed violations in exchange for avoiding expensive synchronous coordination on every write.',
+    },
+  ]}
+/>
+
+---
+
+## Trust, but Verify
+
+Every argument in this lesson rests on a **system model** — an explicit set of assumptions about what can and can't go wrong, as covered in this series' knowledge-and-truth coverage. We generally assume disks don't silently corrupt fsynced data, that RAM doesn't flip bits, and that a CPU's arithmetic is always correct. These assumptions are *usually* true — but "usually" is not "always," and the more devices and disks you're running, the more often "unlikely" events actually show up. Bit flips from cosmic radiation, and even deliberately induced bit flips via pathological memory access patterns (the *rowhammer* technique), are rare but real. Software has bugs too — even mature, heavily tested databases have shipped uniqueness-constraint failures and serializable-isolation anomalies, and application code, which rarely gets anywhere near that level of scrutiny, should be assumed to have even more.
+
+### A Culture of Verification
+
+If corruption is possible no matter how careful you are, the only real defense is to **check** — an activity generally called **auditing**. Large-scale storage systems like HDFS and Amazon S3 don't fully trust their own disks: they continuously read files back, compare replicas against each other, and proactively move data around to catch silent corruption before it spreads. The same logic applies to backups — a backup you've never actually restored from is a backup you don't really have. "Trust, but verify" beats blind trust, and yet surprisingly few systems build in this kind of continuous self-auditing.
+
+### Designing for Auditability
+
+Here's where the event-based architectures from earlier lessons pay off again. A traditional transaction mutates a handful of rows and leaves no lasting record of **why** — the application logic that decided on those changes ran once and is gone. [Event sourcing](./databases-and-streams#event-sourcing), by contrast, keeps every user action as an immutable, ordered event, and derives all resulting state through a **deterministic** transformation. That gives you real auditability for free: you can hash the event log to check it hasn't been tampered with, rerun the exact same derivation to confirm a piece of derived state is still correct, or even run a second, independent derivation in parallel and compare results. A deterministic, explicit dataflow also makes debugging dramatically easier — you can reconstruct precisely the sequence of events that led to any given outcome, a kind of time-travel debugging.
+
+:::tip The end-to-end argument, once more
+Auditing is really just the end-to-end argument applied to *integrity itself*: the more of the full pipeline — disks, networks, application logic — an integrity check actually spans, the fewer places corruption has to slip through unnoticed. A check confined to one component can never rule out corruption introduced somewhere else.
+:::
+
+Cryptographic tools offer one path toward integrity guarantees that don't rely on blind trust in any single party — this is, at its core, exactly what cryptocurrencies and blockchains are exploring, using **Merkle trees** (hash trees that let you efficiently prove a record belongs to a dataset) to let mutually distrusting replicas continuously check each other's integrity. Kleppmann is openly skeptical of proof-of-work's wastefulness and Bitcoin's low throughput, but finds the underlying integrity-checking ideas — also used outside cryptocurrency entirely, in things like certificate transparency for TLS certificates — genuinely worth watching.
+
+### Check: trust, but verify
+
+<MultipleChoice
+  id="ddia-correctness-trust-verify"
+  title="System models, auditing, and designing for auditability"
+  questions={[
+    {
+      prompt: 'Why does the lesson argue that "unlikely" hardware faults like bit flips deserve some genuine engineering attention, even though any single occurrence is extremely rare?',
+      choices: [
+        'Because bit flips happen constantly on every single machine',
+        'Because at large enough scale (many machines, disks, and devices running for a long time), even a very low per-device probability adds up to a real, observed frequency of occurrence across the whole fleet — rare does not mean "never happens in practice"',
+        'Because modern hardware has actually made this problem worse than it was decades ago',
+        'Because software bugs are actually rarer than hardware bugs',
+      ],
+      answer: 1,
+      why: 'Treating a system model\'s assumptions as probabilistic rather than absolute is exactly why scale changes which "unlikely" failures are worth actively defending against.',
+    },
+    {
+      prompt: 'Why does event sourcing make a system meaningfully more AUDITABLE than a traditional approach of directly mutating database rows?',
+      choices: [
+        'Event sourcing and traditional mutation are equally auditable',
+        'A traditional mutation leaves no durable record of the application logic that decided on the change, whereas event sourcing keeps every input as an immutable event and derives state through a DETERMINISTIC transformation — meaning the derivation can be rerun, hashed, or run redundantly in parallel to verify it still produces the same, correct result',
+        'Event sourcing makes it impossible for bugs to ever occur',
+        'Auditability has nothing to do with whether a transformation is deterministic',
+      ],
+      answer: 1,
+      why: 'Determinism plus a durable, replayable event log is exactly what turns "trust that this was right" into "verify that this is still right."',
+    },
+  ]}
+/>
+
+---
+
+:::important Key takeaways
+- ACID transactions are a genuinely useful abstraction, but they don't come for free — they typically demand a single datacenter, and they don't protect against application-level bugs that "correctly" commit the wrong thing.
+- **Exactly-once** semantics is best achieved through **idempotence**, and true end-to-end deduplication requires a client-generated **operation ID** carried all the way from the true endpoint to the database — no lower layer (TCP, a single transaction, 2PC) can fully substitute for this, per the **end-to-end argument**.
+- **Uniqueness constraints require consensus** — but a log partitioned by the unique value, read sequentially by a single-threaded stream processor, can enforce that consensus without a traditional distributed transaction, and multi-partition operations can be similarly decomposed using an atomic single-object write plus end-to-end deduplication.
+- **Timeliness** (is the data current?) and **integrity** (is the data uncorrupted?) are distinct properties that ACID bundles together but dataflow architectures deliberately decouple — and integrity, which is permanent when violated, generally matters far more than timeliness, which self-heals.
+- Many real-world constraints tolerate being checked **after** the write, backed by an apology process — enabling **coordination-avoiding** designs that trade strict timeliness for much better availability and performance, while still preserving integrity.
+- No system's assumptions hold with 100% certainty, so integrity should be actively **audited**, not just assumed — and deterministic, event-based architectures make that auditing dramatically more tractable.
+:::
+
+## Further Reading
+
+- Martin Kleppmann — *Designing Data-Intensive Applications* (O'Reilly, 2017), Chapter 12
+- [Observing Derived State](./observing-derived-state) — this series' previous lesson
+- [Ethics of Data-Intensive Applications](./ethics-of-data-intensive-applications) — this series' next lesson
+- [Databases and Streams](./databases-and-streams) — event sourcing and CDC, which this lesson's auditability discussion builds directly on
+- [Fault-Tolerant Consensus](../distributed-data/fault-tolerant-consensus) — why uniqueness constraints are fundamentally a consensus problem
+- [Ordering Guarantees](../distributed-data/ordering-guarantees) — total order broadcast, the mechanism underlying uniqueness-via-log-partition
+- Kyle Kingsbury — [Jepsen analyses](https://jepsen.io/analyses) of real-world database safety guarantees under network faults
+- J.H. Saltzer, D.P. Reed, and D.D. Clark — ["End-to-End Arguments in System Design"](http://web.mit.edu/Saltzer/www/publications/endtoend/endtoend.pdf) (1984)

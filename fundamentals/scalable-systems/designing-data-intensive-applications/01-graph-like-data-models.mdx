@@ -1,0 +1,399 @@
+---
+sidebar_position: 1
+title: Graph-Like Data Models
+---
+
+# Graph-Like Data Models
+
+> **Adapted from:** Martin Kleppmann, *Designing Data-Intensive Applications* (O'Reilly, 2017), Chapter 2 — rewritten and condensed for teaching.
+
+Many-to-many relationships are the fault line that splits data models apart. If your application's data is mostly tree-shaped (one-to-many) or barely related at all, a document model fits comfortably. The relational model can handle *simple* many-to-many relationships too. But once the connections between your records become the interesting part of the data — not just an occasional join, but a dense web of relationships — it becomes natural to stop fighting the shape of the data and start modeling it as what it actually is: a **graph**.
+
+---
+
+## What a Graph Actually Is
+
+A graph is built from exactly two kinds of objects:
+
+- **Vertices** (also called nodes or entities)
+- **Edges** (also called relationships or arcs)
+
+A remarkable range of real-world data fits this shape:
+
+| Domain | Vertices | Edges |
+|---|---|---|
+| Social graph | People | "Knows each other" |
+| The web | Web pages | HTML links |
+| Road/rail network | Junctions | Roads or rail lines |
+
+Well-studied algorithms already exist for exactly this shape of data — car navigation finds shortest paths through a road network, and PageRank ranks web pages by analyzing the link graph between them.
+
+Nothing about a graph requires every vertex to represent the *same kind* of thing, either. Facebook's graph famously mixes people, places, events, check-ins, and comments as vertices, with edges for friendships, "checked in at," "commented on," and "attended" all coexisting in one datastore. Homogeneous or not, a graph is just vertices and edges — the flexibility comes from what you choose to connect.
+
+Throughout this lesson, we'll use one running example: two people, Lucy (from Idaho) and Alain (from Beaune, France), who are married and now live together in London. Modeling *where* they were born, *where* they live now, and how those places nest inside each other (a city within a state within a country within a continent) turns out to be exactly the kind of thing graphs handle gracefully and relational schemas handle awkwardly.
+
+There are two closely related ways to structure and query graph data — the **property graph** model (Neo4j, and others) and the **triple-store** model (Datomic, AllegroGraph, and others). We'll look at both, plus three declarative query languages built for them: **Cypher**, **SPARQL**, and **Datalog**.
+
+---
+
+## Property Graphs
+
+In the property graph model, every **vertex** carries:
+
+- a unique identifier,
+- a set of outgoing edges,
+- a set of incoming edges, and
+- a collection of properties (key-value pairs).
+
+Every **edge** carries:
+
+- a unique identifier,
+- the vertex where it starts (the **tail** vertex),
+- the vertex where it ends (the **head** vertex),
+- a **label** describing the kind of relationship, and
+- its own collection of properties.
+
+You can picture a property-graph store as nothing more exotic than two relational tables — one for vertices, one for edges:
+
+```sql
+CREATE TABLE vertices (
+    vertex_id  integer PRIMARY KEY,
+    properties json
+);
+
+CREATE TABLE edges (
+    edge_id     integer PRIMARY KEY,
+    tail_vertex integer REFERENCES vertices (vertex_id),
+    head_vertex integer REFERENCES vertices (vertex_id),
+    label       text,
+    properties  json
+);
+
+CREATE INDEX edges_tails ON edges (tail_vertex);
+CREATE INDEX edges_heads ON edges (head_vertex);
+```
+
+Three properties of this layout matter enormously:
+
+1. **No schema restricts which vertices can connect.** Any vertex can have an edge to any other vertex — there's no fixed set of "allowed" relationship shapes to design around up front.
+2. **Traversal works in both directions, efficiently.** Given any vertex, the indexes on `tail_vertex` and `head_vertex` let you cheaply find both its outgoing *and* incoming edges — meaning you can walk a chain of relationships forward or backward.
+3. **One graph, many kinds of relationships.** Different edge **labels** let you layer several genuinely different kinds of information into a single graph without muddying the data model.
+
+Together, these give graphs serious flexibility for modeling things a rigid relational schema struggles with — different administrative structures per country (France's *départements* and *régions* vs. the US's counties and states), a country nested inside another for historical reasons, or simply *varying granularity* (Lucy's current city is known precisely; her place of birth is only known down to the state). None of that requires redesigning a schema — you just add vertices and edges. That's also why graphs age well: as an application's requirements evolve, the graph extends to match without a disruptive migration.
+
+### Check: property graphs
+
+<MultipleChoice
+  id="ge-ddia-property-graphs"
+  title="The property graph model"
+  questions={[
+    {
+      prompt: 'What are the four components that make up a vertex in the property graph model?',
+      choices: [
+        'A name, a type, a parent, and a size',
+        'A unique identifier, a set of outgoing edges, a set of incoming edges, and a collection of properties',
+        'A row number, a table name, a primary key, and a foreign key',
+        'A label, a source, a destination, and a weight',
+      ],
+      answer: 1,
+      why: 'These four pieces are what let a vertex both hold data and participate in the graph\'s connectivity in both directions.',
+    },
+    {
+      prompt: 'Why does a property-graph edges table typically index both tail_vertex and head_vertex?',
+      choices: [
+        'To make the table smaller on disk',
+        'To let the graph be traversed efficiently in both directions — finding a vertex\'s outgoing edges via tail_vertex and its incoming edges via head_vertex',
+        'Because SQL requires every foreign key column to be indexed',
+        'To prevent duplicate edges from being inserted',
+      ],
+      answer: 1,
+      why: 'Efficient bidirectional traversal is one of the three defining properties of this model — without both indexes, walking the graph backward would require a full table scan.',
+    },
+    {
+      prompt: 'Why can a single property graph cleanly store several genuinely different kinds of relationships (e.g. "married to," "born in," "lives in") without the data model becoming a mess?',
+      choices: [
+        'Because each relationship type requires its own separate database',
+        'Because edges carry a label describing what kind of relationship they represent, so different relationship types can coexist in the same graph while remaining distinguishable',
+        'Because property graphs do not allow more than one relationship type at all',
+        'Because vertices automatically infer relationship types from their properties',
+      ],
+      answer: 1,
+      why: 'The edge label is exactly the mechanism that keeps multiple relationship types distinguishable within one unified graph.',
+    },
+  ]}
+/>
+
+---
+
+## The Cypher Query Language
+
+**Cypher** is a declarative query language for property graphs, created for the Neo4j database. Inserting part of our Lucy/Alain example looks like this — each vertex gets a symbolic name, and the arrow notation `(a)-[:LABEL]->(b)` creates a labeled edge from `a` to `b`:
+
+```cypher
+CREATE
+  (NAmerica:Location {name: 'North America', type: 'continent'}),
+  (USA:Location {name: 'United States', type: 'country'}),
+  (Idaho:Location {name: 'Idaho', type: 'state'}),
+  (Lucy:Person {name: 'Lucy'}),
+  (Idaho) -[:WITHIN]-> (USA) -[:WITHIN]-> (NAmerica),
+  (Lucy) -[:BORN_IN]-> (Idaho)
+```
+
+With that graph populated, we can ask a genuinely interesting question: *find everyone who was born in the United States and now lives in Europe.* Concretely, we want every vertex with a `BORN_IN` path leading to a US location, *and* a `LIVES_IN` path leading to a European location:
+
+```cypher
+MATCH
+  (person) -[:BORN_IN]-> () -[:WITHIN*0..]-> (us:Location {name: 'United States'}),
+  (person) -[:LIVES_IN]-> () -[:WITHIN*0..]-> (eu:Location {name: 'Europe'})
+RETURN person.name
+```
+
+Reading it out loud: find a vertex called `person` that has an outgoing `BORN_IN` edge, followed by zero or more `WITHIN` edges, landing on a `Location` named "United States" — **and** that same `person` has an outgoing `LIVES_IN` edge, followed by zero or more `WITHIN` edges, landing on a `Location` named "Europe." For every such `person`, return their name.
+
+Note what you *didn't* have to specify: how many `WITHIN` hops to follow (a city could be one hop from its country, or three), or in what order to evaluate the two conditions. As with any declarative query language, the query optimizer picks an execution strategy — maybe scanning every person and checking their birthplace/residence, or maybe starting from the "United States" and "Europe" vertices and working backward through incoming edges — without you having to think about it while writing the query.
+
+### The Same Query in SQL
+
+We just said a property graph can live inside two ordinary relational tables — so can you query it with plain SQL? Yes, but it hurts. In a normal SQL query you know the joins you need in advance. Here, the number of `WITHIN` hops between a person's `LIVES_IN` edge and the location vertex you actually care about isn't fixed — a `LIVES_IN` edge might point straight at "Europe," or it might point at a street address three levels of nesting away.
+
+SQL:1999 added **recursive common table expressions** (`WITH RECURSIVE`) precisely to express this kind of variable-length traversal. It works, but the contrast with Cypher's four-line query is stark — the SQL version needs several named recursive CTEs (one to walk up from "United States," one to walk up from "Europe," one to find everyone born within the first set, one to find everyone living within the second set) before a final join intersects the two.
+
+:::note A four-line query vs. a thirty-line query
+If the *same* query takes 4 lines in one query language and roughly 30 in another, that's not a knock on SQL — it's a demonstration that different data models are built to make different kinds of questions cheap to ask. Graphs make "how are these two things connected, through however many hops" cheap; picking the right data model for your application is what makes queries like this pleasant instead of painful.
+:::
+
+:::tip Activity: read the pattern
+Given the Cypher pattern `(person) -[:BORN_IN]-> () -[:WITHIN*0..]-> (loc:Location {name: 'Canada'})`, describe in plain English what it matches — and what would change if `*0..` were replaced with `*1..`.
+
+`*0..` means "zero or more `WITHIN` hops," so it matches someone born *directly* in a `Location` named "Canada," or born somewhere nested inside Canada through any number of `WITHIN` edges. `*1..` would require *at least one* `WITHIN` hop — excluding the case where the `BORN_IN` edge points straight at "Canada" itself.
+:::
+
+### Check: Cypher and SQL
+
+<MultipleChoice
+  id="ge-ddia-cypher"
+  title="Cypher queries and their SQL equivalent"
+  questions={[
+    {
+      prompt: 'In the Cypher pattern (Idaho) -[:WITHIN]-> (USA), what do "Idaho" and "USA" represent?',
+      choices: [
+        'Two separate, unrelated graphs',
+        'The tail vertex (Idaho) and head vertex (USA) of a single edge labeled WITHIN',
+        'Two edges connecting a single vertex',
+        'A SQL table name and column name, respectively',
+      ],
+      answer: 1,
+      why: 'Cypher\'s arrow notation directly encodes a directed edge: the vertex before the arrow is the tail, the one after is the head.',
+    },
+    {
+      prompt: 'Why does expressing the "emigrated from the US to Europe" query in plain SQL require recursive common table expressions (WITH RECURSIVE), rather than a fixed set of JOINs?',
+      choices: [
+        'Because SQL cannot represent graph data at all',
+        'Because the number of WITHIN hops between a person and the location you care about isn\'t known in advance — it varies per record, so the query needs to traverse a variable-length chain rather than a fixed number of joins',
+        'Because recursive CTEs are required for any query involving more than one table',
+        'Because PostgreSQL does not support the JOIN keyword',
+      ],
+      answer: 1,
+      why: 'Ordinary SQL joins assume a fixed join count known ahead of time; recursive CTEs exist specifically to handle a traversal whose depth isn\'t fixed.',
+    },
+    {
+      prompt: 'What does the fact that the same query takes ~4 lines in Cypher but ~30 in recursive SQL actually demonstrate?',
+      choices: [
+        'That SQL is a poorly designed language overall',
+        'That different data models and query languages are optimized for different kinds of questions — graph query languages make variable-depth traversal cheap to express, which is exactly the kind of question relational SQL wasn\'t designed around',
+        'That Cypher queries are always functionally different from their SQL equivalents',
+        'That recursive CTEs are deprecated and should never be used',
+      ],
+      answer: 1,
+      why: 'The length difference reflects a genuine mismatch between the query\'s shape (variable-depth traversal) and the model SQL was designed to make convenient (fixed joins), not a quality difference between the languages.',
+    },
+  ]}
+/>
+
+---
+
+## Triple-Stores and SPARQL
+
+The **triple-store** model is, under the hood, equivalent to the property graph model — it just describes the same ideas with different words. Every fact is stored as a three-part statement: **(subject, predicate, object)** — for example, `(Jim, likes, bananas)`.
+
+The subject is equivalent to a vertex. The object is one of two things:
+
+- A primitive value (a string, a number) — in which case the predicate and object together act like a property on the subject vertex. `(Lucy, age, 33)` is just `Lucy` with a property `age: 33`.
+- Another vertex — in which case the predicate is an edge label. `(Lucy, marriedTo, Alain)` connects two vertices with an edge labeled `marriedTo`.
+
+**Turtle** is a common human-readable format for writing triples, and it gets noticeably more pleasant to read once you use semicolons to chain multiple facts about the same subject instead of repeating it:
+
+```turtle
+@prefix : <urn:example:>.
+
+_:lucy    a :Person;   :name "Lucy";          :bornIn _:idaho.
+_:idaho   a :Location; :name "Idaho";         :type "state";   :within _:usa.
+_:usa     a :Location; :name "United States"; :type "country"; :within _:namerica.
+_:namerica a :Location; :name "North America"; :type "continent".
+```
+
+:::note The semantic web, briefly
+Triple-stores are frequently associated with the **semantic web** — the early-2000s vision of websites publishing machine-readable data (via the **RDF** format) so that data from different sites could be combined automatically into one giant web-wide database. The semantic web itself never really took off, and picked up a reputation for overhyped, overcomplicated standards along the way — but the triple-store model it popularized is genuinely useful as an internal application data model, with zero obligation to publish anything to the actual semantic web.
+:::
+
+**SPARQL** is the query language built for RDF triple-stores, and it predates Cypher — in fact, Cypher's pattern-matching syntax was borrowed from it. The same emigration query looks like this in SPARQL:
+
+```sparql
+PREFIX : <urn:example:>
+
+SELECT ?personName WHERE {
+  ?person :name ?personName.
+  ?person :bornIn / :within* :name "United States".
+  ?person :livesIn / :within* :name "Europe".
+}
+```
+
+Since RDF doesn't distinguish "properties" from "edges" — both are just predicates — the exact same triple-matching syntax handles both jobs, which is part of why SPARQL reads even more compactly than Cypher for this kind of query.
+
+### Check: triple-stores and SPARQL
+
+<MultipleChoice
+  id="ge-ddia-sparql"
+  title="Triples, RDF, and SPARQL"
+  questions={[
+    {
+      prompt: 'In the triple (Lucy, bornIn, Idaho), what does the object (Idaho) represent, and how does this differ from (Lucy, age, 33)?',
+      choices: [
+        'Both examples represent identical kinds of facts with no difference',
+        'In (Lucy, bornIn, Idaho), the object is another vertex, making bornIn an edge; in (Lucy, age, 33), the object is a primitive value, making age a property on Lucy rather than an edge to another vertex',
+        'Idaho and 33 are both properties in both examples',
+        'Triples can never contain primitive values, only vertex references',
+      ],
+      answer: 1,
+      why: 'Whether the object is a primitive value or another vertex determines whether the predicate behaves like a property or like a graph edge — this is the core mechanic of the triple model.',
+    },
+    {
+      prompt: 'Is the triple-store data model inherently tied to the "semantic web"?',
+      choices: [
+        'Yes, a triple-store cannot be used for anything other than publishing RDF to the public web',
+        'No — the triple-store model is a genuinely useful internal application data model on its own; the semantic web is a separate (and largely unrealized) vision that happens to use the same underlying data model',
+        'Yes, because SPARQL only works on the public internet',
+        'No, because RDF and triple-stores are entirely unrelated concepts',
+      ],
+      answer: 1,
+      why: 'The data model and the semantic web are historically linked but conceptually separable — plenty of triple-stores (like Datomic) have nothing to do with the semantic web.',
+    },
+  ]}
+/>
+
+---
+
+## Datalog: The Foundation Underneath
+
+**Datalog** predates both SPARQL and Cypher by decades — it was studied extensively by academics in the 1980s, and while it's less familiar to most working programmers today, it's worth understanding because later graph query languages build on ideas it established first. Datomic uses it as its native query language.
+
+Datalog's data model resembles the triple-store model, just written differently: instead of `(subject, predicate, object)`, a fact is written `predicate(subject, object)`:
+
+```prolog
+name(namerica, 'North America').
+type(namerica, continent).
+
+name(usa, 'United States').
+type(usa, country).
+within(usa, namerica).
+
+name(idaho, 'Idaho').
+type(idaho, state).
+within(idaho, usa).
+
+name(lucy, 'Lucy').
+born_in(lucy, idaho).
+```
+
+Where Cypher and SPARQL jump straight to a `SELECT`/`MATCH`, Datalog builds up a query as a small set of **rules** — new predicates *derived* from existing facts (or from other rules), the same way functions can call other functions:
+
+```prolog
+within_recursive(Location, Name) :- name(Location, Name).
+within_recursive(Location, Name) :- within(Location, Via),
+                                     within_recursive(Via, Name).
+
+migrated(Name, BornIn, LivingIn) :- name(Person, Name),
+                                     born_in(Person, BornLoc),
+                                     within_recursive(BornLoc, BornIn),
+                                     lives_in(Person, LivingLoc),
+                                     within_recursive(LivingLoc, LivingIn).
+
+?- migrated(Who, 'United States', 'Europe').
+```
+
+Uppercase words are variables; a rule "fires" whenever the database can find a match for everything on the right-hand side of `:-`, at which point the left-hand side effectively becomes a new fact (with variables filled in). Tracing `within_recursive` for Idaho:
+
+1. `name(namerica, 'North America')` exists → rule 1 fires → `within_recursive(namerica, 'North America')`.
+2. `within(usa, namerica)` exists, and step 1 just produced `within_recursive(namerica, 'North America')` → rule 2 fires → `within_recursive(usa, 'North America')`.
+3. `within(idaho, usa)` exists, and step 2 just produced `within_recursive(usa, 'North America')` → rule 2 fires again → `within_recursive(idaho, 'North America')`.
+
+Repeated application of rules 1 and 2 eventually tells you *every* location contained within any given named region — and `migrated` then reuses that derived predicate twice (once for the birthplace chain, once for the residence chain) to answer the original question. This rule-reuse is Datalog's real advantage: rules compose like functions, so complex queries build up from small, independently reusable pieces — a real strength once your queries get complicated, even though it's noticeably less convenient than Cypher or SPARQL for a quick one-off question.
+
+:::tip Activity: trace it yourself
+Using the facts above, trace `within_recursive` for `namerica` directly (no intermediate steps). Which rule fires, and why does it terminate in exactly one step?
+
+Rule 1 fires directly: `name(namerica, 'North America')` already exists as a base fact, so `within_recursive(namerica, 'North America')` is produced immediately — no `within(namerica, ...)` fact exists to feed rule 2, so there's nothing further to derive.
+:::
+
+### Check: Datalog
+
+<MultipleChoice
+  id="ge-ddia-datalog"
+  title="Datalog rules and recursion"
+  questions={[
+    {
+      prompt: 'In Datalog, what does it mean for a rule like within_recursive(Location, Name) :- within(Location, Via), within_recursive(Via, Name) to "fire"?',
+      choices: [
+        'It permanently deletes the matched facts from the database',
+        'The database finds facts (or previously derived results) matching everything on the right of :-, and as a result treats the left-hand side as a newly derived fact, with variables substituted in',
+        'It immediately halts the query with an error',
+        'It converts the rule into a SQL JOIN automatically',
+      ],
+      answer: 1,
+      why: 'This is exactly how rule application works: satisfy the right-hand side, and the left-hand side (with matched variable bindings) becomes available as a new fact for other rules to build on.',
+    },
+    {
+      prompt: 'Why is Datalog described as being especially good at handling complex queries built from reusable pieces, compared to Cypher or SPARQL?',
+      choices: [
+        'Because Datalog queries cannot be written declaratively',
+        'Because rules in Datalog can reference other rules, similar to how functions can call other functions — letting a complex query be assembled from small, independently reusable, composable rules rather than one large expression',
+        'Because Datalog does not support variables',
+        'Because Datalog only works with exactly one predicate per query',
+      ],
+      answer: 1,
+      why: 'The rule-composition mechanic — rules building on rules — is precisely what the lesson highlights as Datalog\'s advantage for complex, evolving queries.',
+    },
+  ]}
+/>
+
+---
+
+## Graph Databases vs. the Old CODASYL Network Model
+
+It's tempting to look at a graph database and wonder if it's really just the CODASYL "network model" from the 1970s (the historical rival to the relational model, built to handle many-to-many relationships before relational databases could) wearing a new coat of paint. It isn't — a few concrete differences matter:
+
+| | CODASYL network model | Graph database |
+|---|---|---|
+| **Schema** | Fixed schema dictates which record types can nest inside which others | Any vertex can have an edge to any other vertex — no such restriction |
+| **Access** | Records reachable only by traversing a defined access path | Any vertex reachable directly by unique ID, or via an index |
+| **Ordering** | Children of a record form an *ordered* set the database must maintain | Vertices/edges are unordered — you only sort at query time |
+| **Queries** | Imperative only, and brittle against schema changes | Usually declarative (Cypher, SPARQL), though imperative traversal is possible too |
+
+The common thread: CODASYL locked in a rigid, imperative way of reaching your data; graph databases give you the same appetite for many-to-many relationships without that rigidity.
+
+---
+
+:::important Key takeaways
+- A graph is just **vertices** and **edges** — an intentionally simple building block that models everything from social networks to road maps to a single application's tangled internal relationships.
+- The **property graph** model stores vertices and edges with properties and labels, and can even live inside two ordinary relational tables — but *querying* variable-depth relationships in plain SQL requires awkward recursive CTEs.
+- **Cypher** and **SPARQL** are declarative graph query languages that make "how are these two things connected, through however many hops" cheap and short to express — the query optimizer, not you, decides how to execute it.
+- The **triple-store** model `(subject, predicate, object)` is conceptually the same as a property graph in different clothing; **Datalog** goes further, letting you build queries out of small, reusable, composable rules.
+- Document, relational, and graph models are not competitors with one true winner — each is genuinely good at the relationships its shape naturally represents, and picking the right one for your application's actual data shape is the real skill.
+:::
+
+## Further Reading
+
+- Martin Kleppmann — *Designing Data-Intensive Applications* (O'Reilly, 2017), Chapter 2
+- [Neo4j Cypher Manual](https://neo4j.com/docs/cypher-manual/current/)
+- [W3C SPARQL 1.1 Query Language](https://www.w3.org/TR/sparql11-query/)
+- Wikipedia — [Datalog](https://en.wikipedia.org/wiki/Datalog) and [Resource Description Framework](https://en.wikipedia.org/wiki/Resource_Description_Framework)

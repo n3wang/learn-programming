@@ -1,0 +1,450 @@
+---
+sidebar_position: 15
+title: Spin Locks and Lock-Free Data Structures
+---
+
+# Spin Locks and Lock-Free Data Structures
+
+> **Adapted from:** Jason Gregory, *Game Engine Architecture*, 3rd ed. (CRC Press, 2018), Chapter 4, Sections 4.9.7–4.9.10 — rewritten and condensed for teaching.
+
+[Memory Fences and the C++ Memory Model](./memory-fences-and-the-cpp-memory-model) supplied the last missing pieces — atomic instructions plus properly-fenced acquire/release semantics. This lesson puts them to work: a genuinely correct spin lock, several useful variations on it, and a real lock-free data structure built entirely without ever taking a lock at all.
+
+---
+
+## A Correctly-Fenced Spin Lock
+
+The `SpinLock` from [Thread Synchronization Primitives](./thread-synchronization-primitives) got the basic shape right — `compare_exchange_strong` to claim the lock, a plain store to release it. What was missing: explicit memory ordering. **Acquiring** a lock needs **acquire** semantics, so nothing after the lock is claimed can be observed as happening before it actually was; **releasing** needs **release** semantics, so every write made *inside* the critical section is guaranteed visible to whoever acquires the lock next:
+
+```cpp
+class SpinLock {
+public:
+    bool TryAcquire() {
+        bool expected = false;
+        // acquire semantics: nothing after this point can be
+        // reordered before the lock is actually claimed
+        return m_locked.compare_exchange_strong(
+            expected, true, std::memory_order_acquire);
+    }
+
+    void Acquire() {
+        while (!TryAcquire()) {
+            // busy-wait; a real implementation would PAUSE() here
+        }
+    }
+
+    void Release() {
+        // release semantics: every write made inside the critical
+        // section must be visible before we let the next Acquire() through
+        m_locked.store(false, std::memory_order_release);
+    }
+
+private:
+    std::atomic<bool> m_locked{false};
+};
+```
+
+This single change — from the earlier lesson's default-full-fence `compare_exchange_strong` to an explicitly acquire-ordered one, paired with a release-ordered unlock — is exactly the fencing discipline the previous lesson covered, applied concretely to the one data structure that shows up absolutely everywhere in concurrent code.
+
+## Scoped Locks: Locking as RAII
+
+Manually pairing every `Acquire()` with a matching `Release()` is exactly the kind of error-prone bookkeeping [RAII](./fundamentals-of-software-engineering#practice-build-a-janitor) exists to eliminate — especially once a function has more than one return path. A **scoped lock** wraps any lock type in a tiny RAII "janitor": acquire in the constructor, release in the destructor, so the lock is released automatically no matter which exit path a function takes:
+
+```cpp
+template <class Lock>
+class ScopedLock {
+public:
+    explicit ScopedLock(Lock& lock) : m_pLock(&lock) {
+        m_pLock->Acquire();
+    }
+    ~ScopedLock() {
+        m_pLock->Release();
+    }
+private:
+    Lock* m_pLock;
+};
+
+// usage:
+SpinLock g_lock;
+int ThreadSafeFunction() {
+    ScopedLock<SpinLock> janitor(g_lock);
+    if (SomethingWentWrong()) {
+        return -1;   // lock released automatically here
+    }
+    return 0;        // and here
+}
+```
+
+### Practice: build a scoped lock
+
+Implement the `ScopedLock` pattern directly against a minimal lock type, and verify — via printed acquire/release messages — that it fires correctly on every exit path, early return included.
+
+<CodeExercise
+  title="RAII scoped lock"
+  heading="exercise-scoped-lock"
+  lang="cpp"
+  filename="main.cpp"
+  prompt="Implement ScopedLock's constructor and destructor so a SimpleLock is acquired on entry and released automatically on exit, even on an early return."
+  sampleLog={`(input) 1
+acquire
+release
+acquire
+release`}
+  starter={`#include <iostream>
+using namespace std;
+
+class SimpleLock {
+public:
+    void Acquire() { cout << "acquire\\n"; }
+    void Release() { cout << "release\\n"; }
+};
+
+template <class Lock>
+class ScopedLock {
+public:
+    explicit ScopedLock(Lock& lock) : m_pLock(&lock) {
+        // TODO: acquire the lock
+    }
+    ~ScopedLock() {
+        // TODO: release the lock
+    }
+private:
+    Lock* m_pLock;
+};
+
+SimpleLock g_lock;
+
+int DoWork(bool bailEarly) {
+    ScopedLock<SimpleLock> janitor(g_lock);
+    if (bailEarly) {
+        return -1;   // the lock must still be released here
+    }
+    return 0;
+}
+
+int main() {
+    int bail;
+    cin >> bail;
+    DoWork(bail != 0);
+    DoWork(false);
+    return 0;
+}
+`}
+  hint="In the constructor: m_pLock->Acquire(); In the destructor: m_pLock->Release();"
+  solution={`#include <iostream>
+using namespace std;
+
+class SimpleLock {
+public:
+    void Acquire() { cout << "acquire\\n"; }
+    void Release() { cout << "release\\n"; }
+};
+
+template <class Lock>
+class ScopedLock {
+public:
+    explicit ScopedLock(Lock& lock) : m_pLock(&lock) {
+        m_pLock->Acquire();
+    }
+    ~ScopedLock() {
+        m_pLock->Release();
+    }
+private:
+    Lock* m_pLock;
+};
+
+SimpleLock g_lock;
+
+int DoWork(bool bailEarly) {
+    ScopedLock<SimpleLock> janitor(g_lock);
+    if (bailEarly) {
+        return -1;
+    }
+    return 0;
+}
+
+int main() {
+    int bail;
+    cin >> bail;
+    DoWork(bail != 0);
+    DoWork(false);
+    return 0;
+}
+`}
+  sourceChecks={[
+    { name: 'has a destructor', pattern: '~ScopedLock', must: true, hint: 'define ~ScopedLock() to release the lock automatically' },
+  ]}
+  tests={[
+    { name: 'releases on early return and on normal return', stdin: '1', equals: 'acquire\nrelease\nacquire\nrelease' },
+  ]}
+/>
+
+## Reentrant Locks
+
+A plain spin lock deadlocks a thread against **itself** the moment two thread-safe functions call each other reentrantly — exactly the problem flagged back in [Rules of Thumb for Concurrency](./rules-of-thumb-for-concurrency). The fix: a **reentrant lock**, which remembers *which thread* currently holds it (via that thread's ID) and a reference count of how many times *that same thread* has acquired it. A thread trying to acquire a lock it already owns just increments the count and proceeds instead of blocking; the lock only truly releases once the count drops back to zero:
+
+```cpp
+class ReentrantLock {
+public:
+    void Acquire() {
+        auto tid = std::this_thread::get_id();
+        if (m_owner.load(std::memory_order_relaxed) != tid) {
+            // spin until we successfully claim it as ours
+            std::thread::id none{};
+            while (!m_owner.compare_exchange_weak(
+                       none, tid, std::memory_order_relaxed)) {
+                none = std::thread::id{};
+            }
+        }
+        ++m_refCount;
+        std::atomic_thread_fence(std::memory_order_acquire);
+    }
+
+    void Release() {
+        std::atomic_thread_fence(std::memory_order_release);
+        if (--m_refCount == 0) {
+            m_owner.store(std::thread::id{}, std::memory_order_relaxed);
+        }
+    }
+
+private:
+    std::atomic<std::thread::id> m_owner{};
+    int m_refCount = 0;
+};
+```
+
+## Readers-Writer Locks
+
+Plenty of shared data is read far more often than it's written — a plain mutex forces every reader to wait behind every other reader, even though concurrent *reads* alone can never corrupt anything. A **readers-writer lock** (a.k.a. shared-exclusive lock) allows any number of readers to hold it simultaneously, but forces a writer to wait for every current reader to finish, then locks out everyone else — readers and writers alike — until that writer is done.
+
+The implementation trick mirrors the reentrant lock's atomic counter: track how many readers currently hold the lock, and reserve one special sentinel value (the high bit, say) to mean "a writer currently holds this exclusively." Readers-writer locks aren't a free lunch, though — a writer that holds the lock too long can starve every reader, and a constant stream of readers can just as easily starve a waiting writer. (Two real alternatives worth knowing exist for exactly this reason: the **seqlock**, and the Linux kernel's **read-copy-update (RCU)** — both beyond this lesson's scope, but worth a search if reader/writer starvation becomes a real bottleneck.)
+
+### Check: reentrant and readers-writer locks
+
+<MultipleChoice
+  id="ge-ch4-spinlocks-variants"
+  title="Reentrant and readers-writer locks"
+  questions={[
+    {
+      prompt: 'Why does a plain (non-reentrant) spin lock deadlock a thread that calls two of its own thread-safe functions reentrantly (A() calling B(), both guarded by the same lock)?',
+      choices: [
+        'Plain spin locks cannot be used by more than one function in the same class',
+        'A() acquires the lock and, while still holding it, calls B() — which tries to acquire the SAME lock and blocks forever waiting for it to be released, since the lock has no notion of "the thread that already holds this lock is trying to re-enter it"',
+        'This scenario cannot actually occur with any lock type',
+        'Deadlock only occurs with mutexes, never with spin locks',
+      ],
+      answer: 1,
+      why: 'A plain lock only tracks locked/unlocked, with no memory of WHICH thread holds it — so a thread cannot distinguish re-entering its own lock from waiting on someone else\'s.',
+    },
+    {
+      prompt: 'How does a reentrant lock solve this problem?',
+      choices: [
+        'It removes the lock entirely, allowing unrestricted concurrent access',
+        'It tracks which thread currently owns the lock plus a reference count — a thread that already owns the lock can re-acquire it by simply incrementing the count instead of blocking, and the lock only truly releases once the count returns to zero',
+        'It only allows a maximum of one function call per thread, ever',
+        'It converts all functions into separate threads automatically',
+      ],
+      answer: 1,
+      why: 'Tracking ownership plus a nesting count is exactly what lets the SAME thread re-enter a lock it already holds, while still blocking genuinely different threads.',
+    },
+    {
+      prompt: 'What is the core advantage a readers-writer lock offers over a plain mutex for read-heavy shared data?',
+      choices: [
+        'It eliminates the need for any synchronization at all',
+        'It allows any number of readers to hold the lock simultaneously (since concurrent reads alone cannot corrupt data), only forcing exclusive, one-at-a-time access when a writer needs to modify the data',
+        'It makes every write operation instantaneous',
+        'It is functionally identical to a plain mutex with a different name',
+      ],
+      answer: 1,
+      why: 'Allowing concurrent reads while still serializing writes is exactly the distinction that makes readers-writer locks valuable for read-heavy workloads, compared to a mutex\'s strict one-at-a-time access for everyone.',
+    },
+  ]}
+/>
+
+---
+
+## Lock-Not-Needed Assertions
+
+Sometimes a programmer already knows — from the game loop's actual structure, say — that two pieces of code accessing shared data can never *actually* run concurrently, even though nothing in the type system proves it. Locking "just in case" adds real, permanent overhead for a race that can never happen; skipping synchronization entirely offers no safety net if that assumption is ever silently broken by a later refactor. A cheap middle ground: a **lock-not-needed assertion** — a plain (non-atomic!) `volatile bool` flag, `assert()`-checked and flipped on entry, `assert()`-checked and flipped back on exit:
+
+```cpp
+class UnnecessaryLock {
+public:
+    void Acquire() {
+        assert(!m_locked);   // if this fires, our "no overlap" assumption was wrong
+        m_locked = true;
+    }
+    void Release() {
+        assert(m_locked);
+        m_locked = false;
+    }
+private:
+    volatile bool m_locked = false;
+};
+```
+
+This isn't a real lock, and it isn't a 100%-reliable race detector — a plain `volatile bool` has none of the atomicity guarantees this whole lesson series has been building up. But that's fine here, since it's not the job: a false positive miss doesn't have to happen every time, only *often enough* to be caught during ordinary development and testing by *someone* on the team — and the check is strippable entirely in shipping builds, at effectively zero cost. Naughty Dog reports this exact pattern catching real overlap bugs in production engine code — cases where two systems were quietly assumed never to run concurrently, until a refactor proved that assumption wrong.
+
+---
+
+## Lock-Free Transactions, in Practice
+
+Writing a correctly-fenced spin lock is, somewhat counterintuitively, itself an exercise in lock-free programming, from the point of view of the lock's own implementation. But it doesn't yet show the *general* shape of a lock-free algorithm applied to something bigger than a boolean flag. That shape, recall from [Rules of Thumb for Concurrency](./rules-of-thumb-for-concurrency#transaction-based-algorithms), is the **transaction**: do all the real work **locally**, invisible to any other thread, and only when it's fully ready, attempt to publish it with a **single atomic instruction** — typically CAS. Success means the transaction is now permanently, globally visible; failure means some other thread's transaction beat yours to the punch, so you retry with fresh data. One thread always makes progress whenever another one fails — precisely the definition of lock-freedom from two lessons ago.
+
+## A Lock-Free Linked List
+
+`push_front()` on a singly linked list is the classic, approachable example of this pattern in action. Preparing the transaction is pure local work: allocate the new node, and point its `next` at whatever the list's current head happens to be. Committing it is one atomic step: CAS the list's head pointer from "the old head I saw" to "my new node" — succeeding only if nobody else has changed the head since:
+
+```cpp
+template <class T>
+class LockFreeSList {
+    struct Node {
+        T data;
+        Node* next;
+    };
+    std::atomic<Node*> m_head{nullptr};
+
+public:
+    void push_front(T data) {
+        auto* pNode = new Node();
+        pNode->data = data;
+        pNode->next = m_head.load();
+
+        // commit atomically — compare_exchange_weak automatically
+        // refreshes pNode->next to the current head on failure, so
+        // this loop always retries with a fresh view of the list
+        while (!m_head.compare_exchange_weak(pNode->next, pNode)) {
+            // failed — someone else changed the head; retry
+        }
+    }
+
+    // A minimal accessor purely for testing, below.
+    Node* head() const { return m_head.load(); }
+};
+```
+
+Notice there's no explicit re-read-and-retry logic visible for `pNode->next` — `compare_exchange_weak` handles that step for you automatically, overwriting its "expected" argument with whatever the *actual* current value was on every failed attempt. That's exactly why the retry loop above needs no body at all.
+
+### Practice: implement lock-free push_front
+
+Fill in the transaction shown above yourself — prepare the node locally, then commit it with a CAS retry loop.
+
+<CodeExercise
+  title="Lock-free linked list push_front"
+  heading="exercise-lockfree-list"
+  lang="cpp"
+  filename="main.cpp"
+  prompt="Implement push_front(T data) so it allocates a node, points it at the current head, and commits the new head via a compare_exchange_weak retry loop."
+  sampleLog={`(no input)
+3 2 1`}
+  starter={`#include <iostream>
+#include <atomic>
+using namespace std;
+
+template <class T>
+class LockFreeSList {
+    struct Node {
+        T data;
+        Node* next;
+    };
+    atomic<Node*> m_head{nullptr};
+
+public:
+    void push_front(T data) {
+        // TODO: allocate a new Node, set its data, point its next
+        // at the current head, then commit it as the new head using
+        // a compare_exchange_weak retry loop on m_head.
+    }
+
+    Node* head() const { return m_head.load(); }
+};
+
+int main() {
+    LockFreeSList<int> list;
+    list.push_front(1);
+    list.push_front(2);
+    list.push_front(3);
+
+    auto* node = list.head();
+    bool first = true;
+    while (node) {
+        if (!first) cout << " ";
+        cout << node->data;
+        first = false;
+        node = node->next;
+    }
+    cout << endl;
+    return 0;
+}
+`}
+  hint="auto* pNode = new Node(); pNode->data = data; pNode->next = m_head.load(); while (!m_head.compare_exchange_weak(pNode->next, pNode)) { }"
+  solution={`#include <iostream>
+#include <atomic>
+using namespace std;
+
+template <class T>
+class LockFreeSList {
+    struct Node {
+        T data;
+        Node* next;
+    };
+    atomic<Node*> m_head{nullptr};
+
+public:
+    void push_front(T data) {
+        auto* pNode = new Node();
+        pNode->data = data;
+        pNode->next = m_head.load();
+        while (!m_head.compare_exchange_weak(pNode->next, pNode)) {
+            // retry with the refreshed pNode->next
+        }
+    }
+
+    Node* head() const { return m_head.load(); }
+};
+
+int main() {
+    LockFreeSList<int> list;
+    list.push_front(1);
+    list.push_front(2);
+    list.push_front(3);
+
+    auto* node = list.head();
+    bool first = true;
+    while (node) {
+        if (!first) cout << " ";
+        cout << node->data;
+        first = false;
+        node = node->next;
+    }
+    cout << endl;
+    return 0;
+}
+`}
+  sourceChecks={[
+    { name: 'commits via compare_exchange_weak on m_head', pattern: 'm_head\\.compare_exchange_weak', must: true, hint: 'commit the new head using m_head.compare_exchange_weak(pNode->next, pNode)' },
+  ]}
+  tests={[
+    { name: 'three pushes produce the list in reverse order', stdin: '', equals: '3 2 1' },
+  ]}
+/>
+
+:::note Why this matters even single-threaded
+Just like the spinlock exercise back in [Thread Synchronization Primitives](./thread-synchronization-primitives#practice-build-a-spinlock-from-stdatomic), this exercise runs sequentially here — but `compare_exchange_weak` is a genuine hardware CAS instruction underneath. If two real threads called `push_front()` at the exact same instant, the hardware itself guarantees only one of them observes a matching "expected" value and wins the race; the other transparently retries with the freshly-updated head, exactly as the loop above already handles.
+:::
+
+---
+
+:::important Key takeaways
+- A **correctly-fenced spin lock** needs acquire semantics on `Acquire()` and release semantics on `Release()` — not just any atomic instruction, but one carrying the right memory-ordering guarantee in the right direction.
+- **Scoped (RAII) locks**, **reentrant locks**, and **readers-writer locks** are all refinements built on the same atomic foundation, each solving a specific, recurring pain point (manual unlock bugs, self-deadlock on reentrant calls, and unnecessary reader-reader contention, respectively).
+- A **lock-not-needed assertion** is a deliberately cheap, deliberately imperfect safety net for cases where a programmer is confident no real overlap can occur — catching accidental violations of that assumption without paying for a real lock.
+- Every lock-free algorithm follows the same shape: do the work **locally**, then commit it with **one atomic instruction**, retrying on failure — exactly what both the spin lock and the lock-free linked list's `push_front()` demonstrate directly.
+:::
+
+## Further Reading
+
+- Jason Gregory — *Game Engine Architecture*, 3rd ed. (CRC Press, 2018), Chapter 4, Sections 4.9.7–4.9.10
+- [Memory Fences and the C++ Memory Model](./memory-fences-and-the-cpp-memory-model) — this series' previous lesson
+- Herb Sutter — ["Lock-Free Programming"](https://www.youtube.com/watch?v=c1gO9aB9nbs) (CppCon 2014), the original source of the lock-free linked list example this lesson adapts
+- [Wikipedia: Seqlock](https://en.wikipedia.org/wiki/Seqlock) and [Read-copy-update](https://en.wikipedia.org/wiki/Read-copy-update) — alternatives to readers-writer locks that avoid their starvation issues
+- Jeff Preshing — ["An Introduction to Lock-Free Programming"](https://preshing.com/20120612/an-introduction-to-lock-free-programming/)

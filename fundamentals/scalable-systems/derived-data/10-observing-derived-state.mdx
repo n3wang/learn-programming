@@ -1,0 +1,158 @@
+---
+sidebar_position: 10
+title: Observing Derived State
+---
+
+# Observing Derived State
+
+> **Adapted from:** Martin Kleppmann, *Designing Data-Intensive Applications* (O'Reilly, 2017), Chapter 12 — rewritten and condensed for teaching.
+
+[Designing Applications Around Dataflow](./designing-applications-around-dataflow) described a process that keeps derived datasets — search indexes, materialized views, predictive models — continuously up to date. That process has a name: the **write path**. This lesson looks at its counterpart, the **read path**, and where pushing that boundary all the way to the end user leads — before this arc closes out with what it actually takes to keep all of this correct, and the ethical questions that come with building it.
+
+---
+
+## Materialized Views and Caching
+
+The **write path** is precomputed — done eagerly, the moment new data arrives, whether or not anyone has asked to see it yet. The **read path** only happens on demand, when a user actually makes a request. Readers familiar with functional programming will recognize the shape: the write path is eager evaluation, the read path is lazy evaluation. A derived dataset is exactly the point where the two meet — trading work done at write time against work done at read time.
+
+Full-text search makes the trade-off concrete. **No index at all** means zero write-time work, but every search degenerates into scanning every document (like `grep`) — brutally expensive at scale. **Precomputing every possible query's results** would eliminate essentially all read-time work, but the space of possible queries is unbounded, so that's not implementable. A real search index sits in between: moderate work at write time (updating index entries for a document's terms) buys moderate work at read time (looking up each query term, then combining results with the query's Boolean logic).
+
+There's a third option, cache-shaped: precompute results for a fixed set of the **most common** queries — call it a cache, or, just as accurately, a materialized view, since it needs updating whenever new documents affect one of those common queries' results. An index isn't the only place the read/write boundary can sit — full scanning, a search index, and a cache of common queries are three different points along the same trade-off, and this is the exact same idea as the differently-drawn read/write boundary between celebrity and ordinary users introduced all the way back in the book's opening chapter.
+
+### Practice: shifting the write/read boundary for search
+
+Implement both ends of that trade-off directly: serve a query instantly from a precomputed cache (the write path) when one exists, and fall back to scanning the index and combining results with AND logic (the read path) otherwise.
+
+<CodeExercise
+  title="Serve from a query cache, or fall back to scanning the index"
+  heading="exercise-write-read-boundary"
+  lang="python"
+  filename="main.py"
+  prompt="Implement answer_query(query, common_cache, full_index). common_cache is a dict mapping a full query string to a precomputed sorted list of doc IDs (the write path). full_index is a dict mapping a single word to a set of doc IDs containing it. If query is in common_cache, return its cached result directly. Otherwise, split query into words, look each word up in full_index, and return the sorted list of doc IDs that contain ALL of the words (set intersection)."
+  sampleLog={`(no input)
+[1, 2]
+[2, 3]`}
+  starter={`def answer_query(query, common_cache, full_index):
+    # TODO: if query is precomputed in common_cache, return it directly.
+    # Otherwise split query into words, intersect each word's doc-id set
+    # from full_index, and return the sorted result.
+    pass
+
+common_cache = {"python tutorial": [1, 2]}
+full_index = {"python": {1, 2, 3}, "guide": {2, 3, 4}}
+print(answer_query("python tutorial", common_cache, full_index))
+print(answer_query("python guide", common_cache, full_index))
+`}
+  hint="For the cache hit, just return common_cache[query]. Otherwise, start with full_index[words[0]] and intersect (&) with each subsequent word's set, then sorted(...)."
+  solution={`def answer_query(query, common_cache, full_index):
+    if query in common_cache:
+        return common_cache[query]
+    words = query.split()
+    result = full_index.get(words[0], set())
+    for w in words[1:]:
+        result = result & full_index.get(w, set())
+    return sorted(result)
+
+common_cache = {"python tutorial": [1, 2]}
+full_index = {"python": {1, 2, 3}, "guide": {2, 3, 4}}
+print(answer_query("python tutorial", common_cache, full_index))
+print(answer_query("python guide", common_cache, full_index))
+`}
+  sourceChecks={[
+    { name: 'checks the cache before falling back to the index', pattern: 'common_cache', must: true, hint: 'check `if query in common_cache` before scanning full_index at all' },
+  ]}
+  tests={[
+    { name: 'cached query returns the precomputed result directly', stdin: '', equals: "[1, 2]\n[2, 3]" },
+  ]}
+/>
+
+---
+
+## Stateful, Offline-Capable Clients
+
+Two decades of web application development have made the stateless-client, authoritative-server model feel like the only option — browsers that could do essentially nothing useful offline. But single-page JavaScript apps and mobile apps now routinely hold substantial local state and persistent local storage, enabling **offline-first** applications that work primarily against a local, on-device database and sync with servers in the background whenever a connection exists. Reframed through the write-path/read-path lens: **on-device state is a cache of server state.** The pixels on screen are a materialized view of local model objects, which are themselves a local replica of state living in a remote datacenter.
+
+### Pushing State Changes to Clients
+
+Ordinary web pages only reflect a single point-in-time read — a page doesn't find out the underlying data changed until you reload it, effectively polling by hand. Protocols going beyond plain request/response — server-sent events, WebSockets — let a server keep an open connection and actively **push** changes to the browser as they happen, directly reducing how stale that client-side state can get.
+
+In write-path/read-path terms, pushing state changes all the way to client devices means extending the **write path** all the way to the end user. A client still needs an initial read to bootstrap its state, but from then on it can simply consume a stream of changes — and it already has a known answer for the "what if the device goes offline for a while" problem: the same **consumer offset** tracking that lets a log-based broker's consumer resume without missing anything after a disconnect (see [Replaying old messages](./transmitting-event-streams)) works identically here, per user, per device.
+
+### End-to-End Event Streams
+
+Frameworks like Elm and Facebook's React/Flux/Redux toolchain already manage client-side UI state as a stream of events — user input, server responses — structured very much like [event sourcing](./databases-and-streams#event-sourcing). Extending that same model so a **server** can push state-change events into that same client-side pipeline creates a genuinely end-to-end write path: from the interaction that triggers a change, through event logs and several derived-data stages, all the way to another user's screen — potentially with delay under a second.
+
+Instant messaging and online games already work this way. The obstacle to doing this everywhere is how deeply the request/response, stateless-client assumption is baked into most databases, libraries, and protocols — very few data stores support "give me a stream of future responses" as a first-class operation the way they support ordinary reads and writes. Making that shift — from request/response toward publish/subscribe — is, in Kleppmann's view, worth the real engineering effort it takes, for meaningfully more responsive UIs and genuinely better offline support.
+
+### Reads Are Events Too
+
+Writes to a derived store already flow through an event log; reads are normally a completely separate, transient network request straight to whatever node holds the relevant data. That's a reasonable design — but not the *only* one. **Read requests can be represented as events too**, routed through the same stream processor as the writes, with the processor answering a read by emitting its result to an output stream.
+
+Framed this way, a plain one-off read is a **stream-table join** that immediately forgets the read event once it's answered; a **subscription** is the same join, kept persistently open against past and future events on the write side. This reframing has a genuine secondary benefit: logging read events lets you reconstruct exactly what state a user actually observed before making a decision — directly enabling the causal-dependency tracking discussed back in [Ordering events to capture causality](./data-integration-and-the-limits-of-total-order#ordering-events-to-capture-causality) — at the real cost of extra storage and I/O for every read.
+
+### Multi-Partition Data Processing
+
+For a query touching just one partition, routing it through a stream feels like overkill. But the same infrastructure — message routing, partitioning, joining — opens up **distributed execution of queries that genuinely span multiple partitions**. Storm's distributed RPC feature is a concrete example: computing how many distinct people have seen a given URL on Twitter means unioning the follower sets of everyone who tweeted it — a computation that inherently spans however the user base happens to be partitioned. Fraud prevention hits the same shape: scoring a purchase's risk means joining reputation data for the buyer's IP, email, billing address, and shipping address — each held in its own, separately-partitioned reputation database.
+
+MPP databases' internal query execution graphs already look like this. If you genuinely need this kind of multi-partition join, an off-the-shelf database that already supports it is usually simpler than reimplementing it on a stream processor — but treating queries themselves as streams is a real option once you're building at a scale conventional off-the-shelf tools can no longer comfortably reach.
+
+### Check: pushing state to clients, and reads as events
+
+<MultipleChoice
+  id="ddia-future-observing-state"
+  title="Offline-capable clients, end-to-end streams, and reads as stream-table joins"
+  questions={[
+    {
+      prompt: 'What does it mean to say that pushing state changes all the way to end-user client devices "extends the write path to the end user"?',
+      choices: [
+        'It means users can now write directly to the production database from their browser',
+        'Instead of a client passively polling for updates, the server actively pushes state-change events to the client as they happen — meaning the same eager, write-time propagation used to keep server-side derived data current now continues all the way to the client\'s own local state',
+        'It means the client no longer needs to perform any initial read at all',
+        'It has nothing to do with the write path/read path distinction discussed earlier in the lesson',
+      ],
+      answer: 1,
+      why: 'The write path is defined as eager, write-time propagation of state changes — pushing changes to clients via a persistent connection is exactly that same eager propagation extended one hop further, to the client itself.',
+    },
+    {
+      prompt: 'How does representing read requests as events, routed through the same stream processor as writes, relate to the concept of a "join"?',
+      choices: [
+        'Read events have no relationship to joins whatsoever',
+        'A one-off read event is a stream-table join between the query and the current state that immediately forgets itself once answered, while a subscription is the same join kept persistently open against both past and future write events',
+        'Only writes can ever be expressed as joins; reads cannot',
+        'This approach requires abandoning stream processing entirely',
+      ],
+      answer: 1,
+      why: 'The lesson draws this equivalence directly: a transient read is a join that\'s evaluated once and discarded, while an ongoing subscription is that same join left open indefinitely.',
+    },
+    {
+      prompt: 'Why might computing "how many distinct people have seen a given URL on Twitter" require genuinely multi-partition, distributed query processing?',
+      choices: [
+        'This computation could trivially be answered by querying a single machine',
+        'It requires unioning the follower sets of every user who tweeted that URL, and since the overall user base is itself partitioned across many machines, correctly combining results means joining and combining data that spans multiple, separately-held partitions',
+        'Twitter does not actually partition its user data at all',
+        'This kind of computation is impossible to perform with any technology',
+      ],
+      answer: 1,
+      why: 'The lesson uses this example specifically because the required union-of-follower-sets computation inherently crosses however the underlying user data happens to be partitioned.',
+    },
+  ]}
+/>
+
+---
+
+:::important Key takeaways
+- The **write path** (eager, precomputed, done regardless of whether anyone asks) and the **read path** (lazy, done only on demand) meet at every derived dataset — indexes, caches, and materialized views are just different points along that same write-time-vs-read-time trade-off.
+- **Offline-first clients** reframe on-device state as a cache of server state, and pushing changes to clients via WebSockets/SSE — rather than making clients poll — effectively extends the write path all the way to the end user, using the same consumer-offset machinery that lets a disconnected log consumer resume without missing anything.
+- **End-to-end event streams**, already used internally by frameworks like Elm and Redux, could in principle extend into a genuinely end-to-end write path — from the interaction that triggers a change all the way to another user's screen — but request/response assumptions remain deeply baked into most current databases and protocols.
+- Representing **reads as events**, processed through the same stream operator as writes, reframes a one-off read as a transient stream-table join and a subscription as a persistent one — with the added benefit of enabling causal-dependency tracking, at a real storage and I/O cost.
+- **Multi-partition query processing** (fraud scoring, cross-follower-set unions) can be implemented by routing queries through the same partitioning and joining infrastructure stream processors already provide — a real option once a workload outgrows what an off-the-shelf database comfortably handles.
+:::
+
+## Further Reading
+
+- Martin Kleppmann — *Designing Data-Intensive Applications* (O'Reilly, 2017), Chapter 12
+- [Designing Applications Around Dataflow](./designing-applications-around-dataflow) — this series' previous lesson
+- [Correctness and Integrity in Dataflow Systems](./correctness-and-integrity-in-dataflow-systems) — this series' next lesson
+- [Data Integration and the Limits of Total Order](./data-integration-and-the-limits-of-total-order) — the causal-dependency tracking this lesson's "reads are events too" section builds on
+- [Transmitting Event Streams](./transmitting-event-streams) — consumer offsets and replaying old messages, the mechanism behind resuming a disconnected client
+- [Databases and Streams](./databases-and-streams) — event sourcing, the pattern Elm/Redux-style client state management mirrors

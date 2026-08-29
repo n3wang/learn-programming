@@ -1,0 +1,315 @@
+---
+sidebar_position: 11
+title: Linearizability
+---
+
+# Linearizability
+
+> **Adapted from:** Martin Kleppmann, *Designing Data-Intensive Applications* (O'Reilly, 2017), Chapter 9 — rewritten and condensed for teaching.
+
+Everything in [Faults, Partial Failures, and Unreliable Networks](./faults-partial-failures-and-unreliable-networks), [Unreliable Clocks](./unreliable-clocks), and [Knowledge, Truth, and Lies](./knowledge-truth-and-lies) established the same theme: distributed systems face a genuinely wide range of ways to go wrong. The response isn't to hope faults don't happen — it's to find powerful, general-purpose **abstractions** that hide those faults from applications, the same way a database **transaction** lets application code pretend crashes, concurrent access, and unreliable disks simply don't exist. This lesson (and the three that follow) build up exactly that kind of abstraction for distributed systems — starting with **linearizability**, one of the strongest, most intuitive consistency guarantees a database can offer.
+
+---
+
+## What Linearizability Actually Promises
+
+[Problems with Replication Lag](./problems-with-replication-lag) already established that asking two replicas the same question at the same moment can produce two different answers — an inescapable consequence of replication lag, regardless of whether you're using single-leader, multi-leader, or leaderless replication. **Linearizability** (also called *atomic consistency*, *strong consistency*, or *external consistency*) is the guarantee that makes this problem disappear entirely from the application's point of view: it makes a system **behave as if there were only a single copy of the data**, with every operation on it taking effect **atomically**.
+
+The concrete promise: the instant one client's write successfully completes, **every** subsequent read from **any** client is guaranteed to see that new value. Linearizability is, at its core, a **recency guarantee** — a read is guaranteed to reflect the most recent write, never a stale one.
+
+A concrete non-example makes this vivid: Alice and Bob are in the same room, both checking their phones for the final score of a match. The instant the result is announced, Alice refreshes and sees it — and excitedly tells Bob out loud. Bob, hearing this, immediately refreshes his own phone — but his request happens to land on a lagging replica, and his phone still shows the match as ongoing. Bob's query is chronologically *after* Alice's (he only refreshed because he heard her), yet it returned **older** data. That's a linearizability violation — and it's jarring specifically because Bob has an independent, real-world reason to expect his own read to be at least as fresh as Alice's.
+
+### Check: what linearizability promises
+
+<MultipleChoice
+  id="ddia-linearizability-intro"
+  title="The basic idea of linearizability"
+  questions={[
+    {
+      prompt: 'What is the core, informal idea behind linearizability?',
+      choices: [
+        'That reads are always faster than writes',
+        'That the system behaves as if there were only a single copy of the data, with every operation appearing to take effect atomically — so applications never have to think about replicas or replication lag at all',
+        'That every write must be confirmed by every single replica before returning success',
+        'That linearizability only applies to databases using multi-leader replication',
+      ],
+      answer: 1,
+      why: 'The "single copy, atomic operations" illusion is exactly what linearizability provides — everything else in this lesson follows from that core promise.',
+    },
+    {
+      prompt: 'In the Alice-and-Bob football score example, WHY is Bob\'s stale read specifically considered a linearizability violation, rather than just an ordinary consequence of replication lag?',
+      choices: [
+        'Because replication lag can never actually cause stale reads',
+        'Because Bob\'s read happened chronologically AFTER Alice\'s — he only refreshed because he heard her announce the score — yet his read returned OLDER data than hers; linearizability specifically promises that a later read is at least as fresh as an earlier one',
+        'Because Alice and Bob were using different websites',
+        'Because linearizability only concerns writes, never reads',
+      ],
+      answer: 1,
+      why: 'The violation is specifically about the RECENCY ordering between two reads — Bob\'s read, happening later in real time, should never return data staler than Alice\'s earlier read under linearizability.',
+    },
+  ]}
+/>
+
+---
+
+## What Makes a System Linearizable, Precisely
+
+To pin the idea down more precisely, consider a single value — called a **register** in the distributed systems literature (in practice: one key in a key-value store, one row, one document) — with three operations: `read(x) ⇒ v` (read register `x`, get back value `v`), `write(x, v) ⇒ r` (set `x` to `v`, get back a response `r`), and `cas(x, v_old, v_new) ⇒ r` (**compare-and-set**: atomically set `x` to `v_new`, but *only* if its current value is `v_old`; otherwise leave it unchanged and return an error).
+
+Picture several clients concurrently reading and writing the same register, each request drawn as a bar from when it was *sent* to when the *response* arrived — since network delay is variable, a client genuinely doesn't know exactly *when*, within that window, the database actually processed its request. With `x` starting at `0` and one client writing `1`:
+
+- A read that **completes before** the write **begins** must return the old value, `0` — no ambiguity possible.
+- A read that **begins after** the write **completes** must return the new value, `1`, if the system is linearizable — by then the write is unambiguously done.
+- A read **overlapping** the write in time could legitimately return either `0` or `1` — from the outside, you can't know exactly when, within the write's own window, it actually took effect.
+
+That third rule alone isn't quite enough to fully specify linearizability, though — taken alone, it would still permit an overlapping read to flip back and forth between `0` and `1` several times while the write is in progress, which is obviously *not* what "acts like a single copy of the data" should mean. Linearizability adds one more constraint: **once any read has returned the new value, every subsequent read — on any client — must also return the new value**, even before the write operation has technically finished responding. Picture it as if there's some single, precise instant — somewhere between the write's start and end — where `x` atomically flips from `0` to `1`; every read before that instant sees `0`, every read after sees `1`, with **no going back**.
+
+This is exactly the same shape as the Alice-and-Bob example: once Alice has read the new score, Bob (reading later) must see it too — there's no valid execution where he legitimately sees the old one again. Formally, every operation can be marked with the single point in time it appears to have taken effect, and those markers — joined up across every operation, from every client — must form a valid, causally sensible sequence of reads and writes that only ever moves **forward** in time, never backward. That's linearizability's true defining rule: given a full log of a system's requests and responses, you could — in principle, if expensively — check it against this rule and mechanically verify whether the system actually behaved as if there were only one copy of the data throughout.
+
+:::note Order sent isn't order processed — and that's fine
+A subtlety worth internalizing: linearizability constrains the order operations appear to **take effect**, not the order clients happened to **send** their requests in. A read sent *before* two writes can still validly return the value from the *second* write, as long as all three operations genuinely overlap in time — the read might simply have been delayed slightly in the network, reaching the database after both writes had already landed. Similarly, a read can return a value before the writing client has even received its own "write succeeded" confirmation — that confirmation was just delayed on its way back. Neither case breaks linearizability; both are honest consequences of finite, variable network delay.
+:::
+
+### Check: precise linearizability
+
+<MultipleChoice
+  id="ddia-linearizability-precise"
+  title="What precisely makes a system linearizable"
+  questions={[
+    {
+      prompt: 'Why is it NOT sufficient for a linearizable system to simply say "a read concurrent with a write may return either the old or the new value"?',
+      choices: [
+        'That rule is already fully sufficient on its own',
+        'That rule alone would still permit reads to flip back and forth between the old and new value multiple times while the write is still in progress — which is not what "acting like a single copy of the data" should mean; a stronger rule is needed: once ANY read sees the new value, all subsequent reads must too',
+        'Because writes can never be concurrent with reads in any real system',
+        'Because compare-and-set operations are not allowed to be concurrent with reads',
+      ],
+      answer: 1,
+      why: 'The "no going back" constraint — once a new value is observed, it must stay observed — is exactly what the weaker overlapping-read rule alone fails to guarantee, and it\'s what actually captures the single-copy illusion.',
+    },
+    {
+      prompt: 'Why is it acceptable, under linearizability, for a read to return a value from a write that hasn\'t yet been confirmed back to the writing client?',
+      choices: [
+        'It is never acceptable and always indicates a bug',
+        'Because the write may have already genuinely taken effect on the database — only the CONFIRMATION message back to the client was delayed on the network; the actual moment the write took effect can validly be earlier than when the client learns about it',
+        'Because linearizability does not apply to write confirmations',
+        'Because reads and writes can never happen in the same time window',
+      ],
+      answer: 1,
+      why: 'Confirmation delay is just ordinary variable network delay on the response side — the write itself can have already atomically taken effect, which a later-arriving read is entitled to observe.',
+    },
+  ]}
+/>
+
+---
+
+## Linearizability vs. Serializability: Easy to Confuse, Genuinely Different
+
+The names sound alike, and both roughly mean "can be arranged in a sequential order" — but they answer completely different questions:
+
+| | Serializability | Linearizability |
+|---|---|---|
+| **Scope** | **Transactions**, each possibly touching multiple objects | A single **register** (one object) |
+| **Guarantee** | Transactions behave *as if* run in **some** serial order — not necessarily the order they actually ran in | Reads/writes reflect the most **recent** state — a genuine recency guarantee |
+| **Prevents** | Transaction-level races, like write skew | Nothing about multi-object transactions on its own |
+
+A database can offer **both** at once — that combination is called **strict serializability** (or *strong one-copy serializability*). Implementations built on **two-phase locking** or genuine **serial execution** typically end up linearizable as a side effect of how they work. **Serializable snapshot isolation**, notably, is *not* linearizable — it deliberately reads from a fixed, slightly-in-the-past consistent snapshot specifically to avoid lock contention between readers and writers, and that's precisely what breaks the recency guarantee linearizability requires.
+
+---
+
+## Where Linearizability Actually Matters
+
+Viewing a slightly-stale sports score is low-stakes. A few real situations genuinely depend on linearizability to work correctly at all:
+
+**Locking and leader election.** A system electing a single leader — to avoid split brain — commonly does it via a lock: every candidate node races to acquire it, and whoever succeeds becomes leader. That lock is *useless* unless every node unambiguously agrees on who holds it right now — which is exactly a linearizability requirement. Coordination services like **ZooKeeper** and **etcd** implement exactly this, backed internally by consensus algorithms (covered later in this series) specifically to make their operations linearizable and fault-tolerant at once.
+
+**Uniqueness constraints.** A username, an email address, a file path — anything that must uniquely identify one thing — needs linearizability to enforce correctly *at write time*. This is structurally the same problem as a lock: creating a username is, in effect, "acquiring a lock" on that specific string — implementable as an atomic compare-and-set, claiming the username only if it isn't already taken. The identical requirement shows up anywhere a hard constraint needs everyone to agree on one current, correct value: an account balance that must never dip negative, inventory that must never oversell, a seat that can't be double-booked. (Some of these constraints can be relaxed in practice — an overbooked flight can bump a passenger to a later one and compensate them — in which case linearizability may not actually be necessary. But a genuine *hard* uniqueness constraint has no such escape hatch.)
+
+**Cross-channel timing dependencies.** In the Alice-and-Bob example, the violation only became *visible* because a second, independent channel existed — Alice's voice reaching Bob's ears — alongside the database itself. The identical shape shows up in real systems: a web server writes a photo to file storage, then separately places a "resize this" instruction on a message queue for a background worker. If file storage *isn't* linearizable, the resizer might fetch the queued job faster than the storage system's own internal replication catches up — processing a stale (or entirely missing) version of the image, permanently desynchronizing the full-size and thumbnail versions. The race exists precisely *because* there are two separate communication channels (storage and the queue) with no ordering guarantee between them — linearizable storage is the simplest way to close that gap, though not the only one.
+
+### Check: where linearizability is actually needed
+
+<MultipleChoice
+  id="ddia-linearizability-usecases"
+  title="Real use cases for linearizability"
+  questions={[
+    {
+      prompt: 'Why does implementing leader election via a distributed lock fundamentally require that lock to be linearizable?',
+      choices: [
+        'Linearizability makes lock acquisition faster, which is the only reason it matters',
+        'The entire point of the lock is for every node to unambiguously agree on exactly who currently holds it — if different nodes could have inconsistent views of the lock\'s state, two nodes could both believe they hold it, producing exactly the split-brain scenario the lock exists to prevent',
+        'Locks do not actually require any consistency guarantees to function',
+        'Leader election never actually uses locks in practice',
+      ],
+      answer: 1,
+      why: 'A lock whose state different nodes can disagree about provides no real mutual exclusion — agreement on lock ownership is precisely a linearizability requirement.',
+    },
+    {
+      prompt: 'Why is enforcing a username uniqueness constraint structurally similar to acquiring a lock?',
+      choices: [
+        'They are completely unrelated problems with no structural similarity',
+        'Claiming a username is, in effect, "acquiring a lock" on that specific string — it can be implemented as an atomic compare-and-set that only succeeds if the username is not already taken, exactly the same primitive a lock is built from',
+        'Usernames can only be claimed by administrators, never by users directly',
+        'Locks and uniqueness constraints both require exactly two database replicas',
+      ],
+      answer: 1,
+      why: 'Both problems reduce to the same underlying primitive: an atomic, all-or-nothing claim on a single shared value, only granted if no one else has already claimed it.',
+    },
+    {
+      prompt: 'In the photo-upload/thumbnail-resizer example, why does the race condition specifically arise from having TWO separate communication channels (file storage and a message queue)?',
+      choices: [
+        'Because message queues are inherently unreliable and should never be used',
+        'Because there is no guaranteed ordering relationship between the two channels — the "resize" instruction on the queue might reach the worker before the photo has finished replicating through file storage, so the worker could fetch a stale or missing image even though the instruction implies the photo is already saved',
+        'Because file storage systems can never be made linearizable',
+        'Because this scenario can only occur with exactly two communication channels and no other number',
+      ],
+      answer: 1,
+      why: 'The race exists precisely because the two channels (storage and queue) can complete out of sync with each other — linearizable storage closes this gap by guaranteeing any subsequent read reflects the write that triggered the queued message.',
+    },
+  ]}
+/>
+
+---
+
+## Can Your Replication Method Actually Deliver Linearizability?
+
+| Replication method | Linearizable? |
+|---|---|
+| **Single-leader** | *Potentially* — reads from the leader (or a synchronously-updated follower) can be linearizable, but only if you can be fully certain who the current leader actually is; a "delusional" node that still believes it's the leader (already covered in [Knowledge, Truth, and Lies](./knowledge-truth-and-lies)) can violate it, and asynchronous failover can lose already-confirmed writes outright |
+| **Consensus algorithms** | **Yes** — despite structurally resembling single-leader replication, consensus protocols add explicit protections against split-brain and stale reads, which is exactly how ZooKeeper and etcd deliver genuinely linearizable storage |
+| **Multi-leader** | **No** — writes are accepted independently, concurrently, on multiple nodes, and only reconciled asynchronously afterward, which is structurally incompatible with "one single, agreed-upon copy" |
+| **Leaderless (Dynamo-style)** | **Probably not**, even with strict quorums (`w + r > n`) — "last write wins" conflict resolution based on physical clocks is essentially never linearizable (clock skew can't guarantee it lines up with true event order), and **sloppy quorums** break the guarantee outright |
+
+### Even Strict Quorums Aren't Automatically Linearizable
+
+It's tempting to assume `w + r > n` alone guarantees linearizability in a Dynamo-style system — but variable network delay opens a genuine race. Picture `n = 3, w = 3`: a writer sends `x = 1` to all three replicas. Concurrently, client A reads from a quorum of two nodes and happens to see the new value `1` on one of them. Also concurrently, client B — whose read genuinely *starts after* A's read has already *completed* — reads from a **different** pair of two nodes and gets back the **old** value `0` from both. The quorum condition (`w + r > n`) is technically satisfied — but this execution still isn't linearizable, because B's read, despite starting later, returned staler data than A's earlier one. The same Alice-and-Bob shape, again.
+
+It *is* possible to make Dynamo-style quorums genuinely linearizable — but only at a real performance cost: a reader must perform **synchronous** read repair before ever returning a result, and a writer must first read the latest quorum state before it's allowed to write. Even then, only plain reads and writes can be made linearizable this way — a linearizable **compare-and-set** specifically cannot, because that operation is, provably, equivalent to solving **consensus** outright (a deep connection this series returns to in a later lesson). The safest working assumption: a leaderless Dynamo-style system does **not** provide linearizability, full stop.
+
+### Check: replication methods and linearizability
+
+<MultipleChoice
+  id="ddia-linearizability-replication"
+  title="Which replication methods can deliver linearizability"
+  questions={[
+    {
+      prompt: 'Why is multi-leader replication fundamentally incompatible with linearizability?',
+      choices: [
+        'Multi-leader replication is actually always linearizable by design',
+        'Multiple leaders accept writes independently and concurrently, reconciling them only asynchronously afterward — this is structurally the opposite of "acting like a single, atomically-updated copy of the data," which is the entire premise linearizability rests on',
+        'Multi-leader replication never has more than one node at all',
+        'Linearizability only applies to leaderless systems',
+      ],
+      answer: 1,
+      why: 'The independent, concurrent write acceptance across multiple leaders is exactly what breaks the single-copy illusion linearizability requires.',
+    },
+    {
+      prompt: 'In the Dynamo-style quorum counter-example (n=3, w=3, r=2), why is the execution NOT linearizable even though the quorum condition w+r>n is satisfied?',
+      choices: [
+        'Because the quorum condition being satisfied always guarantees linearizability with no exceptions',
+        'Client B\'s read starts strictly AFTER client A\'s read has already completed, yet B\'s read (from a different pair of replicas) returns the OLD value while A\'s earlier read already returned the NEW value — a later read returning staler data than an earlier one is exactly what linearizability forbids',
+        'Because n=3 is too small a cluster size for any quorum guarantee to apply',
+        'Because compare-and-set operations were used in this example',
+      ],
+      answer: 1,
+      why: 'The quorum overlap guarantee (w+r>n) ensures a read sees at least one up-to-date replica among those it queries — but it does not, by itself, prevent this specific stale-after-fresh ordering violation across two different reads hitting two different quorum subsets.',
+    },
+    {
+      prompt: 'Why can quorum reads/writes be made linearizable with extra work, but a linearizable compare-and-set specifically cannot be achieved the same way?',
+      choices: [
+        'Compare-and-set operations are always faster than plain reads and writes',
+        'Plain reads/writes can be made linearizable via synchronous read repair and reading the latest quorum state before writing — but a linearizable compare-and-set is provably equivalent to solving the consensus problem outright, which quorum tricks alone cannot achieve',
+        'Compare-and-set operations do not exist in Dynamo-style databases',
+        'There is no real difference; both can be made linearizable using the identical technique',
+      ],
+      answer: 1,
+      why: 'The book explicitly notes this equivalence — atomic conditional operations like compare-and-set require genuine consensus, a fundamentally harder problem than simple quorum-overlap reads and writes.',
+    },
+  ]}
+/>
+
+---
+
+## The Cost of Linearizability
+
+Linearizability isn't free, and the trade-off shows up starkly in multi-datacenter deployments. Picture two datacenters, connected over an unreliable link, each internally healthy but temporarily **cut off from each other**. With **multi-leader** replication, each datacenter just keeps working independently, queuing up writes to exchange once the link recovers. With **single-leader** replication, the leader lives in exactly one datacenter — so any client stuck talking to the *other* datacenter can neither write, nor perform a linearizable read, until the network link is repaired. That client can still read from its local follower — just not with any recency guarantee.
+
+### The CAP Theorem, and Why It's Often Misunderstood
+
+This trade-off generalizes far beyond multi-datacenter deployments — it applies to **any** linearizable database, on **any** unreliable network, even entirely within one datacenter. This is the real substance behind the famous **CAP theorem** (Eric Brewer, 2000): when a network partition occurs, you must choose between **linearizability** (some nodes become unavailable until the partition heals) and **total availability** (every node keeps serving, but the result isn't linearizable).
+
+CAP is frequently — and misleadingly — summarized as "Consistency, Availability, Partition tolerance: pick two of three." That framing is broken, because **network partitions are a kind of fault, not a design choice you get to opt out of** — they will happen whether your architecture "picks" partition tolerance or not. A more honest phrasing: **when partitioned, be either consistent or available; when the network is healthy, you can have both at once.** CAP's formal definition is also narrower than its popular reputation suggests — it only ever considers **one** consistency model (linearizability specifically) and **one** kind of fault (network partitions) — it says nothing whatsoever about network *delay*, dead-but-not-partitioned nodes, or any of the many other trade-offs distributed systems actually have to navigate. CAP deserves real credit for kicking off a broader, valuable industry conversation about these trade-offs in the mid-2000s — but as a precise engineering tool for actually designing a system, it's mostly of historical interest today, superseded by more precise results.
+
+### It's Really About Performance, Not Just Fault Tolerance
+
+Here's a genuinely surprising fact: even ordinary RAM on a modern multi-core CPU **isn't linearizable**. Each core keeps its own local cache; a write from one core isn't guaranteed to be visible to a read on a different core shortly afterward, unless you explicitly insert a memory barrier. Nobody would seriously invoke the CAP theorem to justify this — a single computer isn't dealing with network partitions at all. The real reason multi-core memory *drops* linearizability is pure **performance**: caches make memory access dramatically faster, and that's worth more, in this context, than perfect immediate consistency across cores.
+
+The identical logic drives plenty of distributed databases that deliberately skip linearizability too — the primary motivation is very often **speed**, not fault tolerance. And there's a hard theoretical reason performance and linearizability are fundamentally in tension: Attiya and Welch proved that a linearizable read or write's response time is bounded below by the network's own delay **uncertainty** — in a network with genuinely variable delay (which, as [Faults, Partial Failures, and Unreliable Networks](./faults-partial-failures-and-unreliable-networks) established, is essentially every real network), linearizable operations are inescapably going to be slower than weaker-consistency alternatives. There is provably no cleverer algorithm that gets around this — which is exactly why weaker consistency models remain genuinely valuable for latency-sensitive systems, not merely a historical curiosity.
+
+### Practice: implement a linearizable username claim
+
+The uniqueness-constraint use case, made concrete: implement the atomic compare-and-set logic a "claim this username" operation actually needs — succeeding only if the username is genuinely unclaimed at the moment of the attempt.
+
+<CodeExercise
+  title="Atomic username claim"
+  heading="exercise-username-claim"
+  lang="python"
+  filename="main.py"
+  prompt="Implement UsernameRegistry.claim(username, user_id) so it succeeds (returns True) and records the claim only if the username is not already claimed by anyone; otherwise it must leave the existing claim untouched and return False."
+  sampleLog={`(no input)
+True owner: alice-id
+False owner: alice-id
+True owner: bob-id`}
+  starter={`class UsernameRegistry:
+    def __init__(self):
+        self.claims = {}  # username -> user_id
+
+    def claim(self, username, user_id):
+        # TODO: succeed only if username is not already in self.claims.
+        pass
+
+reg = UsernameRegistry()
+print(reg.claim("alice", "alice-id"), "owner:", reg.claims.get("alice"))
+print(reg.claim("alice", "eve-id"), "owner:", reg.claims.get("alice"))
+print(reg.claim("bob", "bob-id"), "owner:", reg.claims.get("bob"))
+`}
+  hint="if username not in self.claims: self.claims[username] = user_id; return True. Otherwise return False without modifying self.claims."
+  solution={`class UsernameRegistry:
+    def __init__(self):
+        self.claims = {}
+
+    def claim(self, username, user_id):
+        if username not in self.claims:
+            self.claims[username] = user_id
+            return True
+        return False
+
+reg = UsernameRegistry()
+print(reg.claim("alice", "alice-id"), "owner:", reg.claims.get("alice"))
+print(reg.claim("alice", "eve-id"), "owner:", reg.claims.get("alice"))
+print(reg.claim("bob", "bob-id"), "owner:", reg.claims.get("bob"))
+`}
+  sourceChecks={[
+    { name: 'checks membership before claiming', pattern: 'not in|in self\\.claims', must: true, hint: 'check whether username is already in self.claims before claiming it' },
+  ]}
+  tests={[
+    { name: 'first claim succeeds, duplicate claim fails and leaves owner unchanged', stdin: '', equals: 'True owner: alice-id\nFalse owner: alice-id\nTrue owner: bob-id' },
+  ]}
+/>
+
+---
+
+:::important Key takeaways
+- **Linearizability** makes a distributed system behave as if there were a single copy of the data with atomic operations — a **recency guarantee**: once any client's read sees a new value, no subsequent read anywhere can see an older one.
+- Linearizability is genuinely different from **serializability** — one is a recency guarantee on a single register, the other is an isolation guarantee across whole multi-object transactions; a database can offer both at once (strict serializability), or neither, or just one.
+- Real uses of linearizability: **leader election/locking** (agreement on lock ownership), **hard uniqueness constraints** (usernames, inventory, seat booking), and closing race conditions across **multiple independent communication channels**.
+- Only **single-leader** (carefully) and true **consensus-based** systems can reliably deliver linearizability; **multi-leader** cannot by construction, and **leaderless/Dynamo-style** systems generally cannot either, even with strict quorums.
+- The **CAP theorem**, properly understood, says: when a network partition genuinely occurs, choose between linearizability and availability — not "pick 2 of 3" as it's popularly (and misleadingly) summarized. Beyond fault tolerance, linearizability has a real, unavoidable **performance cost**, provably tied to network delay uncertainty — which is exactly why many systems deliberately trade it away for speed.
+:::
+
+## Further Reading
+
+- Martin Kleppmann — *Designing Data-Intensive Applications* (O'Reilly, 2017), Chapter 9
+- [Knowledge, Truth, and Lies](./knowledge-truth-and-lies) — this series' previous lesson
+- [Ordering Guarantees](./ordering-guarantees) — this series' next lesson: causality, total order broadcast, and Lamport timestamps
+- Eric Brewer — ["CAP Twelve Years Later: How the 'Rules' Have Changed"](https://www.infoq.com/articles/cap-twelve-years-later-how-the-rules-have-changed/)

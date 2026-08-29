@@ -1,0 +1,271 @@
+---
+sidebar_position: 13
+title: Distributed Transactions and Two-Phase Commit
+---
+
+# Distributed Transactions and Two-Phase Commit
+
+> **Adapted from:** Martin Kleppmann, *Designing Data-Intensive Applications* (O'Reilly, 2017), Chapter 9 — rewritten and condensed for teaching.
+
+[Ordering Guarantees](./ordering-guarantees) ended on a genuinely striking result: linearizable storage, total order broadcast, and **consensus** are all formally equivalent problems — solve one, and the other two come along for free. That equivalence is exactly why **consensus** — getting several nodes to agree on something, reliably, even in the face of faults — deserves to be treated as *the* central problem of distributed systems. This lesson works through the first concrete instance of it: **atomic commit** across multiple nodes, and the classic algorithm built to solve it, **two-phase commit (2PC)**. The lesson after this one tackles consensus in its full, general form.
+
+---
+
+## Why Consensus Matters: Two Motivating Problems
+
+**Leader election.** In a database with single-leader replication, every node has to agree on *which* node is currently the leader. As [Knowledge, Truth, and Lies](./knowledge-truth-and-lies) already established, a node's own private belief about being "the chosen one" proves nothing on its own — if two nodes both genuinely believe they're the leader, that's **split brain**, and it routinely leads directly to data loss or corruption. Avoiding it requires every node to reach genuine, reliable **agreement**.
+
+**Atomic commit.** In a database whose transactions span multiple nodes or partitions, a transaction can succeed on some nodes and fail on others. Preserving the atomicity that ACID transactions promise — see [the transactions material in this series]  — means getting every participating node to agree on **one** shared outcome: either everyone commits, or everyone aborts, with no valid in-between state. This specific instance of consensus is called the **atomic commit problem**.
+
+## The Impossibility of Consensus — and Why It Doesn't Actually Doom Us
+
+You may run across the **FLP result** (Fischer, Lynch, Paterson) at some point, which proves that **no algorithm can always reach consensus if there's any risk a node might crash.** Since real distributed systems obviously have to assume nodes can crash, this sounds like it should make reliable consensus categorically impossible. And yet — consensus algorithms genuinely exist, and genuinely work, in real production systems every day. What's actually going on?
+
+The resolution: FLP is proved specifically within the **asynchronous system model** — the deliberately restrictive one from [Faults, Partial Failures, and Unreliable Networks](./faults-partial-failures-and-unreliable-networks#unreliable-networks) that forbids the algorithm from using **any** clock or timeout whatsoever. The instant you allow an algorithm to use timeouts — or *any* other mechanism for merely **suspecting** a node has crashed, even one that's sometimes wrong — consensus becomes genuinely solvable. Even just permitting the algorithm to draw on **random numbers** is enough to sidestep FLP's impossibility. So while FLP carries real theoretical weight, it doesn't stop real distributed systems from achieving consensus in practice — it just tells you precisely what minimal extra ingredient (timeouts, or randomness) any working solution has to lean on.
+
+### Check: motivations for consensus and FLP
+
+<MultipleChoice
+  id="ddia-consensus-motivation"
+  title="Why consensus matters, and the FLP result"
+  questions={[
+    {
+      prompt: 'Why does split brain (two nodes both believing they are the leader) specifically represent a failure of consensus?',
+      choices: [
+        'Split brain has nothing to do with consensus at all',
+        'Consensus requires all nodes to reach genuine AGREEMENT on a single outcome — split brain is exactly the failure of that agreement, with two nodes independently, and incompatibly, believing themselves to hold the same unique role',
+        'Split brain only occurs in single-node systems',
+        'Split brain is prevented automatically by any replicated database, without needing consensus',
+      ],
+      answer: 1,
+      why: 'Split brain is the textbook consequence of failing to achieve agreement — exactly the property consensus algorithms exist to guarantee.',
+    },
+    {
+      prompt: 'Why doesn\'t the FLP impossibility result actually prevent real-world distributed systems from achieving consensus?',
+      choices: [
+        'FLP has been mathematically disproven and no longer applies',
+        'FLP is proved specifically within the restrictive asynchronous model, which forbids using ANY clock, timeout, or randomness; real systems are permitted to use timeouts (or randomness) to merely SUSPECT node failure, and that alone is sufficient to make consensus solvable in practice',
+        'Real systems simply ignore the possibility of node crashes entirely',
+        'FLP only applies to systems with more than 100 nodes',
+      ],
+      answer: 1,
+      why: 'The gap between FLP\'s deliberately restrictive asynchronous model and what real systems are actually permitted to use (timeouts, randomness) is exactly what reconciles the impossibility result with working real-world consensus algorithms.',
+    },
+  ]}
+/>
+
+---
+
+## Atomic Commit and Two-Phase Commit (2PC)
+
+Transaction **atomicity** exists to give applications simple semantics when something goes wrong mid-transaction: either every write in the transaction lands durably (**commit**), or every write is fully undone (**abort**) — never anything half-finished in between. This matters enormously for multi-object transactions, and especially for databases maintaining **secondary indexes**: an index is a separate data structure from the primary data it indexes, so atomicity is exactly what keeps the index from drifting out of sync with the data it's supposed to describe.
+
+### From Single-Node to Distributed Atomic Commit
+
+On a **single** node, atomicity is normally implemented directly by the storage engine: writes go to a write-ahead log, then a **commit record** gets appended to that same log. The single moment the disk finishes durably writing that commit record **is**, definitionally, the moment the transaction becomes committed — before that instant, an abort (say, from a crash) is still possible; after it, the transaction is committed, full stop, even if the machine crashes one instruction later. A single physical device — the disk controller for one particular node — is what makes commitment atomic here.
+
+Now spread that transaction across **multiple** nodes — a multi-object transaction in a partitioned database, say. Simply sending a "commit" request to every node independently and letting each one commit on its own is **not** safe: some nodes might hit a constraint violation and need to abort while others succeed; a commit request might get lost on the network and time out on one node while landing fine on others; a node might crash mid-write and roll back on recovery while its peers commit successfully. If some nodes commit while others abort, the nodes end up **permanently inconsistent** with each other — and worse, once a transaction has committed on even one node, it categorically **cannot be un-committed** later, because other transactions may have already read and built on that now-visible data. A commit, once made, must be **irrevocable**. The direct consequence: a node is only allowed to commit once it's genuinely certain every *other* node participating in the same transaction is also, definitely, going to commit.
+
+### Two-Phase Commit, Introduced
+
+**Two-phase commit (2PC)** is the classic algorithm for solving exactly this — getting every node in a distributed transaction to agree on one shared commit-or-abort outcome. As the name suggests, it splits the decision into two distinct phases, coordinated by a new component that doesn't exist in single-node transactions: the **coordinator** (a.k.a. *transaction manager*) — often just a library embedded in the same application process making the request, though it can also run as a standalone service.
+
+:::caution 2PC ≠ 2PL — genuinely unrelated concepts
+**Two-phase commit** and **two-phase locking** share almost nothing but a name. 2PC solves **atomic commit** across multiple nodes; 2PL implements **serializable isolation** within transactions. Best to treat them as entirely unrelated ideas and just remember the coincidence.
+:::
+
+Each node touched by the transaction is a **participant**. When the application is ready to commit, the coordinator's job unfolds in two phases:
+
+1. **Phase 1 — prepare.** The coordinator sends a **prepare** request to every participant, asking, in effect, "are you able to commit this?" It then collects every response.
+2. **Phase 2 — commit or abort.** If **every** participant responded "yes," the coordinator sends **commit** to everyone, and the transaction genuinely commits. If **any** participant said "no" (or failed to respond at all), the coordinator sends **abort** to everyone instead.
+
+(This maps almost exactly onto a traditional wedding ceremony: the officiant asks bride and groom individually whether each wants to marry the other; only once *both* have said "I do" does the officiant pronounce them married and announce it to everyone present. Either party saying anything other than "yes" calls the whole thing off.)
+
+### A System of Promises
+
+Why does splitting this into two phases actually fix the problem a single "commit" broadcast couldn't? Breaking the full sequence down:
+
+1. The application requests a globally unique **transaction ID** from the coordinator.
+2. It begins an ordinary single-node transaction on each participant, tagged with that shared global ID. Anything going wrong at this stage — a crash, a timeout — and either the coordinator or any participant is free to abort, no drama.
+3. Ready to commit, the coordinator sends the **prepare** request, tagged with the global transaction ID, to every participant. Any single failure or timeout here, and the coordinator aborts the whole transaction outright.
+4. On receiving **prepare**, a participant must make absolutely sure it will be able to commit **no matter what** — durably writing all its transaction data to disk (a subsequent crash or power failure is *not* an acceptable excuse for reneging later), and checking for any conflicts or constraint violations right then. Replying **"yes"** is a genuine, binding **promise**: the participant is explicitly surrendering its own right to unilaterally abort — without yet actually committing.
+5. Once every prepare response is in, the coordinator makes the final call — commit only if every single participant said yes. It durably writes that decision to its own transaction log **before** telling anyone — this is the protocol's true **commit point**.
+6. The coordinator sends the final commit or abort request to every participant, retrying indefinitely until it succeeds — there's no going back once the decision is made. If a participant happened to crash in the meantime, it commits the moment it recovers — having already voted "yes," it's no longer permitted to refuse.
+
+Two genuine "points of no return" make the whole thing work: a participant's **"yes" vote is an irrevocable promise** it will be able to commit later (the coordinator might still choose to abort — but the participant itself can no longer refuse); and the **coordinator's own decision, once durably written, is irrevocable** too. (Single-node atomic commit folds both of these moments into one: the instant the commit record hits disk.)
+
+Returning to the wedding analogy: before saying "I do," either party remains free to bail. But once you've said it, you can't take it back — even if you faint immediately afterward and never actually hear the officiant announce "husband and wife," that doesn't change whether the marriage was, in fact, committed. You find out later by asking, or by the retry eventually reaching you.
+
+### Coordinator Failure: The Genuine Weak Point
+
+What happens if the **coordinator itself** crashes? If it dies before ever sending any prepare request, participants can safely abort on their own — nothing was promised yet. But once a participant has already voted **"yes,"** it's explicitly surrendered the right to unilaterally decide anything — it can only sit and wait to hear the coordinator's final verdict. If the coordinator crashes (or the network fails) at exactly that moment, the participant is stuck: it can't safely abort on a timeout (the coordinator might have already decided commit elsewhere), and it can't safely commit either (some *other* participant might have voted no). This state is called **in doubt**, or **uncertain** — and the *only* way out is for the coordinator to eventually **recover**. This is precisely why the coordinator's decision has to be durably written to disk *before* sending out commit/abort requests: upon restart, it reads that log and can correctly resolve every in-doubt transaction — anything with no commit record in its own log is simply aborted.
+
+### Practice: implement the 2PC coordinator vote
+
+Implement the core decision rule directly: commit only if every single participant votes yes; abort the instant any one of them votes no.
+
+<CodeExercise
+  title="Two-phase commit vote tally"
+  heading="exercise-2pc-vote"
+  lang="python"
+  filename="main.py"
+  prompt="Implement decide(votes) where votes is a list of booleans (one per participant's prepare response). Return 'commit' only if every vote is True; otherwise return 'abort'."
+  sampleLog={`(no input)
+commit
+abort`}
+  starter={`def decide(votes):
+    # TODO: return "commit" only if ALL votes are True, else "abort".
+    pass
+
+print(decide([True, True, True]))
+print(decide([True, False, True]))
+`}
+  hint="Use Python's built-in all(): return 'commit' if all(votes) else 'abort'."
+  solution={`def decide(votes):
+    return "commit" if all(votes) else "abort"
+
+print(decide([True, True, True]))
+print(decide([True, False, True]))
+`}
+  sourceChecks={[
+    { name: 'requires unanimous yes votes', pattern: 'all\\(', must: true, hint: 'use all() to require every vote to be True before committing' },
+  ]}
+  tests={[
+    { name: 'unanimous yes commits, any no aborts', stdin: '', equals: 'commit\nabort' },
+  ]}
+/>
+
+### Three-Phase Commit: A Tempting Fix That Doesn't Quite Work
+
+2PC is called a **blocking** atomic commit protocol, precisely because it can get permanently stuck waiting on a crashed coordinator to recover. In principle, a **nonblocking** version should be possible — and one has genuinely been proposed, called **three-phase commit (3PC)**. In practice, though, 3PC only works under the assumption of **bounded** network delay and **bounded** node response times — exactly the assumptions [Faults, Partial Failures, and Unreliable Networks](./faults-partial-failures-and-unreliable-networks#timeouts-and-unbounded-delays) already established don't hold for real, practical systems. Genuinely nonblocking atomic commit requires a **perfect failure detector** — a mechanism that can reliably tell "crashed" apart from "merely slow," which no real network can provide, since a timeout can never distinguish the two with certainty. That's precisely why 2PC — imperfect, blocking, but at least honest about its limitations — remains the protocol actually used in practice.
+
+### Check: two-phase commit mechanics
+
+<MultipleChoice
+  id="ddia-2pc-mechanics"
+  title="Two-phase commit and coordinator failure"
+  questions={[
+    {
+      prompt: 'Why does a participant\'s "yes" vote in the prepare phase count as an irrevocable PROMISE, rather than just an opinion?',
+      choices: [
+        'A "yes" vote has no binding effect and can be freely retracted at any time',
+        'By replying "yes," the participant is explicitly surrendering its own right to unilaterally abort the transaction later — it has committed to being ABLE to commit no matter what happens afterward (crash, power loss), even though it has not yet actually committed',
+        'A "yes" vote immediately and permanently commits the transaction on that participant',
+        'Prepare votes are purely advisory and the coordinator ignores them',
+      ],
+      answer: 1,
+      why: 'This surrender of the right to unilaterally abort is exactly what the "system of promises" section identifies as the first genuine point of no return in 2PC.',
+    },
+    {
+      prompt: 'Why is a participant that has voted "yes" but then loses contact with the coordinator left in a genuinely "in doubt" state, unable to safely resolve on its own?',
+      choices: [
+        'The participant can always safely just abort after a timeout with no risk',
+        'The participant cannot safely abort (the coordinator might have already decided to commit based on other participants\' votes) and cannot safely commit either (some other participant might have voted no) — without hearing the coordinator\'s actual decision, both choices risk becoming inconsistent with the rest of the transaction',
+        'The participant can always safely just commit after a timeout with no risk',
+        'In-doubt transactions are automatically resolved by the network layer',
+      ],
+      answer: 1,
+      why: 'The symmetric risk of both possible unilateral choices (abort or commit) is exactly what forces the participant to wait for the coordinator\'s actual, definitive decision rather than guessing.',
+    },
+    {
+      prompt: 'Why does three-phase commit (3PC) fail to provide genuine nonblocking atomic commit in most real-world systems, despite being designed to fix 2PC\'s blocking problem?',
+      choices: [
+        '3PC is actually identical to 2PC with no real differences',
+        '3PC assumes bounded network delay and bounded node response times — assumptions that don\'t hold for real systems with unbounded, variable delays; genuinely nonblocking atomic commit requires a "perfect failure detector," which no real, unreliable network can actually provide',
+        '3PC requires fewer participating nodes than 2PC, which is its main limitation',
+        '3PC has never been formally proposed or studied',
+      ],
+      answer: 1,
+      why: 'The gap between 3PC\'s bounded-delay assumptions and the genuinely unbounded delays real networks exhibit is exactly why it fails to deliver on its nonblocking promise in practice.',
+    },
+  ]}
+/>
+
+---
+
+## Distributed Transactions in Practice
+
+Distributed transactions carry a genuinely mixed reputation — celebrated for a safety guarantee that's hard to achieve any other way, but also criticized for real operational pain, meaningful performance cost, and promising more reliability than they consistently deliver. It helps to separate two genuinely different things both commonly called "distributed transactions":
+
+- **Database-internal distributed transactions** — every participating node runs the *same* database software (VoltDB, or MySQL Cluster's NDB engine, for example). Since there's no need to be compatible with anything else, these can be heavily optimized for that one specific technology, and tend to work reasonably well in practice.
+- **Heterogeneous distributed transactions** — participants span **genuinely different** technologies (two different database vendors, or a database plus a message broker). Atomicity has to hold across systems that are, under the hood, entirely different — a considerably harder problem, and the source of most of 2PC's real-world reputation trouble.
+
+### Exactly-Once Message Processing
+
+Heterogeneous distributed transactions unlock a genuinely powerful pattern: acknowledge a message from a queue **if and only if** the database transaction processing it also committed successfully — both wrapped into one atomic commit. If either side fails, **both** get rolled back, and the message broker is free to safely redeliver later. The net effect: a message ends up processed **exactly once**, however many retries it actually took, because the abort path cleanly discards any partial side effects from a failed attempt. This trick only works, though, if **every** system genuinely touched by the transaction can participate in the *same* atomic commit protocol — a side effect like sending an email, for instance, typically can't be rolled back the way a database write can, so if the email server itself doesn't support two-phase commit, a retried message can genuinely mean a duplicate email, even while the "exactly-once" guarantee otherwise holds for everything that *can* participate.
+
+### XA Transactions
+
+**X/Open XA** ("eXtended Architecture") is the standard mechanism for implementing 2PC across genuinely heterogeneous technologies — supported by most major relational databases (PostgreSQL, MySQL, Oracle, SQL Server, DB2) and several message brokers alike. XA itself isn't a network protocol — it's a C-level API for interfacing with a transaction coordinator, with bindings into other ecosystems (Java's JTA/JDBC/JMS stack, notably). A driver that supports XA calls into the XA API to determine whether a given operation belongs to a distributed transaction, and exposes callbacks the coordinator uses to request prepare/commit/abort on that participant.
+
+**Holding locks while in doubt is the real operational cost.** A database transaction typically holds row-level exclusive locks on everything it writes (and, under serializable isolation, shared locks on everything it reads) — and those locks can't be released until the transaction fully commits or aborts. Under 2PC, that means a transaction holds its locks for the **entire** stretch it spends in doubt. If the coordinator crashes and takes 20 minutes to come back, those locks sit there, unavailable to anyone else, for 20 full minutes. If the coordinator's log is somehow permanently lost, those locks can be held **forever** — or at least until a human operator manually intervenes. While those locks are held, no other transaction can touch that same data — potentially stalling large parts of an application until the specific in-doubt transaction is resolved.
+
+**Recovering from a genuinely stuck coordinator.** In theory, a restarted coordinator cleanly recovers its own state from its log and resolves every in-doubt transaction automatically. In practice, **orphaned** in-doubt transactions genuinely do happen — a corrupted or lost transaction log, a software bug — leaving transactions the coordinator simply can no longer resolve on its own, sitting forever, holding locks, blocking everything downstream. Rebooting the database servers doesn't fix this either — a correct 2PC implementation has to preserve an in-doubt transaction's locks *across restarts*, or it risks violating atomicity outright. The only real way out: a human administrator manually inspects every participant of the stuck transaction, works out what actually happened, and applies a consistent outcome by hand — usually under real production-outage pressure. Many XA implementations offer an explicit escape hatch for exactly this: **heuristic decisions**, letting a participant unilaterally commit or abort an in-doubt transaction without ever hearing a definitive verdict from the coordinator. Be very clear about what "heuristic" is doing here — it's a polite word for "probably breaking atomicity," reserved strictly for genuine emergencies, never for routine operation.
+
+### The Real Limitations
+
+- **The coordinator is itself a database** — transaction outcomes live in its log — and needs to be treated with exactly that level of operational care. Yet many coordinator implementations aren't highly available by default, or offer only rudimentary replication.
+- **It breaks the stateless-application-server model.** Most server-side applications are designed to keep *all* persistent state in the database, specifically so application servers can be freely added and removed. Once the coordinator lives inside the application server, its logs become just as durability-critical as the database itself — the application server is no longer meaningfully stateless.
+- **XA is a lowest common denominator, by necessity.** It can't detect deadlocks that span different underlying systems, and it's fundamentally incompatible with techniques like Serializable Snapshot Isolation, which would need its own cross-system conflict-detection protocol that simply doesn't exist.
+- **Failure amplification.** For 2PC to successfully commit, **every single** participant must respond successfully — meaning if *any* part of the system is broken, the *entire* transaction fails. This directly cuts against the whole point of building fault-tolerant systems in the first place: distributed transactions have a genuine tendency to amplify, not contain, failures.
+
+None of this means cross-system consistency is a lost cause — later parts of this series cover real alternative approaches that sidestep heterogeneous 2PC's pain entirely. But first, this series turns to solving **consensus** properly, in its full general form.
+
+### Check: distributed transactions in practice
+
+<MultipleChoice
+  id="ddia-distributed-tx-practice"
+  title="XA, exactly-once processing, and the real costs of 2PC"
+  questions={[
+    {
+      prompt: 'What specifically makes "exactly-once" message processing achievable via a heterogeneous distributed transaction?',
+      choices: [
+        'Message brokers guarantee exactly-once delivery entirely on their own, with no database involvement needed',
+        'The message acknowledgment and the database transaction processing that message are committed ATOMICALLY as one unit — if either side fails, BOTH roll back, so a retried/redelivered message can be safely reprocessed from scratch without risk of double-processing its side effects',
+        'Exactly-once processing requires disabling all retries entirely',
+        'This pattern only works if the message broker and database are the same technology',
+      ],
+      answer: 1,
+      why: 'Atomically tying message acknowledgment to the processing transaction is exactly what makes a redelivered message safe to reprocess without duplicating already-committed side effects.',
+    },
+    {
+      prompt: 'Why does holding locks throughout an in-doubt period represent such a significant operational cost of 2PC?',
+      choices: [
+        'Locks are automatically released the moment a coordinator becomes unreachable',
+        'A transaction must hold its row-level locks for the ENTIRE duration it remains in doubt — if the coordinator takes a long time to recover (or never does), those locks block every other transaction wanting to touch that same data for that entire period, potentially stalling large parts of an application',
+        'In-doubt transactions never actually hold any locks at all',
+        'Locks held during a 2PC transaction only affect the coordinator, never other participants',
+      ],
+      answer: 1,
+      why: 'The lock-holding duration being tied directly to how long the coordinator takes to recover is exactly what makes coordinator downtime so operationally dangerous under 2PC.',
+    },
+    {
+      prompt: 'Why are "heuristic decisions" in XA implementations described as "probably breaking atomicity" rather than a genuine fix for stuck in-doubt transactions?',
+      choices: [
+        'Heuristic decisions always produce the mathematically correct outcome with no risk',
+        'A heuristic decision lets a participant unilaterally commit or abort WITHOUT ever hearing the coordinator\'s actual, definitive decision — meaning it could easily choose differently from what the coordinator (or other participants) actually decided, directly violating the all-or-nothing guarantee 2PC exists to provide',
+        'Heuristic decisions are only used when the coordinator explicitly approves them in real time',
+        'Heuristic decisions are a standard, routine part of normal 2PC operation',
+      ],
+      answer: 1,
+      why: 'Acting without the coordinator\'s actual verdict is exactly what risks inconsistency with whatever the rest of the transaction\'s participants ultimately decided — hence "heuristic" as a euphemism for a real atomicity risk, reserved for emergencies only.',
+    },
+  ]}
+/>
+
+---
+
+:::important Key takeaways
+- Consensus underlies two concrete, critical problems: **leader election** (avoiding split brain) and **atomic commit** across multiple nodes.
+- The **FLP impossibility result** only rules out consensus in the deliberately restrictive asynchronous model (no clocks, no timeouts) — real systems sidestep it by permitting timeouts or randomness, which is exactly what every practical consensus algorithm relies on.
+- **Two-phase commit** splits distributed atomic commit into a **prepare** phase (an irrevocable promise from every participant) and a **commit/abort** phase (an irrevocable decision from the coordinator) — the two "points of no return" that make it work.
+- 2PC is **blocking**: a coordinator failure after participants have voted "yes" leaves them genuinely **in doubt**, holding locks, until the coordinator recovers — **three-phase commit** promises a nonblocking fix but requires bounded delays real systems don't actually have.
+- **XA transactions** extend 2PC across heterogeneous technologies, but carry real operational costs — held locks during in-doubt periods, coordinator availability becoming just as critical as the database itself, and a fundamental tendency to **amplify** failures across every participating system.
+:::
+
+## Further Reading
+
+- Martin Kleppmann — *Designing Data-Intensive Applications* (O'Reilly, 2017), Chapter 9
+- [Ordering Guarantees](./ordering-guarantees) — this series' previous lesson
+- [Fault-Tolerant Consensus](./fault-tolerant-consensus) — this series' next lesson
+- Michael J. Fischer, Nancy A. Lynch, Michael S. Paterson — ["Impossibility of Distributed Consensus with One Faulty Process"](https://groups.csail.mit.edu/tds/papers/Lynch/jacm85.pdf) (1985), the original FLP paper

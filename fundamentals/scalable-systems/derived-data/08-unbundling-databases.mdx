@@ -1,0 +1,151 @@
+---
+sidebar_position: 8
+title: Unbundling Databases
+---
+
+# Unbundling Databases
+
+> **Adapted from:** Martin Kleppmann, *Designing Data-Intensive Applications* (O'Reilly, 2017), Chapter 12 — rewritten and condensed for teaching.
+
+At the most abstract level, a database, a Hadoop cluster, and an operating system's filesystem are all doing the same job: storing data, and letting you process and query it. [Batch Processing with Unix and MapReduce](./batch-processing-with-unix-and-mapreduce) already noted that Hadoop looks like a distributed version of Unix. This lesson pushes that comparison further — Unix and relational databases approached "information management" with genuinely different philosophies, and Kleppmann argues the future looks like a reconciliation of the two.
+
+---
+
+## Composing Data Storage Technologies
+
+A short list of features databases provide should look familiar by now: [secondary indexes](../designing-data-intensive-applications/b-trees-and-other-indexing-structures), [materialized views](./batch-processing-with-unix-and-mapreduce), [replication logs](../distributed-data/leaders-and-followers#how-replication-logs-are-implemented), and full-text search indexes. Chapters 10 and 11 kept running into the *same* ideas from the outside: building search indexes as a batch job output, maintaining materialized views via stream processing, replicating a database into derived systems via [change data capture](./databases-and-streams). The parallel is exact — the features built into a single database and the derived-data systems people assemble from batch and stream processors are solving the same problems.
+
+### Creating an Index
+
+Consider literally what `CREATE INDEX` does inside a relational database: scan a **consistent snapshot** of the table, extract the indexed field's values, sort them, and write the index — then apply the backlog of writes that happened *during* that scan, and finally keep the index continuously current as new writes arrive.
+
+That sequence is essentially identical to [setting up a new follower replica](../distributed-data/leaders-and-followers#setting-up-new-followers) and to bootstrapping change data capture via an [initial snapshot](./databases-and-streams#implementing-change-data-capture). `CREATE INDEX` is really just **reprocessing** the existing dataset (see [Reprocessing data for application evolution](./unifying-batch-and-stream-processing)) to derive a new view of it — the source data happens to be a point-in-time snapshot rather than a log of every change, but the two are closely related (see [State, Streams, and Immutability](./databases-and-streams#event-sourcing)).
+
+### Practice: building an index like `CREATE INDEX` does
+
+Implement the two-phase process directly: scan a consistent snapshot, then apply whatever writes happened while that scan was running, in order, to reach a caught-up, current index.
+
+<CodeExercise
+  title="Build an index from a snapshot plus its write backlog"
+  heading="exercise-create-index"
+  lang="python"
+  filename="main.py"
+  prompt="Implement build_index(snapshot, backlog). snapshot is a dict {id: value} taken at a consistent point in time. backlog is a list of ('set', id, value) or ('delete', id, None) tuples, in the order those writes actually happened while the snapshot scan was running. Apply the backlog on top of the snapshot and return the resulting caught-up dict."
+  sampleLog={`(no input)
+{2: 'b2', 3: 'c'}`}
+  starter={`def build_index(snapshot, backlog):
+    # TODO: start from a copy of snapshot, then apply each backlog write in
+    # order ('set' updates/inserts a key, 'delete' removes it).
+    pass
+
+snapshot = {1: "a", 2: "b"}
+backlog = [("set", 2, "b2"), ("set", 3, "c"), ("delete", 1, None)]
+print(build_index(snapshot, backlog))
+`}
+  hint="index = dict(snapshot); then for op, key, value in backlog: set index[key] = value, or index.pop(key, None) for delete."
+  solution={`def build_index(snapshot, backlog):
+    index = dict(snapshot)
+    for op, key, value in backlog:
+        if op == "set":
+            index[key] = value
+        elif op == "delete":
+            index.pop(key, None)
+    return index
+
+snapshot = {1: "a", 2: "b"}
+backlog = [("set", 2, "b2"), ("set", 3, "c"), ("delete", 1, None)]
+print(build_index(snapshot, backlog))
+`}
+  sourceChecks={[
+    { name: 'starts from a copy of the snapshot', pattern: 'dict\\(snapshot\\)', must: true, hint: 'copy snapshot into index before applying the backlog on top of it' },
+  ]}
+  tests={[
+    { name: 'applies the backlog on top of the snapshot in order', stdin: '', equals: "{2: 'b2', 3: 'c'}" },
+  ]}
+/>
+
+### The Meta-Database of Everything
+
+Zoom out far enough and the dataflow across an entire organization starts to look like **one huge database**. Every batch, stream, or ETL job moving data from one place and form to another is functionally playing the role of a database subsystem keeping an index or materialized view up to date. Batch and stream processors are elaborate implementations of triggers, stored procedures, and materialized-view maintenance; the derived systems they maintain are like different index types (B-tree, hash, spatial) — except implemented as separate pieces of software, on separate machines, run by separate teams, instead of features bundled inside one product.
+
+Two avenues emerge for composing these separate pieces back into something cohesive:
+
+- **Federated databases (unifying reads).** A single query interface sits on top of many underlying storage engines — a *polystore* — while specialized applications can still talk to the underlying engines directly (PostgreSQL's foreign data wrapper is a real example). This follows the relational tradition: one integrated system, a high-level query language, elegant semantics, complicated implementation underneath.
+- **Unbundled databases (unifying writes).** Federation doesn't address keeping writes synchronized across systems. Making it easy to reliably plug storage systems together — via CDC and event logs — is like unbundling a database's own index-maintenance machinery so it can synchronize writes across genuinely disparate technologies. This follows the Unix tradition: small tools that each do one thing well, communicating through a uniform, low-level interface, composed by something higher-level.
+
+### Making Unbundling Work
+
+Federated read-only querying is a manageable, if involved, mapping problem. **Keeping writes in sync across several storage systems is the harder one.** The traditional answer — distributed transactions spanning heterogeneous systems — is, in Kleppmann's assessment, the wrong tool here, for the same reasons covered in [Derived Data versus Distributed Transactions](./data-integration-and-the-limits-of-total-order#derived-data-versus-distributed-transactions). An ordered event log with idempotent consumers is a far simpler abstraction, and much more feasible to implement across systems built by unrelated teams — no shared, standardized cross-system transaction protocol required.
+
+Log-based integration buys **loose coupling**, which shows up at two different levels:
+
+1. **System level.** Asynchronous event streams make the whole system more robust to a slow or failed component — the log simply buffers while a struggling consumer catches up, containing the fault locally, rather than escalating it the way synchronous distributed transactions tend to (see [Limitations of distributed transactions](../distributed-data/distributed-transactions-and-two-phase-commit#the-real-cost)).
+2. **Human level.** Unbundled systems can be built, improved, and maintained independently by *different teams*, each specializing and each exposed to the others only through a well-defined event-log interface — one general enough to apply to nearly any kind of data, yet strong enough (durable, ordered) to carry real consistency guarantees.
+
+### Unbundled versus Integrated Systems, and What's Missing
+
+Unbundling is not a replacement for databases — they remain essential for maintaining stream-processor state and serving queries against batch/stream output, and specialized engines (MPP query engines, for instance) will keep winning for the workloads they're built around. Running several different pieces of infrastructure has a real cost too: every tool is its own learning curve, its own configuration quirks, its own operational surprises — and a single well-matched integrated product can simply perform better and more predictably than several tools stitched together with application code. Building for scale you don't actually need is, as Kleppmann puts it elsewhere in the book, a form of premature optimization.
+
+The point of unbundling isn't to beat a single database at its own specialty — it's **breadth, not depth**: composing several databases to cover a far wider range of workloads than any one product handles well. If a single technology genuinely satisfies all your requirements, use it; unbundling and composition earn their cost only once no single product does.
+
+What's still missing, in Kleppmann's view: the unbundled-database equivalent of the **Unix shell** — a high-level, declarative language for composing storage and processing systems as simply as `mysql | elasticsearch` would take every row in a MySQL table, index it in Elasticsearch, and keep that index continuously current from then on — no custom application code required. Early research into differential dataflow points toward this kind of capability, but it hasn't yet become a mainstream production tool.
+
+### Check: composing, federating, and unbundling storage systems
+
+<MultipleChoice
+  id="ddia-future-unbundling"
+  title="Creating an index, the meta-database, and unbundled vs. integrated systems"
+  questions={[
+    {
+      prompt: 'Why does Kleppmann argue that running CREATE INDEX in a relational database is conceptually the same operation as bootstrapping change data capture with an initial snapshot?',
+      choices: [
+        'They are completely unrelated operations that happen to share no similarities',
+        'Both involve scanning a consistent snapshot of existing data, applying a backlog of writes that occurred during the scan, and then continuously keeping the derived result up to date — CREATE INDEX is really just reprocessing existing data to derive a new view of it',
+        'CREATE INDEX never needs to handle writes that occur during the index build',
+        'Change data capture cannot use snapshots under any circumstances',
+      ],
+      answer: 1,
+      why: 'The snapshot-plus-backlog-plus-ongoing-updates sequence is identical in both cases — CREATE INDEX is simply this same reprocessing pattern applied inside a single database product.',
+    },
+    {
+      prompt: 'What is the key difference between the "federated databases" and "unbundled databases" approaches to composing multiple storage systems?',
+      choices: [
+        'They are two names for the exact same technique',
+        'Federated databases unify READS by providing one query interface over multiple underlying engines (the relational tradition); unbundled databases unify WRITES by making it easy to reliably synchronize changes across disparate systems, typically via event logs (the Unix tradition)',
+        'Federated databases only work with a single storage engine, never multiple',
+        'Unbundled databases require all systems to use the exact same query language',
+      ],
+      answer: 1,
+      why: "This maps directly onto the two philosophical traditions the lesson traces back to Unix and relational databases: unified high-level reads versus small, composable pieces synchronized through a common low-level interface.",
+    },
+    {
+      prompt: 'According to Kleppmann, when does the effort of "unbundling" (composing several specialized databases) actually pay off compared to using one integrated product?',
+      choices: [
+        'Unbundling should always be preferred over any single integrated database, in every situation',
+        'Only when no single piece of software satisfies all of an application\'s requirements — the goal is breadth across many workloads, not beating an integrated product at the specific workload it is already good at, and reaching for it prematurely is a form of premature optimization',
+        'Unbundling is purely a theoretical idea with no practical justification ever',
+        'Only for applications that have exactly two different data access patterns',
+      ],
+      answer: 1,
+      why: 'The lesson is explicit that if a single technology already does everything you need, you should just use it — unbundling only earns its operational cost once genuinely no single product covers all your needs.',
+    },
+  ]}
+/>
+
+---
+
+:::important Key takeaways
+- Databases, Hadoop, and operating system filesystems are all fundamentally "information management" systems — Unix and relational databases just chose very different philosophies (low-level, composable primitives vs. a high-level abstraction hiding the implementation).
+- `CREATE INDEX` is the same snapshot-plus-backlog-plus-ongoing-updates pattern as bootstrapping change data capture or setting up a new replica — it's reprocessing viewed from inside a single database.
+- Viewed organization-wide, batch and stream processors act like a distributed database's trigger, stored-procedure, and materialized-view-maintenance machinery — just implemented as separate tools run by separate teams instead of features of one product.
+- **Federated databases** unify reads across many engines through one query interface; **unbundled databases** unify writes across many engines through a shared event log — two complementary answers to the same underlying composition problem.
+- Log-based integration buys real **loose coupling** at both the system level (faults stay local) and the human level (teams work independently) — but unbundling is a tool for *breadth*, not a wholesale replacement for well-matched integrated databases, and its missing piece is still a genuinely high-level, declarative way to compose storage systems.
+:::
+
+## Further Reading
+
+- Martin Kleppmann — *Designing Data-Intensive Applications* (O'Reilly, 2017), Chapter 12
+- [Unifying Batch and Stream Processing](./unifying-batch-and-stream-processing) — this series' previous lesson
+- [Designing Applications Around Dataflow](./designing-applications-around-dataflow) — this series' next lesson
+- [Databases and Streams](./databases-and-streams) — change data capture and the snapshot-plus-log pattern this lesson builds on
+- [B-Trees and Other Indexing Structures](../designing-data-intensive-applications/b-trees-and-other-indexing-structures) — the secondary-index mechanics `CREATE INDEX` builds on directly

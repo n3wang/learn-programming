@@ -1,0 +1,145 @@
+---
+sidebar_position: 1
+title: Important Distributed System Concepts
+---
+
+# Important Distributed System Concepts
+
+> **Adapted from:** Brendan Burns, *Designing Distributed Systems* (O'Reilly, 2nd ed.), Chapter 2 — rewritten and condensed for teaching.
+
+Before designing any distributed system, it helps to ground yourself in the small set of ideas that show up in nearly every one of them. If you already have systems-design experience, some of this will be familiar — but it's worth a fast pass, because the rest of this section leans on all of it.
+
+---
+
+## APIs and RPCs
+
+**APIs** are the core of any distributed system — calls between remote services over a network, commonly called **RPCs** ("remote procedure calls"). Most RPCs today ride on HTTP with JSON bodies (informally "REST"), not because it's the most capable option — CORBA, gRPC, and various database-specific protocols all offer more — but because HTTP+JSON is the most widely supported, simplest, and easiest to wire up to web frontends.
+
+APIs can be **synchronous** (the call returns only once the request is fully processed) or **asynchronous** (the call accepts the request and immediately returns an operation ID, with the caller polling a status endpoint afterward). Synchronous is simpler to build, but a poor fit once an operation runs long — HTTP and most network transports were not designed to hold a connection open for minutes. If your operation's duration is measured in minutes rather than milliseconds, model it as asynchronous instead.
+
+An API is only as useful as its clients are easy to write. Small systems can get away with hand-writing client code for one or two languages, but larger systems describe their API with an **IDL** (interface description language) — OpenAPI being the common example — so that client libraries can be generated automatically for any language. Beyond structure, an API's actual behavior is captured by its **SLO** (service level objective): formal targets for latency, reliability, and throughput that let clients build against your service with confidence.
+
+## Latency
+
+**Latency** — how long an operation takes — is usually measured in milliseconds (microseconds for very fast systems, seconds for very slow ones). Two things matter beyond the raw number: that it's measured in a way that actually reflects end-user experience (see [Percentiles](#percentiles) below), and that it's **attributable** — you know *where* the time is going. A number without attribution tells you your system is slow; it doesn't tell you what to fix.
+
+## Reliability
+
+At its simplest, **reliability** is the fraction of requests that succeed. In practice, defining "succeeded" is the hard part. Take HTTP: the protocol itself almost always completes cleanly, so measuring reliability at the transport level is nearly useless — almost every request "succeeds" at that layer even when it fails at the application layer via an error status code. The 50x codes are clearly errors (server or transmission failures); the 20x codes are clearly success. The 40x range is the genuinely ambiguous zone: is a 404 a client mistake, or a misconfigured server looking in the wrong place? Is a spike of 403s an unauthorized client, or your auth service having an outage?
+
+There's no protocol-independent answer here — what counts as a "real" failure is application-specific, and getting it wrong in either direction is costly. Blanket-treating 40x as "client error" can mask a genuine customer-facing outage; blanket-treating it as "server error" turns one misconfigured client into a false alert that pages your on-call for nothing. Good monitoring — increasingly, anomaly detection — has to live in that gray area deliberately, not by default.
+
+## Percentiles
+
+Distributed systems exist to serve large numbers of users, which makes **percentiles** (the 99th-percentile latency, for example) more useful than averages for understanding them. Averages are appealing but misleading for two reasons. First, an arithmetic mean is easily skewed by outliers — a handful of very fast requests can pull the "average" latency down and make performance look better than what most users actually experience. Second, averages describe single requests in isolation, but real user experiences are usually the composition of *many* requests — and as the number of requests in that composition grows, the probability that at least one of them is slow rapidly approaches 100%. Almost nobody has the "average" end-to-end experience.
+
+Looking at the 90th or 99th percentile instead — the latency below which 90% or 99% of requests fall — gives a far more honest picture. But even that has a catch at scale: a single request's 99th-percentile latency effectively becomes the 90th, or even 50th, percentile of an end-to-end experience once enough requests are chained together. Always be precise about exactly *which* experience a given percentile is measuring.
+
+## Idempotency
+
+Designing distributed systems is largely the study of how things fail — and how to recover once they do. **Idempotency** is one of the most useful tools for that: an operation is idempotent if performing it once or many times produces the same result. `X = 5` is idempotent — run it any number of times and `X` is always 5. `X = X + 1` is not — the result depends on exactly how many times it ran. (If you know infrastructure-as-code, this is the same distinction as declarative vs. imperative configuration.)
+
+Idempotency matters because it makes failure handling trivial: if an operation is idempotent, you can simply retry it until it succeeds, with no need to track how many attempts happened. That single property is what makes a huge amount of distributed-systems error handling as simple as "just retry."
+
+## Delivery Semantics
+
+When operations *aren't* idempotent, you need to control how many times a message or request actually gets delivered. There are two practical categories. **At least once** delivery guarantees a message is delivered one or more times — but gives no upper bound. **At most once** delivery guarantees a message is *never* delivered more than once — at the cost that it might not be delivered at all. Credit card charges are the classic "at most once" case: duplicate charges are unacceptable, so the system would rather silently drop a request (trusting the client to retry) than risk charging twice.
+
+Notice **exactly once** delivery is absent from this list — it's exceptionally hard to achieve in practice. Design for at-least-once or at-most-once instead.
+
+## Relational Integrity
+
+Delivery semantics matter because they ultimately affect your data. Beyond the reliability of any single stored value, **relational integrity** is about consistency *between* separate rows or stores. If your `balances` table has an entry for every `user-id`, does the separate `addresses` table also have a matching entry for that same `user-id`? Code that assumes yes depends on relational integrity; code that tolerates the stores drifting out of sync does not.
+
+Maintaining relational integrity across stores requires carefully synchronized writes — distributed transactions, and the distributed locks that come with them — which costs you performance and parallelism. This is broadly the SQL/NoSQL divide: relational databases invest heavily in cross-table consistency (transactions, rollback semantics), while NoSQL stores like Cassandra or Cosmos DB favor a plain key-value model and push consistency concerns up into application code. Neither is "correct" — it's a trade-off between implementation simplicity and raw performance/parallelism.
+
+## Data Consistency
+
+A related but distinct axis is **data consistency**: once data is replicated, how quickly must every copy agree? A **strongly consistent** system doesn't consider a write "done" until every replica has acknowledged it — safe, but as the number of replicas grows, so does the odds that any given write hits a slow or failing one, which drags down throughput. An **eventually consistent** system returns as soon as a single replica acknowledges the write, and lets replication to the rest happen asynchronously in the background — faster and more resilient to any one replica misbehaving, at the cost that other replicas can briefly lag behind.
+
+The practical downside of eventual consistency is the **"read your own writes"** problem: a user's requests usually land on the same replica, but under load or failover, a write and the very next read can land on *different* replicas — and if replication hasn't caught up yet, the user's own just-written data appears to have vanished. That's a bad experience regardless of how technically correct the system is.
+
+:::note The CAP theorem
+The tension here — consistency vs. availability vs. tolerance of network partitions — is the **CAP theorem**: you can build a system with two of the three, but not all three simultaneously. It isn't a hard rule that dooms real systems, though; it's a reminder that optimizing for one of the three always trades off against at least one of the others. Many applications don't need perfect availability or perfect consistency — knowing which trade-off your application can actually tolerate is the whole exercise.
+:::
+
+The choice between strong and eventual consistency permeates your entire system design and is very hard to walk back once made — the consequences of getting it wrong often don't show up for years.
+
+## Orchestration and Kubernetes
+
+Modern distributed systems don't run in a vacuum — they run on shared infrastructure that manages their deployment and operation, generically called an **orchestrator**. Kubernetes is the most common example. An orchestrator's job is to take a *desired state* you declare ("three replicas of the frontend, five of the backend") and continuously reconcile the system's *real* state to match it — without knowing anything about your application's internal logic.
+
+### Health Checks
+
+For an orchestrator to do that reconciliation well, it needs to know the health of each piece — when something is ready for the load balancer, when it's unhealthy and needs restarting, or when a rollout should halt because health has degraded. Some health signals are visible from outside (is the process even running), but real understanding requires your application to expose its own health checks. There are two distinct notions of health:
+
+- **Liveness** — is the application alive at all? An application that stops responding to liveness checks should be terminated, and a rollout that's tanking liveness across the fleet should be halted.
+- **Readiness** — is the application ready to serve traffic? A freshly started process can be alive — doing real, useful work like downloading and caching files — without yet being ready to handle requests. It shouldn't be killed, but it also shouldn't be added to the load balancer until it reports ready.
+
+Implementing both correctly is what lets your service cooperate properly with whatever is orchestrating it. The next lesson in this section — [The Sidecar Pattern](./sidecar-pattern) — shows how orchestrators group containers into Pods and how a co-scheduled sidecar can add TLS, configuration sync, and operational tooling without changing application source.
+
+---
+
+### Check: distributed systems concepts
+
+<MultipleChoice
+  id="dds-important-concepts"
+  title="Important distributed system concepts"
+  questions={[
+    {
+      prompt: 'Why do most percentile-based conversations about system performance favor the 99th percentile over the average latency?',
+      choices: [
+        'The average is harder to calculate than a percentile',
+        'The average is skewed by outliers and describes single requests in isolation, while real end-to-end experiences compose many requests — making it increasingly likely that any given user hits at least one slow one as more requests chain together',
+        'Percentiles are only used for latency, never for other metrics',
+        'The 99th percentile is always a smaller number than the average',
+      ],
+      answer: 1,
+      why: 'Averages get pulled around by outliers and hide the fact that a composed, multi-request experience is dominated by its slowest component — percentiles surface that reality instead.',
+    },
+    {
+      prompt: 'An operation is idempotent. What does that tell you about how to handle its failure?',
+      choices: [
+        'It tells you nothing useful about failure handling',
+        'You can safely retry it any number of times until it succeeds, because repeated execution always produces the same result',
+        'It means the operation can never fail',
+        'It means the operation must be executed exactly once for correctness',
+      ],
+      answer: 1,
+      why: 'Idempotency is exactly what makes naive retry-until-success a correct and sufficient failure-handling strategy — no dedup or counting required.',
+    },
+    {
+      prompt: 'Why is "exactly once" delivery excluded from the two practical delivery semantics (at-least-once and at-most-once)?',
+      choices: [
+        'Because it is exceptionally hard to achieve in practice — real systems are far better off designing around at-least-once or at-most-once delivery instead',
+        'Because exactly-once delivery was deprecated by modern protocols',
+        'Because exactly-once delivery is only relevant to synchronous APIs',
+        'Because at-least-once and at-most-once together already guarantee exactly-once',
+      ],
+      answer: 0,
+      why: 'Exactly-once semantics are a well-known hard problem in distributed systems; real designs pick one of the two practical, achievable guarantees instead.',
+    },
+    {
+      prompt: 'What is the core trade-off the CAP theorem describes?',
+      choices: [
+        'That distributed systems must always choose partition tolerance and can never be both available and consistent',
+        'That you can build a system with two of consistency, availability, and partition tolerance — but not guarantee all three at once — meaning any optimization toward one attribute trades off against the others, not that all real systems collapse without a usable middle ground',
+        'That CAP only applies to systems using eventual consistency',
+        'That availability and consistency are unrelated concerns in distributed systems',
+      ],
+      answer: 1,
+      why: 'CAP is a theoretical boundary, not a doom rule — real systems pick trade-offs (e.g. 99% availability) that are reasonable for their use case rather than needing all three guarantees simultaneously.',
+    },
+    {
+      prompt: 'An application has just started and is still downloading large files it needs before it can correctly serve requests. How should its health checks report during this period?',
+      choices: [
+        'Both liveness and readiness should fail, so the orchestrator terminates and restarts it',
+        'Liveness should report healthy (the process is alive and doing useful work) while readiness should report not-ready (it can\'t yet serve traffic) — so the orchestrator keeps it running but withholds traffic until it reports ready',
+        'Both liveness and readiness should report healthy immediately on process start',
+        'Readiness should report healthy while liveness reports unhealthy',
+      ],
+      answer: 1,
+      why: 'This is precisely the liveness/readiness distinction: alive-but-not-yet-ready is a normal, expected state during startup, and conflating the two would cause the orchestrator to kill a perfectly healthy, still-initializing process.',
+    },
+  ]}
+/>

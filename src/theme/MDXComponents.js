@@ -6,8 +6,12 @@ import JournalAnswer from '@site/src/components/JournalAnswer';
 import GuidedLab, {LabStep} from '@site/src/components/GuidedLab';
 import YouTubeEmbed from '@site/src/components/YouTubeEmbed';
 import MultipleChoice from '@site/src/components/MultipleChoice';
+import YamlEditor from '@site/src/components/YamlEditor';
 
 import ExerciseSet, {Exercise} from '@site/src/components/ExerciseSet';
+import TranslatableParagraph from '@site/src/components/Translate/TranslatableParagraph';
+import GraphChallenge from '@site/src/components/GraphChallenge';
+import OutputChallenge from '@site/src/components/OutputChallenge';
 
 export default {
     ...MDXComponents,
@@ -19,6 +23,10 @@ export default {
     LabStep,
     YouTubeEmbed,
     MultipleChoice,
+    YamlEditor,
     ExerciseSet,
     Exercise,
+    GraphChallenge,
+    OutputChallenge,
+    p: TranslatableParagraph,
 };

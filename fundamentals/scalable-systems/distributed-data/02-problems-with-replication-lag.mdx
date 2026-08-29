@@ -1,0 +1,208 @@
+---
+sidebar_position: 2
+title: Problems with Replication Lag
+---
+
+# Problems with Replication Lag
+
+> **Adapted from:** Martin Kleppmann, *Designing Data-Intensive Applications* (O'Reilly, 2017), Chapter 5 — rewritten and condensed for teaching.
+
+[Leaders and Followers](./leaders-and-followers) covered *how* leader-based replication moves data around. This lesson covers what happens once that movement isn't instantaneous — which, in an asynchronously replicated system, it never quite is.
+
+Read-heavy workloads (the common case on the web) tempt you toward a **read-scaling architecture**: add followers, spread read traffic across them, and only send writes to the leader. It works — but *only* with asynchronous replication. Force every follower to be synchronous and a single flaky node (or network hiccup) would stall writes across the whole system; the more followers you add, the more likely exactly that happens at any given moment.
+
+The cost of going asynchronous: an application reading from a follower that's fallen behind can see **outdated** data. Run the identical query against the leader and a lagging follower at the same instant and you may get two different answers. This is temporary — stop writing, wait, and followers eventually converge — which is exactly why it's called **eventual consistency**. "Eventually" is deliberately vague: under normal conditions the **replication lag** might be a few milliseconds, unnoticeable in practice; under load or network trouble it can stretch to seconds or, in bad cases, minutes.
+
+When that lag gets large enough to actually matter, it stops being a theoretical footnote and starts breaking real user-facing behavior in three specific, well-studied ways.
+
+---
+
+## Reading Your Own Writes
+
+Picture a user submitting something — a profile update, a comment — then immediately viewing it. If the write goes to the leader but the view is served from a lagging follower, the user's own just-submitted data can appear to have vanished. That's a bad, confusing experience for exactly the person who just did something.
+
+The fix is a guarantee called **read-after-write consistency** (or **read-your-writes consistency**): *you* will always see updates *you* just made, on your next read — with zero promise about how quickly *other* users' updates propagate to you. A few real techniques for implementing it:
+
+- **Route by ownership.** If you know a certain kind of data can only be edited by its owner (e.g., a user's own profile), always read *that specific data* from the leader, and read everything else from followers.
+- **Route by recency.** Track the time of an entity's last write; for some short window afterward (a minute, say), route reads for it to the leader regardless of who's asking. Alternatively, track each follower's lag directly and skip any follower lagging more than that same threshold.
+- **Route by timestamp.** Have the client remember the (logical or wall-clock) timestamp of its own most recent write, and require whichever replica serves its next read to be at least that far caught up — waiting briefly, or being redirected elsewhere, if it isn't.
+- **Route by datacenter.** If replicas span multiple datacenters, any request that must reach the leader has to be routed to whichever datacenter the leader currently lives in.
+
+Multi-device access compounds this: a user editing on their phone, then immediately checking on a laptop, expects to see the same update on both — but the two devices might not even route through the same datacenter, and neither device inherently knows what the *other* one just wrote. That kind of cross-device guarantee generally needs the "last write timestamp" tracked **centrally**, not per-device.
+
+### Check: read-after-write consistency
+
+<MultipleChoice
+  id="ddia-replag-read-your-writes"
+  title="Read-after-write consistency"
+  questions={[
+    {
+      prompt: 'What does read-after-write (read-your-writes) consistency specifically guarantee?',
+      choices: [
+        'That every user sees every other user\'s updates instantly',
+        'That a user will always see their OWN recently-submitted updates on their next read — with no guarantee about how quickly other users\' updates become visible to them',
+        'That all replicas are always perfectly synchronized at all times',
+        'That writes are never lost under any circumstances',
+      ],
+      answer: 1,
+      why: 'The guarantee is scoped specifically to a user seeing their own writes — it says nothing about visibility of other users\' concurrent changes.',
+    },
+    {
+      prompt: 'Why does cross-device read-after-write consistency (e.g. editing on a phone, then checking on a laptop) require extra care beyond the single-device case?',
+      choices: [
+        'It does not require anything extra; single-device techniques work identically',
+        'The two devices may not even route through the same datacenter, and neither device inherently knows what the other one just wrote — so tracking "last write timestamp" per-device isn\'t enough; it needs to be tracked centrally',
+        'Cross-device consistency is fundamentally impossible to achieve',
+        'Laptops and phones always share the exact same network path to the database',
+      ],
+      answer: 1,
+      why: 'Per-device timestamp tracking breaks down precisely because each device is unaware of writes made from the other — a shared, centralized tracking point is needed instead.',
+    },
+  ]}
+/>
+
+---
+
+## Monotonic Reads
+
+A second anomaly: a user's *own* reads appearing to move **backward in time**. Imagine refreshing a page, where each request happens to land on a different, randomly-chosen replica. The first request hits a barely-lagging follower and shows a comment that was just posted; a moment later, a second request lands on a more-lagging follower and the same comment is simply *gone*. Nothing was actually lost — but from the user's perspective, something they just saw has inexplicably vanished, which reads as much more alarming than if they'd simply never seen it in the first place.
+
+**Monotonic reads** is the guarantee that rules this out. It's weaker than full consistency, but stronger than plain eventual consistency: you might still see *stale* data, but if you make several reads in sequence, you will never see time run backward relative to your own prior read. The standard implementation: **route each user consistently to the same replica** — commonly by hashing something like their user ID — while different users can still land on different replicas. The one wrinkle: if that specific replica goes down, the user's next request needs to be rerouted somewhere else, and the guarantee only holds again once it's re-anchored.
+
+### Practice: sticky replica routing
+
+Implement the core mechanic behind monotonic reads: a deterministic function that always sends the same user to the same replica, so long as that replica is healthy.
+
+<CodeExercise
+  title="Deterministic replica routing"
+  heading="exercise-sticky-routing"
+  lang="python"
+  filename="main.py"
+  prompt="Implement pick_replica(user_id, num_replicas) so the SAME user_id always maps to the SAME replica index (0 to num_replicas - 1), using a hash of the user_id."
+  sampleLog={`(no input)
+True
+True`}
+  starter={`def pick_replica(user_id, num_replicas):
+    # TODO: deterministically map user_id to an index in
+    # range(num_replicas), using hash(user_id).
+    pass
+
+# The same user_id must always map to the same replica.
+r1 = pick_replica("alice", 5)
+r2 = pick_replica("alice", 5)
+print(r1 == r2)
+
+r3 = pick_replica("alice", 5)
+print(r1 == r3)
+`}
+  hint="hash(user_id) can be negative in Python, so use abs(hash(user_id)) % num_replicas."
+  solution={`def pick_replica(user_id, num_replicas):
+    return abs(hash(user_id)) % num_replicas
+
+r1 = pick_replica("alice", 5)
+r2 = pick_replica("alice", 5)
+print(r1 == r2)
+
+r3 = pick_replica("alice", 5)
+print(r1 == r3)
+`}
+  sourceChecks={[
+    { name: 'uses hash() for deterministic routing', pattern: 'hash\\(', must: true, hint: 'derive the replica index from hash(user_id)' },
+  ]}
+  tests={[
+    { name: 'same user always routes to same replica', stdin: '', equals: 'True\nTrue' },
+  ]}
+/>
+
+### Check: monotonic reads
+
+<MultipleChoice
+  id="ddia-replag-monotonic"
+  title="Monotonic reads"
+  questions={[
+    {
+      prompt: 'What specific anomaly does the monotonic reads guarantee prevent?',
+      choices: [
+        'It prevents a user from ever seeing stale data at all',
+        'It prevents a user, making several reads in sequence, from seeing time appear to move backward — e.g. seeing a comment appear on one read and then vanish on a subsequent read, because the second read hit a more-lagging replica than the first',
+        'It prevents any two users from ever seeing different data',
+        'It guarantees writes are applied synchronously to every replica',
+      ],
+      answer: 1,
+      why: 'Monotonic reads is specifically about the ORDER of what one user observes over successive reads, not about eliminating staleness altogether.',
+    },
+    {
+      prompt: 'What is the standard technique for achieving monotonic reads in a leader-based replicated system?',
+      choices: [
+        'Always read from a randomly chosen replica on every single request',
+        'Consistently route a given user\'s reads to the SAME replica (e.g. via a hash of their user ID), so that user is deterministically comparing against progressively more up-to-date state, while different users may still use different replicas',
+        'Force every read to go to the leader at all times',
+        'Disable replication lag monitoring entirely',
+      ],
+      answer: 1,
+      why: 'Sticky, deterministic routing per user is exactly what prevents a single user from bouncing between replicas at different lag levels and seeing inconsistent orderings.',
+    },
+  ]}
+/>
+
+---
+
+## Consistent Prefix Reads
+
+The third anomaly is about **causality** — one write logically depending on another. The book's own memorable example: an observer overhears a question-and-answer exchange, but through replicas with uneven lag — the *answer* replicates fast, the *question* replicates slow. What the observer sees, played back in the wrong order, looks like someone answering a question before it was ever asked.
+
+**Consistent prefix reads** is the guarantee that rules this out: if a sequence of writes happens in a particular order, anyone reading them back will observe that *same* order — never a shuffled one. This bites hardest in **partitioned** (sharded) databases, since different partitions typically replicate independently, with no shared global ordering across them — a reader can easily see one partition further ahead in time than another. Two real mitigations: keep any writes that are *causally related* to each other on the **same partition** (not always practical), or use an algorithm that explicitly **tracks causal dependencies** between writes across partitions — a deeper technique this series returns to later.
+
+### Check: consistent prefix reads
+
+<MultipleChoice
+  id="ddia-replag-consistent-prefix"
+  title="Consistent prefix reads and causality"
+  questions={[
+    {
+      prompt: 'What does the "question answered before it was asked" scenario illustrate about replication lag?',
+      choices: [
+        'That replication lag never affects the perceived ORDER of writes, only their staleness',
+        'That if causally related writes (a question, then its answer) replicate through the system at different speeds, an observer can end up seeing them in the wrong order — the answer appearing before the question that prompted it',
+        'That questions and answers must always be stored in the same database table',
+        'That this scenario is purely theoretical and has never actually occurred in real systems',
+      ],
+      answer: 1,
+      why: 'Uneven replication speed between causally-linked writes is exactly the mechanism that can invert their apparent order for an observer.',
+    },
+    {
+      prompt: 'Why is the consistent prefix reads problem especially significant in PARTITIONED (sharded) databases specifically?',
+      choices: [
+        'Partitioned databases are actually immune to this problem entirely',
+        'Different partitions typically replicate independently with no shared global ordering across them, so a reader can easily observe one partition further ahead in time than another, scrambling the apparent order of causally related writes that landed on different partitions',
+        'Partitioning always eliminates the need for replication altogether',
+        'This problem only occurs in single-node, unpartitioned databases',
+      ],
+      answer: 1,
+      why: 'The lack of a single global write order across independently-replicating partitions is exactly what creates room for causally related writes on different partitions to be observed out of order.',
+    },
+  ]}
+/>
+
+---
+
+## Living With Eventual Consistency
+
+None of this means eventual consistency is a mistake — it means it has to be a **deliberate** choice, not an accident. Before shipping on top of asynchronous replication, it's worth explicitly asking: what does this application actually do if replication lag balloons to minutes, or hours? If the honest answer is "nothing breaks," great — ship it as-is. If the honest answer is "users get confused or lose trust," that's a sign the application needs one of the stronger guarantees covered above (or a stronger guarantee still), not a system quietly *pretending* to be synchronous while actually running asynchronous underneath.
+
+Handling all of this explicitly, in application code, on every relevant query, is exactly the kind of thing that's easy to get subtly wrong. This is a big part of why **transactions** exist in the first place — they let the database absorb this complexity so the application doesn't have to reason about it manually, a topic this series returns to directly in a later lesson.
+
+:::important Key takeaways
+- **Eventual consistency** is what you get from asynchronous replication — replicas converge *eventually*, with no fixed bound on how long "eventually" might take under load or network trouble.
+- **Read-after-write consistency** guarantees you see your own recent writes — achieved by routing certain reads to the leader, based on ownership, recency, tracked timestamps, or datacenter.
+- **Monotonic reads** guarantees your own sequential reads never appear to go backward in time — typically achieved by routing each user consistently to the same replica.
+- **Consistent prefix reads** guarantees causally related writes are never observed out of order — a particular risk in partitioned databases, where different partitions can drift out of sync with each other independently.
+- These guarantees exist precisely so applications don't have to hand-roll lag-handling logic on every query — which is also a large part of why **transactions** exist as a concept at all.
+:::
+
+## Further Reading
+
+- Martin Kleppmann — *Designing Data-Intensive Applications* (O'Reilly, 2017), Chapter 5
+- [Leaders and Followers](./leaders-and-followers) — this series' previous lesson
+- [Multi-Leader and Leaderless Replication](./multi-leader-and-leaderless-replication) — this series' next lesson
+- Werner Vogels — ["Eventually Consistent"](https://www.allthingsdistributed.com/2008/12/eventually_consistent.html), a widely-cited explainer from Amazon's CTO

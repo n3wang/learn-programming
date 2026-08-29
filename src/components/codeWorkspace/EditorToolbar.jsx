@@ -13,6 +13,8 @@ export default function EditorToolbar({
     onReset,
     runLabel = '▶ Run',
     runningLabel = 'Running…',
+    hideRun = false,
+    children,
 }) {
     const isPractice = practice || exam;
     return (
@@ -22,12 +24,15 @@ export default function EditorToolbar({
             <span className={chrome.saveHint}>{saveLabel}</span>
             {meta ? <span className={chrome.meta}>{meta}</span> : null}
             <div className={chrome.actions}>
+                {children}
                 <button type="button" className={chrome.resetBtn} onClick={onReset} disabled={running}>
                     Reset
                 </button>
-                <button type="button" className={chrome.runBtn} onClick={onRun} disabled={running}>
-                    {running ? runningLabel : runLabel}
-                </button>
+                {!hideRun && onRun ? (
+                    <button type="button" className={chrome.runBtn} onClick={onRun} disabled={running}>
+                        {running ? runningLabel : runLabel}
+                    </button>
+                ) : null}
             </div>
         </div>
     );

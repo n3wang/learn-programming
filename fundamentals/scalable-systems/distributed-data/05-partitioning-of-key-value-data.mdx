@@ -1,0 +1,235 @@
+---
+sidebar_position: 5
+title: Partitioning of Key-Value Data
+---
+
+# Partitioning of Key-Value Data
+
+> **Adapted from:** Martin Kleppmann, *Designing Data-Intensive Applications* (O'Reilly, 2017), Chapter 6 — rewritten and condensed for teaching.
+
+[Leaders and Followers](./leaders-and-followers) and the lessons after it covered **replication** — multiple *copies* of the same data. That solves availability and read throughput, but not raw scale: once a dataset (or its query load) outgrows what any single machine can hold or serve, replication alone can't help, because every replica still has to hold the *entire* dataset. The fix is **partitioning** (also called **sharding**): splitting the data itself into pieces, so each piece — each **partition** — lives on a different node, and together the partitions cover the whole dataset with no overlap.
+
+:::note One term, many names
+The same idea goes by different names depending on the database: *shard* in MongoDB/Elasticsearch/SolrCloud, *region* in HBase, *tablet* in Bigtable, *vnode* in Cassandra/Riak, *vBucket* in Couchbase. This series sticks with the more universally recognized term: **partition**.
+:::
+
+Partitioning and replication are normally combined, not competing choices — each partition typically has its own leader and followers, spread across different nodes, so a single node commonly acts as leader for some partitions and follower for others simultaneously. Everything from the previous four lessons about replication applies identically at the level of a single partition; this lesson (and the next two) can therefore set replication aside and focus purely on how the data itself gets split up.
+
+---
+
+## The Goal: Spread Load Evenly, Avoid Hot Spots
+
+The entire point of partitioning is to spread both **data** and **query load** evenly enough that adding nodes actually buys you proportional capacity — ten nodes handling roughly ten times the data and throughput of one, replication aside. When the split *isn't* even, it's called **skewed**, and skew directly undermines the whole point of partitioning — in the worst case, virtually all load lands on one overloaded partition (a **hot spot**) while every other node sits idle, and your entire cluster's throughput is bottlenecked by that one busy node.
+
+The simplest possible fix for skew — assign records to nodes **randomly** — actually works reasonably well for even distribution, but it has a fatal flaw for reads: with no rule connecting a key to its location, finding any particular record means querying *every* node in parallel, every single time. A far better approach, assuming records are looked up by a primary key (the common case): make the key *itself* determine which partition it lives on, deterministically — the same idea as looking up a word in a paper encyclopedia by its first letter, rather than checking every volume on the shelf.
+
+## Partitioning by Key Range
+
+Assign each partition a **contiguous range** of keys — exactly like the encyclopedia's per-volume alphabetical ranges. Knowing the boundaries tells you instantly which partition (and therefore which node) owns any given key, letting you route a request directly rather than guessing. Bigtable, HBase, RethinkDB, and pre-2.4 MongoDB all use this scheme.
+
+Crucially, those ranges don't have to be evenly *sized* by key — an encyclopedia volume spanning A–B is much thinner than one spanning T–Z, precisely because English words aren't evenly distributed across the alphabet. Getting an even *data* distribution means letting boundaries adapt to the actual data, whether chosen by an administrator or computed automatically. A real bonus of range partitioning: keys *within* a partition can be kept **sorted** (exactly the SSTable structure from [Hash Indexes and LSM-Trees](../designing-data-intensive-applications/hash-indexes-and-lsm-trees)), making range scans cheap — genuinely useful for something like sensor readings keyed by timestamp, where "give me every reading from March" is a natural, frequent query.
+
+That same timestamp-as-key design is also the textbook way key-range partitioning backfires: if each partition covers one day, then **every single write** — for every sensor, all day — lands on *today's* partition while every other partition sits completely idle. The fix isn't abandoning range partitioning; it's choosing a better key. Prefixing the timestamp with a **sensor name** (so partitioning happens first by sensor, then by time) spreads simultaneous writes from many active sensors across many partitions — at the cost that fetching several sensors' data over a time range now needs a separate range query per sensor instead of one combined query.
+
+### Check: partitioning goals and key range partitioning
+
+<MultipleChoice
+  id="ddia-partition-keyrange"
+  title="Why partition, and key range partitioning"
+  questions={[
+    {
+      prompt: 'Why does replication alone fail to solve the problem that partitioning addresses?',
+      choices: [
+        'Replication and partitioning solve the exact same problem in the exact same way',
+        'Replication only creates additional full COPIES of the same complete dataset — every replica still has to hold everything, so it never helps once the dataset (or its load) exceeds what any single machine can hold or serve; only splitting the data itself across nodes (partitioning) solves that',
+        'Replication actually makes datasets smaller, not partitioning',
+        'Partitioning and replication cannot be used together in the same system',
+      ],
+      answer: 1,
+      why: 'Replication multiplies copies of the same complete dataset; partitioning is the only technique that actually divides the dataset so no single node needs to hold or serve all of it.',
+    },
+    {
+      prompt: 'Why is randomly assigning records to nodes a poor partitioning strategy, even though it distributes data quite evenly?',
+      choices: [
+        'Random assignment does not actually distribute data evenly at all',
+        'With no deterministic rule connecting a key to its partition, finding any specific record requires querying every single node in parallel on every read, since there is no way to know in advance where that key lives',
+        'Random assignment is illegal in most database licenses',
+        'Random assignment only works for numeric keys, never for strings',
+      ],
+      answer: 1,
+      why: 'Even distribution alone isn\'t enough — losing the ability to route a read directly to the right node is exactly the cost that makes pure randomness impractical.',
+    },
+    {
+      prompt: 'In the sensor-data example, why does keying purely by timestamp create a write hot spot, and how does prefixing the key with sensor name fix it?',
+      choices: [
+        'Timestamp keys cause no hot spot at all; the fix is unrelated to sensor names',
+        'A timestamp-only key means every partition corresponds to a time range, so ALL writes at any given moment land on the single partition covering "now," while every other partition sits idle; prefixing with sensor name spreads simultaneous writes from many active sensors across many different partitions instead',
+        'Prefixing with sensor name eliminates the need for partitioning entirely',
+        'The hot spot only occurs when there is exactly one sensor active',
+      ],
+      answer: 1,
+      why: 'Partitioning by time alone concentrates all "current" writes on one partition; reordering the key so sensor identity is checked first spreads that same write volume across many partitions instead.',
+    },
+  ]}
+/>
+
+---
+
+## Partitioning by Hash of Key
+
+Key range partitioning's Achilles' heel — access patterns clustering around nearby keys — is exactly what **hash partitioning** avoids. Run each key through a hash function first, then partition by ranges of the *hash output* instead of the key itself. A good hash function takes even badly skewed real-world keys and spreads their hashes uniformly across its output range — Cassandra and MongoDB use MD5 for this, Voldemort uses Fowler–Noll–Vo; the hash doesn't need to be cryptographically secure, just evenly distributing. (Watch out for language built-in hash functions here — Java's `Object.hashCode()` and Ruby's `Object#hash` can return *different* values for the same key across different process runs, which is exactly wrong for something that needs to durably determine where data lives.)
+
+:::note "Consistent hashing" is a term worth using carefully
+**Consistent hashing** technically refers to a specific rebalancing-friendly technique (Karger et al.) originally built for internet-wide CDN caches, using randomly-chosen partition boundaries to avoid centralized coordination — it has *nothing* to do with replica consistency or ACID consistency, despite the shared word. As the next lesson covers, this specific technique doesn't actually work especially well for databases in practice, even though plenty of database documentation still loosely (and often inaccurately) uses the term. Calling the general technique **hash partitioning** avoids the confusion entirely.
+:::
+
+The trade-off hash partitioning makes: it destroys **key ordering**. Keys that used to sit right next to each other scatter randomly across every partition, so range queries — the one thing range partitioning was genuinely good at — become expensive or outright unsupported (MongoDB has to fan a range query out to *every* partition under hash-based sharding; Riak, Couchbase, and Voldemort don't support primary-key range queries at all).
+
+Cassandra strikes a real compromise using a **compound primary key**: only the *first* column gets hashed to pick the partition; the remaining columns act as a concatenated sort key *within* that partition. You lose the ability to range-scan across the first column's values, but given a fixed value for it, range scans across the rest are still efficient. This maps beautifully onto one-to-many data: a primary key of `(user_id, update_timestamp)` scatters different *users'* posts across different partitions (good load spreading) while keeping any *one* user's posts sorted by time within their own single partition (efficient "show me this user's recent activity" queries).
+
+### Check: hash partitioning
+
+<MultipleChoice
+  id="ddia-partition-hash"
+  title="Partitioning by hash of key"
+  questions={[
+    {
+      prompt: 'What is the fundamental trade-off hash partitioning makes compared to key range partitioning?',
+      choices: [
+        'There is no trade-off; hash partitioning is strictly better in every respect',
+        'Hash partitioning spreads load more evenly by scattering keys pseudorandomly across partitions, but this destroys key ordering — range queries that were cheap under key-range partitioning become expensive or entirely unsupported',
+        'Hash partitioning makes range queries faster than key-range partitioning',
+        'Hash partitioning can only be used with numeric keys',
+      ],
+      answer: 1,
+      why: 'Even load distribution and efficient range queries are genuinely in tension — hash partitioning picks even distribution at the direct cost of destroying the sort order that made range scans cheap.',
+    },
+    {
+      prompt: 'How does Cassandra\'s compound primary key design let it get some benefits of both hash and range partitioning?',
+      choices: [
+        'Cassandra hashes every column of the key equally, with no distinction between them',
+        'Only the FIRST part of the compound key is hashed to choose the partition; the remaining columns act as a sort key WITHIN that partition, so a query with a fixed value for the first column can still efficiently range-scan the rest',
+        'Cassandra does not support compound keys at all',
+        'Cassandra applies range partitioning to the entire compound key with no hashing involved',
+      ],
+      answer: 1,
+      why: 'Hashing only the leading column spreads different partition-key values (like different users) across nodes, while preserving efficient sorted access within any single partition-key value\'s own data.',
+    },
+    {
+      prompt: 'Why can using a language\'s built-in hash function (like Java\'s Object.hashCode()) for database partitioning be dangerous?',
+      choices: [
+        'Built-in hash functions are always too slow to use in a database',
+        'Some built-in hash functions can return different values for the same input across different process runs — which would mean the same key could get routed to a different partition depending on which process is doing the hashing, breaking the whole scheme',
+        'Built-in hash functions can only handle numeric input',
+        'This is not actually a real concern for any hash function',
+      ],
+      answer: 1,
+      why: 'A partitioning hash needs to be stable and deterministic across processes and time — a hash that isn\'t satisfies neither requirement, silently breaking key-to-partition routing.',
+    },
+  ]}
+/>
+
+### Practice: hash-based partition assignment
+
+Implement the core mechanic directly: a function that deterministically maps any key to one of `n` partitions using a hash of the key.
+
+<CodeExercise
+  title="Hash partition assignment"
+  heading="exercise-hash-partition"
+  lang="python"
+  filename="main.py"
+  prompt="Implement partition_for_key(key, num_partitions) to deterministically map a string key to a partition index in range(num_partitions), using Python's built-in hash()."
+  sampleLog={`(no input)
+True
+5`}
+  starter={`def partition_for_key(key, num_partitions):
+    # TODO: deterministically map key to an index in
+    # range(num_partitions), using hash(key).
+    pass
+
+# Same key must always map to the same partition.
+p1 = partition_for_key("user-42", 8)
+p2 = partition_for_key("user-42", 8)
+print(p1 == p2)
+
+# Report how many DISTINCT partitions a batch of keys lands on
+# (out of 8 possible), as a sanity check that keys actually spread out.
+keys = [f"user-{i}" for i in range(50)]
+distinct = len(set(partition_for_key(k, 8) for k in keys))
+print(distinct)
+`}
+  hint="Use abs(hash(key)) % num_partitions, same as the sticky-routing exercise from the replication lessons."
+  solution={`def partition_for_key(key, num_partitions):
+    return abs(hash(key)) % num_partitions
+
+p1 = partition_for_key("user-42", 8)
+p2 = partition_for_key("user-42", 8)
+print(p1 == p2)
+
+keys = [f"user-{i}" for i in range(50)]
+distinct = len(set(partition_for_key(k, 8) for k in keys))
+print(distinct)
+`}
+  sourceChecks={[
+    { name: 'uses hash() for partition assignment', pattern: 'hash\\(', must: true, hint: 'derive the partition index from hash(key)' },
+  ]}
+  tests={[
+    { name: 'deterministic and spreads across all 8 partitions', stdin: '', equals: 'True\n8' },
+  ]}
+/>
+
+---
+
+## Skewed Workloads and Relieving Hot Spots
+
+Hashing fixes skew coming from *clustered* keys — but it can't rescue you from skew caused by **one key getting hammered**. If every read and write targets the *same* key, hashing that key still always produces the *same* hash, landing every single request on one partition regardless. This isn't purely academic: a celebrity's post going viral can direct an enormous concentrated burst of writes at one specific key (the celebrity's user ID, or the ID of whatever post everyone's suddenly commenting on) — and hashing that ID doesn't spread the load out even slightly, since it's still just one ID being hashed to one place, over and over.
+
+Most systems today can't automatically detect or fix this kind of skew — it falls to the **application** to intervene. A workable technique: append a small **random number** (say, two decimal digits) to a known-hot key, effectively splitting it into 100 *different* keys spread across potentially 100 different partitions. The catch: reads now have to fetch and combine data from all 100 split-key variants instead of one straightforward lookup — real added cost, and one you'd never want to pay for the vast majority of keys that *aren't* hot. That means the application also needs a way to track **which** keys are currently being split this way, so the technique gets applied only where it's actually earning its cost.
+
+### Check: skewed workloads
+
+<MultipleChoice
+  id="ddia-partition-hotspots"
+  title="Relieving hot spots"
+  questions={[
+    {
+      prompt: 'Why doesn\'t hash partitioning help when a single specific key receives a disproportionate share of all reads and writes (e.g. a viral celebrity post)?',
+      choices: [
+        'Hash partitioning always spreads even a single hot key across multiple partitions automatically',
+        'Hashing the SAME key always produces the SAME hash value, so every request for that one key is still routed to the exact same single partition every time — hashing only helps distribute DIFFERENT keys apart from each other, not concentrated traffic to one key',
+        'This scenario cannot actually occur in real systems',
+        'Hot keys are automatically detected and split by every modern database',
+      ],
+      answer: 1,
+      why: 'Hash partitioning distributes distinct keys across partitions, but a single key\'s hash is fixed — concentrated load on one key stays concentrated on one partition no matter what hash function is used.',
+    },
+    {
+      prompt: 'What is the real cost of the "append a random suffix to hot keys" technique for relieving hot spots?',
+      choices: [
+        'There is no real cost; it is a strictly free improvement',
+        'Reads now must fetch and combine data from every split-key variant (e.g. all 100 of them) instead of a single lookup, and the application must track which specific keys are hot enough to warrant this splitting, since applying it to every key would add unnecessary overhead everywhere',
+        'It makes writes slower but has no effect on reads',
+        'It can only be applied to numeric keys, never string keys',
+      ],
+      answer: 1,
+      why: 'Splitting a key trades cheaper, more evenly-distributed writes for more expensive, multi-key reads — plus the ongoing bookkeeping cost of knowing which keys need this treatment at all.',
+    },
+  ]}
+/>
+
+---
+
+:::important Key takeaways
+- **Partitioning** splits a dataset itself (not just copies of it) across nodes — the only real fix once data or query load outgrows a single machine, and it's typically combined with, not replaced by, replication at the level of each partition.
+- The goal is always **even distribution** of data and load; an uneven split is **skew**, and its worst form — nearly all traffic on one partition — is a **hot spot**.
+- **Key range partitioning** keeps keys sorted and supports efficient range scans, but is vulnerable to hot spots whenever real access patterns cluster around nearby keys (like "right now" in a timestamp-keyed dataset).
+- **Hash partitioning** spreads keys evenly by discarding their natural ordering — a real trade-off against range query efficiency — with Cassandra's compound-key design offering a practical middle ground.
+- Neither technique rescues you from a **single key** receiving disproportionate traffic — that requires an application-level fix like randomly suffix-splitting the hot key, accepting more expensive multi-key reads in exchange for spread-out writes.
+:::
+
+## Further Reading
+
+- Martin Kleppmann — *Designing Data-Intensive Applications* (O'Reilly, 2017), Chapter 6
+- [Leaderless Replication](./leaderless-replication) — this series' previous lesson
+- [Partitioning and Secondary Indexes](./partitioning-and-secondary-indexes) — this series' next lesson
+- David Karger et al. — ["Consistent Hashing and Random Trees"](https://www.akamai.com/site/en/documents/research-paper/consistent-hashing-and-random-trees-distributed-caching-protocols-for-relieving-hot-spots-on-the-world-wide-web-technical-publication.pdf) (1997), the original consistent hashing paper

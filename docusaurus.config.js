@@ -263,7 +263,7 @@ const config = {
         id: 'fundamentals',
         path: 'fundamentals',
         routeBasePath: 'fundamentals',
-        sidebarPath: require.resolve('./sidebars.js'),
+        sidebarPath: require.resolve('./sidebars.fundamentals.js'),
         async sidebarItemsGenerator({defaultSidebarItemsGenerator, ...args}) {
           const items = await defaultSidebarItemsGenerator(args);
           const byId = new Map(args.docs.map((d) => [d.id, d]));
@@ -377,6 +377,18 @@ const config = {
               {
                 to: '/fundamentals/computer-engineering/virtualization/cpu-pipeline',
                 label: 'CS Fundamentals',
+              },
+              {
+                to: '/fundamentals/math-and-science/intro',
+                label: 'Math and Science',
+              },
+              {
+                to: '/fundamentals/electronics/intro',
+                label: 'Electronics',
+              },
+              {
+                to: '/fundamentals/finance/intro',
+                label: 'Finance',
               },
             ],
           },

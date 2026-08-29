@@ -1,0 +1,265 @@
+---
+sidebar_position: 1
+title: Leaders and Followers
+---
+
+# Leaders and Followers
+
+> **Adapted from:** Martin Kleppmann, *Designing Data-Intensive Applications* (O'Reilly, 2017), Chapter 5 — rewritten and condensed for teaching.
+
+**Replication** means keeping the same data on multiple networked machines. There are three good reasons to do it: keeping data physically close to users (lower latency), staying up even when parts of the system fail (higher availability), and spreading read traffic across more machines (higher read throughput). This lesson — and the rest of this section — assumes your dataset comfortably fits on one machine, so every replica holds a full copy; a later lesson relaxes that and covers **partitioning** datasets too big for any single machine to hold.
+
+If data never changed, replication would be trivial: copy it once, done. Every genuine difficulty in replication comes from handling *changes* to already-replicated data — and that's the entire subject of this lesson and the ones that follow it.
+
+---
+
+## Leader-Based Replication
+
+Each node holding a copy of the data is a **replica**. With several replicas, one question dominates everything else: how do we make sure every write reaches every replica? The dominant answer is **leader-based replication** (also called *active/passive* or *master–slave*):
+
+1. One replica is the **leader** (primary/master). Every write must go through it — it writes the change to its own local storage first.
+2. Every other replica is a **follower** (read replica/secondary). The leader records each write into a **replication log** and streams it to every follower, which applies the changes **in the exact order the leader processed them.**
+3. Reads can go to the leader *or* any follower — but writes are only ever accepted by the leader.
+
+This is a built-in feature of PostgreSQL, MySQL, Oracle, and SQL Server, plus several non-relational databases (MongoDB, RethinkDB). It isn't limited to databases either — Kafka and RabbitMQ's highly-available queues use the exact same leader/follower shape internally.
+
+## Synchronous vs. Asynchronous Replication
+
+Whether a follower confirms a write *before* the leader reports success to the client is the single most consequential replication setting there is.
+
+- **Synchronous** — the leader waits for a follower's confirmation before telling the client the write succeeded. Guarantees that follower has an up-to-date copy — genuinely useful if the leader then crashes. The cost: if that follower is slow, unreachable, or crashed, **every write blocks** until it recovers.
+- **Asynchronous** — the leader fires the change at followers and doesn't wait. Writes stay fast and available even if every follower has fallen behind — at the cost that an unrecoverable leader crash can silently **lose** any writes it hadn't yet replicated, even ones already confirmed to a client.
+
+Making *every* follower synchronous is impractical — a single flaky node would stall the entire system. The common middle ground is **semi-synchronous**: exactly one follower is synchronous at a time (guaranteeing the data lives on at least two nodes — leader plus that one follower), and if it becomes slow or unreachable, a different asynchronous follower is promoted to take its place. Many real deployments skip synchronous replication entirely and run fully asynchronous — a real durability trade-off, but one that's especially common once you have many followers, or followers spread across distant datacenters where waiting on a round-trip would tank write latency.
+
+:::note Chain replication and consensus
+Losing data on leader failure is serious enough that research keeps chipping away at it — **chain replication** (used in production by Microsoft Azure Storage) is a synchronous variant designed to avoid the "any one slow follower blocks everything" problem. There's also a deep connection between replication consistency and **consensus** (getting distributed nodes to agree on a value) — a topic this series returns to in a later lesson.
+:::
+
+### Check: leader-based and sync/async replication
+
+<MultipleChoice
+  id="ddia-repl-leader-basics"
+  title="Leader-based replication and sync vs. async"
+  questions={[
+    {
+      prompt: 'In leader-based replication, which nodes are allowed to accept write requests directly from clients?',
+      choices: [
+        'Any replica may accept writes at any time',
+        'Only the leader — followers are read-only from a client\'s point of view, and receive changes exclusively via the replication log the leader sends them',
+        'Only followers may accept writes; the leader is read-only',
+        'Writes must be sent to every replica simultaneously by the client itself',
+      ],
+      answer: 1,
+      why: 'This client-facing asymmetry — writes to the leader only, reads anywhere — is the defining structural feature of leader-based replication.',
+    },
+    {
+      prompt: 'What is the core trade-off between synchronous and asynchronous replication?',
+      choices: [
+        'There is no real trade-off; synchronous is strictly better in every situation',
+        'Synchronous replication guarantees a follower has the latest data (safer against leader failure) but blocks writes entirely if that follower is slow or unreachable; asynchronous replication keeps writes fast and available but risks silently losing recently-confirmed writes if the leader crashes before replicating them',
+        'Asynchronous replication is always slower than synchronous replication',
+        'Synchronous replication never requires waiting for any follower',
+      ],
+      answer: 1,
+      why: 'This is precisely the durability-vs-availability trade-off the lesson describes as the single most consequential replication setting.',
+    },
+    {
+      prompt: 'Why do real deployments typically avoid making every single follower synchronous?',
+      choices: [
+        'Because synchronous replication is not supported by any real database',
+        'Because with many synchronous followers, any ONE of them being slow or unreachable would block every write across the entire system — a single flaky node effectively takes down all writes',
+        'Because followers cannot be configured to be synchronous at all',
+        'Because synchronous followers use significantly more disk space than asynchronous ones',
+      ],
+      answer: 1,
+      why: 'Blocking on every synchronous follower means the system\'s write availability is only as good as its least reliable follower — which is why "semi-synchronous" (just one sync follower at a time) is the common compromise.',
+    },
+  ]}
+/>
+
+---
+
+## Setting Up New Followers
+
+Adding a follower — to scale out or replace a failed node — can't just mean copying data files, since writes never stop arriving; a naive file copy would capture different parts of the database at different moments in time, producing something that makes no coherent sense. The real process, done without downtime:
+
+1. Take a **consistent snapshot** of the leader's data, ideally without locking the whole database (most databases already support this, since backups need the same capability).
+2. Copy that snapshot to the new follower.
+3. The follower connects to the leader and asks for every change since the *exact* log position the snapshot corresponds to (PostgreSQL calls this a **log sequence number**; MySQL calls it **binlog coordinates**).
+4. Once the follower has replayed that entire backlog, it's **caught up** and can keep consuming the live stream like any other follower.
+
+## Handling Node Outages
+
+Individual nodes go down — sometimes from a genuine fault, sometimes from routine maintenance like a kernel patch reboot. The goal is always to keep the *system* running, and to shrink the blast radius of any one node's outage as much as possible.
+
+### Follower Failure: Catch-Up Recovery
+
+The easy case. Every follower keeps its own log of changes received from the leader, so after a crash or a network blip it always knows the last change it fully processed. On reconnecting, it simply asks the leader for everything since that point — the exact same mechanism used to bootstrap a brand-new follower.
+
+### Practice: catch-up recovery
+
+<CodeExercise
+  title="Compute a follower's catch-up backlog"
+  heading="exercise-catchup"
+  lang="python"
+  filename="main.py"
+  prompt="Implement missing_writes(leader_log, follower_offset) to return every write in leader_log whose position is strictly greater than follower_offset — the exact backlog a reconnecting follower needs to replay."
+  sampleLog={`(no input)
+['set y=2', 'set z=3']`}
+  starter={`def missing_writes(leader_log, follower_offset):
+    # leader_log is a list of writes; leader_log[i] is at position i.
+    # Return the writes the follower still needs: everything at a
+    # position strictly greater than follower_offset.
+    pass
+
+leader_log = ["set x=1", "set y=2", "set z=3"]
+print(missing_writes(leader_log, 0))
+`}
+  hint="Slice the log: leader_log[follower_offset + 1:]"
+  solution={`def missing_writes(leader_log, follower_offset):
+    return leader_log[follower_offset + 1:]
+
+leader_log = ["set x=1", "set y=2", "set z=3"]
+print(missing_writes(leader_log, 0))
+`}
+  sourceChecks={[
+    { name: 'uses the offset to slice the log', pattern: 'follower_offset', must: true, hint: 'index into leader_log using follower_offset' },
+  ]}
+  tests={[
+    { name: 'returns only writes after the given offset', stdin: '', equals: "['set y=2', 'set z=3']" },
+  ]}
+/>
+
+### Leader Failure: Failover
+
+Trickier. A follower must be promoted, clients must be redirected to it, and the remaining followers must start consuming from the *new* leader. This whole process is called **failover**, and it can run manually (an operator makes the call) or automatically:
+
+1. **Detect the failure.** There's no foolproof way to know *why* a node stopped responding — crash, power loss, network partition, or something else entirely. Most systems fall back to a **timeout**: no response for N seconds (30 is typical) means "assume dead."
+2. **Elect a new leader.** Either the remaining replicas vote (a majority-based election), or a separate controller node appoints one. The best candidate is normally whichever replica has the most up-to-date data from the old leader, to minimize lost writes. (Getting distributed nodes to agree on this is itself a **consensus problem** — a later lesson goes deeper.)
+3. **Reconfigure the system.** Clients start sending writes to the new leader. If the old leader eventually rejoins, it needs to recognize it's no longer in charge and demote itself to a follower — otherwise you can end up with two nodes both convinced they're the leader.
+
+Failover has an unusually large number of ways to go wrong:
+
+- **Lost writes.** Under asynchronous replication, the new leader may be missing writes the old leader had already confirmed to clients — and if the old leader later rejoins, those unreplicated writes are typically just **discarded**, silently violating whatever durability the client thought it had.
+- **Cross-system inconsistency.** GitHub once promoted a follower whose auto-increment counter lagged behind the old leader's — the new leader reused primary keys the old leader had already assigned. Those same keys were also referenced in a separate Redis store, and the collision leaked private data to the wrong users. The lesson: discarding writes can ripple into *other* systems that assumed those writes were final.
+- **Split brain.** Certain fault patterns can leave *two* nodes simultaneously convinced they're the leader. If both accept writes with no conflict-resolution process, data corruption or loss is close to guaranteed. Some systems defend against this with **fencing** (bluntly: **STONITH** — "shoot the other node in the head," forcibly shutting one of them down) — but a poorly designed fencing mechanism can misfire and shut down *both* nodes.
+- **The timeout dilemma.** Too long a timeout means a longer outage before failover kicks in. Too short, and an ordinary load spike or transient network hiccup triggers an *unnecessary* failover — which, if the system was already under strain, tends to make things measurably worse, not better.
+
+There's no clean, universal fix for any of this — which is exactly why some operations teams deliberately keep failover manual, even when their database software fully supports doing it automatically.
+
+### Check: node outages and failover
+
+<MultipleChoice
+  id="ddia-repl-failover"
+  title="Handling outages and leader failover"
+  questions={[
+    {
+      prompt: 'Why is recovering from a FOLLOWER failure generally much simpler than recovering from a LEADER failure?',
+      choices: [
+        'Follower failures are actually harder to recover from than leader failures',
+        'A follower already knows the last change it processed from its own local log, so it can simply reconnect and request everything since that point — no election, no client reconfiguration, and no risk of two nodes both believing they are the leader',
+        'Followers cannot fail under any circumstances',
+        'Leader failures never require any special handling at all',
+      ],
+      answer: 1,
+      why: 'Follower recovery is a straightforward catch-up using the follower\'s own known position; leader failure requires electing a replacement and redirecting all future writes.',
+    },
+    {
+      prompt: 'In the GitHub incident described, what actually caused private data to be disclosed to the wrong users?',
+      choices: [
+        'A network security breach unrelated to replication',
+        'A newly-promoted leader\'s auto-increment counter lagged behind the old leader\'s, so it reused primary keys the old leader had already assigned — and since those same keys were referenced in a separate Redis store, the reuse caused cross-system inconsistency',
+        'The old leader was never actually replaced',
+        'The database ran out of disk space during failover',
+      ],
+      answer: 1,
+      why: 'This is a concrete illustration of how discarding unreplicated writes during failover can have consequences that ripple beyond the database itself, into any other system that assumed those writes were durable.',
+    },
+    {
+      prompt: 'Why is choosing the failover timeout threshold a genuine dilemma rather than a simple "smaller is always better" decision?',
+      choices: [
+        'Timeout length has no real effect on system behavior',
+        'A short timeout risks triggering unnecessary failovers from ordinary load spikes or transient network glitches — which, especially if the system is already under strain, can make things worse rather than better — while a long timeout means a longer real outage when the leader has genuinely failed',
+        'Longer timeouts always produce strictly better outcomes with no downside',
+        'Timeouts are irrelevant because failure detection is always instantaneous and perfectly accurate',
+      ],
+      answer: 1,
+      why: 'Both directions carry real costs — this is exactly the tension the lesson highlights as having no universally correct answer.',
+    },
+  ]}
+/>
+
+---
+
+## Implementation of Replication Logs
+
+What actually travels from leader to follower? Four real approaches, in practice:
+
+| Method | How it works | Main weakness |
+|---|---|---|
+| **Statement-based** | Forward the literal `INSERT`/`UPDATE`/`DELETE` statements; followers re-execute them | Breaks on nondeterministic functions (`NOW()`, `RAND()`), autoincrement columns, or statements depending on existing data — unless executed in *exactly* the same order everywhere |
+| **Write-ahead log (WAL) shipping** | Ship the storage engine's own low-level WAL (used in [B-Trees and Other Indexing Structures](../designing-data-intensive-applications/b-trees-and-other-indexing-structures) for crash recovery) byte-for-byte | Tightly coupled to the storage engine's on-disk format — leader and followers usually can't run different database software *versions*, which can force downtime during upgrades |
+| **Logical (row-based) log** | A separate, storage-engine-independent format describing row-level changes (inserted row's new values, deleted row's key, updated row's new values) | None of WAL shipping's version-coupling — and it's also easy for *external* systems to parse, which is exactly what powers **change data capture** |
+| **Trigger-based** | Database triggers fire custom application code on every write, which then handles replication itself | Higher overhead and more bug-prone than engine-native replication, but the only option offering full flexibility — partial replication, cross-database-type replication, or custom conflict logic |
+
+Statement-based replication was MySQL's default before 5.1, and VoltDB still uses it — but only by requiring transactions to be fully deterministic, which sidesteps its usual failure mode entirely. WAL shipping is how PostgreSQL and Oracle implement built-in replication. Logical log replication is MySQL's modern default (`binlog` in row-based mode), and it's the technique underneath most real-world **change data capture** pipelines — streaming a database's changes out to a search index, a cache, or a data warehouse. Trigger-based tools like Bucardo (Postgres) or Oracle GoldenGate exist specifically for the cases the built-in engine replication can't handle: partial replication, cross-database-type replication, or genuinely custom conflict-resolution logic.
+
+### Check: replication log implementations
+
+<MultipleChoice
+  id="ddia-repl-log-formats"
+  title="Statement-based, WAL, logical, and trigger-based replication"
+  questions={[
+    {
+      prompt: 'Why can statement-based replication produce different results on different replicas, even though every replica executes the exact same SQL statement?',
+      choices: [
+        'Statement-based replication always produces identical results everywhere with no exceptions',
+        'A statement that calls a nondeterministic function (like NOW() or RAND()), uses an autoincrementing column, or depends on existing data can legitimately produce a different result on each replica unless special care is taken (e.g. replacing nondeterministic calls with a fixed value before logging)',
+        'Because SQL statements cannot be transmitted over a network',
+        'Because followers execute statements in a randomly shuffled order by design',
+      ],
+      answer: 1,
+      why: 'Nondeterminism and order-dependence are exactly the failure modes that make statement-based replication fragile compared to the alternatives.',
+    },
+    {
+      prompt: 'What is the main practical downside of write-ahead log (WAL) shipping as a replication method?',
+      choices: [
+        'It cannot be used for crash recovery at all',
+        'It is tightly coupled to the storage engine\'s low-level, on-disk data format, which typically prevents the leader and followers from running different database software versions — forcing downtime during certain upgrades',
+        'It is the slowest possible replication method by far',
+        'It requires application-level trigger code to function',
+      ],
+      answer: 1,
+      why: 'Because WAL describes changes at the physical disk-block level, it inherently ties replication to a matching storage engine version across leader and followers.',
+    },
+    {
+      prompt: 'Why is a logical (row-based) replication log specifically well-suited to change data capture (streaming database changes to external systems like a search index or data warehouse)?',
+      choices: [
+        'Because it is identical to a write-ahead log in every respect',
+        'Because it describes changes at a storage-engine-independent level (inserted/updated/deleted row values), making it far easier for external tools to parse than a low-level, engine-specific WAL format',
+        'Because logical logs cannot be used for actual database-to-database replication',
+        'Because it requires no schema at all',
+      ],
+      answer: 1,
+      why: 'Decoupling the log format from the storage engine internals is exactly what makes a logical log both cross-version-compatible and externally parseable — the two properties change data capture depends on.',
+    },
+  ]}
+/>
+
+---
+
+:::important Key takeaways
+- **Leader-based replication** funnels every write through one node, which streams an ordered replication log to followers — reads can go anywhere, writes only to the leader.
+- **Synchronous** replication trades write availability for durability guarantees; **asynchronous** replication trades durability for speed and availability — most real systems land on a **semi-synchronous** compromise, or go fully asynchronous.
+- **New followers** bootstrap from a consistent snapshot plus the leader's exact log position at that snapshot, then replay forward until caught up — the identical mechanism a *reconnecting* follower uses after any outage.
+- **Leader failover** — detecting the failure via timeout, electing a replacement, and reconfiguring clients — is where most of replication's genuinely hard problems live: lost writes, cross-system inconsistency, split brain, and an unavoidable tension in choosing the failure-detection timeout.
+- Replication logs come in four practical flavors — **statement-based** (fragile under nondeterminism), **WAL shipping** (fast but version-coupled), **logical/row-based** (decoupled, and the basis of change data capture), and **trigger-based** (slow but maximally flexible).
+:::
+
+## Further Reading
+
+- Martin Kleppmann — *Designing Data-Intensive Applications* (O'Reilly, 2017), Chapter 5
+- [Modes of Dataflow](../designing-data-intensive-applications/modes-of-dataflow) — this series' earlier lesson on message brokers and RPC, a natural complement to replication logs
+- [Problems with Replication Lag](./problems-with-replication-lag) — this series' next lesson
+- [PostgreSQL: Streaming Replication documentation](https://www.postgresql.org/docs/current/warm-standby.html#STREAMING-REPLICATION)

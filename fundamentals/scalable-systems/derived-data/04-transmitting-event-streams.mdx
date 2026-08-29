@@ -1,0 +1,330 @@
+---
+sidebar_position: 4
+title: Transmitting Event Streams
+---
+
+# Transmitting Event Streams
+
+> **Adapted from:** Martin Kleppmann, *Designing Data-Intensive Applications* (O'Reilly, 2017), Chapter 11 — rewritten and condensed for teaching.
+
+Every system covered so far in this series has treated data as something that arrives, gets processed in a batch, and produces a result. But a huge amount of real-world data doesn't come in neat, bounded batches at all — it arrives continuously, one small piece at a time, indefinitely. A **stream** is exactly that: data made incrementally available over time — the same underlying idea behind Unix's `stdin`/`stdout`, a TCP connection, or a video stream, applied here specifically to **event data**. This lesson covers how streams of events actually get transmitted between systems — from simple direct messaging, through full-featured message brokers, up to the **partitioned log** design that turns out to unify the best of both messaging and databases.
+
+---
+
+## What an Event Actually Is
+
+In batch processing, a job's input and output are files — bounded, static, read start-to-finish. The natural streaming equivalent of one **record** inside that file is an **event**: a small, self-contained, **immutable** object describing something that happened at a specific point in time, typically carrying its own timestamp. An event might record a user action (a page view, a purchase), a machine-generated reading (a temperature sensor, a CPU utilization metric), or — as this lesson eventually gets to — a **write to a database**. Encoded as text, JSON, or one of the binary formats covered in [Formats for Encoding Data](../designing-data-intensive-applications/formats-for-encoding-data), an event can be stored (appended to a file, inserted into a table) or transmitted over a network exactly like any other piece of data.
+
+The vocabulary mirrors batch processing directly: an event is generated once by a **producer** (publisher/sender), and can be processed by any number of **consumers** (subscribers/recipients). Where a batch file groups related records under one filename, a streaming system groups related events under a **topic**.
+
+In principle, a plain file or database is *sufficient* to connect producers and consumers — a producer appends every event, and consumers periodically **poll** for anything new since their last check. That's essentially what a nightly batch job already does. But polling gets expensive fast once you actually want **low-latency**, continual processing: poll too rarely and consumers lag; poll too often and most requests come back empty, wasting resources on overhead rather than useful work. What you actually want is for consumers to be **notified** the instant something new shows up — and traditional databases have never supported that well (relational triggers exist, but they're limited and something of an afterthought in most database designs). This gap is exactly what specialized **messaging systems** exist to fill.
+
+### Check: events and the polling problem
+
+<MultipleChoice
+  id="ddia-streams-events-basics"
+  title="Events, producers/consumers, and why polling doesn't scale"
+  questions={[
+    {
+      prompt: 'What is an "event" in the stream-processing sense, and how does it relate to a "record" in batch processing?',
+      choices: [
+        'An event is a completely unrelated concept with no connection to batch records',
+        'An event is essentially the streaming equivalent of a batch record — a small, self-contained, immutable object describing something that happened at a point in time, usually with a timestamp',
+        'An event can only ever represent a user click, never any other kind of occurrence',
+        'Events are always mutable and can be updated after being recorded',
+      ],
+      answer: 1,
+      why: 'The lesson explicitly draws this parallel: an event is the same fundamental idea as a batch record, just applied to unbounded, incrementally-arriving data instead of a bounded file.',
+    },
+    {
+      prompt: 'Why does polling a database for new events become expensive as you try to lower the notification latency?',
+      choices: [
+        'Polling has no real performance cost regardless of frequency',
+        'Polling more frequently means a lower percentage of each poll actually finds new data, so the overhead of repeatedly checking (with mostly empty results) grows relative to the useful work being done',
+        'Databases physically cannot be queried more than once per second',
+        'Polling is only expensive when using a message broker, never a plain database',
+      ],
+      answer: 1,
+      why: 'The core trade-off is exactly this: more frequent polling chases lower latency but pays an increasing overhead cost in mostly-wasted checks — which is precisely the gap push-based notification (messaging systems) fills.',
+    },
+  ]}
+/>
+
+---
+
+## Messaging Systems
+
+A **messaging system** pushes new events to consumers directly, rather than making them poll. The simplest possible version — a Unix pipe, or a raw TCP connection — connects exactly **one** sender to **one** recipient. Real messaging systems generalize this into a genuine **publish/subscribe** model: many producers can send to the same topic, and many consumers can receive from it. Two questions cut cleanly across the whole landscape of messaging system designs:
+
+1. **What happens when producers outpace consumers?** Three broad options: **drop** messages, **buffer** them in a growing queue, or apply **backpressure** (block the producer from sending more — exactly what Unix pipes and TCP already do with their small, fixed-size buffers, as covered in [Faults, Partial Failures, and Unreliable Networks](../distributed-data/faults-partial-failures-and-unreliable-networks#timeouts-and-unbounded-delays)). If messages are buffered, what happens as that buffer keeps growing — does the system crash once it no longer fits in memory, or does it spill to disk, and at what performance cost?
+2. **What happens if a node crashes — are messages lost?** As with databases, durability generally costs something, whether that's writing to disk, replicating, or both. Whether losing a message is actually acceptable depends heavily on the application: an occasional missed sensor reading is often harmless (a fresh one arrives shortly after) — but if you're **counting** events, every dropped message directly corrupts your counters, and a large-scale silent drop may not even be obvious until well after the fact.
+
+### Direct Messaging: Simple, but Limited Fault Tolerance
+
+A handful of systems send messages straight from producer to consumer with no intermediary at all:
+
+- **UDP multicast** — common in finance for low-latency feeds like stock quotes; UDP itself drops packets, so the application layer has to handle retransmission on top.
+- **Brokerless libraries** like ZeroMQ and nanomsg — publish/subscribe implemented directly over TCP or IP multicast.
+- **StatsD-style metrics collection** — deliberately unreliable UDP, trading guaranteed delivery for low overhead, since a metric's exact precision usually matters less than its overall trend.
+- **Webhooks** — a producer makes a direct HTTP/RPC call to a URL a consumer previously registered, pushing the event straight to it.
+
+These work well for what they're built for, but the application code generally has to stay aware that messages **can** simply vanish. If a consumer happens to be offline, it typically just **misses** whatever was sent during that gap — direct messaging protocols generally assume producers and consumers are continuously online, an assumption that doesn't hold up well in practice.
+
+### Message Brokers: Centralizing Durability
+
+The more common alternative: route messages through a **message broker** (message queue) — essentially a specialized, message-optimized database, running as its own server, with producers and consumers both connecting to it as clients. Centralizing things this way lets the broker absorb the "clients come and go" problem directly — durability becomes the broker's concern, not each individual producer's. Faced with a slow consumer, brokers typically allow **unbounded queueing** rather than dropping messages or applying backpressure (though this is usually configurable). One direct consequence: producers are normally **asynchronous** with respect to consumers — a producer's send only waits for the *broker* to confirm the message was buffered, not for any consumer to actually finish processing it.
+
+A message broker can look database-*like* in some genuine ways (some even support two-phase commit via XA — see [Distributed Transactions and Two-Phase Commit](../distributed-data/distributed-transactions-and-two-phase-commit)) — but real practical differences remain:
+
+| | Databases | Message brokers (traditional) |
+|---|---|---|
+| **Retention** | Kept until explicitly deleted | Typically deleted right after successful delivery |
+| **Working set** | Can be arbitrarily large | Usually assumed small (short queues) |
+| **Querying** | Rich queries, secondary indexes | Subscribe to a topic (or pattern) — much narrower |
+| **Change awareness** | A query is a point-in-time snapshot; you don't find out later that it went stale | Actively notifies you the moment new data (a new message) appears |
+
+This traditional model is what standards like JMS and AMQP encode, and what RabbitMQ, ActiveMQ, and similar systems implement.
+
+### Multiple Consumers: Load Balancing vs. Fan-Out
+
+With more than one consumer on the same topic, two fundamentally different delivery patterns show up:
+
+- **Load balancing** — each message goes to exactly **one** consumer, spreading the total processing work across the group. Ideal when messages are individually expensive to process and you want to scale out by adding more consumers.
+- **Fan-out** — each message goes to **every** consumer, letting several independent consumers each "tune in" to the identical stream without affecting each other at all — the direct streaming analogue of several separate batch jobs all reading the same input file.
+
+These aren't mutually exclusive: two entirely separate consumer *groups* can both subscribe to the same topic, with each group collectively receiving every message (fan-out between groups) while, *within* each group, any one message only goes to one member (load balancing within the group).
+
+### Acknowledgments — and the Reordering They Can Introduce
+
+Since a consumer might crash mid-processing, brokers use **acknowledgments**: a consumer explicitly tells the broker once it's genuinely finished with a message, at which point the broker can safely remove it from the queue. If a consumer's connection drops (or simply times out) before an acknowledgment arrives, the broker assumes the message was never actually processed and **redelivers** it — typically to a different consumer in the same load-balanced group.
+
+That redelivery mechanism, combined with load balancing specifically, has a genuinely surprising side effect on message **ordering**. Picture messages `m3` and `m4` dispatched to two different consumers in a load-balanced group: consumer 2 crashes partway through `m3`, right around the same time consumer 1 is independently working through `m4`. Since `m3`'s acknowledgment never arrived, the broker redelivers it — to consumer 1, which processes it **after** `m4`. The net effect: even though `m3` and `m4` were sent in that order by the producer, consumer 1 ends up seeing `m4`, then `m3` — genuinely reordered, purely as a side effect of the crash-and-redeliver mechanism, even on a broker that otherwise tries hard to preserve ordering. The fix, if strict per-topic ordering genuinely matters, is to skip load balancing entirely and give each consumer its **own** dedicated queue — reordering is harmless when messages are truly independent of each other, but it becomes a real correctness problem the moment causal dependencies exist between them.
+
+### Check: messaging systems
+
+<MultipleChoice
+  id="ddia-streams-messaging-systems"
+  title="Direct messaging, brokers, and delivery patterns"
+  questions={[
+    {
+      prompt: 'Why do direct messaging systems (UDP multicast, webhooks, brokerless libraries) generally require the application itself to stay aware that messages can be lost?',
+      choices: [
+        'Direct messaging systems never actually lose any messages',
+        'These systems generally assume producers and consumers are continuously online — if a consumer happens to be offline when a message is sent, it typically just misses that message entirely, with no centralized place holding onto it for later delivery',
+        'Message loss is impossible once a webhook URL is registered',
+        'Direct messaging is only used for messages that are allowed to be duplicated, never lost',
+      ],
+      answer: 1,
+      why: 'Without a centralized, durable intermediary, there is nowhere for a message to "wait" for an offline consumer — it either arrives or it doesn\'t, which is exactly why application code has to plan around that possibility.',
+    },
+    {
+      prompt: 'What is the key structural difference between the "load balancing" and "fan-out" delivery patterns for multiple consumers on one topic?',
+      choices: [
+        'They are two names for the exact same delivery behavior',
+        'Load balancing delivers each individual message to exactly ONE consumer (spreading total work across the group); fan-out delivers each message to EVERY consumer (letting several independent consumers each see the full stream)',
+        'Fan-out can only be used with exactly two consumers',
+        'Load balancing requires every consumer to process every message twice',
+      ],
+      answer: 1,
+      why: 'One-message-one-consumer versus one-message-every-consumer is exactly the distinction that separates these two patterns, and the reason both are useful for different scenarios (parallelizing expensive work vs. independent downstream consumers).',
+    },
+    {
+      prompt: 'In the m3/m4 redelivery example, why does consumer 1 end up processing messages out of the order they were originally sent?',
+      choices: [
+        'The message broker deliberately randomizes message order for load testing purposes',
+        'Consumer 2 crashed while processing m3 before acknowledging it, so the broker redelivered m3 — but by the time that redelivery happened, consumer 1 had already moved on to processing m4, so m3 ends up arriving at consumer 1 AFTER m4, even though m3 was sent first',
+        'm3 and m4 were never actually sent in a particular order in the first place',
+        'This reordering only happens when fan-out delivery is used, never with load balancing',
+      ],
+      answer: 1,
+      why: 'The crash-and-redeliver mechanism, combined with load-balanced delivery to different consumers, is exactly what creates the possibility of this kind of reordering — a genuine, documented trade-off of the acknowledgment model.',
+    },
+  ]}
+/>
+
+---
+
+## Partitioned Logs: Combining Database Durability with Messaging's Low Latency
+
+Sending a network packet is normally a **transient** act — nothing permanent remains unless you go out of your way to capture it. Even message brokers that write messages to disk usually **delete** them again right after successful delivery, since they're built around a fundamentally transient mindset. Databases and files take the opposite stance entirely: anything written is expected to stick around **permanently**, until someone explicitly deletes it.
+
+That difference in mindset has real consequences for **derived data**. A batch job, as covered in earlier parts of this series, can safely be run over and over — its input is read-only, so nothing is ever at risk. Traditional AMQP/JMS-style messaging genuinely can't offer that: acknowledging a message is **destructive** (it gets deleted from the broker), so re-running a consumer from scratch and expecting an identical result simply isn't possible. Add a brand-new consumer to a traditional broker, and it only sees messages sent **from that point forward** — anything earlier is already gone, permanently. Contrast that with a plain file or database, where a new client can show up at any time and still read data written arbitrarily far in the past.
+
+Why not combine database-style durable, replayable storage with messaging's low-latency push notification? That's precisely the idea behind **log-based message brokers**.
+
+### Using a Log for Message Storage
+
+A **log** — already covered as the foundation of storage engines in [Hash Indexes and LSM-Trees](../designing-data-intensive-applications/hash-indexes-and-lsm-trees) and replication in [Leaders and Followers](../distributed-data/leaders-and-followers) — is nothing more than an append-only sequence of records on disk. The identical structure works perfectly as a message broker: a producer **appends** a message to the log's end; a consumer reads the log **sequentially**, and simply waits for a notification once it catches up to the current end (structurally identical to what `tail -f` does on a plain file).
+
+To scale past what a single disk can handle, the log gets **partitioned** (in the same sense as [Partitioning of Key-Value Data](../distributed-data/partitioning-of-key-value-data)) — different partitions live on different machines, each partition an independently readable/writable log in its own right. A **topic** is then just a named group of partitions all carrying the same kind of message. Within a single partition, the broker assigns every message a strictly increasing sequence number — an **offset** — meaningful precisely *because* a partition is append-only, so messages within one partition are **totally ordered**. There is, notably, **no** ordering guarantee whatsoever **across** different partitions. Apache Kafka, Amazon Kinesis, and Twitter's DistributedLog all work exactly this way — and despite durably writing every message to disk, they routinely sustain millions of messages per second, purely through partitioning across many machines plus replication for fault tolerance.
+
+### Logs vs. Traditional Brokers: Trade-offs, Not a Strict Upgrade
+
+The log-based approach makes **fan-out** essentially free — any number of consumers can independently read the same log without affecting each other at all, since reading never deletes anything. **Load balancing**, though, works differently: rather than distributing individual *messages*, the broker assigns entire **partitions** to different consumer nodes, and each consumer sequentially, single-threadedly works through everything in the partitions it owns. This coarser-grained approach has two genuine downsides worth knowing:
+
+- **Parallelism is capped by partition count.** You can never usefully have more consumers actively working a topic than it has partitions — messages within one partition are always delivered to exactly the one node currently assigned to it.
+- **Head-of-line blocking.** One slow message inside a partition holds up **every** subsequent message in that same partition, since a single consumer processes that partition strictly in order.
+
+The practical guidance falls out directly: when messages are genuinely expensive to process individually and you want fine-grained, message-by-message parallelism (with ordering being a lower priority), a traditional JMS/AMQP-style broker is the better fit. When throughput is high, individual messages are cheap and fast to process, and **ordering genuinely matters**, the log-based approach shines.
+
+### Consumer Offsets: Cheaper Bookkeeping Than Per-Message Acknowledgment
+
+Because a consumer reads a partition strictly sequentially, tracking progress is trivial: everything below the consumer's current **offset** has already been processed; everything at or above it hasn't. The broker never needs to track individual per-message acknowledgments at all — it only needs to periodically record **one number per consumer**, dramatically reducing bookkeeping overhead and opening the door to real batching and pipelining optimizations that push log-based systems' throughput well beyond what per-message acknowledgment allows.
+
+This offset is, functionally, exactly the same concept as the log sequence number covered in [Leaders and Followers](../distributed-data/leaders-and-followers#setting-up-new-followers) — a follower reconnecting to a leader resumes replication from exactly where it left off, using precisely this mechanism. The message broker plays the role of the leader here; the consumer plays the role of the follower. If a consumer node fails, another member of its consumer group simply picks up its partitions and resumes from that partition's **last recorded** offset — meaning any messages the failed consumer had already processed, but whose offset hadn't yet been durably recorded, get processed **again** on the new node. This is exactly the **at-least-once** delivery semantics this series returns to shortly.
+
+### Practice: consumer offsets and crash recovery
+
+Implement the exact mechanic that makes log-based consumer groups resilient: track a consumer's offset as it processes messages, and correctly resume from the last **committed** offset after a simulated crash — including the at-least-once reprocessing this naturally produces.
+
+<CodeExercise
+  title="Resume from a committed offset"
+  heading="exercise-consumer-offset"
+  lang="python"
+  filename="main.py"
+  prompt="Implement Consumer.process_up_to(log, count) to process up to `count` new messages starting from self.offset, printing each one, and advancing self.offset as it goes. Then implement Consumer.commit() to save self.committed_offset = self.offset. A 'crash' should be simulated by resetting self.offset back to self.committed_offset before resuming."
+  sampleLog={`(no input)
+processing: m0
+processing: m1
+[crash before commit! offset resets to last commit]
+processing: m1
+processing: m2
+final committed offset: 3`}
+  starter={`class Consumer:
+    def __init__(self):
+        self.offset = 0            # next message index to process
+        self.committed_offset = 0  # last durably saved offset
+
+    def process_up_to(self, log, count):
+        # TODO: process up to 'count' messages starting at self.offset,
+        # printing "processing: <message>" for each, advancing self.offset
+        # by one per message processed. Stop early if the log runs out.
+        pass
+
+    def commit(self):
+        # TODO: durably save the current offset.
+        pass
+
+    def crash_and_resume(self):
+        # Simulates a crash: any processed-but-uncommitted progress is lost.
+        self.offset = self.committed_offset
+
+log = ["m0", "m1", "m2", "m3", "m4"]
+consumer = Consumer()
+
+consumer.process_up_to(log, 1)   # processes m0
+consumer.commit()                # committed_offset = 1
+consumer.process_up_to(log, 1)   # processes m1 -- but never commits!
+print("[crash before commit! offset resets to last commit]")
+consumer.crash_and_resume()
+consumer.process_up_to(log, 2)   # re-processes m1, then processes m2
+consumer.commit()
+print("final committed offset:", consumer.committed_offset)
+`}
+  hint="process_up_to: for i in range(count): if self.offset >= len(log): break; print('processing:', log[self.offset]); self.offset += 1. commit: self.committed_offset = self.offset."
+  solution={`class Consumer:
+    def __init__(self):
+        self.offset = 0
+        self.committed_offset = 0
+
+    def process_up_to(self, log, count):
+        for _ in range(count):
+            if self.offset >= len(log):
+                break
+            print("processing:", log[self.offset])
+            self.offset += 1
+
+    def commit(self):
+        self.committed_offset = self.offset
+
+    def crash_and_resume(self):
+        self.offset = self.committed_offset
+
+log = ["m0", "m1", "m2", "m3", "m4"]
+consumer = Consumer()
+
+consumer.process_up_to(log, 1)
+consumer.commit()
+consumer.process_up_to(log, 1)
+print("[crash before commit! offset resets to last commit]")
+consumer.crash_and_resume()
+consumer.process_up_to(log, 2)
+consumer.commit()
+print("final committed offset:", consumer.committed_offset)
+`}
+  sourceChecks={[
+    { name: 'commit saves the offset', pattern: 'committed_offset\\s*=\\s*self\\.offset', must: true, hint: 'commit() should set self.committed_offset = self.offset' },
+  ]}
+  tests={[
+    { name: 'uncommitted progress is reprocessed after a crash', stdin: '', equals: 'processing: m0\nprocessing: m1\n[crash before commit! offset resets to last commit]\nprocessing: m1\nprocessing: m2\nfinal committed offset: 3' },
+  ]}
+/>
+
+### Disk Space, Bounded Retention, and Slow Consumers
+
+An unbounded append-only log obviously can't grow forever — in practice, logs are split into **segments**, with old segments periodically deleted or archived. This effectively turns the log into a large **circular buffer**: since it lives on disk rather than in memory, that buffer can be genuinely enormous. A back-of-the-envelope sense of scale: a 6 TB disk writing sequentially at 150 MB/s takes roughly 11 hours to fill completely — meaning the log can buffer around 11 hours of messages at full write throughput before it starts overwriting the oldest data, and in practice (rarely running at full disk bandwidth) that "replay window" often stretches to days or even weeks. Crucially, a log-based broker's throughput stays **roughly constant regardless of retention length**, since every message gets written to disk either way — a sharp contrast with brokers that default to keeping messages in memory and only spill to disk once queues grow large, where throughput can degrade sharply and unpredictably the moment that spillover kicks in.
+
+Revisiting the earlier "what happens when consumers fall behind" question specifically for log-based brokers: this is a form of **buffering**, just with a large, fixed-size (disk-bound) buffer rather than an unbounded one. A consumer that falls so far behind that its offset points at an already-deleted segment will genuinely **miss** those messages — but critically, that failure is fully **isolated**: only that one lagging consumer is affected, with zero impact on any other consumer's service. That isolation is a genuine operational win: you can freely spin up an experimental consumer against a live production log — for development, debugging, ad hoc analysis — without meaningfully risking disrupting anything else. And when a consumer is shut down, it stops consuming any broker resources at all — the *only* thing left behind is its now-static offset, a sharp contrast with traditional brokers, where an abandoned consumer's queue can keep silently accumulating messages and eating memory indefinitely if nobody remembers to clean it up.
+
+### Replaying Old Messages
+
+Because consuming a log-based topic is fundamentally **read-only** (unlike AMQP/JMS-style acknowledgment, which is inherently destructive), replaying history is genuinely easy: an offset is entirely under the **consumer's** own control, so you can simply start a fresh copy of a consumer at yesterday's recorded offset, direct its output somewhere new, and reprocess the last day's messages from scratch — as many times as you like, freely varying the processing logic between runs. This makes log-based messaging feel much more like the batch-processing model this series covered earlier: derived data stays cleanly, repeatably separated from the original input via a fully reproducible transformation — genuinely valuable for experimentation, and for cleanly recovering from bugs discovered after the fact.
+
+### Check: partitioned logs
+
+<MultipleChoice
+  id="ddia-streams-partitioned-logs"
+  title="Log-based brokers, consumer offsets, and retention"
+  questions={[
+    {
+      prompt: 'Why does the broker in a log-based system only need to track ONE offset per consumer, rather than individually acknowledging every single message?',
+      choices: [
+        'Log-based brokers do not actually track any consumer progress at all',
+        'Because a consumer reads a partition strictly sequentially, everything below its current offset is known to already be processed and everything at or above it is known not to be — a single number fully captures the consumer\'s progress, eliminating the need for per-message bookkeeping',
+        'Because messages within a partition can be processed in any arbitrary order',
+        'Because log-based brokers only ever support exactly one consumer per topic',
+      ],
+      answer: 1,
+      why: 'Sequential, in-order consumption within a partition is exactly what makes a single offset sufficient to fully describe processing progress — no per-message tracking needed.',
+    },
+    {
+      prompt: 'Why does a slow consumer falling too far behind in a log-based system only affect that ONE consumer, rather than disrupting the whole system?',
+      choices: [
+        'A slow consumer always causes the entire broker to crash',
+        'Because the log itself is unaffected by how far behind any individual consumer is — other consumers keep reading at their own pace from their own offsets, and only the lagging consumer risks missing messages once its offset points at an already-deleted segment',
+        'Slow consumers are automatically disconnected by the broker after a fixed timeout',
+        'This isolation only applies to fan-out delivery, never to load-balanced consumer groups',
+      ],
+      answer: 1,
+      why: 'Because each consumer tracks its own independent offset against a shared, unaffected log, one consumer\'s lag has no bearing on any other consumer\'s ability to keep reading normally.',
+    },
+    {
+      prompt: 'Why is replaying old messages fundamentally easier in a log-based broker than in a traditional AMQP/JMS-style broker?',
+      choices: [
+        'Traditional brokers actually make replaying messages just as easy as log-based ones',
+        'Consuming from a log-based broker is a read-only operation (offsets are entirely consumer-controlled, and reading never deletes anything) — you can simply rewind a consumer\'s offset and reprocess history; traditional brokers, by contrast, typically delete a message once it\'s been acknowledged, making that same message permanently unavailable for a future replay',
+        'Log-based brokers automatically replay every message every hour regardless of consumer requests',
+        'Replaying messages requires special hardware only available to log-based brokers',
+      ],
+      answer: 1,
+      why: 'The read-only, offset-controlled nature of log consumption versus the destructive, acknowledgment-driven deletion of traditional brokers is precisely what makes replay trivial in one and effectively impossible in the other.',
+    },
+  ]}
+/>
+
+---
+
+:::important Key takeaways
+- An **event** is the streaming counterpart of a batch record — small, immutable, timestamped — flowing from **producers** to **consumers** grouped by **topic**; push-based messaging beats polling once low latency genuinely matters.
+- **Direct messaging** (UDP multicast, brokerless libraries, webhooks) is simple but generally assumes continuous connectivity; **message brokers** centralize durability and buffering, at the cost of looking database-*like* without actually being one (short-lived messages, narrower querying).
+- **Load balancing** (one message → one consumer) and **fan-out** (one message → every consumer) are the two fundamental multi-consumer delivery patterns — and combining acknowledgment-based redelivery with load balancing can genuinely reorder messages.
+- **Partitioned, log-based brokers** (Kafka, Kinesis) fuse database-style durable, replayable storage with messaging's low-latency push notifications — fan-out becomes essentially free, load balancing works at the partition level, and a single **consumer offset** replaces expensive per-message acknowledgment.
+- Because log consumption is **read-only**, old messages can be freely **replayed** — making log-based messaging feel much closer to reproducible batch processing than to traditional, destructive message-queue semantics.
+:::
+
+## Further Reading
+
+- Martin Kleppmann — *Designing Data-Intensive Applications* (O'Reilly, 2017), Chapter 11
+- [Beyond MapReduce: Dataflow Engines and Graphs](./beyond-mapreduce-dataflow-engines-and-graphs) — this series' previous lesson
+- [Databases and Streams](./databases-and-streams) — this series' next lesson: change data capture and event sourcing
+- [Apache Kafka documentation](https://kafka.apache.org/documentation/) — a real, production log-based message broker
