@@ -1,5 +1,5 @@
 ---
-sidebar_position: 1
+sidebar_position: 3
 title: 🦔 1b - Animating Sanic, Our First Game Character 
 ---
 
