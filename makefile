@@ -11,6 +11,20 @@ FTP_PASSWORD=Learncode2020!
 main: build-commit ft-push
 
 
+# VPS deploy (Docker + Caddy, https://learn.l.l0l.in)
+# Usage: make sync-all m="commit message"   (m is optional, defaults to a timestamp)
+#        make deploy-main
+m ?= sync: $(shell date -u +%Y-%m-%dT%H:%M:%SZ)
+sync-all:
+	git add --all
+	git commit -m "${m}" || echo "nothing to commit"
+	git push origin HEAD
+
+deploy-main:
+	$(MAKE) -C /root/docker learn-deploy
+	@echo "Deployed: https://learn.l.l0l.in"
+
+
 c:
 	git pull
 	git add --all
