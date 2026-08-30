@@ -2,9 +2,6 @@
 // Keep entries pointing at pages that are known to exist under each
 // Docusaurus doc plugin's routeBasePath.
 const lessons = [
-  {subject: 'Scratch', title: 'Getting Started', to: '/scratch/intro'},
-  {subject: 'Scratch', title: 'Lecture L3', to: '/scratch/l3'},
-  {subject: 'Scratch', title: 'Lecture L4', to: '/scratch/l4'},
   {subject: 'Python', title: 'Cheatsheet', to: '/python/cheatsheet'},
   {
     subject: 'Python',
@@ -20,13 +17,9 @@ const lessons = [
   {subject: 'C++', title: 'Welcome to C++', to: '/cpp/lesson-notes/lesson-notes'},
   {subject: 'C++', title: 'Lesson 1A', to: '/cpp/lesson-notes/lesson-1a'},
   {subject: 'JavaScript', title: 'Intro', to: '/javascript/intro'},
-  {subject: 'Web Design', title: 'Lesson Notes', to: '/web-design/lesson-notes/lesson-notes'},
   {subject: 'Robotics', title: 'Intro', to: '/robotics/intro'},
-  {subject: 'Angular', title: 'Lesson Notes', to: '/angular/lesson-notes/lesson-notes'},
   {subject: 'iOS', title: 'Lesson Notes', to: '/ios/lesson-notes/lesson-notes'},
-  {subject: 'Android / Kotlin', title: 'Lesson Notes', to: '/android-kotlin/lesson-notes/lesson-notes'},
   {subject: 'Game Dev', title: 'Welcome', to: '/game-dev/intro'},
-  {subject: 'Backend', title: 'Lesson Notes', to: '/backend/lesson-notes/lesson-notes'},
   {subject: 'Math', title: 'Lesson Notes', to: '/math/lesson-notes/lesson-notes'},
   {subject: 'Misc', title: 'Miscellaneous', to: '/misc/intro'},
   {

@@ -6,6 +6,7 @@ import MultipleChoice from '@site/src/components/MultipleChoice';
 import ExerciseSet, {Exercise} from '@site/src/components/ExerciseSet';
 import TranslatableParagraph from '@site/src/components/Translate/TranslatableParagraph';
 import {lazyMdxComponent} from '@site/src/components/lazyMdxComponent';
+import {lazySimulators} from '@site/src/components/interactive/lazySimulators';
 
 const PistonRunner = lazyMdxComponent(() => import('@site/src/components/PistonRunner'));
 const CodeExercise = lazyMdxComponent(() => import('@site/src/components/CodeExercise'));
@@ -16,6 +17,7 @@ const ChartChallenge = lazyMdxComponent(() => import('@site/src/components/Chart
 
 export default {
     ...MDXComponents,
+    ...lazySimulators,
     PistonRunner,
     CodeExercise,
     CodingExam: CodeExercise,

@@ -5,7 +5,7 @@ import fs from 'fs';
 import path from 'path';
 import {fileURLToPath} from 'url';
 import {themes as prismThemes} from 'prism-react-renderer';
-import {docPlugins, webpackMemoryPlugin} from './docPlugins.mjs';
+import {docPlugins, isMinimalPresetBuild, isSubsetDocBuild, webpackMemoryPlugin} from './docPlugins.mjs';
 
 const lightCodeTheme = prismThemes.github;
 const darkCodeTheme = prismThemes.dracula;
@@ -47,13 +47,27 @@ const pistonHost = (process.env.PISTON_HOST || 'http://127.0.0.1').replace(/\/$/
 const pistonExecuteUrl =
   process.env.PISTON_EXECUTE_URL || `${pistonHost}:${pistonPort}/api/v2/execute`;
 
+const minimalPreset = isMinimalPresetBuild();
+const subsetBuild = isSubsetDocBuild();
+
+function othersNavItems() {
+  if (minimalPreset) {
+    return [];
+  }
+  return [
+    {to: '/misc/intro', label: 'Misc'},
+    {to: '/blog', label: 'Blog'},
+    {type: 'doc', docId: 'intro', label: 'About'},
+  ];
+}
+
 /** @type {import('@docusaurus/types').Config} */
 const config = {
   title: 'learn.wangnelson.xyz',
   tagline: 'Your success is my #1 priority!',
   url: 'http://learn.wangnelson.xyz',
   baseUrl: '/',
-  onBrokenLinks: 'throw',
+  onBrokenLinks: subsetBuild ? 'warn' : 'throw',
   onBrokenMarkdownLinks: 'warn',
   favicon: 'img/favicon.ico',
   organizationName: 'n3wang',
@@ -89,18 +103,18 @@ const config = {
       'classic',
       /** @type {import('@docusaurus/preset-classic').Options} */
       ({
-        docs: {
-          sidebarPath: path.resolve(__dirname, './sidebars.js'),
-          // Please change this to your repo.
-          path: 'docs',
-
-        },
-        blog: {
-          showReadingTime: true,
-          // Please change this to your repo.
-          sortPosts: 'ascending',
-
-        },
+        docs: minimalPreset
+          ? false
+          : {
+              sidebarPath: path.resolve(__dirname, './sidebars.js'),
+              path: 'docs',
+            },
+        blog: minimalPreset
+          ? false
+          : {
+              showReadingTime: true,
+              sortPosts: 'ascending',
+            },
         theme: {
           customCss: path.resolve(__dirname, './src/css/custom.css'),
         },
@@ -158,10 +172,6 @@ const config = {
                 value: '<div class="dropdown__link" style="opacity:0.65;font-size:0.75rem;text-transform:uppercase;letter-spacing:0.04em;pointer-events:none">Technology</div>',
               },
               {
-                to: '/scratch/intro',
-                label: 'Scratch',
-              },
-              {
                 to: '/robotics/intro',
                 label: 'Robotics',
               },
@@ -210,25 +220,16 @@ const config = {
               },
             ],
           },
-          {
-            type: 'dropdown',
-            label: 'Others',
-            position: 'left',
-            items: [
-              {
-                to: '/misc/intro',
-                label: 'Misc'
-              },
-              {
-                to: '/blog',
-                label: 'Blog'
-              }, {
-                type: 'doc',
-                docId: 'intro',
-                label: 'About',
-              },
-            ]
-          },
+          ...(minimalPreset
+            ? []
+            : [
+                {
+                  type: 'dropdown',
+                  label: 'Others',
+                  position: 'left',
+                  items: othersNavItems(),
+                },
+              ]),
           ...(false ? [{
             href: 'https://docs.google.com/forms/d/e/1FAIpQLSclM-biiVICBNWiJFPpZC0vTmzIanA3GUtglgMRc9R2ZZwqwQ/viewform?usp=sf_link',
             label: 'Submit HW',
@@ -267,11 +268,14 @@ const config = {
         {
           title: 'Contact',
           items: [
-
-            {
-              label: 'Instructor Contact Information',
-              to: '/docs/contact',
-            },
+            ...(minimalPreset
+              ? []
+              : [
+                  {
+                    label: 'Instructor Contact Information',
+                    to: '/docs/contact',
+                  },
+                ]),
             {
               label: 'Ask a question',
               href: 'https://docs.google.com/forms/d/e/1FAIpQLSddepUVJeAYT6WRtZR48EKSe9XRbJ-hxFLGYMaMl1F8Ybp9hA/viewform?usp=sf_link',

@@ -1,7 +1,7 @@
 import React, {useCallback, useState} from 'react';
 import clsx from 'clsx';
 import {useWindowSize} from '@docusaurus/theme-common';
-import {useDoc} from '@docusaurus/theme-common/internal';
+import {useDoc} from '@docusaurus/plugin-content-docs/client';
 import {translate} from '@docusaurus/Translate';
 import DocItemPaginator from '@theme/DocItem/Paginator';
 import DocVersionBanner from '@theme/DocVersionBanner';
@@ -11,7 +11,7 @@ import DocItemTOCMobile from '@theme/DocItem/TOC/Mobile';
 import DocItemTOCDesktop from '@theme/DocItem/TOC/Desktop';
 import DocItemContent from '@theme/DocItem/Content';
 import DocBreadcrumbs from '@theme/DocBreadcrumbs';
-import Unlisted from '@theme/Unlisted';
+import ContentVisibility from '@theme/ContentVisibility';
 import IconArrow from '@theme/Icon/Arrow';
 
 import styles from './styles.module.css';
@@ -90,9 +90,7 @@ function ExpandTocButton({onClick}) {
 
 export default function DocItemLayout({children}) {
   const docTOC = useDocTOC();
-  const {
-    metadata: {unlisted},
-  } = useDoc();
+  const {metadata} = useDoc();
   const [hiddenTocContainer, setHiddenTocContainer] = useState(false);
   const toggleToc = useCallback(() => {
     setHiddenTocContainer((value) => !value);
@@ -103,7 +101,7 @@ export default function DocItemLayout({children}) {
   return (
     <div className={clsx('row', styles.docItemRow)}>
       <div className={clsx('col', showDesktopToc && styles.docItemCol)}>
-        {unlisted && <Unlisted />}
+        <ContentVisibility metadata={metadata} />
         <DocVersionBanner />
         <div className={styles.docItemContainer}>
           <article>
