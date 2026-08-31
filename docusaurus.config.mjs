@@ -225,7 +225,7 @@ const config = {
             : [
                 {
                   type: 'dropdown',
-                  label: 'Others',
+                  label: '*',
                   position: 'left',
                   items: othersNavItems(),
                 },
