@@ -22,7 +22,7 @@ function executeUrl(api, siteConfig) {
     if (fromConfig) {
         return String(fromConfig).replace(/\/$/, '');
     }
-    return 'http://127.0.0.1:2000/api/v2/execute';
+    return 'https://piston.l.l0l.in/api/v2/execute';
 }
 
 function collectOutput(data) {

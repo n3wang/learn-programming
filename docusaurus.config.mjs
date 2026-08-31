@@ -42,10 +42,28 @@ function loadDotEnv(fileName) {
 
 loadDotEnv('.env');
 
-const pistonPort = process.env.PISTON_PORT || '2000';
-const pistonHost = (process.env.PISTON_HOST || 'http://127.0.0.1').replace(/\/$/, '');
-const pistonExecuteUrl =
-  process.env.PISTON_EXECUTE_URL || `${pistonHost}:${pistonPort}/api/v2/execute`;
+// Dev server (`npm start`) → local Piston. Production build → public API.
+// Override anytime with PISTON_EXECUTE_URL (or PISTON_HOST / PISTON_PORT).
+const isDevServer = process.argv.includes('start');
+const defaultPistonExecuteUrl = isDevServer
+  ? 'http://127.0.0.1:2000/api/v2/execute'
+  : 'https://piston.l.l0l.in/api/v2/execute';
+
+function resolvePistonExecuteUrl() {
+  if (process.env.PISTON_EXECUTE_URL) {
+    return process.env.PISTON_EXECUTE_URL;
+  }
+  if (process.env.PISTON_HOST) {
+    const host = process.env.PISTON_HOST.replace(/\/$/, '');
+    const port = process.env.PISTON_PORT;
+    const withPort =
+      port && !/:[0-9]+$/.test(host) ? `${host}:${port}` : host;
+    return `${withPort}/api/v2/execute`;
+  }
+  return defaultPistonExecuteUrl;
+}
+
+const pistonExecuteUrl = resolvePistonExecuteUrl();
 
 const minimalPreset = isMinimalPresetBuild();
 const subsetBuild = isSubsetDocBuild();
