@@ -1,8 +1,10 @@
 import React from 'react';
-import Box from '@site/src/components/ui/Box';
 import Typography from '@site/src/components/ui/Typography';
 import TwoVarWordProblemBase from '@site/src/components/interactive/shell/TwoVarWordProblemBase';
+import TwoVarSolution from '@site/src/components/interactive/shell/TwoVarSolution';
 import AnimatedNumber from '@site/src/components/interactive/shell/AnimatedNumber';
+import MathText from '@site/src/components/ProblemSet/MathText';
+import { texEq, texX, texY } from '@site/src/components/interactive/shell/texMath';
 import { randInt } from '@site/src/components/interactive/shell/mathRandom';
 
 /**
@@ -67,27 +69,39 @@ export default function BusRentalTwoVarSimulator() {
         </Typography>
       )}
       renderSolution={(p, s) => (
-        <Box>
-          <Typography sx={{ mb: 1 }}>
-            设大巴车租了 <b>x</b> 辆，小巴车租了 <b>y</b> 辆。根据总人数和总租金列方程组：
-          </Typography>
-          <Typography sx={{ mb: 1, fontFamily: 'monospace' }}>
-            {`{ ${p.capA}x + ${p.capB}y = ${p.people}`}
-            <br />
-            {`  ${p.priceA}x + ${p.priceB}y = ${p.cost} }`}
-          </Typography>
-          <Typography sx={{ mb: 1 }}>
-            也可用总辆数 <b>{p.total}</b> 与其中一个方程联立。用加减消元法（或代入法）解得 x ={' '}
-            <AnimatedNumber value={s.x} />，y = <AnimatedNumber value={s.y} />。
-          </Typography>
-          <Typography sx={{ fontWeight: 700, mb: 1 }}>
-            答：大巴车 <AnimatedNumber value={s.x} /> 辆，小巴车 <AnimatedNumber value={s.y} /> 辆。
-          </Typography>
-          <Typography variant="caption" color="text.secondary">
-            验算：辆数 {s.x} + {s.y} = {p.total}；人数 {p.capA}×{s.x} + {p.capB}×{s.y} ={' '}
-            {p.people}；租金 {p.priceA}×{s.x} + {p.priceB}×{s.y} = {p.cost} ✓
-          </Typography>
-        </Box>
+        <TwoVarSolution
+          legendX="大巴辆数"
+          legendY="小巴辆数"
+          setText={
+            <>
+              设大巴车租了 <MathText text={texX()} /> 辆，小巴车租了 <MathText text={texY()} /> 辆。
+            </>
+          }
+          eq1={`${p.capA}x + ${p.capB}y = ${p.people}`}
+          eq2={`${p.priceA}x + ${p.priceB}y = ${p.cost}`}
+          solveText={
+            <>
+              第一个方程来自「总人数」，第二个来自「总租金」。也可用总辆数 <b>{p.total}</b>
+              （即 <MathText text={texEq(`x + y = ${p.total}`)} />）与其中一个方程联立。用加减消元法或代入法求解。
+            </>
+          }
+          x={s.x}
+          y={s.y}
+          answer={
+            <>
+              大巴车 <AnimatedNumber value={s.x} /> 辆，小巴车 <AnimatedNumber value={s.y} /> 辆。
+            </>
+          }
+          check={
+            <MathText
+              text={`验算：辆数 ${texEq(`${s.x}+${s.y}=${p.total}`)}；人数 ${texEq(
+                `${p.capA}\\times ${s.x}+${p.capB}\\times ${s.y}=${p.people}`,
+              )}；租金 ${texEq(
+                `${p.priceA}\\times ${s.x}+${p.priceB}\\times ${s.y}=${p.cost}`,
+              )} ✓`}
+            />
+          }
+        />
       )}
     />
   );

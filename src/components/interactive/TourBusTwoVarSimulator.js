@@ -1,8 +1,10 @@
 import React from 'react';
-import Box from '@site/src/components/ui/Box';
 import Typography from '@site/src/components/ui/Typography';
 import TwoVarWordProblemBase from '@site/src/components/interactive/shell/TwoVarWordProblemBase';
+import TwoVarSolution from '@site/src/components/interactive/shell/TwoVarSolution';
 import AnimatedNumber from '@site/src/components/interactive/shell/AnimatedNumber';
+import MathText from '@site/src/components/ProblemSet/MathText';
+import { texEq, texX, texY } from '@site/src/components/interactive/shell/texMath';
 import { randInt } from '@site/src/components/interactive/shell/mathRandom';
 
 /**
@@ -67,25 +69,37 @@ export default function TourBusTwoVarSimulator() {
         </Typography>
       )}
       renderSolution={(p, s) => (
-        <Box>
-          <Typography sx={{ mb: 1 }}>
-            设大巴车 <b>x</b> 辆，小巴车 <b>y</b> 辆：
-          </Typography>
-          <Typography sx={{ mb: 1, fontFamily: 'monospace' }}>
-            {`{ ${p.capA}x + ${p.capB}y = ${p.people}`}
-            <br />
-            {`  ${p.priceA}x + ${p.priceB}y = ${p.cost} }`}
-          </Typography>
-          <Typography sx={{ mb: 1 }}>
-            解得 x = <AnimatedNumber value={s.x} />，y = <AnimatedNumber value={s.y} />。
-          </Typography>
-          <Typography sx={{ fontWeight: 700, mb: 1 }}>
-            答：大巴车 <AnimatedNumber value={s.x} /> 辆，小巴车 <AnimatedNumber value={s.y} /> 辆。
-          </Typography>
-          <Typography variant="caption" color="text.secondary">
-            验算：{s.x} + {s.y} = {p.total}；人数 {p.people}；收费 {p.cost} ✓
-          </Typography>
-        </Box>
+        <TwoVarSolution
+          legendX="大巴辆数"
+          legendY="小巴辆数"
+          setText={
+            <>
+              设大巴车 <MathText text={texX()} /> 辆，小巴车 <MathText text={texY()} /> 辆。
+            </>
+          }
+          eq1={`${p.capA}x + ${p.capB}y = ${p.people}`}
+          eq2={`${p.priceA}x + ${p.priceB}y = ${p.cost}`}
+          solveText={
+            <>
+              用「总人数」与「总收费」联立。解完后用{' '}
+              <MathText text={texEq(`x + y = ${p.total}`)} /> 检验。
+            </>
+          }
+          x={s.x}
+          y={s.y}
+          answer={
+            <>
+              大巴车 <AnimatedNumber value={s.x} /> 辆，小巴车 <AnimatedNumber value={s.y} /> 辆。
+            </>
+          }
+          check={
+            <MathText
+              text={`验算：${texEq(`${s.x}+${s.y}=${p.total}`)}；人数 ${texEq(
+                String(p.people),
+              )}；收费 ${texEq(String(p.cost))} ✓`}
+            />
+          }
+        />
       )}
     />
   );

@@ -18,6 +18,8 @@ These lessons teach GDScript basics for programmers. You run scripts in the brow
 | [Lesson 2a](./lesson-2a) | Variables, types, formatting | 3 — HP line → after hit → status board |
 | [Lesson 3a](./lesson-3a) | `if` / `elif` / `else` | 3 — parity → HP band → can attack |
 | [Lesson 4a](./lesson-4a) | Loops and arrays | 3 — countdown → names → highest score |
+| [Lesson 4b](./lesson-4b) | Functions, params, returns | 3 — triple → status line → clamp |
+| [Lesson 4c](./lesson-4c) | Dicts, classes, iterating objects | 3 — loot bag → coin purse → alive names |
 | [Lesson 5a](./lesson-5a) | `Vector2` + `game_kit` actors | 3 — length → walk → in range |
 | [Lesson 6a](./lesson-6a) | Character / Static / Rigid bodies (mocked) | 3 — floor → static → impulse |
 | [Lesson 7a](./lesson-7a) | Areas, overlap, collision layers | 3 — far → mask → fix mask |

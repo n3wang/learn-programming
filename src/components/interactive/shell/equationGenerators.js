@@ -3,6 +3,11 @@ import { randInt, pickOne } from './mathRandom';
 
 const VARS = ['x', 'y', 'z', 'a', 'b', 'n'];
 
+/** Wrap inline LaTeX for MathText / KaTeX. */
+function tex(expr) {
+  return `$${expr}$`;
+}
+
 function randCoeff({ allowHalf = true, min = 1, max = 9 } = {}) {
   const n = randInt(min, max) * (Math.random() < 0.5 ? -1 : 1);
   if (allowHalf && Math.random() < 0.3) return frac(n, 2); // e.g. n=5 -> 2.5
@@ -69,14 +74,17 @@ function isTerminatingDenominator(den) {
   return d === 1;
 }
 
-function fmtAnswer(fr) {
+function fmtAnswerTex(fr) {
   if (fr.den === 1) return `${fr.num}`;
-  const fracStr = fr.toDisplayString();
-  if (isTerminatingDenominator(fr.den)) {
-    const decimal = Number(fr.toNumber().toFixed(4)).toString();
-    return `${fracStr}（即 ${decimal}）`;
-  }
-  return fracStr;
+  if (fr.den === 2 && Math.abs(fr.num) % 2 === 0) return `${fr.num / 2}`;
+  return `\\dfrac{${fr.num}}{${fr.den}}`;
+}
+
+function fmtAnswerNote(fr) {
+  if (fr.den === 1) return '';
+  if (!isTerminatingDenominator(fr.den)) return '';
+  const decimal = Number(fr.toNumber().toFixed(4)).toString();
+  return `（即 ${decimal}）`;
 }
 
 /** Combine `expandedLeft`/`expandedRight` (already-final term lists) into the
@@ -85,12 +93,19 @@ function finalize({ prompt, varName, expandedLeft, expandedRight, priorSteps = [
   const { combinedCoeff, combinedConst } = solveSides(expandedLeft, expandedRight);
   if (combinedCoeff.isZero()) return null;
   const answer = combinedConst.div(combinedCoeff);
+  const combined = `${fmtLeadingCoeff(combinedCoeff)}${varName} = ${fmtCoeffNumber(combinedConst)}`;
+  const valueTex = fmtAnswerTex(answer);
+  const valueNote = fmtAnswerNote(answer);
   const steps = [
     ...priorSteps,
-    `移项、合并同类项，得：${fmtLeadingCoeff(combinedCoeff)}${varName} = ${fmtCoeffNumber(combinedConst)}`,
-    `系数化为 1，得：${varName} = ${fmtAnswer(answer)}`,
+    `移项、合并同类项，得：${tex(combined)}`,
+    `系数化为 1，得：${tex(`${varName} = ${valueTex}`)}${valueNote}`,
   ];
-  return { prompt, steps, answer: `${varName} = ${fmtAnswer(answer)}` };
+  return {
+    prompt,
+    steps,
+    answer: `${tex(`${varName} = ${valueTex}`)}${valueNote}`,
+  };
 }
 
 function attempt(fn, tries = 25) {
@@ -127,7 +142,7 @@ export function genBasicLinearEquation() {
       right = [makeTerm('coeff', randCoeff({ allowHalf: false })), makeTerm('const', randConst({ min: 1, max: 15 }))];
     }
 
-    const prompt = `${renderSide(left, varName)} = ${renderSide(right, varName)}`;
+    const prompt = tex(`${renderSide(left, varName)} = ${renderSide(right, varName)}`);
     return finalize({ prompt, varName, expandedLeft: left, expandedRight: right });
   });
 }
@@ -147,7 +162,9 @@ export function genParenthesesEquation() {
 
     const innerTerms = constFirst ? [makeTerm('const', m), makeTerm('coeff', B)] : [makeTerm('coeff', B), makeTerm('const', m)];
     const kLabel = kMag === 1 ? (kSign < 0 ? '-' : '+') : kSign < 0 ? `- ${kMag}` : `+ ${kMag}`;
-    const prompt = `${fmtTerm(A, varName, true)} ${kLabel}(${renderSide(innerTerms, varName)}) = ${fmtCoeffNumber(C)}`;
+    const prompt = tex(
+      `${fmtTerm(A, varName, true)} ${kLabel}(${renderSide(innerTerms, varName)}) = ${fmtCoeffNumber(C)}`,
+    );
 
     const distributedConst = m.mul(k);
     const distributedCoeff = B.mul(k);
@@ -156,7 +173,9 @@ export function genParenthesesEquation() {
       : [makeTerm('coeff', A), makeTerm('coeff', distributedCoeff), makeTerm('const', distributedConst)];
     const expandedRight = [makeTerm('const', C)];
 
-    const priorSteps = [`去括号，得：${renderSide(expandedLeft, varName)} = ${renderSide(expandedRight, varName)}`];
+    const priorSteps = [
+      `去括号，得：${tex(`${renderSide(expandedLeft, varName)} = ${renderSide(expandedRight, varName)}`)}`,
+    ];
     return finalize({ prompt, varName, expandedLeft, expandedRight, priorSteps });
   });
 }
@@ -182,10 +201,10 @@ export function genFractionEquation() {
 
     const numLeft = `${fmtTerm(frac(a), varName, true)} ${fmtConst(frac(b), false)}`;
     const numRight = `${fmtTerm(frac(c), varName, true)} ${fmtConst(frac(d), false)}`;
-    let promptLeft = `(${numLeft})/${m}`;
-    let promptRight = `(${numRight})/${n}`;
+    let promptLeft = `\\dfrac{${numLeft}}{${m}}`;
+    let promptRight = `\\dfrac{${numRight}}{${n}}`;
     if (hasExtraConst) {
-      const extraStr = extraSign < 0 ? `- ${k}` : `+ ${k}`;
+      const extraStr = extraSign < 0 ? `- ${Math.abs(k)}` : `+ ${k}`;
       if (extraOnLeft) promptLeft = `${promptLeft} ${extraStr}`;
       else promptRight = `${promptRight} ${extraStr}`;
     }
@@ -201,8 +220,16 @@ export function genFractionEquation() {
       else clearedRight = [...clearedRight, extraTerm];
     }
 
-    const priorSteps = [`去分母（两边同乘 ${L}），得：${renderSide(clearedLeft, varName)} = ${renderSide(clearedRight, varName)}`];
-    return finalize({ prompt, varName, expandedLeft: clearedLeft, expandedRight: clearedRight, priorSteps });
+    const priorSteps = [
+      `去分母（两边同乘 ${L}），得：${tex(`${renderSide(clearedLeft, varName)} = ${renderSide(clearedRight, varName)}`)}`,
+    ];
+    return finalize({
+      prompt: tex(prompt),
+      varName,
+      expandedLeft: clearedLeft,
+      expandedRight: clearedRight,
+      priorSteps,
+    });
   });
 }
 
@@ -221,7 +248,9 @@ export function genWordTranslationEquation() {
       const prompt = `${varName} 的 ${p} 倍与 ${q} 的和等于 ${varName} 的 ${r} 倍与 ${s} 的差，求 ${varName}。`;
       const expandedLeft = [makeTerm('coeff', frac(p)), makeTerm('const', frac(q))];
       const expandedRight = [makeTerm('coeff', frac(r)), makeTerm('const', frac(-s))];
-      const priorSteps = [`列方程：${renderSide(expandedLeft, varName)} = ${renderSide(expandedRight, varName)}`];
+      const priorSteps = [
+        `列方程：${tex(`${renderSide(expandedLeft, varName)} = ${renderSide(expandedRight, varName)}`)}`,
+      ];
       return finalize({ prompt, varName, expandedLeft, expandedRight, priorSteps });
     }
 
@@ -231,7 +260,9 @@ export function genWordTranslationEquation() {
       const prompt = `${varName} 与 ${k} 的积等于 ${varName} 与 ${q} 的和，求 ${varName}。`;
       const expandedLeft = [makeTerm('coeff', frac(k))];
       const expandedRight = [makeTerm('coeff', frac(1)), makeTerm('const', frac(q))];
-      const priorSteps = [`列方程：${renderSide(expandedLeft, varName)} = ${renderSide(expandedRight, varName)}`];
+      const priorSteps = [
+        `列方程：${tex(`${renderSide(expandedLeft, varName)} = ${renderSide(expandedRight, varName)}`)}`,
+      ];
       return finalize({ prompt, varName, expandedLeft, expandedRight, priorSteps });
     }
 
@@ -247,8 +278,8 @@ export function genWordTranslationEquation() {
       const expandedLeft = [makeTerm('coeff', pF), makeTerm('const', pF.mul(frac(a)))];
       const expandedRight = [makeTerm('coeff', qF), makeTerm('const', qF.mul(frac(-b)))];
       const priorSteps = [
-        `列方程：${eqPrompt}`,
-        `去括号，得：${renderSide(expandedLeft, varName)} = ${renderSide(expandedRight, varName)}`,
+        `列方程：${tex(eqPrompt)}`,
+        `去括号，得：${tex(`${renderSide(expandedLeft, varName)} = ${renderSide(expandedRight, varName)}`)}`,
       ];
       return finalize({ prompt, varName, expandedLeft, expandedRight, priorSteps });
     }
@@ -263,12 +294,12 @@ export function genWordTranslationEquation() {
     const cF = Number.isInteger(c * 10) ? frac(c * 10, 10) : frac(c);
     const pF = frac(pn, pd);
     const qF = frac(qn, qd);
-    const eqPrompt = `${pn}/${pd}(${m}${varName} + ${c}) = ${qn}/${qd}(${varName} - ${d})`;
+    const eqPrompt = `\\dfrac{${pn}}{${pd}}(${m}${varName} + ${c}) = \\dfrac{${qn}}{${qd}}(${varName} - ${d})`;
     const expandedLeft = [makeTerm('coeff', pF.mul(frac(m))), makeTerm('const', pF.mul(cF))];
     const expandedRight = [makeTerm('coeff', qF), makeTerm('const', qF.mul(frac(-d)))];
     const priorSteps = [
-      `列方程：${eqPrompt}`,
-      `去括号，得：${renderSide(expandedLeft, varName)} = ${renderSide(expandedRight, varName)}`,
+      `列方程：${tex(eqPrompt)}`,
+      `去括号，得：${tex(`${renderSide(expandedLeft, varName)} = ${renderSide(expandedRight, varName)}`)}`,
     ];
     return finalize({ prompt, varName, expandedLeft, expandedRight, priorSteps });
   });

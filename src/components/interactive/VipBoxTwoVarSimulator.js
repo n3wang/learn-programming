@@ -1,8 +1,10 @@
 import React from 'react';
-import Box from '@site/src/components/ui/Box';
 import Typography from '@site/src/components/ui/Typography';
 import TwoVarWordProblemBase from '@site/src/components/interactive/shell/TwoVarWordProblemBase';
+import TwoVarSolution from '@site/src/components/interactive/shell/TwoVarSolution';
 import AnimatedNumber from '@site/src/components/interactive/shell/AnimatedNumber';
+import MathText from '@site/src/components/ProblemSet/MathText';
+import { texEq, texX, texY } from '@site/src/components/interactive/shell/texMath';
 import { randInt } from '@site/src/components/interactive/shell/mathRandom';
 
 /**
@@ -67,27 +69,37 @@ export default function VipBoxTwoVarSimulator() {
         </Typography>
       )}
       renderSolution={(p, s) => (
-        <Box>
-          <Typography sx={{ mb: 1 }}>
-            设 VIP 包厢有 <b>x</b> 个，普通包厢有 <b>y</b> 个。列方程组：
-          </Typography>
-          <Typography sx={{ mb: 1, fontFamily: 'monospace' }}>
-            {`{ ${p.capA}x + ${p.capB}y = ${p.people}`}
-            <br />
-            {`  ${p.priceA}x + ${p.priceB}y = ${p.cost} }`}
-          </Typography>
-          <Typography sx={{ mb: 1 }}>
-            解得 x = <AnimatedNumber value={s.x} />，y = <AnimatedNumber value={s.y} />
-            （可用 x + y = {p.total} 检验）。
-          </Typography>
-          <Typography sx={{ fontWeight: 700, mb: 1 }}>
-            答：VIP 包厢 <AnimatedNumber value={s.x} /> 个，普通包厢 <AnimatedNumber value={s.y} />{' '}
-            个。
-          </Typography>
-          <Typography variant="caption" color="text.secondary">
-            验算：{s.x} + {s.y} = {p.total}；人数 {p.people}；收入 {p.cost} ✓
-          </Typography>
-        </Box>
+        <TwoVarSolution
+          legendX="VIP 包厢个数"
+          legendY="普通包厢个数"
+          setText={
+            <>
+              设 VIP 包厢有 <MathText text={texX()} /> 个，普通包厢有 <MathText text={texY()} /> 个。
+            </>
+          }
+          eq1={`${p.capA}x + ${p.capB}y = ${p.people}`}
+          eq2={`${p.priceA}x + ${p.priceB}y = ${p.cost}`}
+          solveText={
+            <>
+              「总人数」和「总收入」各给出一个方程。解完后可用{' '}
+              <MathText text={texEq(`x + y = ${p.total}`)} /> 检验。
+            </>
+          }
+          x={s.x}
+          y={s.y}
+          answer={
+            <>
+              VIP 包厢 <AnimatedNumber value={s.x} /> 个，普通包厢 <AnimatedNumber value={s.y} /> 个。
+            </>
+          }
+          check={
+            <MathText
+              text={`验算：${texEq(`${s.x}+${s.y}=${p.total}`)}；人数 ${texEq(
+                String(p.people),
+              )}；收入 ${texEq(String(p.cost))} ✓`}
+            />
+          }
+        />
       )}
     />
   );

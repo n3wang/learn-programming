@@ -1,8 +1,10 @@
 import React from 'react';
-import Box from '@site/src/components/ui/Box';
 import Typography from '@site/src/components/ui/Typography';
 import TwoVarWordProblemBase from '@site/src/components/interactive/shell/TwoVarWordProblemBase';
+import TwoVarSolution from '@site/src/components/interactive/shell/TwoVarSolution';
 import AnimatedNumber from '@site/src/components/interactive/shell/AnimatedNumber';
+import MathText from '@site/src/components/ProblemSet/MathText';
+import { texEq, texX, texY } from '@site/src/components/interactive/shell/texMath';
 import { randInt } from '@site/src/components/interactive/shell/mathRandom';
 
 /**
@@ -56,32 +58,40 @@ export default function TicketSalesTwoVarSimulator() {
         </Typography>
       )}
       renderSolution={(p, s) => (
-        <Box>
-          <Typography sx={{ mb: 1 }}>
-            设成人票售出 <b>x</b> 张，学生票售出 <b>y</b> 张：
-          </Typography>
-          <Typography sx={{ mb: 1, fontFamily: 'monospace' }}>
-            {`{ x + y = ${p.total}`}
-            <br />
-            {`  ${p.priceA}x + ${p.priceB}y = ${p.cost} }`}
-          </Typography>
-          <Typography sx={{ mb: 1 }}>
-            由第一个方程得 y = {p.total} − x，代入第二个方程：
-            <br />
-            <span style={{ fontFamily: 'monospace' }}>
-              {p.priceA}x + {p.priceB}({p.total} − x) = {p.cost}
-            </span>
-            <br />
-            解得 x = <AnimatedNumber value={s.x} />，进而 y = <AnimatedNumber value={s.y} />。
-          </Typography>
-          <Typography sx={{ fontWeight: 700, mb: 1 }}>
-            答：成人票 <AnimatedNumber value={s.x} /> 张，学生票 <AnimatedNumber value={s.y} />{' '}
-            张。
-          </Typography>
-          <Typography variant="caption" color="text.secondary">
-            验算：{s.x} + {s.y} = {p.total}；收入 {p.priceA}×{s.x} + {p.priceB}×{s.y} = {p.cost} ✓
-          </Typography>
-        </Box>
+        <TwoVarSolution
+          legendX="成人票张数"
+          legendY="学生票张数"
+          setText={
+            <>
+              设成人票售出 <MathText text={texX()} /> 张，学生票售出 <MathText text={texY()} /> 张。
+            </>
+          }
+          eq1={`x + y = ${p.total}`}
+          eq2={`${p.priceA}x + ${p.priceB}y = ${p.cost}`}
+          solveText={
+            <>
+              由第一个方程得 <MathText text={texEq(`y = ${p.total} - x`)} />，代入第二个方程：
+              <div style={{ marginTop: '0.35rem' }}>
+                <MathText text={texEq(`${p.priceA}x + ${p.priceB}(${p.total} - x) = ${p.cost}`)} />
+              </div>
+              这是典型的「总数 + 金额」骨架，代入法很顺手。
+            </>
+          }
+          x={s.x}
+          y={s.y}
+          answer={
+            <>
+              成人票 <AnimatedNumber value={s.x} /> 张，学生票 <AnimatedNumber value={s.y} /> 张。
+            </>
+          }
+          check={
+            <MathText
+              text={`验算：${texEq(`${s.x}+${s.y}=${p.total}`)}；收入 ${texEq(
+                `${p.priceA}\\times ${s.x}+${p.priceB}\\times ${s.y}=${p.cost}`,
+              )} ✓`}
+            />
+          }
+        />
       )}
     />
   );

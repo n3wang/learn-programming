@@ -13,7 +13,7 @@ import Divider from '@site/src/components/ui/Divider';
  *     <CEBlock.Section>...</CEBlock.Section>
  *   </CEBlock>
  */
-export default function CEBlock({ title, subtitle, children, legend, controls }) {
+export default function CEBlock({ title, subtitle, children, legend, controls, headerAction }) {
   return (
     <Box sx={{
       border: '1px solid',
@@ -29,15 +29,24 @@ export default function CEBlock({ title, subtitle, children, legend, controls })
         backgroundColor: 'grey.100',
         borderBottom: '1px solid',
         borderColor: 'divider',
+        display: 'flex',
+        alignItems: 'flex-start',
+        justifyContent: 'space-between',
+        gap: 1.5,
       }}>
-        <Typography variant="subtitle1" sx={{ fontWeight: 700, lineHeight: 1.2 }}>
-          {title}
-        </Typography>
-        {subtitle && (
-          <Typography variant="caption" color="text.secondary">
-            {subtitle}
+        <Box sx={{ minWidth: 0, flex: 1 }}>
+          <Typography variant="subtitle1" sx={{ fontWeight: 700, lineHeight: 1.2 }}>
+            {title}
           </Typography>
-        )}
+          {subtitle && (
+            <Typography variant="caption" color="text.secondary">
+              {subtitle}
+            </Typography>
+          )}
+        </Box>
+        {headerAction ? (
+          <Box sx={{ flexShrink: 0, mt: 0.25 }}>{headerAction}</Box>
+        ) : null}
       </Box>
 
       {/* Body */}

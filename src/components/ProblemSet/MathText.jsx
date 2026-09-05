@@ -29,8 +29,9 @@ export default function MathText({text}) {
     }
     const isDisplay = match[1] !== undefined;
     const expr = (isDisplay ? match[1] : match[2]).trim();
+    const Tag = isDisplay ? 'div' : 'span';
     parts.push(
-      <span
+      <Tag
         key={key++}
         dangerouslySetInnerHTML={{__html: renderSegment(expr, isDisplay)}}
       />,

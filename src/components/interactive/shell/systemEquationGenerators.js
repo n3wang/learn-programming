@@ -1,17 +1,27 @@
 import { randInt, pickOne } from './mathRandom';
 
+/** Wrap inline LaTeX. */
+function m(expr) {
+  return `$${expr}$`;
+}
+
+/** Wrap display LaTeX (standalone equation lines in solutions). */
+function dm(expr) {
+  return `$$${expr}$$`;
+}
+
 function fmtLin(a, b, xName = 'x', yName = 'y') {
   const parts = [];
   if (a !== 0) {
     if (a === 1) parts.push(xName);
-    else if (a === -1) parts.push(`−${xName}`);
+    else if (a === -1) parts.push(`-${xName}`);
     else parts.push(`${a}${xName}`);
   }
   if (b !== 0) {
     const abs = Math.abs(b);
     const core = abs === 1 ? yName : `${abs}${yName}`;
-    if (parts.length === 0) parts.push(b < 0 ? `−${core}` : core);
-    else parts.push(b < 0 ? `− ${core}` : `+ ${core}`);
+    if (parts.length === 0) parts.push(b < 0 ? `-${core}` : core);
+    else parts.push(b < 0 ? `- ${core}` : `+ ${core}`);
   }
   return parts.length === 0 ? '0' : parts.join(' ');
 }
@@ -21,42 +31,42 @@ function fmtEq(a, b, c) {
 }
 
 /** y = mx + k */
-function fmtSolvedForY(m, k) {
-  if (m === 0) return `y = ${k}`;
-  const mx = m === 1 ? 'x' : m === -1 ? '−x' : `${m}x`;
+function fmtSolvedForY(mSlope, k) {
+  if (mSlope === 0) return `y = ${k}`;
+  const mx = mSlope === 1 ? 'x' : mSlope === -1 ? '-x' : `${mSlope}x`;
   if (k > 0) return `y = ${mx} + ${k}`;
-  if (k < 0) return `y = ${mx} − ${-k}`;
+  if (k < 0) return `y = ${mx} - ${-k}`;
   return `y = ${mx}`;
 }
 
-function fmtMxPlusK(m, k) {
-  if (m === 0) return `${k}`;
-  const mx = m === 1 ? 'x' : m === -1 ? '−x' : `${m}x`;
+function fmtMxPlusK(mSlope, k) {
+  if (mSlope === 0) return `${k}`;
+  const mx = mSlope === 1 ? 'x' : mSlope === -1 ? '-x' : `${mSlope}x`;
   if (k === 0) return mx;
   if (k > 0) return `${mx} + ${k}`;
-  return `${mx} − ${-k}`;
+  return `${mx} - ${-k}`;
 }
 
-function evalMxPlusKDisplay(m, k, xVal) {
-  if (m === 0) return `${k}`;
-  const prod = m * xVal;
-  if (k === 0) return `${m}×(${xVal}) = ${prod}`;
-  if (k > 0) return `${m}×(${xVal}) + ${k} = ${prod + k}`;
-  return `${m}×(${xVal}) − ${-k} = ${prod + k}`;
+function evalMxPlusKDisplay(mSlope, k, xVal) {
+  if (mSlope === 0) return `${k}`;
+  const prod = mSlope * xVal;
+  if (k === 0) return `${mSlope}\\times(${xVal}) = ${prod}`;
+  if (k > 0) return `${mSlope}\\times(${xVal}) + ${k} = ${prod + k}`;
+  return `${mSlope}\\times(${xVal}) - ${-k} = ${prod + k}`;
 }
 
 function fmtCoeff(n) {
   if (n === 1) return '';
-  if (n === -1) return '−';
+  if (n === -1) return '-';
   return `${n}`;
 }
 
 function fmtSystem(eq1, eq2) {
-  return `{ ${eq1}\n  ${eq2} }`;
+  return `$\\displaystyle\\begin{cases} ${eq1} \\\\ ${eq2} \\end{cases}$`;
 }
 
 function fmtAnswer(x, y) {
-  return `x = ${x}，y = ${y}`;
+  return `${m(`x = ${x}`)}，${m(`y = ${y}`)}`;
 }
 
 function nonzeroInt(min, max) {
@@ -77,18 +87,18 @@ function gcdInt(a, b) {
 }
 
 function joinAxBy(a, bExpr, c) {
-  const ax = a === 0 ? '' : a === 1 ? 'x' : a === -1 ? '−x' : `${a}x`;
+  const ax = a === 0 ? '' : a === 1 ? 'x' : a === -1 ? '-x' : `${a}x`;
   if (!ax) return `${bExpr} = ${c}`;
-  if (bExpr.startsWith('−')) return `${ax} ${bExpr} = ${c}`;
+  if (bExpr.startsWith('-')) return `${ax} ${bExpr} = ${c}`;
   return `${ax} + ${bExpr} = ${c}`;
 }
 
-function expandAfterSub(a, b, m, k, c) {
-  const coeffX = a + b * m;
+function expandAfterSub(a, b, mSlope, k, c) {
+  const coeffX = a + b * mSlope;
   const constTerm = b * k;
   if (constTerm === 0) return `${fmtCoeff(coeffX)}x = ${c}`;
   if (constTerm > 0) return `${fmtCoeff(coeffX)}x + ${constTerm} = ${c}`;
-  return `${fmtCoeff(coeffX)}x − ${-constTerm} = ${c}`;
+  return `${fmtCoeff(coeffX)}x - ${-constTerm} = ${c}`;
 }
 
 /**
@@ -98,39 +108,42 @@ function expandAfterSub(a, b, m, k, c) {
 export function genSubstitutionReady() {
   for (let t = 0; t < 40; t++) {
     const x = nonzeroInt(-6, 6);
-    const m = nonzeroInt(-4, 4);
+    const mSlope = nonzeroInt(-4, 4);
     const k = randInt(-8, 8);
-    const y = m * x + k;
+    const y = mSlope * x + k;
     const a = nonzeroInt(-5, 5);
     const b = nonzeroInt(-4, 4);
     const c = a * x + b * y;
-    if (a + b * m === 0) continue;
+    if (a + b * mSlope === 0) continue;
 
-    const inner = fmtMxPlusK(m, k);
+    const inner = fmtMxPlusK(mSlope, k);
     const bExpr =
-      b === 1 ? `(${inner})` : b === -1 ? `−(${inner})` : `${b}(${inner})`;
+      b === 1 ? `(${inner})` : b === -1 ? `-(${inner})` : `${b}(${inner})`;
 
     return {
-      prompt: fmtSystem(fmtSolvedForY(m, k), fmtEq(a, b, c)),
+      prompt: fmtSystem(fmtSolvedForY(mSlope, k), fmtEq(a, b, c)),
       steps: [
-        '① 式已经解出 y，直接代入 ② 式：',
-        joinAxBy(a, bExpr, c),
-        `去括号、合并同类项：${expandAfterSub(a, b, m, k, c)}`,
-        `解得 x = ${x}`,
-        `把 x = ${x} 代入 ① 式：y = ${evalMxPlusKDisplay(m, k, x)}`,
+        `① 式已经解出 ${m('y')}，直接代入 ② 式：`,
+        dm(joinAxBy(a, bExpr, c)),
+        `去括号、合并同类项：`,
+        dm(expandAfterSub(a, b, mSlope, k, c)),
+        `解得 ${m(`x = ${x}`)}`,
+        `把 ${m(`x = ${x}`)} 代入 ① 式：`,
+        dm(`y = ${evalMxPlusKDisplay(mSlope, k, x)}`),
       ],
       answer: fmtAnswer(x, y),
     };
   }
   return {
-    prompt: fmtSystem('y = 2x − 3', '3x + 2y = 8'),
+    prompt: fmtSystem('y = 2x - 3', '3x + 2y = 8'),
     steps: [
-      '① 式已经解出 y，直接代入 ② 式：',
-      '3x + 2(2x − 3) = 8',
-      '3x + 4x − 6 = 8',
-      '7x = 14',
-      'x = 2',
-      '把 x = 2 代入 ① 式：y = 2×2 − 3 = 1',
+      `① 式已经解出 ${m('y')}，直接代入 ② 式：`,
+      dm('3x + 2(2x - 3) = 8'),
+      dm('3x + 4x - 6 = 8'),
+      dm('7x = 14'),
+      m('x = 2'),
+      `把 ${m('x = 2')} 代入 ① 式：`,
+      dm('y = 2\\times 2 - 3 = 1'),
     ],
     answer: fmtAnswer(2, 1),
   };
@@ -153,36 +166,41 @@ export function genSubstitutionIsolate() {
     if (a1 * b2 === a2 * b1) continue;
 
     // a1 x + b1 y = c1  →  y = −b1 a1 x + b1 c1  (since b1 = ±1)
-    const m = -b1 * a1;
+    const mSlope = -b1 * a1;
     const k = b1 * c1;
-    if (a2 + b2 * m === 0) continue;
+    if (a2 + b2 * mSlope === 0) continue;
 
-    const solved = fmtSolvedForY(m, k);
-    const inner = fmtMxPlusK(m, k);
+    const solved = fmtSolvedForY(mSlope, k);
+    const inner = fmtMxPlusK(mSlope, k);
     const bExpr =
-      b2 === 1 ? `(${inner})` : b2 === -1 ? `−(${inner})` : `${b2}(${inner})`;
+      b2 === 1 ? `(${inner})` : b2 === -1 ? `-(${inner})` : `${b2}(${inner})`;
 
     return {
       prompt: fmtSystem(fmtEq(a1, b1, c1), fmtEq(a2, b2, c2)),
       steps: [
-        `由 ① 式解出 y：${solved}`,
-        `代入 ② 式：${joinAxBy(a2, bExpr, c2)}`,
-        `去括号、合并：${expandAfterSub(a2, b2, m, k, c2)}`,
-        `解得 x = ${x}`,
-        `把 x = ${x} 代入 ${solved}，得 y = ${y}`,
+        `由 ① 式解出 ${m('y')}：`,
+        dm(solved),
+        `代入 ② 式：`,
+        dm(joinAxBy(a2, bExpr, c2)),
+        `去括号、合并：`,
+        dm(expandAfterSub(a2, b2, mSlope, k, c2)),
+        `解得 ${m(`x = ${x}`)}`,
+        `把 ${m(`x = ${x}`)} 代入 ${m(solved)}，得 ${m(`y = ${y}`)}`,
       ],
       answer: fmtAnswer(x, y),
     };
   }
   return {
-    prompt: fmtSystem('2x − y = 5', '3x + 4y = 2'),
+    prompt: fmtSystem('2x - y = 5', '3x + 4y = 2'),
     steps: [
-      '由 ① 式解出 y：y = 2x − 5',
-      '代入 ② 式：3x + 4(2x − 5) = 2',
-      '3x + 8x − 20 = 2',
-      '11x = 22',
-      'x = 2',
-      '把 x = 2 代入 y = 2x − 5，得 y = −1',
+      `由 ① 式解出 ${m('y')}：`,
+      dm('y = 2x - 5'),
+      `代入 ② 式：`,
+      dm('3x + 4(2x - 5) = 2'),
+      dm('3x + 8x - 20 = 2'),
+      dm('11x = 22'),
+      m('x = 2'),
+      `把 ${m('x = 2')} 代入 ${m('y = 2x - 5')}，得 ${m('y = -1')}`,
     ],
     answer: fmtAnswer(2, -1),
   };
@@ -211,36 +229,40 @@ export function genEliminationSystem() {
     const c2 = a2 * x + b2 * y;
 
     const gY = Math.abs(gcdInt(b1, b2));
-    const m = Math.abs(b2) / gY;
-    const n = Math.abs(b1) / gY;
-    const y1 = m * b1;
-    const y2 = n * b2;
+    const mul1 = Math.abs(b2) / gY;
+    const mul2 = Math.abs(b1) / gY;
+    const y1 = mul1 * b1;
+    const y2 = mul2 * b2;
     const sameSign = y1 === y2;
     const opVerb = sameSign ? '相减' : '相加';
 
-    const newA1 = m * a1;
-    const newC1 = m * c1;
-    const newA2 = n * a2;
-    const newC2 = n * c2;
+    const newA1 = mul1 * a1;
+    const newC1 = mul1 * c1;
+    const newA2 = mul2 * a2;
+    const newC2 = mul2 * c2;
     const finalA = sameSign ? newA1 - newA2 : newA1 + newA2;
     const finalC = sameSign ? newC1 - newC2 : newC1 + newC2;
     if (finalA === 0) continue;
 
     const steps = [];
-    if (m === 1 && n === 1) {
-      steps.push(`①、② 中 y 的系数已经${sameSign ? '相等' : '互为相反数'}，两式直接${opVerb}：`);
+    if (mul1 === 1 && mul2 === 1) {
+      steps.push(
+        `①、② 中 ${m('y')} 的系数已经${sameSign ? '相等' : '互为相反数'}，两式直接${opVerb}：`,
+      );
     } else {
       const parts = [];
-      if (m !== 1) parts.push(`① × ${m}`);
-      if (n !== 1) parts.push(`② × ${n}`);
-      steps.push(`为消去 y，先把 y 的系数化为绝对值相同：${parts.join('，')}，得：`);
-      steps.push(`①′  ${fmtEq(newA1, y1, newC1)}`);
-      steps.push(`②′  ${fmtEq(newA2, y2, newC2)}`);
-      steps.push(`两式${opVerb}，消去 y：`);
+      if (mul1 !== 1) parts.push(`① $\\times ${mul1}$`);
+      if (mul2 !== 1) parts.push(`② $\\times ${mul2}$`);
+      steps.push(`为消去 ${m('y')}，先把 ${m('y')} 的系数化为绝对值相同：${parts.join('，')}，得：`);
+      steps.push(dm(fmtEq(newA1, y1, newC1)));
+      steps.push(dm(fmtEq(newA2, y2, newC2)));
+      steps.push(`两式${opVerb}，消去 ${m('y')}：`);
     }
-    steps.push(`${fmtCoeff(finalA)}x = ${finalC}`);
-    steps.push(`解得 x = ${x}`);
-    steps.push(`把 x = ${x} 代入 ① 式 ${fmtEq(a1, b1, c1)}，解得 y = ${y}`);
+    steps.push(dm(`${fmtCoeff(finalA)}x = ${finalC}`));
+    steps.push(`解得 ${m(`x = ${x}`)}`);
+    steps.push(
+      `把 ${m(`x = ${x}`)} 代入 ① 式 ${m(fmtEq(a1, b1, c1))}，解得 ${m(`y = ${y}`)}`,
+    );
 
     return {
       prompt: fmtSystem(fmtEq(a1, b1, c1), fmtEq(a2, b2, c2)),
@@ -249,12 +271,16 @@ export function genEliminationSystem() {
     };
   }
   return {
-    prompt: fmtSystem('2x − y = 5', '3x + 4y = 2'),
+    prompt: fmtSystem('2x - y = 5', '3x + 4y = 2'),
     steps: [
-      '为消去 y，① × 4：8x − 4y = 20',
-      '与 ② 式相加：11x = 22',
-      'x = 2',
-      '把 x = 2 代入 ① 式：2×2 − y = 5，得 y = −1',
+      `为消去 ${m('y')}，① $\\times 4$：`,
+      dm('8x - 4y = 20'),
+      `与 ② 式相加：`,
+      dm('11x = 22'),
+      m('x = 2'),
+      `把 ${m('x = 2')} 代入 ① 式：`,
+      dm('2\\times 2 - y = 5'),
+      `得 ${m('y = -1')}`,
     ],
     answer: fmtAnswer(2, -1),
   };

@@ -1,14 +1,15 @@
 import React from 'react';
-import Box from '@site/src/components/ui/Box';
 import Typography from '@site/src/components/ui/Typography';
 import TwoVarWordProblemBase from '@site/src/components/interactive/shell/TwoVarWordProblemBase';
+import TwoVarSolution from '@site/src/components/interactive/shell/TwoVarSolution';
 import AnimatedNumber from '@site/src/components/interactive/shell/AnimatedNumber';
+import MathText from '@site/src/components/ProblemSet/MathText';
+import { texEq, texX, texY } from '@site/src/components/interactive/shell/texMath';
 import { randInt } from '@site/src/components/interactive/shell/mathRandom';
 
 /**
  * 稍难：篮球队 / 排球队 — 没有「总支数」方程，只用报名费与运动员人数。
  * 书题目：600x+800y=8800, 12x+18y=186 → x=8, y=5
- * （原草稿运动员总数 198 会迫使 x=0，已改为与 8800 相容的 186。）
  */
 function bookProblem() {
   const perA = 12;
@@ -34,7 +35,6 @@ function generate() {
   const perB = randInt(12, 20);
   const feeA = randInt(4, 8) * 100;
   const feeB = randInt(6, 12) * 100;
-  // keep coefficients independent
   if (perA * feeB === perB * feeA) {
     return generate();
   }
@@ -50,6 +50,63 @@ function generate() {
     athletes: perA * x + perB * y,
     fees: feeA * x + feeB * y,
   };
+}
+
+function simplifyHint(feeA, feeB, fees, perA, perB, athletes) {
+  // Show a reduced form when both equations share a common factor (book: 600/800/8800 → 3/4/44)
+  const g1 = gcd3(feeA, feeB, fees);
+  const g2 = gcd3(perA, perB, athletes);
+  if (g1 <= 1 && g2 <= 1) {
+    return (
+      <>
+        题目没有「一共几支队」，所以不能写 <MathText text={texEq('x + y = \\cdots')} />
+        。两个方程都是加权和，适合用加减消元法。
+      </>
+    );
+  }
+  const parts = [];
+  if (g1 > 1) {
+    parts.push(
+      <MathText
+        key="f"
+        text={texEq(
+          `${feeA / g1}x + ${feeB / g1}y = ${fees / g1}`,
+        )}
+      />,
+    );
+  }
+  if (g2 > 1) {
+    parts.push(
+      <MathText
+        key="a"
+        text={texEq(
+          `${perA / g2}x + ${perB / g2}y = ${athletes / g2}`,
+        )}
+      />,
+    );
+  }
+  return (
+    <>
+      题目没有「一共几支队」，所以不能写 <MathText text={texEq('x + y = \\cdots')} />
+      。可先两边约分
+      {g1 > 1 ? <>（报名费方程 ÷ {g1}）</> : null}
+      {g2 > 1 ? <>（人数方程 ÷ {g2}）</> : null}
+      得 {parts.reduce((acc, el, i) => (i === 0 ? [el] : [...acc, '，', el]), [])}，再用加减消元法。
+    </>
+  );
+}
+
+function gcd3(a, b, c) {
+  return gcd(gcd(a, b), c);
+}
+
+function gcd(a, b) {
+  a = Math.abs(a);
+  b = Math.abs(b);
+  while (b) {
+    [a, b] = [b, a % b];
+  }
+  return a || 1;
 }
 
 export default function SportsTeamTwoVarSimulator() {
@@ -70,28 +127,34 @@ export default function SportsTeamTwoVarSimulator() {
         </Typography>
       )}
       renderSolution={(p, s) => (
-        <Box>
-          <Typography sx={{ mb: 1 }}>
-            题目没有直接给出总支数，所以不能写 x + y = …。设篮球队 <b>x</b> 支，排球队{' '}
-            <b>y</b> 支，根据报名费和运动员人数列方程组：
-          </Typography>
-          <Typography sx={{ mb: 1, fontFamily: 'monospace' }}>
-            {`{ ${p.feeA}x + ${p.feeB}y = ${p.fees}`}
-            <br />
-            {`  ${p.perA}x + ${p.perB}y = ${p.athletes} }`}
-          </Typography>
-          <Typography sx={{ mb: 1 }}>
-            可先两边约分化简，再用加减消元法。解得 x = <AnimatedNumber value={s.x} />，y ={' '}
-            <AnimatedNumber value={s.y} />。
-          </Typography>
-          <Typography sx={{ fontWeight: 700, mb: 1 }}>
-            答：篮球队 <AnimatedNumber value={s.x} /> 支，排球队 <AnimatedNumber value={s.y} /> 支。
-          </Typography>
-          <Typography variant="caption" color="text.secondary">
-            验算：报名费 {p.feeA}×{s.x} + {p.feeB}×{s.y} = {p.fees}；运动员 {p.perA}×{s.x} +{' '}
-            {p.perB}×{s.y} = {p.athletes} ✓
-          </Typography>
-        </Box>
+        <TwoVarSolution
+          legendX="篮球队支数"
+          legendY="排球队支数"
+          setText={
+            <>
+              设篮球队 <MathText text={texX()} /> 支，排球队 <MathText text={texY()} /> 支。
+            </>
+          }
+          eq1={`${p.feeA}x + ${p.feeB}y = ${p.fees}`}
+          eq2={`${p.perA}x + ${p.perB}y = ${p.athletes}`}
+          solveText={simplifyHint(p.feeA, p.feeB, p.fees, p.perA, p.perB, p.athletes)}
+          x={s.x}
+          y={s.y}
+          answer={
+            <>
+              篮球队 <AnimatedNumber value={s.x} /> 支，排球队 <AnimatedNumber value={s.y} /> 支。
+            </>
+          }
+          check={
+            <MathText
+              text={`验算：报名费 ${texEq(
+                `${p.feeA}\\times ${s.x}+${p.feeB}\\times ${s.y}=${p.fees}`,
+              )}；运动员 ${texEq(
+                `${p.perA}\\times ${s.x}+${p.perB}\\times ${s.y}=${p.athletes}`,
+              )} ✓`}
+            />
+          }
+        />
       )}
     />
   );

@@ -16,6 +16,7 @@ export default function Button({
     size === 'small' && styles.btnSmall,
     variant === 'contained' && styles.btnContained,
     variant === 'outlined' && styles.btnOutlined,
+    variant === 'text' && styles.btnText,
     className,
   ]
     .filter(Boolean)
