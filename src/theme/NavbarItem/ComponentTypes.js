@@ -1,7 +1,7 @@
 import ComponentTypes from '@theme-original/NavbarItem/ComponentTypes';
-import SiteLanguageNavbarItem from '@site/src/components/navbar/SiteLanguageNavbarItem';
+import SiteSettingsNavbarItem from '@site/src/components/navbar/SiteSettingsNavbarItem';
 
 export default {
   ...ComponentTypes,
-  'custom-siteLanguage': SiteLanguageNavbarItem,
+  'custom-siteSettings': SiteSettingsNavbarItem,
 };

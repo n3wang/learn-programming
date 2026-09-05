@@ -148,6 +148,9 @@ const config = {
   themeConfig:
     /** @type {import('@docusaurus/preset-classic').ThemeConfig} */
     ({
+      colorMode: {
+        disableSwitch: true,
+      },
       docs: {
         sidebar: {
           hideable: true,
@@ -262,8 +265,8 @@ const config = {
             position: 'right',
           }] : []),
           {
-            type: 'custom-siteLanguage',
-            position: 'right'
+            type: 'custom-siteSettings',
+            position: 'right',
           },
         ],
       },
