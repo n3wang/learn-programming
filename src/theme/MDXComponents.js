@@ -24,6 +24,9 @@ const GraphChallenge = lazyMdxComponent(() => import('@site/src/components/Graph
 const OutputChallenge = lazyMdxComponent(() => import('@site/src/components/OutputChallenge'));
 const ChartChallenge = lazyMdxComponent(() => import('@site/src/components/ChartChallenge'));
 const NodeLab = lazyMdxComponent(() => import('@site/src/components/NodeLab'));
+const StudentReportsPanel = lazyMdxComponent(() =>
+  import('@site/src/components/class/StudentReportsPanel'),
+);
 
 export default {
     ...MDXComponents,
@@ -51,5 +54,6 @@ export default {
     OutputChallenge,
     ChartChallenge,
     NodeLab,
+    StudentReportsPanel,
     p: TranslatableParagraph,
 };

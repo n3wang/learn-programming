@@ -1,56 +1,149 @@
-import React, {useMemo, useState} from 'react';
+import React, {useCallback, useEffect, useMemo, useState} from 'react';
 import {pinyin} from 'pinyin-pro';
 import {
   CLASS_ROSTERS,
+  NAME_APPROX_OVERRIDES,
   NAME_PINYIN_OVERRIDES,
 } from '@site/src/data/classRosters';
+import {useActiveClassRoster} from '@site/src/components/navbar/useActiveClassRoster';
+import {
+  applyStudentBehavior,
+  CLASS_BEHAVIOR_CHANGE_EVENT,
+  getDailyBehavior,
+  localDateKey,
+  pickWeightedStudent,
+} from '@site/src/data/classBehaviorDb';
 
 function nameToPinyin(name) {
+  if (!name || typeof name !== 'string') {
+    return '';
+  }
   if (NAME_PINYIN_OVERRIDES[name]) {
     return NAME_PINYIN_OVERRIDES[name];
   }
-  return pinyin(name, {
-    toneType: 'symbol',
-    type: 'array',
-    mode: 'surname',
-  })
-    .map((syllable, index) => {
-      if (!syllable) {
-        return '';
-      }
-      if (index === 0) {
-        return syllable.charAt(0).toUpperCase() + syllable.slice(1);
-      }
-      return syllable;
+  try {
+    return pinyin(name, {
+      toneType: 'symbol',
+      type: 'array',
+      mode: 'surname',
     })
-    .join(' ');
-}
-
-function pickRandom(names, avoid) {
-  if (names.length === 0) {
-    return null;
+      .map((syllable, index) => {
+        if (!syllable) {
+          return '';
+        }
+        if (index === 0) {
+          return syllable.charAt(0).toUpperCase() + syllable.slice(1);
+        }
+        return syllable;
+      })
+      .join(' ');
+  } catch {
+    return '';
   }
-  if (names.length === 1) {
-    return names[0];
-  }
-  let next = names[Math.floor(Math.random() * names.length)];
-  // Avoid immediately repeating the same student when possible.
-  for (let i = 0; i < 8 && next === avoid; i += 1) {
-    next = names[Math.floor(Math.random() * names.length)];
-  }
-  return next;
 }
 
 export default function NameRandomizer() {
   const rosterIds = Object.keys(CLASS_ROSTERS);
-  const [rosterId, setRosterId] = useState(rosterIds[0]);
+  const {rosterId, setRosterId, roster} = useActiveClassRoster();
   const [picked, setPicked] = useState(null);
+  const [awaitingAction, setAwaitingAction] = useState(false);
+  const [behavior, setBehavior] = useState(null);
+  const [busy, setBusy] = useState(false);
+  const [poolNote, setPoolNote] = useState('');
+  const dateKey = localDateKey();
 
-  const roster = CLASS_ROSTERS[rosterId];
+  const loadBehavior = useCallback(async () => {
+    const record = await getDailyBehavior(dateKey, rosterId);
+    setBehavior(record);
+    return record;
+  }, [dateKey, rosterId]);
+
+  useEffect(() => {
+    let cancelled = false;
+    setPicked(null);
+    setAwaitingAction(false);
+    setPoolNote('');
+    loadBehavior().then((record) => {
+      if (cancelled) {
+        return;
+      }
+      setBehavior(record);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [loadBehavior]);
+
+  useEffect(() => {
+    if (typeof window === 'undefined') {
+      return undefined;
+    }
+    const onChange = (event) => {
+      const detail = event?.detail || {};
+      if (detail.date && detail.date !== dateKey) {
+        return;
+      }
+      if (detail.rosterId && detail.rosterId !== rosterId) {
+        return;
+      }
+      if (detail.record) {
+        setBehavior(detail.record);
+      } else {
+        loadBehavior();
+      }
+    };
+    window.addEventListener(CLASS_BEHAVIOR_CHANGE_EVENT, onChange);
+    return () => window.removeEventListener(CLASS_BEHAVIOR_CHANGE_EVENT, onChange);
+  }, [dateKey, rosterId, loadBehavior]);
+
   const pronunciation = useMemo(
     () => (picked ? nameToPinyin(picked) : ''),
     [picked],
   );
+  const approx = picked ? NAME_APPROX_OVERRIDES[picked] : '';
+
+  const activeCount = useMemo(() => {
+    const names = Array.isArray(roster?.names) ? roster.names : [];
+    const students = behavior?.students || {};
+    return names.filter((name) => !students?.[name]?.absent).length;
+  }, [roster, behavior]);
+
+  const onPick = async () => {
+    setBusy(true);
+    setPoolNote('');
+    try {
+      const record = (await loadBehavior()) || behavior;
+      const next = pickWeightedStudent(roster?.names || [], record, picked);
+      if (!next) {
+        setPicked(null);
+        setAwaitingAction(false);
+        setPoolNote('No students left in today’s pool (all marked absent).');
+        return;
+      }
+      setPicked(next);
+      setAwaitingAction(true);
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const onAction = async (action) => {
+    if (!picked || !awaitingAction || busy) {
+      return;
+    }
+    setBusy(true);
+    try {
+      await applyStudentBehavior({
+        dateKey,
+        rosterId,
+        name: picked,
+        action,
+      });
+      setAwaitingAction(false);
+    } finally {
+      setBusy(false);
+    }
+  };
 
   return (
     <div>
@@ -73,6 +166,8 @@ export default function NameRandomizer() {
               onClick={() => {
                 setRosterId(id);
                 setPicked(null);
+                setAwaitingAction(false);
+                setPoolNote('');
               }}
               aria-pressed={active}
               style={{
@@ -91,7 +186,7 @@ export default function NameRandomizer() {
                 cursor: 'pointer',
               }}
             >
-              {CLASS_ROSTERS[id].label}
+              {CLASS_ROSTERS[id]?.label || id}
             </button>
           );
         })}
@@ -100,7 +195,8 @@ export default function NameRandomizer() {
       <button
         type="button"
         className="button button--sm button--primary"
-        onClick={() => setPicked(pickRandom(roster.names, picked))}
+        onClick={onPick}
+        disabled={busy}
         style={{width: '100%'}}
       >
         Pick student
@@ -139,16 +235,93 @@ export default function NameRandomizer() {
             >
               {pronunciation}
             </div>
+            {approx ? (
+              <div
+                style={{
+                  marginTop: '0.2rem',
+                  fontSize: '0.8rem',
+                  color: 'var(--ifm-color-emphasis-600)',
+                  fontStyle: 'italic',
+                }}
+              >
+                {approx}
+              </div>
+            ) : null}
+
+            {awaitingAction ? (
+              <div
+                style={{
+                  display: 'flex',
+                  gap: '0.4rem',
+                  justifyContent: 'center',
+                  marginTop: '0.75rem',
+                  flexWrap: 'wrap',
+                }}
+              >
+                <button
+                  type="button"
+                  className="button button--sm button--success"
+                  disabled={busy}
+                  onClick={() => onAction('plus')}
+                  title="+1 point"
+                >
+                  +
+                </button>
+                <button
+                  type="button"
+                  className="button button--sm button--warning"
+                  disabled={busy}
+                  onClick={() => onAction('minus')}
+                  title="−1 point"
+                >
+                  −
+                </button>
+                <button
+                  type="button"
+                  className="button button--sm button--secondary"
+                  disabled={busy}
+                  onClick={() => onAction('absent')}
+                  title="Exclude from today’s pool"
+                >
+                  Absent
+                </button>
+              </div>
+            ) : (
+              <div
+                style={{
+                  marginTop: '0.55rem',
+                  fontSize: '0.75rem',
+                  color: 'var(--ifm-color-emphasis-600)',
+                }}
+              >
+                Saved for {dateKey}. Pick again when ready.
+              </div>
+            )}
           </>
         ) : (
           <div
             style={{
               fontSize: '0.85rem',
               color: 'var(--ifm-color-emphasis-600)',
-              paddingTop: '0.85rem',
+              paddingTop: '0.55rem',
             }}
           >
-            {roster.label} · {roster.names.length} students
+            {roster?.label || 'Class'} · {activeCount}/
+            {Array.isArray(roster?.names) ? roster.names.length : 0} in pool
+            <div style={{marginTop: '0.25rem', fontSize: '0.75rem'}}>
+              {dateKey} · lower points = higher pick chance
+            </div>
+            {poolNote ? (
+              <div
+                style={{
+                  marginTop: '0.45rem',
+                  color: 'var(--ifm-color-danger)',
+                  fontSize: '0.8rem',
+                }}
+              >
+                {poolNote}
+              </div>
+            ) : null}
           </div>
         )}
       </div>

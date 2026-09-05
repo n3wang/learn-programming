@@ -1,5 +1,8 @@
 /** Classroom rosters for the student name randomizer. */
 
+export const ACTIVE_ROSTER_STORAGE_KEY = 'active-class-roster';
+export const ACTIVE_ROSTER_CHANGE_EVENT = 'active-class-roster-change';
+
 export const CLASS_ROSTERS = {
   chuyi: {
     id: 'chuyi',
@@ -55,26 +58,37 @@ export const CLASS_ROSTERS = {
       '何豆豆',
       '俞子言',
       '俞泓彬',
-      '周沛玲',
       '张睿洋',
-      '林东蔚',
       '林义翔',
       '林子辰',
       '林思',
       '翁志远',
       '董铭松',
-      '薛明烜',
       '谢婉晴',
       '郭语诺',
       '陈宇泽',
-      '陈诗胧',
       '黄国竣',
       '李佳豪',
       '王绎宸',
       '王梓琪',
       '吴启',
       '何晨希',
-      '郑颖妍',
+    ],
+  },
+  biancheng: {
+    id: 'biancheng',
+    label: '编程',
+    names: [
+      '林林星浩',
+      '严景涵',
+      '任永宇',
+      '陈宥泽',
+      '陈书圣',
+      '李威廉',
+      '陈凯文',
+      '陈锦轩',
+      '郑彦会',
+      '陈钰柯',
     ],
   },
 };
@@ -89,7 +103,60 @@ export const NAME_PINYIN_OVERRIDES = {
   余乐贤: 'Yú Lè xián',
   俞泓坤: 'Yú Hóng kūn',
   俞泓彬: 'Yú Hóng bīn',
-  薛明烜: 'Xuē Míng xuān',
-  陈诗胧: 'Chén Shī lóng',
   王绎宸: 'Wáng Yì chén',
+  林林星浩: 'Lín Lín Xīnghào',
+  严景涵: 'Yán Jǐnghán',
+  任永宇: 'Rén Yǒngyǔ',
+  陈宥泽: 'Chén Yòuzé',
+  陈书圣: 'Chén Shūshèng',
+  李威廉: 'Lǐ Wēilián',
+  陈凯文: 'Chén Kǎiwén',
+  陈锦轩: 'Chén Jǐnxuān',
+  郑彦会: 'Zhèng Yànhuì',
+  陈钰柯: 'Chén Yùkē',
 };
+
+/** Rough English approximations for calling names aloud. */
+export const NAME_APPROX_OVERRIDES = {
+  林林星浩: 'leen leen shing-how',
+  严景涵: 'yen jing-hahn',
+  任永宇: 'ren yong-yü',
+  陈宥泽: 'chən yo-dzuh',
+  陈书圣: 'chən shoo-shung',
+  李威廉: 'lee way-lyen',
+  陈凯文: 'chən kye-wun',
+  陈锦轩: 'chən jin-shwen',
+  郑彦会: 'jung yen-hway',
+  陈钰柯: 'chən yoo-kuh',
+};
+
+export function getDefaultRosterId() {
+  return Object.keys(CLASS_ROSTERS)[0];
+}
+
+export function normalizeRosterId(rosterId) {
+  return CLASS_ROSTERS[rosterId] ? rosterId : getDefaultRosterId();
+}
+
+export function readStoredRosterId() {
+  if (typeof window === 'undefined') {
+    return getDefaultRosterId();
+  }
+  return normalizeRosterId(
+    window.localStorage.getItem(ACTIVE_ROSTER_STORAGE_KEY),
+  );
+}
+
+export function writeStoredRosterId(rosterId) {
+  const normalized = normalizeRosterId(rosterId);
+  if (typeof window === 'undefined') {
+    return normalized;
+  }
+  window.localStorage.setItem(ACTIVE_ROSTER_STORAGE_KEY, normalized);
+  window.dispatchEvent(
+    new CustomEvent(ACTIVE_ROSTER_CHANGE_EVENT, {
+      detail: {rosterId: normalized},
+    }),
+  );
+  return normalized;
+}

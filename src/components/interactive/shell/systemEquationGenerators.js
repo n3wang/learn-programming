@@ -286,8 +286,62 @@ export function genEliminationSystem() {
   };
 }
 
+export function genTextbookFractionalSystem() {
+  // Alternate between the two book systems (and close random variants).
+  if (Math.random() < 0.5) {
+    // (1) 3x - y = 5, 5y - 1 = 3x + 5  →  3x - y = 5,  -3x + 5y = 6
+    // From book: 5y - 1 = 3x + 5 → -3x + 5y = 6
+    // Solve with 3x - y = 5 → y = 3x - 5; -3x + 5(3x-5)=6 → -3x+15x-25=6 → 12x=31 → x=31/12
+    // Wait let me re-read the book problem carefully from the user message:
+    // （１） ３狓－狔＝５，５狔－１＝３狓＋５
+    // So: 3x - y = 5, 5y - 1 = 3x + 5
+    // Second: -3x + 5y = 6
+    // From first y = 3x - 5
+    // -3x + 5(3x-5) = 6 → -3x + 15x - 25 = 6 → 12x = 31 → x = 31/12, y = 31/4 - 5 = (31-20)/4 = 11/4
+    const steps = [
+      '先整理第二个方程：把已知数移到右边、未知数移到左边。',
+      dm('5y - 1 = 3x + 5'),
+      dm('-3x + 5y = 6'),
+      `与第一个方程 ${m('3x - y = 5')} 联立。由 ① 得 ${m('y = 3x - 5')}，代入：`,
+      dm('-3x + 5(3x - 5) = 6'),
+      dm('12x - 25 = 6'),
+      dm('12x = 31'),
+      m('x = \\dfrac{31}{12}'),
+      `代入得 ${m('y = 3\\cdot\\dfrac{31}{12} - 5 = \\dfrac{11}{4}')}`,
+    ];
+    return {
+      prompt: fmtSystem('3x - y = 5', '5y - 1 = 3x + 5'),
+      steps,
+      answer: fmtAnswer('\\dfrac{31}{12}', '\\dfrac{11}{4}'),
+    };
+  }
+  // (2) (2/3)x + (3/4)y = 17/12, (1/6)x - (1/2)y = -1/3
+  // Multiply (1) by 12: 8x + 9y = 17
+  // Multiply (2) by 6: x - 3y = -2 → x = 3y - 2
+  // 8(3y-2)+9y=17 → 24y-16+9y=17 → 33y=33 → y=1, x=1
+  return {
+    prompt: fmtSystem(
+      '\\dfrac{2}{3}x + \\dfrac{3}{4}y = \\dfrac{17}{12}',
+      '\\dfrac{1}{6}x - \\dfrac{1}{2}y = -\\dfrac{1}{3}',
+    ),
+    steps: [
+      '两边同乘分母的最小公倍数去分母。① $\\times 12$，② $\\times 6$：',
+      dm('8x + 9y = 17'),
+      dm('x - 3y = -2'),
+      `由 ②' 得 ${m('x = 3y - 2')}，代入 ①'：`,
+      dm('8(3y - 2) + 9y = 17'),
+      dm('24y - 16 + 9y = 17'),
+      dm('33y = 33'),
+      m('y = 1'),
+      `得 ${m('x = 1')}`,
+    ],
+    answer: fmtAnswer(1, 1),
+  };
+}
+
 export const SYSTEM_EQUATION_GENERATORS = [
   { id: 'sub-ready', title: '代入法：直接代入', generator: genSubstitutionReady },
   { id: 'sub-isolate', title: '代入法：先解出一个未知数', generator: genSubstitutionIsolate },
   { id: 'elimination', title: '加减消元法', generator: genEliminationSystem },
+  { id: 'textbook-frac', title: '含分数 / 需整理', generator: genTextbookFractionalSystem },
 ];

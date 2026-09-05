@@ -13,9 +13,8 @@ In this section I will be be having Miscellaneous lectures that were not in the 
 - UX/UI Design
 - Arduino
 - RaspberryPi
-
-
-
+- [Student reports](./student-reports) (class participation by day)
+- [Student data platform](./student-data-platform) (DB / roster / submissions draft)
 
 :::
 

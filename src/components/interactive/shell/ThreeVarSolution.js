@@ -1,6 +1,6 @@
 import React from 'react';
 import MathText from '@site/src/components/ProblemSet/MathText';
-import { texSystem, texX, texY, X_COLOR, Y_COLOR } from './texMath';
+import { texSystem3, texX, texY, texZ, X_COLOR, Y_COLOR, Z_COLOR } from './texMath';
 import styles from './TwoVarSolution.module.css';
 
 function Step({ badge, badgeClass, children }) {
@@ -14,31 +14,24 @@ function Step({ badge, badgeClass, children }) {
 
 function formatSol(v) {
   if (typeof v !== 'number' || Number.isInteger(v)) return v;
-  const s = Number(v.toFixed(6)).toString();
-  return s;
+  return Number(v.toFixed(6)).toString();
 }
 
 /**
- * Shared, KaTeX-first solution layout for 二元一次方程组 word problems.
- * Walks 设 → 列 → 解 → 答 → 验, with color-coded x / y.
- *
- * @param {React.ReactNode} setText   — “设 …” prose (may include MathText)
- * @param {string} eq1, eq2          — raw LaTeX equation lines (x/y auto-colored)
- * @param {React.ReactNode} solveText — how to solve (代入 / 消元 …)
- * @param {string} legendX, legendY  — short labels for the color legend
- * @param {number|string} x, y       — solution values (string allowed for 无解 / fractions)
- * @param {React.ReactNode} answer   — final “答：…” line
- * @param {React.ReactNode} [check]  — optional 验算 line
+ * Shared KaTeX-first solution layout for 三元一次方程组 word problems.
  */
-export default function TwoVarSolution({
+export default function ThreeVarSolution({
   setText,
   eq1,
   eq2,
+  eq3,
   solveText,
   legendX,
   legendY,
+  legendZ,
   x,
   y,
+  z,
   answer,
   check,
 }) {
@@ -53,6 +46,10 @@ export default function TwoVarSolution({
           <span className={styles.swatch} style={{ background: Y_COLOR }} />
           <MathText text={texY()} /> {legendY}
         </span>
+        <span>
+          <span className={styles.swatch} style={{ background: Z_COLOR }} />
+          <MathText text={texZ()} /> {legendZ}
+        </span>
       </div>
 
       <Step badge="设" badgeClass={styles.badgeSet}>
@@ -62,7 +59,7 @@ export default function TwoVarSolution({
       <Step badge="列" badgeClass={styles.badgeList}>
         根据题意列方程组：
         <div className={styles.eqBox}>
-          <MathText text={texSystem(eq1, eq2)} />
+          <MathText text={texSystem3(eq1, eq2, eq3)} />
         </div>
       </Step>
 
@@ -70,7 +67,8 @@ export default function TwoVarSolution({
         {solveText}
         <div style={{ marginTop: '0.35rem' }}>
           解得 <MathText text={texX(` = ${formatSol(x)}`)} />，
-          <MathText text={texY(` = ${formatSol(y)}`)} />。
+          <MathText text={texY(` = ${formatSol(y)}`)} />，
+          <MathText text={texZ(` = ${formatSol(z)}`)} />。
         </div>
       </Step>
 

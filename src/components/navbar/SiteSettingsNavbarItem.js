@@ -281,7 +281,7 @@ export default function SiteSettingsNavbarItem({mobile = false}) {
             top: 'calc(100% + 0.4rem)',
             right: 0,
             zIndex: 200,
-            minWidth: 260,
+            minWidth: 280,
             padding: '0.9rem 1rem',
             borderRadius: 12,
             border: '1px solid var(--ifm-color-emphasis-200)',
