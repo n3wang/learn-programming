@@ -113,6 +113,7 @@ export const lazySimulators = {
   ToothbrushRecordCheckSimulator: lazyMdxComponent(() => import('@site/src/components/interactive/ToothbrushRecordCheckSimulator.js')),
   TourBusTwoVarSimulator: lazyMdxComponent(() => import('@site/src/components/interactive/TourBusTwoVarSimulator.js')),
   TruckCargoTwoVarSimulator: lazyMdxComponent(() => import('@site/src/components/interactive/TruckCargoTwoVarSimulator.js')),
+  TypingCopyGame: lazyMdxComponent(() => import('@site/src/components/interactive/TypingCopyGame.js')),
   VipBoxTwoVarSimulator: lazyMdxComponent(() => import('@site/src/components/interactive/VipBoxTwoVarSimulator.js')),
   VsfsSimulator: lazyMdxComponent(() => import('@site/src/components/interactive/VsfsSimulator.js')),
   ZeroOneBfsSimulator: lazyMdxComponent(() => import('@site/src/components/interactive/ZeroOneBfsSimulator.js')),

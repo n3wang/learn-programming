@@ -12,6 +12,7 @@ import {
   getDailyBehavior,
   localDateKey,
   pickWeightedStudent,
+  recentPickHistory,
 } from '@site/src/data/classBehaviorDb';
 
 function nameToPinyin(name) {
@@ -40,6 +41,71 @@ function nameToPinyin(name) {
   } catch {
     return '';
   }
+}
+
+const ACTION_DOT = {
+  plus: {color: '#2e7d32', label: 'up'},
+  minus: {color: '#f9a825', label: 'bad'},
+  absent: {color: '#c62828', label: 'absent'},
+};
+
+function PickHistoryList({items}) {
+  if (!Array.isArray(items) || items.length === 0) {
+    return null;
+  }
+  return (
+    <div
+      aria-label="Pick history"
+      style={{
+        flex: '0 0 auto',
+        minWidth: 88,
+        maxWidth: 110,
+        display: 'grid',
+        gap: '0.3rem',
+        alignContent: 'start',
+      }}
+    >
+      {items.map((item, index) => {
+        const dot = ACTION_DOT[item.action] || ACTION_DOT.minus;
+        return (
+          <div
+            key={`${item.name}-${item.at}-${index}`}
+            title={`${item.name} · ${dot.label}`}
+            style={{
+              display: 'flex',
+              alignItems: 'center',
+              gap: '0.35rem',
+              fontSize: index === 0 ? '0.8rem' : '0.72rem',
+              fontWeight: index === 0 ? 700 : 500,
+              color: 'var(--ifm-font-color-base)',
+              lineHeight: 1.15,
+              opacity: index === 0 ? 1 : 0.85,
+            }}
+          >
+            <span
+              aria-hidden
+              style={{
+                width: 8,
+                height: 8,
+                borderRadius: '50%',
+                background: dot.color,
+                flexShrink: 0,
+              }}
+            />
+            <span
+              style={{
+                overflow: 'hidden',
+                textOverflow: 'ellipsis',
+                whiteSpace: 'nowrap',
+              }}
+            >
+              {item.name}
+            </span>
+          </div>
+        );
+      })}
+    </div>
+  );
 }
 
 export default function NameRandomizer() {
@@ -98,6 +164,7 @@ export default function NameRandomizer() {
 
   const pronunciation = picked ? nameToPinyin(picked) : '';
   const approx = picked ? NAME_APPROX_OVERRIDES[picked] : '';
+  const history = recentPickHistory(behavior, 5);
 
   const onPick = async () => {
     setBusy(true);
@@ -124,12 +191,13 @@ export default function NameRandomizer() {
     }
     setBusy(true);
     try {
-      await applyStudentBehavior({
+      const next = await applyStudentBehavior({
         dateKey,
         rosterId,
         name: picked,
         action,
       });
+      setBehavior(next);
       setAwaitingAction(false);
     } finally {
       setBusy(false);
@@ -205,99 +273,113 @@ export default function NameRandomizer() {
         </div>
       ) : null}
 
-      {picked ? (
+      {picked || history.length > 0 ? (
         <div
-          aria-live="polite"
           style={{
             marginTop: '0.55rem',
-            padding: '0.65rem 0.7rem',
-            borderRadius: 10,
-            border: '1px solid var(--ifm-color-emphasis-200)',
-            background: 'var(--ifm-color-emphasis-100)',
-            textAlign: 'center',
+            display: 'flex',
+            gap: '0.55rem',
+            alignItems: 'stretch',
           }}
         >
-          <div
-            style={{
-              fontSize: '1.55rem',
-              fontWeight: 700,
-              lineHeight: 1.2,
-              letterSpacing: '0.02em',
-            }}
-          >
-            {picked}
-          </div>
-          <div
-            style={{
-              marginTop: '0.35rem',
-              fontSize: '0.95rem',
-              color: 'var(--ifm-color-emphasis-700)',
-            }}
-          >
-            {pronunciation}
-          </div>
-          {approx ? (
+          {picked ? (
             <div
+              aria-live="polite"
               style={{
-                marginTop: '0.2rem',
-                fontSize: '0.8rem',
-                color: 'var(--ifm-color-emphasis-600)',
-                fontStyle: 'italic',
+                flex: '1 1 auto',
+                minWidth: 0,
+                padding: '0.65rem 0.7rem',
+                borderRadius: 10,
+                border: '1px solid var(--ifm-color-emphasis-200)',
+                background: 'var(--ifm-color-emphasis-100)',
+                textAlign: 'center',
               }}
             >
-              {approx}
+              <div
+                style={{
+                  fontSize: '1.55rem',
+                  fontWeight: 700,
+                  lineHeight: 1.2,
+                  letterSpacing: '0.02em',
+                }}
+              >
+                {picked}
+              </div>
+              <div
+                style={{
+                  marginTop: '0.35rem',
+                  fontSize: '0.95rem',
+                  color: 'var(--ifm-color-emphasis-700)',
+                }}
+              >
+                {pronunciation}
+              </div>
+              {approx ? (
+                <div
+                  style={{
+                    marginTop: '0.2rem',
+                    fontSize: '0.8rem',
+                    color: 'var(--ifm-color-emphasis-600)',
+                    fontStyle: 'italic',
+                  }}
+                >
+                  {approx}
+                </div>
+              ) : null}
+
+              {awaitingAction ? (
+                <div
+                  style={{
+                    display: 'flex',
+                    gap: '0.4rem',
+                    justifyContent: 'center',
+                    marginTop: '0.75rem',
+                    flexWrap: 'wrap',
+                  }}
+                >
+                  <button
+                    type="button"
+                    className="button button--sm button--success"
+                    disabled={busy}
+                    onClick={() => onAction('plus')}
+                    title="+1 point"
+                  >
+                    +
+                  </button>
+                  <button
+                    type="button"
+                    className="button button--sm button--warning"
+                    disabled={busy}
+                    onClick={() => onAction('minus')}
+                    title="−1 point"
+                  >
+                    −
+                  </button>
+                  <button
+                    type="button"
+                    className="button button--sm button--secondary"
+                    disabled={busy}
+                    onClick={() => onAction('absent')}
+                    title="Exclude from today’s pool"
+                  >
+                    Absent
+                  </button>
+                </div>
+              ) : (
+                <div
+                  style={{
+                    marginTop: '0.55rem',
+                    fontSize: '0.75rem',
+                    color: 'var(--ifm-color-emphasis-600)',
+                  }}
+                >
+                  Saved for {dateKey}. Pick again when ready.
+                </div>
+              )}
             </div>
           ) : null}
 
-          {awaitingAction ? (
-            <div
-              style={{
-                display: 'flex',
-                gap: '0.4rem',
-                justifyContent: 'center',
-                marginTop: '0.75rem',
-                flexWrap: 'wrap',
-              }}
-            >
-              <button
-                type="button"
-                className="button button--sm button--success"
-                disabled={busy}
-                onClick={() => onAction('plus')}
-                title="+1 point"
-              >
-                +
-              </button>
-              <button
-                type="button"
-                className="button button--sm button--warning"
-                disabled={busy}
-                onClick={() => onAction('minus')}
-                title="−1 point"
-              >
-                −
-              </button>
-              <button
-                type="button"
-                className="button button--sm button--secondary"
-                disabled={busy}
-                onClick={() => onAction('absent')}
-                title="Exclude from today’s pool"
-              >
-                Absent
-              </button>
-            </div>
-          ) : (
-            <div
-              style={{
-                marginTop: '0.55rem',
-                fontSize: '0.75rem',
-                color: 'var(--ifm-color-emphasis-600)',
-              }}
-            >
-              Saved for {dateKey}. Pick again when ready.
-            </div>
-          )}
+          <PickHistoryList items={history} />
         </div>
       ) : null}
     </div>

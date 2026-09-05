@@ -68,6 +68,7 @@ function emptyRecord(dateKey, rosterId) {
     date: String(dateKey || ''),
     rosterId: String(rosterId || ''),
     students: {},
+    pickHistory: [],
     updatedAt: Date.now(),
   };
 }
@@ -81,6 +82,40 @@ function sanitizeStudentEntry(raw) {
     points: Number.isFinite(points) ? points : 0,
     absent: Boolean(raw.absent),
   };
+}
+
+const HISTORY_ACTIONS = new Set(['plus', 'minus', 'absent']);
+
+function sanitizePickHistory(raw) {
+  if (!Array.isArray(raw)) {
+    return [];
+  }
+  const out = [];
+  for (const item of raw) {
+    if (!item || typeof item !== 'object') {
+      continue;
+    }
+    const name = typeof item.name === 'string' ? item.name.trim() : '';
+    const action = HISTORY_ACTIONS.has(item.action) ? item.action : null;
+    if (!name || !action) {
+      continue;
+    }
+    out.push({
+      name,
+      action,
+      at: Number(item.at) || Date.now(),
+    });
+    if (out.length >= 40) {
+      break;
+    }
+  }
+  return out;
+}
+
+/** Newest-first slice for the picker UI. */
+export function recentPickHistory(behaviorRecord, limit = 5) {
+  const history = sanitizePickHistory(behaviorRecord?.pickHistory);
+  return history.slice(0, Math.max(0, limit));
 }
 
 function sanitizeRecord(raw, dateKey, rosterId) {
@@ -103,6 +138,7 @@ function sanitizeRecord(raw, dateKey, rosterId) {
     date: String(raw.date || dateKey || ''),
     rosterId: String(raw.rosterId || rosterId || ''),
     students,
+    pickHistory: sanitizePickHistory(raw.pickHistory),
     updatedAt: Number(raw.updatedAt) || Date.now(),
   };
 }
@@ -223,9 +259,15 @@ export async function applyStudentBehavior({
     return current;
   }
 
+  const pickHistory = [
+    {name: safeName, action, at: Date.now()},
+    ...sanitizePickHistory(current.pickHistory),
+  ].slice(0, 40);
+
   return saveDailyBehavior({
     ...current,
     students,
+    pickHistory,
   });
 }
 
