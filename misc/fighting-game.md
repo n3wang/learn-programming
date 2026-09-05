@@ -19,4 +19,4 @@ A little 2-player fighting game built with plain JS Canvas — samurai vs. ninja
   />
 </div>
 
-[Open in a new tab ↗](/games/fighting-game/index.html)
+[Open in a new tab ↗](pathname:///games/fighting-game/index.html)
