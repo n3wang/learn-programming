@@ -22,9 +22,24 @@ class Main {
 
 <details>
 <summary>
-🧪 Try the code out~! 
+🧪 Try the code out~!
 </summary>
-<iframe src="https://trinket.io/embed/java/5b1603aee0" width="100%" height="600" frameborder="0" marginwidth="0" marginheight="0" allowfullscreen></iframe>
+
+<PistonRunner
+  lang="java"
+  interactive={false}
+  height="480px"
+  code={`import java.util.*;
+class Main {
+    public static void main(String arg[]) {
+      System.out.print("Enter Your Name : ");  // user prompt
+      Scanner sc = new Scanner(System.in);     // take user input
+      String name = sc.nextLine();             // store the user input in the name variable
+      System.out.println("Name : "+ name);     // output the value stored in name
+    }
+}
+`}
+/>
 
 </details>
 
@@ -99,9 +114,39 @@ class Main {
 
 <details>
 <summary>
-🧪 Try the code out! 
+🧪 Try the code out!
 </summary>
-<iframe src="https://trinket.io/embed/java/7646d28f5c" width="100%" height="600" frameborder="0" marginwidth="0" marginheight="0" allowfullscreen></iframe>
+
+<PistonRunner
+  lang="java"
+  interactive={false}
+  height="480px"
+  code={`import java.util.*;
+class Main {
+    public static void main(String args[]) {
+        Scanner scan = new Scanner(System.in);
+        System.out.println("------------------------------------------------");
+        System.out.println("The following items are availabe at Bake Bar: ");
+        System.out.println("Shortcakes at $1.5 per cake");
+        System.out.println("Macaron at $1 per piece");
+        System.out.println("Chocochip cookies at $1 per cookie");
+        System.out.println("-------------------------------------------------");
+        System.out.print("Enter the number of shortcakes you want: ");
+        int shortcake = scan.nextInt();
+        System.out.print("Enter the number of macarons you want: ");
+        int macaron = scan.nextInt();
+        System.out.print("Enter the number of cookies you want: ");
+        int cookie = scan.nextInt();
+        double costCake = 1.5 * shortcake; //calculate the money spent on shortcake
+        double costMacaron = 1 * macaron; // calculate the money spent on macarons
+        double costCookie = 1 * cookie; // calculate the money spent on cookies
+        double totalCost = costCake + costMacaron + costCookie;
+        //calculate the total money spent on all 3 items
+        System.out.println("Bill amount for your shopping is $" + totalCost);
+    }
+}
+`}
+/>
 
 </details>
 
@@ -206,7 +251,19 @@ System.out.println(sc.nextLine());
 
 **Sample Program**
 
-<iframe src="https://trinket.io/embed/java/81d66c8055?outputOnly=true&start=result" width="100%" height="400" frameborder="0" marginwidth="0" marginheight="0" allowfullscreen></iframe>
+<PistonRunner
+  lang="java"
+  interactive={false}
+  height="400px"
+  code={`public class Main {
+  public static void main(String[] args) {
+    System.out.println("Enter Your Name");
+    Scanner sc=new Scanner(System.in);
+    System.out.println(sc.nextLine());
+  }
+}
+`}
+/>
 
 <details>
 <summary>
@@ -218,7 +275,7 @@ System.out.println(sc.nextLine());
 
 <details>
 <summary>
-✍  You can solve the problem <b>here</b> using Trinket
+✍  You can solve the problem <b>here</b> using Piston below
 </summary>
 
 
@@ -228,7 +285,19 @@ System.out.println(sc.nextLine());
 3. [ ] Complete the code so that it also ask the **verb**. Feel free to uncomment **line 14**
 4. [ ] Scan and print the **adjective**. Feel free to uncomment **line 15**
 
-<iframe src="https://trinket.io/embed/java/e12496b61e" width="100%" height="600" frameborder="0" marginwidth="0" marginheight="0" allowfullscreen></iframe>
+<PistonRunner
+  lang="java"
+  interactive={false}
+  height="480px"
+  code={`public class Main {
+  public static void main(String[] args) {
+    System.out.println("Enter Your Name");
+    Scanner sc=new Scanner(System.in);
+    System.out.println(sc.nextLine());
+  }
+}
+`}
+/>
 
 </details>
 
@@ -284,9 +353,39 @@ class Main {
 
 <details>
 <summary>
-✍  You can solve the problem <b>here</b> using Trinket
+✍  You can solve the problem <b>here</b> using Piston below
 </summary>
-<iframe src="https://trinket.io/embed/java/fb7a26acfd" width="100%" height="600" frameborder="0" marginwidth="0" marginheight="0" allowfullscreen></iframe>
+
+<PistonRunner
+  lang="java"
+  interactive={false}
+  height="480px"
+  code={`import java.util.*;
+class Main {
+    public static void main(String args[]) {
+        Scanner scan = new Scanner(System.in);
+        System.out.println("------------------------------------------------");
+        System.out.println("The following items are availabe at Bake Bar: ");
+        System.out.println("Shortcakes at $1.5 per cake");
+        System.out.println("Macaron at $1 per piece");
+        System.out.println("Chocochip cookies at $1 per cookie");
+        System.out.println("-------------------------------------------------");
+        System.out.print("Enter the number of shortcakes you want: ");
+        int shortcake = scan.nextInt();
+        System.out.print("Enter the number of macarons you want: ");
+        int macaron = scan.nextInt();
+        System.out.print("Enter the number of cookies you want: ");
+        int cookie = scan.nextInt();
+        double costCake = 1.5 * shortcake; //calculate the money spent on shortcake
+        double costMacaron = 1 * macaron; // calculate the money spent on macarons
+        double costCookie = 1 * cookie; // calculate the money spent on cookies
+        double totalCost = costCake + costMacaron + costCookie;
+        //calculate the total money spent on all 3 items
+        System.out.println("Bill amount for your shopping is $" + totalCost);
+    }
+}
+`}
+/>
 
 </details>
 

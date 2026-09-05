@@ -51,9 +51,21 @@ System.out.println("Size of int: " + (Integer.SIZE / 8) + " bytes.");
 
 <details>
 <summary>
-🧪 Try the code out! 
+🧪 Try the code out!
 </summary>
-<iframe src="https://trinket.io/embed/java/e694e1d8b3" width="100%" height="600" frameborder="0" marginwidth="0" marginheight="0" allowfullscreen></iframe>
+
+<PistonRunner
+  lang="java"
+  interactive={false}
+  height="480px"
+  code={`public class Main {
+  public static void main(String[] args) {
+    System.out.println("Size of short: " + (Short.SIZE / 8) + " bytes.");
+    System.out.println("Size of int: " + (Integer.SIZE / 8) + " bytes.");
+  }
+}
+`}
+/>
 
 </details>
 
@@ -106,9 +118,47 @@ public class Main {
 ```
 <details>
 <summary>
-🧪 Try the code out! 
+🧪 Try the code out!
 </summary>
-<iframe src="https://trinket.io/embed/java/4ae86c0fd1" width="100%" height="400" frameborder="0" marginwidth="0" marginheight="0" allowfullscreen></iframe>
+
+<PistonRunner
+  lang="java"
+  interactive={false}
+  height="400px"
+  code={`public class Main {
+ public static void main(String[] args) {
+   int num=100;
+   //Add
+   int sum    = 20 + 10;
+   System.out.println(sum);
+
+   //Subtraction
+   int sub    = 20 - 10;
+   System.out.println(sub);
+
+   //multiply
+   int mul    = 20 * 10;
+   System.out.println(mul);
+
+   //divide
+   int div    = 20 - 10;
+   System.out.println(div);
+
+   //modulo
+   int modulo = 20 % 10;
+   System.out.println(modulo);
+
+   //increment
+   num++;
+   System.out.println(num);
+
+   //decrement
+   num--;
+   System.out.println(num);
+ }
+}
+`}
+/>
 
 </details>
 
@@ -222,9 +272,33 @@ class Runner {
 
 <details>
 <summary>
-🧪 Try the code out! 
+🧪 Try the code out!
 </summary>
-<iframe src="https://trinket.io/embed/java/2bfb91b7e7" width="100%" height="1200" frameborder="0" marginwidth="0" marginheight="0" allowfullscreen></iframe>
+
+<PistonRunner
+  lang="java"
+  interactive={false}
+  height="480px"
+  code={`public class Main {
+  public static void main(String[] args) {
+     int a =20;
+       int b =20;
+   
+       System.out.println(a);
+       System.out.println(b);
+   
+       a += 15;
+       System.out.println("a is " + a);
+   
+       b = 15 + b;
+       System.out.println("b is " + b);
+   
+       a -= 3;
+       System.out.println("a is " + a);
+  }
+}
+`}
+/>
 
 </details>
 
@@ -356,9 +430,57 @@ The following program prints makes operations with differents variables you can 
 
 <details>
 <summary>
-🧪 Try the code out! 
+🧪 Try the code out!
 </summary>
-<iframe src="https://trinket.io/embed/java/28a729f904" width="100%" height="600" frameborder="0" marginwidth="0" marginheight="0" allowfullscreen></iframe>
+
+<PistonRunner
+  lang="java"
+  interactive={false}
+  height="480px"
+  code={`public class Main {
+  public static void main(String[] args) {
+      int a = 4;
+      int b = 3;
+      int num1 = 5;
+      int num2 = 4;
+      System.out.println("a+b = " + (a + b)); //a + b evaluates to  7
+      //println() - inserts newline character
+      //print() -will continue on printing in the same line
+      System.out.println("a-b = " + (a - b)); //a - b evaluates to  1
+      System.out.println("a*b = " + (a * b)); //a * b evaluates to  7
+      System.out.println("a%b = " + (a % b)); //a % b evaluates to  1 ,as it returns remainder
+      a++; //increments the value of a by 1, so a becomes 5
+      System.out.println("a = " + a);
+      a--; //decrements the value of a by 1, so a becomes 4
+      System.out.println("a = " + a);
+      // a+=b equivalent or short form of a=a+b;
+      // a-=b equivalent or short form of a=a-b;
+      System.out.println("num1 + num2 = " + (num1 + num2));
+      num1 += num2; //num1 will be added to num2 and stored in num1, so num1=9
+      System.out.println("num1 + num2 = " + num1);
+      //subtraction
+      System.out.println("num1 - num2 = " + (num1 - num2));
+      num1 -= num2; // num2 will be subtracted to num1 and stored in num1, so num1=5 (9-4=5)
+      System.out.println("num1 - num2 = " + num1);
+      //------increment operation----
+      // ++ (increment operator) is equivalent to a=a+1 (a++ is equivalent to a=a+1)
+      //prefix
+      System.out.println("prefixed a = " + (++a)); // a becomes 5
+      //postfix
+      System.out.println("postfixed a = " + (a++)); // a becomes 6 but after assignment. Here it will print original value(before postfix increment operation)
+      System.out.println("postfixed a =" + a); // postfix operation can be checked here
+      //----decrement operator----
+      // --(decrement operator)is equivalent to a=a-1 (a-- is equivalent to a=a-1)
+      //prefix
+      System.out.println("prefixed a = " + --a); // a becomes 5
+      //postfix
+      System.out.println("postfixed a = " + a--); // Ask students what they think this does?
+      // a becomes 4 but after assignment.Here it will print original value(before postfix decrement operation)
+      System.out.println("postfixed a = " + a); //a=4, postfix operation can be checked here
+  }
+}
+`}
+/>
 
 </details>
 
@@ -415,9 +537,31 @@ public class Main {
 
 <details>
 <summary>
-✍  You can solve the problem <b>here</b> using Trinket
+✍  You can solve the problem <b>here</b> using Piston below
 </summary>
-<iframe src="https://trinket.io/embed/java/eebac3afea" width="100%" height="600" frameborder="0" marginwidth="0" marginheight="0" allowfullscreen></iframe>
+
+<PistonRunner
+  lang="java"
+  interactive={false}
+  height="480px"
+  code={`public class Main {
+  public static void main(String args[]) {
+      float piggy_bank_bal = 29.80f;// what will happen when we make it 'int'
+      float earning_from_trash = 2.50f;
+      float earning_from_laundry = 2.50f;
+      float earning_from_petsitter = 2.75f;
+      float total = piggy_bank_bal;
+      System.out.println("Piggy bank bal : " + piggy_bank_bal);
+      System.out.println("Total amount after Trash Cleaning : " + total + " + " + earning_from_trash + " = " + total + earning_from_trash);
+      total = total + earning_from_trash; //total calculation after trash cleaning
+      System.out.println("Total amount after doing Laundry : " + total + " + " + earning_from_laundry + " = " + total + earning_from_laundry);
+      total = total + earning_from_laundry; //total calculation after laundry
+      System.out.println("Total amount after taking dog on walk : " + total + " + " + earning_from_petsitter + " = " + total + earning_from_petsitter);
+  }
+}
+`}
+/>
+
 </details>
 
 
@@ -442,9 +586,26 @@ Rene has $29.80 in her piggy bank. Rene’s dad has promised to give her $2.50 i
 
 <details>
 <summary>
-✍  You can solve the problem <b> here </b>using Trinket
+✍  You can solve the problem <b> here </b>using Piston below
 </summary>
-<iframe src="https://trinket.io/embed/java/6e661a677c" width="100%" height="600" frameborder="0" marginwidth="0" marginheight="0" allowfullscreen></iframe>
+
+<PistonRunner
+  lang="java"
+  interactive={false}
+  height="480px"
+  code={`public class Main {
+  public static void main(String[] args) {
+    float piggyBankBal = 29.80f;
+    float earningFromTrash = 2.50f;
+    float earningFromLaundry = 2.50f;
+    float earningFromPetsitter = 2.75f;
+    float total = 0; // TODO: start from piggyBankBal, then add each chore
+    // TODO: print each step and the final total in a complete sentence
+    System.out.println("Piggy bank bal : " + piggyBankBal);
+  }
+}
+`}
+/>
 
 </details>
 :::

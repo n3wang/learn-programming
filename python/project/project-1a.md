@@ -46,7 +46,14 @@ Write a program that prints: `(*¯︶¯*)`
 🧪 See/try the Solution
 </summary>
 
-<iframe src="https://trinket.io/embed/python3/cf39cd0db9?start=result" width="100%" height="150" frameborder="0" marginwidth="0" marginheight="0" allowfullscreen></iframe>
+<PistonRunner
+  lang="python"
+  interactive={false}
+  height="220px"
+  code={`print("(*¯︶¯*)")
+`}
+/>
+
 </details>
 :::
 
@@ -70,7 +77,14 @@ Write a program that prints: `/(￣▽￣)\`
 🧪 See/try the Solution
 </summary>
 
-<iframe src="https://trinket.io/embed/python3/9a0da69f6f?start=result" width="100%" height="150" frameborder="0" marginwidth="0" marginheight="0" allowfullscreen></iframe>
+<PistonRunner
+  lang="python"
+  interactive={false}
+  height="220px"
+  code={`print("/(￣▽￣)\\\\")
+`}
+/>
+
 </details>
 :::
 
@@ -91,14 +105,21 @@ print("\>\▽\<\")
 
 - Do you think you can figure out why?
 
-[View in Trinket](https://trinket.io/python3/691d874844)
+Run with Piston below
 
 <details>
 <summary>
 🔨 Try fixing it here!
 </summary>
 
-<iframe src="https://trinket.io/embed/python3/691d874844?start=result" width="100%" height="600" frameborder="0" marginwidth="0" marginheight="0" allowfullscreen></iframe>
+<PistonRunner
+  lang="python"
+  interactive={false}
+  height="480px"
+  code={`print("\\>\\▽\\<\\")
+`}
+/>
+
 </details>
 
 :::

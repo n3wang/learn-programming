@@ -24,14 +24,39 @@ Allowed to talk to each other for a limited time. During these discussions, the 
 :::
 
 
-<iframe src="https://trinket.io/embed/python/59f1468e67?outputOnly=true&runOption=run&start=result" width="100%" height="600" frameborder="0" marginwidth="0" marginheight="0" allowfullscreen></iframe>
+<PistonRunner
+  lang="python"
+  interactive={true}
+  height="480px"
+  code={`msg = input("Enter your defense: ")
+print(f"you: {msg}")
+if msg.strip():
+    if "bruno" in msg.lower():
+        print("purple: Wait, Bruno said they were in Electrical together. I trust them.")
+    else:
+        print("purple: That sounds sus. I still think it's you.")
+`}
+/>
 
 :::tip Fix the following Program
 - The following program doesn't ask for any user input. just prints whatver is inside of the variable <b>your_message</b> and your tag
 - Modify line 4 so that it prompts user for an input and save it isnide of the "your_message" variable
 
 
-<iframe src="https://trinket.io/embed/python/d484969ff6" width="100%" height="600" frameborder="0" marginwidth="0" marginheight="0" allowfullscreen></iframe>
+<PistonRunner
+  lang="python"
+  interactive={true}
+  height="480px"
+  code={`# TODO: replace the hardcoded message with input()
+your_message = "I was doing cards in Electrical with Bruno"
+print(f"you: {your_message}")
+if your_message.strip():
+    if "bruno" in your_message.lower():
+        print("purple: Wait, Bruno said they were in Electrical together. I trust them.")
+    else:
+        print("purple: That sounds sus. I still think it's you.")
+`}
+/>
 
 
 <details>
@@ -53,7 +78,20 @@ Remember that to prompt an user to write input you write something like:
 
 We are now going to modify the code so that it replicates the following behavior:
 
-<iframe src="https://trinket.io/embed/python/dd8d442aa2?outputOnly=true&runOption=run" width="100%" height="600" frameborder="0" marginwidth="0" marginheight="0" allowfullscreen></iframe>
+<PistonRunner
+  lang="python"
+  interactive={true}
+  height="480px"
+  code={`name = input("Username: ")
+msg = input("Message: ")
+print(f"{name}: {msg}")
+if msg.strip():
+    if "bruno" in msg.lower():
+        print("cyan: Bruno can vouch for them — skip.")
+    else:
+        print("cyan: Not convinced. Vote?")
+`}
+/>
 
 :::tip Add a username now too
 
@@ -64,9 +102,24 @@ We are now going to modify the code so that it replicates the following behavior
 
 <details>
 <summary>
-✍  You can solve the problem <b>here</b> using Trinket
+✍  You can solve the problem <b>here</b> using Piston
 </summary>
-<iframe src="https://trinket.io/embed/python/99a9396c92" width="100%" height="600" frameborder="0" marginwidth="0" marginheight="0" allowfullscreen></iframe>
+
+<PistonRunner
+  lang="python"
+  interactive={true}
+  height="480px"
+  code={`# TODO: ask for a username (line 3) and a message (line 6)
+username = "you"
+your_message = "I swear I'm crew — ask Bruno"
+print(f"{username}: {your_message}")
+if your_message.strip():
+    if "bruno" in your_message.lower():
+        print("cyan: Bruno can vouch for them — skip.")
+    else:
+        print("cyan: Not convinced. Vote?")
+`}
+/>
 
 </details>
 :::

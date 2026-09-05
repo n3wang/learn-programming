@@ -6,9 +6,7 @@ title: Welcome to Python Introductory Lessons
 I will be posting here the notes used to teach in our python class. 
 
 ### Quick Links
-- [Trinklet](https://trinket.io/)
-
-
+- Code runners use **Piston** (local API). Turtle labs need a local Python install.
 ### Class Structure
 
 Notes follow the same rhythm as C++:

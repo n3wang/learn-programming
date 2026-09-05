@@ -51,7 +51,32 @@ class Main {
 - Try Changing the message.
 - Try changing the offset
 
-<iframe src="https://trinket.io/embed/java/da0f8ce279" width="100%" height="600" frameborder="0" marginwidth="0" marginheight="0" allowfullscreen></iframe>
+<PistonRunner
+  lang="java"
+  interactive={false}
+  height="480px"
+  code={`class Main {
+ public static void main(String[] args) {
+  String message = "Hello World";
+  int offset=3;
+  
+  StringBuilder result = new StringBuilder();
+  for (char character : message.toCharArray()) {
+      if (character != ' ') {
+          int originalAlphabetPosition = character - 'a';
+          int newAlphabetPosition = (originalAlphabetPosition + offset) % 26;
+          char newCharacter = (char) ('a' + newAlphabetPosition);
+          result.append(newCharacter);
+      } else {
+          result.append(character);
+      }
+  }
+  System.out.println(result);
+
+ }
+}
+`}
+/>
 
 </details>
 
@@ -79,7 +104,25 @@ class Main {
 <summary>
 🧪 Try the code out~!
 </summary>
-<iframe src="https://trinket.io/embed/java/a8015ba635" width="100%" height="600" frameborder="0" marginwidth="0" marginheight="0" allowfullscreen></iframe>
+
+<PistonRunner
+  lang="java"
+  interactive={false}
+  height="480px"
+  code={`class Main {
+ public static void main(String[] args) {
+  char character = 'a';
+  int offset=4;
+  
+  int originalAlphabetPosition = character - 'a';
+  int newAlphabetPosition = (originalAlphabetPosition + offset);
+  char newCharacter = (char) ('a' + newAlphabetPosition);
+  System.out.println(newCharacter);
+
+ }
+}
+`}
+/>
 
 </details>
 
@@ -125,7 +168,25 @@ class Main {
 <summary>
 🧪 Try the code out~!
 </summary>
-<iframe src="https://trinket.io/embed/java/78261b3a21" width="100%" height="600" frameborder="0" marginwidth="0" marginheight="0" allowfullscreen></iframe>
+
+<PistonRunner
+  lang="java"
+  interactive={false}
+  height="480px"
+  code={`class Main {
+ public static void main(String[] args) {
+  char character = 'h';
+  int offset=4;
+  
+  int originalAlphabetPosition = character - 'a';
+  int newAlphabetPosition = (originalAlphabetPosition + offset) % 26;
+  char newCharacter = (char) ('a' + newAlphabetPosition);
+  System.out.println(newCharacter);
+
+ }
+}
+`}
+/>
 
 </details>
 
@@ -165,7 +226,29 @@ class Main {
 - So it asks what character to encrypt
 - So that it also ask whats the offset of this.
 
-<iframe src="https://trinket.io/embed/java/e4c0981e62" width="100%" height="600" frameborder="0" marginwidth="0" marginheight="0" allowfullscreen></iframe>
+<PistonRunner
+  lang="java"
+  interactive={false}
+  height="480px"
+  code={`import java.util.*;
+
+class Main {
+ public static void main(String[] args) {
+   
+  System.out.print("Enter a Character : ");  
+  Scanner sc = new Scanner(System.in);
+  char character = sc.nextLine().charAt(0);
+  int offset=4;
+  
+  int originalAlphabetPosition = character - 'a';
+  int newAlphabetPosition = (originalAlphabetPosition + offset) % 26;
+  char newCharacter = (char) ('a' + newAlphabetPosition);
+  System.out.println(newCharacter);
+
+ }
+}
+`}
+/>
 
 :::
 
