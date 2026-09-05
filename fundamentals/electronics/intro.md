@@ -7,17 +7,19 @@ title: Electronics
 
 From a single resistor to a working microcontroller, this section builds up the electronics knowledge that sits underneath robotics, embedded systems, and computer hardware — the physical circuits that everything in [CS Fundamentals](/fundamentals/computer-engineering/virtualization/cpu-pipeline) ultimately runs on top of.
 
+## Topics
+
+### Digital Logic
+- [Digital Logic](./lesson-1-digital-logic) — gates, truth tables, and a drag-from-a-deck circuit-building lab
+- Building an adder from logic gates (planned)
+- Flip-flops, latches, and simple sequential circuits (planned)
+
 ## Planned Topics
 
 ### Circuit Theory Basics
 - Voltage, current, and resistance — Ohm's Law
 - Series and parallel circuits
 - Capacitors, inductors, and RC/RL time constants
-
-### Digital Logic
-- Logic gates (AND, OR, NOT, XOR) and truth tables
-- Building an adder from logic gates — interactive visualizer
-- Flip-flops, latches, and simple sequential circuits
 
 ### Embedded Systems and Microcontrollers
 - Reading a datasheet, GPIO basics

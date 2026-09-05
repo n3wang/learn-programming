@@ -368,6 +368,179 @@ function markovServer() {
   };
 }
 
+function statExpectPayoff() {
+  const a = randInt(1, 3);
+  const b = a + randInt(2, 4);
+  const pA = pick([0.2, 0.3, 0.4]);
+  const pB = round2(1 - pA);
+  const ex = round2(a * pA + b * pB);
+  return {
+    prompt:
+      `A promo pays $${a} with probability ${pA} and $${b} otherwise. What is the expected payout E[X]? Round to 2 decimals.`,
+    answer: ex,
+    why: `E[X]=${a}·${pA}+${b}·${pB}=${ex}.`,
+  };
+}
+
+function statVarTwoPoint() {
+  // X=0 w.p. 1-p, X=1 w.p. p → Var=p(1-p)
+  const p = pick([0.2, 0.25, 0.3, 0.4]);
+  const ans = round2(p * (1 - p));
+  return {
+    prompt:
+      `A user converts (X=1) with probability ${p}, else X=0. What is Var(X)? Round to 2 decimals.`,
+    answer: ans,
+    why: `Bernoulli variance p(1−p)=${p}·${round2(1 - p)}=${ans}.`,
+  };
+}
+
+function statUniformMean() {
+  const a = randInt(0, 4);
+  const b = a + randInt(4, 10);
+  const ans = round2((a + b) / 2);
+  return {
+    prompt:
+      `Delivery time (hours) is modeled as Uniform(${a}, ${b}). What is E[time]? Round to 2 decimals.`,
+    answer: ans,
+    why: `E[X]=(a+b)/2=${ans}.`,
+  };
+}
+
+function statUniformVar() {
+  const a = randInt(0, 2);
+  const b = a + pick([6, 9, 12]);
+  const ans = round2(((b - a) ** 2) / 12);
+  return {
+    prompt:
+      `X ~ Uniform(${a}, ${b}). What is Var(X)? Round to 2 decimals.`,
+    answer: ans,
+    why: `Var=(b−a)²/12=${ans}.`,
+  };
+}
+
+function statCLTSE() {
+  const sigma = pick([2, 3, 4, 5]);
+  const n = pick([25, 36, 49, 64, 100]);
+  const ans = round2(sigma / Math.sqrt(n));
+  return {
+    prompt:
+      `Scores have σ=${sigma}. You average n=${n} independent scores. What is the standard error of the sample mean (σ/√n)? Round to 2 decimals.`,
+    answer: ans,
+    why: `SE=σ/√n=${sigma}/√${n}=${ans}.`,
+  };
+}
+
+function statZStat() {
+  const xbar = pick([10.2, 10.5, 11, 12]);
+  const mu0 = 10;
+  const sigma = pick([2, 3, 4]);
+  const n = pick([36, 49, 64, 100]);
+  const z = (xbar - mu0) / (sigma / Math.sqrt(n));
+  return {
+    prompt:
+      `H₀: μ=${mu0}. You observe x̄=${xbar} from n=${n} with known σ=${sigma}. What is the z test statistic (x̄−μ₀)/(σ/√n)? Round to 2 decimals.`,
+    answer: round2(z),
+    why: `z=${fmt(round2(z))}.`,
+  };
+}
+
+function statChiSq() {
+  const o = [randInt(20, 40), randInt(20, 40), randInt(20, 40)];
+  const n = o[0] + o[1] + o[2];
+  const e = n / 3;
+  const chi = o.reduce((s, oi) => s + (oi - e) ** 2 / e, 0);
+  return {
+    prompt:
+      `Under H₀ three categories are equally likely. Observed counts are ${o[0]}, ${o[1]}, ${o[2]}. What is χ² = Σ(O−E)²/E? Round to 2 decimals.`,
+    answer: round2(chi),
+    why: `E=${fmt(e, 2)}, χ²=${fmt(round2(chi))}.`,
+  };
+}
+
+function statABZ() {
+  const nA = pick([500, 800, 1000]);
+  const nB = nA;
+  const pA = pick([0.1, 0.12, 0.15]);
+  const lift = pick([0.02, 0.03, 0.04]);
+  const pB = round2(pA + lift);
+  const cA = Math.round(pA * nA);
+  const cB = Math.round(pB * nB);
+  const pPool = (cA + cB) / (nA + nB);
+  const se = Math.sqrt(pPool * (1 - pPool) * (1 / nA + 1 / nB));
+  const z = (cB / nB - cA / nA) / se;
+  return {
+    prompt:
+      `A/B test: control ${cA}/${nA} conversions, treatment ${cB}/${nB}. Using the pooled two-proportion z-statistic, what is z? Round to 2 decimals.`,
+    answer: round2(z),
+    why: `Pooled p̂=${fmt(pPool)}, SE=${fmt(se, 4)}, z=${fmt(round2(z))}.`,
+  };
+}
+
+function statCI() {
+  const xbar = pick([8, 10, 12]);
+  const sigma = pick([2, 3, 4]);
+  const n = pick([36, 49, 64, 100]);
+  const z = 1.96;
+  const half = z * (sigma / Math.sqrt(n));
+  const lo = round2(xbar - half);
+  return {
+    prompt:
+      `x̄=${xbar}, σ=${sigma}, n=${n}. What is the lower endpoint of a 95% CI for μ (use z=1.96)? Round to 2 decimals.`,
+    answer: lo,
+    why: `Half-width=1.96·σ/√n=${fmt(half, 2)}; lower=${lo}.`,
+  };
+}
+
+function statBonferroni() {
+  const m = pick([10, 20, 50, 100]);
+  const alpha = 0.05;
+  const ans = round2(alpha / m) === 0 ? Number((alpha / m).toFixed(4)) : round2(alpha / m);
+  // For m=100, 0.0005 — need more decimals. Use answer with 4 decimals via decimals field.
+  return {
+    prompt:
+      `You run ${m} independent tests and want family-wise α=0.05 via Bonferroni. What per-test α′=α/m should you use? Round to 4 decimals.`,
+    answer: Number((alpha / m).toFixed(4)),
+    decimals: 4,
+    why: `α/m=0.05/${m}=${(alpha / m).toFixed(4)}.`,
+  };
+}
+
+function statMLE() {
+  const n = randInt(10, 30);
+  const k = randInt(2, n - 1);
+  const ans = round2(k / n);
+  return {
+    prompt:
+      `You observe ${k} successes in ${n} i.i.d. Bernoulli trials. What is the MLE of p? Round to 2 decimals.`,
+    answer: ans,
+    why: `p̂_MLE=k/n=${k}/${n}=${ans}.`,
+  };
+}
+
+function statCorr() {
+  // Cov=2, sdX=2, sdY=2 → rho=0.5
+  const cov = pick([1, 2, 3]);
+  const sx = pick([2, 4]);
+  const sy = pick([2, 4]);
+  const rho = cov / (sx * sy);
+  return {
+    prompt:
+      `Cov(X,Y)=${cov}, SD(X)=${sx}, SD(Y)=${sy}. What is the correlation ρ? Round to 2 decimals.`,
+    answer: round2(rho),
+    why: `ρ=Cov/(σ_X σ_Y)=${cov}/(${sx}·${sy})=${fmt(round2(rho))}.`,
+  };
+}
+
+function statPower() {
+  const beta = pick([0.1, 0.2, 0.3]);
+  return {
+    prompt:
+      `A test has Type II error rate β=${beta}. What is its power (1−β)? Round to 2 decimals.`,
+    answer: round2(1 - beta),
+    why: `Power=1−β=${round2(1 - beta)}.`,
+  };
+}
+
 /** Named banks for <NumericQuiz bank="…" /> */
 export const COMPUTE_BANKS = {
   dsBayes: [bayesDisease, bayesSpam, bayesFraud],
@@ -378,6 +551,15 @@ export const COMPUTE_BANKS = {
   dsDiscrete: [binomUsers, binomSensors, binomExpect, poisVisits, poisBugs],
   dsContinuous: [unifBus, expSupport, expMean, normalVar],
   dsMarkov: [markovChurn, markovServer],
+  dsStatMoments: [statExpectPayoff, statVarTwoPoint],
+  dsStatCorr: [statCorr],
+  dsStatUniform: [statUniformMean, statUniformVar],
+  dsStatCLT: [statCLTSE, statZStat],
+  dsStatChi: [statChiSq],
+  dsStatAB: [statABZ],
+  dsStatCI: [statCI],
+  dsStatErrors: [statBonferroni, statPower],
+  dsStatMLE: [statMLE],
 };
 
 export function drawFromBank(bankId) {

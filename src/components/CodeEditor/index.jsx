@@ -20,6 +20,9 @@ const LANG_LOADERS = {
   js: () => import('@codemirror/lang-javascript').then((m) => m.javascript()),
   yaml: () => import('@codemirror/lang-yaml').then((m) => m.yaml()),
   yml: () => import('@codemirror/lang-yaml').then((m) => m.yaml()),
+  sql: () => import('@codemirror/lang-sql').then((m) => m.sql()),
+  sqlite3: () => import('@codemirror/lang-sql').then((m) => m.sql()),
+  sqlite: () => import('@codemirror/lang-sql').then((m) => m.sql()),
 };
 
 const KEYWORDS = {
@@ -64,8 +67,32 @@ const KEYWORDS = {
     'true', 'try', 'typeof', 'undefined', 'var', 'void', 'while', 'yield',
     'console', 'log',
   ],
+  sql: [
+    'SELECT', 'FROM', 'WHERE', 'AND', 'OR', 'NOT', 'IN', 'BETWEEN', 'LIKE',
+    'IS', 'NULL', 'AS', 'JOIN', 'INNER', 'LEFT', 'RIGHT', 'OUTER', 'ON',
+    'GROUP', 'BY', 'HAVING', 'ORDER', 'ASC', 'DESC', 'DISTINCT', 'UNION',
+    'ALL', 'LIMIT', 'OFFSET', 'WITH', 'CASE', 'WHEN', 'THEN', 'ELSE', 'END',
+    'COUNT', 'SUM', 'AVG', 'MIN', 'MAX', 'ROUND', 'LENGTH', 'CAST',
+    'OVER', 'PARTITION', 'ROWS', 'BETWEEN', 'UNBOUNDED', 'PRECEDING',
+    'FOLLOWING', 'CURRENT', 'ROW', 'LAG', 'LEAD', 'RANK', 'DENSE_RANK',
+    'ROW_NUMBER', 'INSERT', 'INTO', 'VALUES', 'UPDATE', 'SET', 'DELETE',
+    'CREATE', 'TABLE', 'PRIMARY', 'KEY', 'FOREIGN', 'REFERENCES',
+  ],
 };
 KEYWORDS.cpp = KEYWORDS['c++'];
+KEYWORDS.sqlite3 = KEYWORDS.sql;
+KEYWORDS.sqlite = KEYWORDS.sql;
+KEYWORDS.godot = [
+  'and', 'as', 'assert', 'await', 'break', 'class', 'class_name', 'const',
+  'continue', 'elif', 'else', 'enum', 'extends', 'for', 'func', 'if', 'in',
+  'is', 'match', 'not', 'or', 'pass', 'preload', 'return', 'self', 'signal',
+  'static', 'super', 'true', 'false', 'null', 'var', 'void', 'while', 'yield',
+  'print', 'push_error', 'push_warning', 'range', 'len', 'str', 'int', 'float',
+  'bool', 'String', 'Array', 'Dictionary', 'Vector2', 'Vector3', 'Color',
+  'SceneTree', 'Node', 'quit',
+];
+KEYWORDS.gdscript = KEYWORDS.godot;
+KEYWORDS.gd = KEYWORDS.godot;
 
 async function loadLanguageExt(lang) {
   const key = String(lang || '').toLowerCase();

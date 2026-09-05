@@ -15,7 +15,20 @@ System.out.print(hello1.equals(hello2));
 <summary>
 🧪 Try the code out~!
 </summary>
-<iframe src="https://trinket.io/embed/java/c88b414007" width="100%" height="300" frameborder="0" marginwidth="0" marginheight="0" allowfullscreen></iframe>
+
+<PistonRunner
+  lang="java"
+  interactive={false}
+  height="300px"
+  code={`public class Main {
+  public static void main(String[] args) {
+    String  hello1 = "Hello";
+    String  hello2 = "Hello";
+    System.out.print(hello1.equals(hello2));
+  }
+}
+`}
+/>
 
 </details>
 
@@ -32,7 +45,20 @@ System.out.println(word1.equalsIgnoreCase(word2));
 <summary>
 🧪 Try the code out~!
 </summary>
-<iframe src="https://trinket.io/embed/java/4019da27be" width="100%" height="600" frameborder="0" marginwidth="0" marginheight="0" allowfullscreen></iframe>
+
+<PistonRunner
+  lang="java"
+  interactive={false}
+  height="520px"
+  code={`public class Main {
+  public static void main(String[] args) {
+    String  hello1 = "Hello";
+    String  hello2 = "Hello";
+    System.out.print(hello1.equals(hello2));
+  }
+}
+`}
+/>
 
 </details>
 
@@ -51,7 +77,20 @@ System.out.println(s1.compareTo(s4)); //-6 because "h" is 6 times lower than "n"
 <summary>
 🧪 Try the code out~!
 </summary>
-<iframe src="https://trinket.io/embed/java/64ae7116e1" width="100%" height="600" frameborder="0" marginwidth="0" marginheight="0" allowfullscreen></iframe>
+
+<PistonRunner
+  lang="java"
+  interactive={false}
+  height="520px"
+  code={`public class Main {
+  public static void main(String[] args) {
+    String  hello1 = "Hello";
+    String  hello2 = "Hello";
+    System.out.print(hello1.equals(hello2));
+  }
+}
+`}
+/>
 
 </details>
 
@@ -172,7 +211,31 @@ public static void main (String args[]){
 
 🙋‍♀️ Sample Program
 
-<iframe src="https://trinket.io/embed/java/4faadfc62a?outputOnly=true" width="100%" height="300" frameborder="0" marginwidth="0" marginheight="0" allowfullscreen></iframe>
+<PistonRunner
+  lang="java"
+  interactive={false}
+  height="300px"
+  code={`import java.util.Scanner;
+
+class Main{
+public static void main (String args[]){
+   Scanner scan=new Scanner(System.in);
+   System.out.print("\n Enter the first word : ");
+   String word1=scan.nextLine();
+   System.out.print("\n Enter the second word : ");
+   String word2=scan.nextLine();
+   
+   if(true){
+      System.out.println(word1 + " and " + word2 + " are lexicographically same");
+   }else if(true){
+      System.out.println(word1 + " ," + word2);
+   }else{
+      System.out.println(word2 + ", " + word1);
+   }
+ }
+}
+`}
+/>
 
 :::
 

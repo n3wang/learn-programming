@@ -12,6 +12,7 @@ const DOC_INSTANCES = [
   ['python', {path: 'python', routeBasePath: 'python', remarkPlugins: [remarkMath], rehypePlugins: [rehypeKatex]}],
   ['java', {path: 'java', routeBasePath: 'java'}],
   ['cpp', {path: 'cpp', routeBasePath: 'cpp'}],
+  ['godot', {path: 'godot', routeBasePath: 'godot'}],
   ['misc', {path: 'misc', routeBasePath: 'misc'}],
   ['robotics', {path: 'robotics', routeBasePath: 'robotics'}],
   ['javascript', {path: 'javascript', routeBasePath: 'javascript'}],

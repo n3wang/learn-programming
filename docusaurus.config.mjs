@@ -195,6 +195,10 @@ const config = {
                 to: '/cpp/lesson-notes',
                 label: 'C++',
               },
+              {
+                to: '/godot/lesson-notes',
+                label: 'Godot',
+              },
             ],
           },
           {
@@ -260,6 +264,10 @@ const config = {
           {
             label: 'C++',
             to: '/cpp/lesson-notes',
+          },
+          {
+            label: 'Godot',
+            to: '/godot/lesson-notes',
           },
           ],
         }, {

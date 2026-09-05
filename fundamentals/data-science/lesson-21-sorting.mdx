@@ -1,0 +1,430 @@
+---
+sidebar_position: 22
+title: Sorting Algorithms
+sidebar_label: 'Coding - Sorting'
+---
+
+> **Source:** Sorting patterns from *Ace the Data Science Interview* — Chapter 9 (Huo & Singh), expanded with original labs and animations for this course.
+
+Implement the classics, **state their tradeoffs in writing**, and watch each step color a grid. Open the visualizer, pick an algorithm + array, then step through comparisons / swaps / pivots.
+
+## Live animation
+
+Cells light up as **compare** (amber), **swap/move** (red), **write** (blue), **pivot** (purple), or **sorted** (green). Height scales with value.
+
+<SortingVisualizerSimulator />
+
+## Complexity tradeoffs (memorize the story)
+
+| Sort | Best | Average | Worst | Extra space | Stable? | Notes |
+| --- | --- | --- | --- | --- | --- | --- |
+| Bubble | $O(N)$* | $O(N^2)$ | $O(N^2)$ | $O(1)$ | Yes | *with early-exit flag |
+| Selection | $O(N^2)$ | $O(N^2)$ | $O(N^2)$ | $O(1)$ | No | Min swaps; simple |
+| Insertion | $O(N)$ | $O(N^2)$ | $O(N^2)$ | $O(1)$ | Yes | Fast on nearly sorted |
+| Mergesort | $O(N\log N)$ | $O(N\log N)$ | $O(N\log N)$ | $O(N)$ | Yes | Predictable; great for external sort |
+| Quicksort | $O(N\log N)$ | $O(N\log N)$ | $O(N^2)$ | $O(\log N)$ stack | No* | *naive Lomuto; randomize pivot |
+| Heapsort | $O(N\log N)$ | $O(N\log N)$ | $O(N\log N)$ | $O(1)$ | No | In-place guaranteed bound |
+
+\*Practical libraries use introsort / timsort hybrids — interviews still want the textbook cores.
+
+<MultipleChoice
+  id="ds-sort-quiz-hard"
+  title="Sorting (harder)"
+  questions={[
+    {
+      prompt: 'Which pair is typically stable + O(N log N) worst-case?',
+      choices: ['Quicksort', 'Mergesort', 'Heapsort', 'Selection'],
+      answer: 1,
+      why: 'Mergesort preserves equal-key order and has tight N log N bounds.',
+    },
+    {
+      prompt: 'Quicksort’s O(N²) worst case commonly comes from…',
+      choices: [
+        'Random pivots on random data',
+        'Always pivoting the extreme on already-sorted input',
+        'Merging halves',
+        'Heapify'],
+      answer: 1,
+      why: 'Degenerate partitions → quadratic.',
+    },
+    {
+      type: 'multi',
+      prompt: 'Prefer insertion sort when…',
+      choices: [
+        'N is tiny or the array is nearly sorted',
+        'You need guaranteed O(N log N) on adversarial data and O(1) extra space (think heapsort)',
+        'You must have a stable O(N log N) sort with spare O(N) memory (mergesort)',
+        'You only care about minimizing code and N≤10 (bubble/selection OK)'],
+      answers: [0, 1, 2, 3],
+      why: 'Match tool to constraint.',
+    },
+    {
+      type: 'order',
+      prompt: 'Order mergesort phases.',
+      choices: ['Merge sorted runs', 'Recursively sort halves', 'Divide until size 1'],
+      answer: [2, 1, 0],
+      why: 'Divide, conquer, combine.',
+    },
+    {
+      prompt: 'Heapsort extract-max does…',
+      choices: [
+        'Swap root with last heap index, shrink heap, sift-down',
+        'Only bubble adjacent pairs',
+        'Binary search the max',
+        'DFS a BST'],
+      answer: 0,
+      why: 'Classic heapsort loop.',
+    },
+    {
+      type: 'multi',
+      prompt: 'Select true statements.',
+      choices: [
+        'Selection sort always does Θ(N²) comparisons',
+        'Stable sorts keep relative order of equal keys',
+        'In-place always implies O(1) stack for quicksort recursion',
+        'Timsort/introsort blend insertion + merge/heap ideas in real runtimes'],
+      answers: [0, 1, 3],
+      why: 'Quicksort recursion still uses stack frames even if array swaps are in-place.',
+    },
+  ]}
+/>
+
+## Written resolutions
+
+<ProblemSet id="ds-sort-write">
+  <Problem
+    type="concept"
+    title="Pick a sort"
+    minWords={50}
+    keywords={['stable', 'memory']}
+    prompt={`Interview: “Sort 50M records by key; equal keys must keep input order; RAM is tight but you can afford an O(N) buffer.” Which textbook sort do you pitch and why? Mention one you would reject.`}
+    answer={`Pitch mergesort (or a stable external/merge-based variant): worst-case O(N log N), stable, and the O(N) buffer is explicitly allowed. Reject naïve quicksort — not stable and can go quadratic without care. Heapsort is in-place and O(N log N) but not stable, so it fails the equal-key requirement.`}
+  />
+  <Problem
+    type="concept"
+    title="Bubble vs insertion"
+    minWords={40}
+    keywords={['nearly', 'swap']}
+    prompt={`Compare bubble sort and insertion sort on a nearly-sorted array. Who wins and why?`}
+    answer={`Insertion sort shines: each insertion walks only a short distance, so time approaches O(N). Bubble sort still tends to perform many adjacent passes unless you add an early-exit “no swaps” flag; even then insertion’s write pattern matches the nearly-sorted structure more naturally. Both are stable and O(1) extra space.`}
+  />
+  <Problem
+    type="concept"
+    title="Quicksort risk"
+    minWords={40}
+    keywords={['pivot', 'partition']}
+    prompt={`How do you explain quicksort’s average O(N log N) vs worst O(N²) to an interviewer, and name one mitigation?`}
+    answer={`Each partition level does O(N) work across disjoint segments. If pivots consistently split even-ish, depth is O(log N) → O(N log N). If every pivot is min/max (sorted input + last-element pivot), you get N levels of Θ(N) work → Θ(N²). Mitigations: random pivot, median-of-three, or introsort falling back to heapsort when depth is too large.`}
+  />
+</ProblemSet>
+
+## Sample walkthroughs (match the visualizer)
+
+**Bubble** on `[5,2,8,1]`: compare/swap adjacent until the max sinks right each pass.
+
+**Selection**: for i=0..n-2, find min in `a[i..]`, swap into i.
+
+**Insertion**: for i=1..n-1, slide `a[i]` left into the sorted prefix.
+
+**Mergesort**: split `[5,2,8,1]` → `[5,2]|[8,1]` → singles → merge to `[2,5]|[1,8]` → `[1,2,5,8]`.
+
+**Quicksort (Lomuto)**: pivot last element; grow a `< pivot` region; place pivot; recurse.
+
+**Heapsort**: sift into a max-heap; swap `a[0]` with end; shrink; sift-down.
+
+## Implement six sorts
+
+Input for each lab: `n` then `n` ints. Output: sorted ascending, space-separated. Do **not** call `sorted` / `list.sort` / `std::sort` — implement the algorithm named in the title.
+
+<ExerciseSet>
+  <CodeExercise
+    title="Bubble sort"
+    heading="sort-bubble"
+    lang="python"
+    filename="main.py"
+    prompt="Implement bubble sort."
+    starter={`def bubble_sort(a):
+    # TODO: sort a in place (or return a new sorted list)
+    return a
+`}
+    wrapSuffix={`
+n = int(input()); a = list(map(int, input().split()))
+print(' '.join(map(str, bubble_sort(a))))
+`}
+    solution={`def bubble_sort(a):
+    a = a[:]
+    n = len(a)
+    for end in range(n - 1, 0, -1):
+        for i in range(end):
+            if a[i] > a[i + 1]:
+                a[i], a[i + 1] = a[i + 1], a[i]
+    return a
+`}
+    sourceChecks={[{name: 'no builtin sort', pattern: 'sorted\\(|\\.sort\\(', must: false, hint: 'no sorted/list.sort'}]}
+    tests={[
+      {name: 'a', stdin: '6\n5 2 8 1 9 3', equals: '1 2 3 5 8 9'},
+      {name: 'b', stdin: '1\n7', equals: '7'},
+      {name: 'c', stdin: '2\n2 1', equals: '1 2'},
+      {name: 'd', stdin: '5\n1 2 3 4 5', equals: '1 2 3 4 5'},
+      {name: 'e', stdin: '4\n4 4 2 2', equals: '2 2 4 4'},
+    ]}
+  />
+  <CodeExercise
+    title="Selection sort"
+    heading="sort-selection"
+    lang="python"
+    filename="main.py"
+    prompt="Implement selection sort."
+    starter={`def selection_sort(a):
+    return a
+`}
+    wrapSuffix={`
+n = int(input()); a = list(map(int, input().split()))
+print(' '.join(map(str, selection_sort(a))))
+`}
+    solution={`def selection_sort(a):
+    a = a[:]
+    n = len(a)
+    for i in range(n - 1):
+        m = i
+        for j in range(i + 1, n):
+            if a[j] < a[m]:
+                m = j
+        a[i], a[m] = a[m], a[i]
+    return a
+`}
+    sourceChecks={[{name: 'no builtin sort', pattern: 'sorted\\(|\\.sort\\(', must: false, hint: 'no sorted/list.sort'}]}
+    tests={[
+      {name: 'a', stdin: '6\n5 2 8 1 9 3', equals: '1 2 3 5 8 9'},
+      {name: 'b', stdin: '3\n3 2 1', equals: '1 2 3'},
+      {name: 'c', stdin: '4\n1 1 1 1', equals: '1 1 1 1'},
+      {name: 'd', stdin: '5\n9 7 5 3 1', equals: '1 3 5 7 9'},
+      {name: 'e', stdin: '2\n0 -1', equals: '-1 0'},
+    ]}
+  />
+  <CodeExercise
+    title="Insertion sort"
+    heading="sort-insertion"
+    lang="python"
+    filename="main.py"
+    prompt="Implement insertion sort."
+    starter={`def insertion_sort(a):
+    return a
+`}
+    wrapSuffix={`
+n = int(input()); a = list(map(int, input().split()))
+print(' '.join(map(str, insertion_sort(a))))
+`}
+    solution={`def insertion_sort(a):
+    a = a[:]
+    for i in range(1, len(a)):
+        key = a[i]
+        j = i - 1
+        while j >= 0 and a[j] > key:
+            a[j + 1] = a[j]
+            j -= 1
+        a[j + 1] = key
+    return a
+`}
+    sourceChecks={[{name: 'no builtin sort', pattern: 'sorted\\(|\\.sort\\(', must: false, hint: 'no sorted/list.sort'}]}
+    tests={[
+      {name: 'a', stdin: '6\n5 2 8 1 9 3', equals: '1 2 3 5 8 9'},
+      {name: 'b', stdin: '6\n1 2 4 3 5 6', equals: '1 2 3 4 5 6'},
+      {name: 'c', stdin: '1\n0', equals: '0'},
+      {name: 'd', stdin: '3\n2 2 1', equals: '1 2 2'},
+      {name: 'e', stdin: '4\n-2 -5 0 3', equals: '-5 -2 0 3'},
+    ]}
+  />
+  <CodeExercise
+    title="Mergesort"
+    heading="sort-merge"
+    lang="python"
+    filename="main.py"
+    prompt="Implement mergesort (divide + merge)."
+    starter={`def mergesort(a):
+    return a
+`}
+    wrapSuffix={`
+n = int(input()); a = list(map(int, input().split()))
+print(' '.join(map(str, mergesort(a))))
+`}
+    solution={`def mergesort(a):
+    if len(a) <= 1:
+        return a[:]
+    mid = len(a) // 2
+    left = mergesort(a[:mid])
+    right = mergesort(a[mid:])
+    i = j = 0
+    out = []
+    while i < len(left) and j < len(right):
+        if left[i] <= right[j]:
+            out.append(left[i]); i += 1
+        else:
+            out.append(right[j]); j += 1
+    out.extend(left[i:]); out.extend(right[j:])
+    return out
+`}
+    sourceChecks={[{name: 'no builtin sort', pattern: 'sorted\\(|\\.sort\\(', must: false, hint: 'no sorted/list.sort'}]}
+    tests={[
+      {name: 'a', stdin: '6\n5 2 8 1 9 3', equals: '1 2 3 5 8 9'},
+      {name: 'b', stdin: '8\n8 7 6 5 4 3 2 1', equals: '1 2 3 4 5 6 7 8'},
+      {name: 'c', stdin: '2\n1 2', equals: '1 2'},
+      {name: 'd', stdin: '5\n0 0 0 0 0', equals: '0 0 0 0 0'},
+      {name: 'e', stdin: '7\n3 1 4 1 5 9 2', equals: '1 1 2 3 4 5 9'},
+    ]}
+  />
+  <CodeExercise
+    title="Quicksort"
+    heading="sort-quick"
+    lang="python"
+    filename="main.py"
+    prompt="Implement quicksort (any correct partition)."
+    starter={`def quicksort(a):
+    return a
+`}
+    wrapSuffix={`
+n = int(input()); a = list(map(int, input().split()))
+print(' '.join(map(str, quicksort(a))))
+`}
+    solution={`def quicksort(a):
+    a = a[:]
+    def partition(lo, hi):
+        pivot = a[hi]
+        i = lo
+        for j in range(lo, hi):
+            if a[j] < pivot:
+                a[i], a[j] = a[j], a[i]
+                i += 1
+        a[i], a[hi] = a[hi], a[i]
+        return i
+    def qs(lo, hi):
+        if lo >= hi: return
+        p = partition(lo, hi)
+        qs(lo, p - 1)
+        qs(p + 1, hi)
+    if a:
+        qs(0, len(a) - 1)
+    return a
+`}
+    sourceChecks={[{name: 'no builtin sort', pattern: 'sorted\\(|\\.sort\\(', must: false, hint: 'no sorted/list.sort'}]}
+    tests={[
+      {name: 'a', stdin: '6\n5 2 8 1 9 3', equals: '1 2 3 5 8 9'},
+      {name: 'b', stdin: '6\n1 2 3 4 5 6', equals: '1 2 3 4 5 6'},
+      {name: 'c', stdin: '6\n6 5 4 3 2 1', equals: '1 2 3 4 5 6'},
+      {name: 'd', stdin: '4\n2 2 1 1', equals: '1 1 2 2'},
+      {name: 'e', stdin: '3\n0 -2 5', equals: '-2 0 5'},
+    ]}
+  />
+  <CodeExercise
+    title="Heapsort"
+    heading="sort-heap"
+    lang="python"
+    filename="main.py"
+    prompt="Implement heapsort (max-heap + extract). No heapq."
+    starter={`def heapsort(a):
+    return a
+`}
+    wrapSuffix={`
+n = int(input()); a = list(map(int, input().split()))
+print(' '.join(map(str, heapsort(a))))
+`}
+    solution={`def heapsort(a):
+    a = a[:]
+    n = len(a)
+    def sift(length, i):
+        while True:
+            largest = i
+            l, r = 2 * i + 1, 2 * i + 2
+            if l < length and a[l] > a[largest]: largest = l
+            if r < length and a[r] > a[largest]: largest = r
+            if largest == i: break
+            a[i], a[largest] = a[largest], a[i]
+            i = largest
+    for i in range(n // 2 - 1, -1, -1):
+        sift(n, i)
+    for end in range(n - 1, 0, -1):
+        a[0], a[end] = a[end], a[0]
+        sift(end, 0)
+    return a
+`}
+    sourceChecks={[
+      {name: 'no builtin sort', pattern: 'sorted\\(|\\.sort\\(', must: false, hint: 'no sorted/list.sort'},
+      {name: 'no heapq', pattern: 'heapq', must: false, hint: 'no heapq'},
+    ]}
+    tests={[
+      {name: 'a', stdin: '6\n5 2 8 1 9 3', equals: '1 2 3 5 8 9'},
+      {name: 'b', stdin: '5\n9 1 9 1 5', equals: '1 1 5 9 9'},
+      {name: 'c', stdin: '1\n4', equals: '4'},
+      {name: 'd', stdin: '7\n3 1 4 1 5 9 2', equals: '1 1 2 3 4 5 9'},
+      {name: 'e', stdin: '4\n0 -1 -2 3', equals: '-2 -1 0 3'},
+    ]}
+  />
+</ExerciseSet>
+
+### C++ mergesort (same I/O)
+
+<ExerciseSet>
+  <CodeExercise
+    title="Mergesort (C++)"
+    heading="sort-merge-cpp"
+    lang="c++"
+    filename="main.cpp"
+    prompt="Implement mergesort in C++; print sorted ints."
+    starter={`#include <vector>
+using namespace std;
+
+vector<int> mergesort(vector<int> a) {
+    // TODO
+    return a;
+}
+`}
+    wrapSuffix={`
+#include <iostream>
+int main() {
+    ios::sync_with_stdio(false);
+    cin.tie(nullptr);
+    int n; cin >> n;
+    vector<int> a(n);
+    for (int i = 0; i < n; i++) cin >> a[i];
+    auto b = mergesort(a);
+    for (size_t i = 0; i < b.size(); i++) {
+        if (i) cout << ' ';
+        cout << b[i];
+    }
+    cout << "\\n";
+    return 0;
+}
+`}
+    solution={`#include <vector>
+using namespace std;
+
+vector<int> mergesort(vector<int> a) {
+    if (a.size() <= 1) return a;
+    size_t mid = a.size() / 2;
+    vector<int> left(a.begin(), a.begin() + mid);
+    vector<int> right(a.begin() + mid, a.end());
+    left = mergesort(left);
+    right = mergesort(right);
+    vector<int> out;
+    size_t i = 0, j = 0;
+    while (i < left.size() && j < right.size()) {
+        if (left[i] <= right[j]) out.push_back(left[i++]);
+        else out.push_back(right[j++]);
+    }
+    while (i < left.size()) out.push_back(left[i++]);
+    while (j < right.size()) out.push_back(right[j++]);
+    return out;
+}
+`}
+    sourceChecks={[{name: 'no std sort', pattern: 'std::sort|sort\\(', must: false, hint: 'no std::sort'}]}
+    tests={[
+      {name: 'a', stdin: '6\n5 2 8 1 9 3', equals: '1 2 3 5 8 9'},
+      {name: 'b', stdin: '3\n3 2 1', equals: '1 2 3'},
+      {name: 'c', stdin: '2\n1 1', equals: '1 1'},
+      {name: 'd', stdin: '5\n5 4 3 2 1', equals: '1 2 3 4 5'},
+      {name: 'e', stdin: '1\n9', equals: '9'},
+    ]}
+  />
+</ExerciseSet>
+
+Prev: [Algorithms](./lesson-17-algorithms) · Interview set: [Coding easy](./lesson-18-coding-problems-easy).

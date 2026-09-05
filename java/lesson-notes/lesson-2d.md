@@ -12,9 +12,21 @@ System.out.print(x);
 
 <details>
 <summary>
-🧪 Try the code out! 
+🧪 Try the code out!
 </summary>
-<iframe src="https://trinket.io/embed/java/e7f24f3e3b" width="100%" height="300" frameborder="0" marginwidth="0" marginheight="0" allowfullscreen></iframe>
+
+<PistonRunner
+  lang="java"
+  interactive={false}
+  height="300px"
+  code={`public class Main {
+  public static void main(String[] args) {
+    char x = 'a';    
+    System.out.print(x);
+  }
+}
+`}
+/>
 
 </details>
 
@@ -29,9 +41,21 @@ System.out.println(x);    //Should print 'a'
 ```
 <details>
 <summary>
-🧪 Try the code out! 
+🧪 Try the code out!
 </summary>
-<iframe src="https://trinket.io/embed/java/94390bd149" width="100%" height="200" frameborder="0" marginwidth="0" marginheight="0" allowfullscreen></iframe>
+
+<PistonRunner
+  lang="java"
+  interactive={false}
+  height="220px"
+  code={`public class Main {
+  public static void main(String[] args) {
+    char x = 'a';    
+    System.out.print(x);
+  }
+}
+`}
+/>
 
 </details>
 
@@ -53,9 +77,21 @@ public class Main
 
 <details>
 <summary>
-🧪 Try the code out! 
+🧪 Try the code out!
 </summary>
-<iframe src="https://trinket.io/embed/java/ccf08839d2" width="100%" height="600" frameborder="0" marginwidth="0" marginheight="0" allowfullscreen></iframe>
+
+<PistonRunner
+  lang="java"
+  interactive={false}
+  height="520px"
+  code={`public class Main {
+  public static void main(String[] args) {
+    char x = 'a';    
+    System.out.print(x);
+  }
+}
+`}
+/>
 
 </details>
 
@@ -140,7 +176,19 @@ class Runner {
 <summary>
 ✍ Try the following examples in this playground
 </summary>
-<iframe src="https://trinket.io/embed/java/1052b8dca8" width="100%" height="600" frameborder="0" marginwidth="0" marginheight="0" allowfullscreen></iframe>
+
+<PistonRunner
+  lang="java"
+  interactive={false}
+  height="520px"
+  code={`public class Main {
+  public static void main(String[] args) {
+    char x = 'a';    
+    System.out.print(x);
+  }
+}
+`}
+/>
 
 </details>
 

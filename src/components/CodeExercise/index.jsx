@@ -33,8 +33,14 @@ function collectOutput(data) {
     if (compile.stdout) text += (text ? '\n' : '') + compile.stdout;
     if (runResult.stdout) text += (text ? '\n' : '') + runResult.stdout;
     if (runResult.stderr) text += (text ? '\n' : '') + runResult.stderr;
+    // Grade against program stdout when present so optional runtime stderr
+    // (e.g. Godot missing libfontconfig) does not fail equals/includes checks.
+    const stdout = String(runResult.stdout || '')
+        .replace(/\r\n/g, '\n')
+        .replace(/\n$/, '');
     return {
         text: text.replace(/\r\n/g, '\n'),
+        stdout,
         compileFailed: compile.code != null && compile.code !== 0,
         exitCode: compile.code != null && compile.code !== 0 ? compile.code : runResult.code ?? 0,
     };
@@ -63,7 +69,8 @@ function sourceCheck(code, check) {
 }
 
 function passesTest(output, test) {
-    const hay = test.exact ? output.text : normalize(output.text);
+    const source = output.stdout !== undefined ? output.stdout : output.text;
+    const hay = test.exact ? source : normalize(source);
     if (test.equals) {
         const want = test.exact ? test.equals : normalize(test.equals);
         return hay === want;

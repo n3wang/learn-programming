@@ -11,6 +11,7 @@ import {
   uniformCdf,
   uniformPdf,
 } from './probMath';
+import {STATS_PRESETS} from './statsPresets';
 
 /**
  * @typedef {{
@@ -802,5 +803,5 @@ function factorialSafeRatio(_n, k) {
 }
 
 export function getPreset(id) {
-  return PRESETS[id] || null;
+  return PRESETS[id] || STATS_PRESETS[id] || null;
 }

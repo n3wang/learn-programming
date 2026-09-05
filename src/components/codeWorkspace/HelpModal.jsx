@@ -1,9 +1,10 @@
 import React, {useEffect, useRef} from 'react';
+import {createPortal} from 'react-dom';
 import styles from './HelpModal.module.css';
 
 /**
  * Minimal overlay: click backdrop or press Escape to close.
- * content can be a string (rendered as pre if code-like via `code`) or React nodes.
+ * Portaled to document.body so parent stacking contexts cannot punch through.
  */
 export default function HelpModal({open, title, children, code = false, onClose}) {
     const panelRef = useRef(null);
@@ -26,11 +27,11 @@ export default function HelpModal({open, title, children, code = false, onClose}
         };
     }, [open, onClose]);
 
-    if (!open) {
+    if (!open || typeof document === 'undefined') {
         return null;
     }
 
-    return (
+    return createPortal(
         <div
             className={styles.backdrop}
             role="presentation"
@@ -63,6 +64,7 @@ export default function HelpModal({open, title, children, code = false, onClose}
                     )}
                 </div>
             </div>
-        </div>
+        </div>,
+        document.body,
     );
 }

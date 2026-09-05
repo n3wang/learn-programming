@@ -83,6 +83,7 @@ export const lazySimulators = {
   SimulatedAnnealingSimulator: lazyMdxComponent(() => import('@site/src/components/interactive/SimulatedAnnealingSimulator.js')),
   SmallerPageTablesSimulator: lazyMdxComponent(() => import('@site/src/components/interactive/SmallerPageTablesSimulator.js')),
   SparseTableSimulator: lazyMdxComponent(() => import('@site/src/components/interactive/SparseTableSimulator.js')),
+  SortingVisualizerSimulator: lazyMdxComponent(() => import('@site/src/components/interactive/SortingVisualizerSimulator.js')),
   SqrtTreeSimulator: lazyMdxComponent(() => import('@site/src/components/interactive/SqrtTreeSimulator.js')),
   StarsAndBarsSimulator: lazyMdxComponent(() => import('@site/src/components/interactive/StarsAndBarsSimulator.js')),
   StrongOrientationSimulator: lazyMdxComponent(() => import('@site/src/components/interactive/StrongOrientationSimulator.js')),

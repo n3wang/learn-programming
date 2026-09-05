@@ -52,9 +52,40 @@ public static void main(String[] args)
 
 <details>
 <summary>
-🧪 Try the code out! 
+🧪 Try the code out!
 </summary>
-<iframe src="https://trinket.io/embed/java/ef0b0d44ad" width="100%" height="600" frameborder="0" marginwidth="0" marginheight="0" allowfullscreen></iframe>
+
+<PistonRunner
+  lang="java"
+  interactive={false}
+  height="520px"
+  code={`public class Main {
+
+public static void main(String[] args)   
+  {  
+      double num1 = 4;  
+      double num2 = 2;  
+      double num3 = 4.25;
+      // return the Minimum of two numbers
+      System.out.println("Minimum of " + num1 + " and " + num2 + "is: " + Math.min(num1, num2));
+      // returns the Maximum of two numbers
+      System.out.println("Maximum of " + num1 + " and " + num2 + "is: " + Math.max(num1, num2));
+      //returns 16 i.e. 4*4 
+      System.out.println("Power of " + num1 + " and " + num2 + "is: " + Math.pow(num1, num2)); 
+      // returns the decimal number rounded to the nearest whole number value.
+      System.out.println("Rounding off " + num3 + " yields: " + Math.round(num3));
+      // returns the square root of num1 
+      System.out.println("Square root of " + num1 + " is " + Math.sqrt(num1));
+      // returns the absolute value of int type
+      System.out.println("Absolute value " + num1 + " is " + Math.abs(num1));
+      // returns the smallest integer value that is greater than or equal to the given numbe 
+      System.out.println("Ceiling  of " + num3 + " is " + Math.ceil(num3));
+      // returns the largest integer value which is less than or equal to the given number
+      System.out.println("Floor  of " + num3 + " is " + Math.floor(num3));
+  }
+}
+`}
+/>
 
 </details>
 
@@ -163,7 +194,38 @@ I am left with $7.5
 <summary>
 ✍  <b>Modify the following code</b> so that it fulfills the assigment requirements.
 </summary>
-<iframe src="https://trinket.io/embed/java/72fd16661e" width="100%" height="1000" frameborder="0" marginwidth="0" marginheight="0" allowfullscreen></iframe>
+
+<PistonRunner
+  lang="java"
+  interactive={false}
+  height="520px"
+  code={`public class Main {
+
+public static void main(String[] args)   
+  {  
+      double num1 = 4;  
+      double num2 = 2;  
+      double num3 = 4.25;
+      // return the Minimum of two numbers
+      System.out.println("Minimum of " + num1 + " and " + num2 + "is: " + Math.min(num1, num2));
+      // returns the Maximum of two numbers
+      System.out.println("Maximum of " + num1 + " and " + num2 + "is: " + Math.max(num1, num2));
+      //returns 16 i.e. 4*4 
+      System.out.println("Power of " + num1 + " and " + num2 + "is: " + Math.pow(num1, num2)); 
+      // returns the decimal number rounded to the nearest whole number value.
+      System.out.println("Rounding off " + num3 + " yields: " + Math.round(num3));
+      // returns the square root of num1 
+      System.out.println("Square root of " + num1 + " is " + Math.sqrt(num1));
+      // returns the absolute value of int type
+      System.out.println("Absolute value " + num1 + " is " + Math.abs(num1));
+      // returns the smallest integer value that is greater than or equal to the given numbe 
+      System.out.println("Ceiling  of " + num3 + " is " + Math.ceil(num3));
+      // returns the largest integer value which is less than or equal to the given number
+      System.out.println("Floor  of " + num3 + " is " + Math.floor(num3));
+  }
+}
+`}
+/>
 
 </details>
 

@@ -51,9 +51,21 @@ System.out.println("Size of int: " + (Integer.SIZE / 8) + " bytes.");
 
 <details>
 <summary>
-🧪 Try the code out! 
+🧪 Try the code out!
 </summary>
-<iframe src="https://trinket.io/embed/java/e694e1d8b3" width="100%" height="600" frameborder="0" marginwidth="0" marginheight="0" allowfullscreen></iframe>
+
+<PistonRunner
+  lang="java"
+  interactive={false}
+  height="520px"
+  code={`public class Main {
+  public static void main(String[] args) {
+    System.out.println("Size of short: " + (Short.SIZE / 8) + " bytes.");
+    System.out.println("Size of int: " + (Integer.SIZE / 8) + " bytes.");
+  }
+}
+`}
+/>
 
 </details>
 
@@ -106,9 +118,21 @@ public class Main {
 ```
 <details>
 <summary>
-🧪 Try the code out! 
+🧪 Try the code out!
 </summary>
-<iframe src="https://trinket.io/embed/java/4ae86c0fd1" width="100%" height="400" frameborder="0" marginwidth="0" marginheight="0" allowfullscreen></iframe>
+
+<PistonRunner
+  lang="java"
+  interactive={false}
+  height="400px"
+  code={`public class Main {
+  public static void main(String[] args) {
+    System.out.println("Size of short: " + (Short.SIZE / 8) + " bytes.");
+    System.out.println("Size of int: " + (Integer.SIZE / 8) + " bytes.");
+  }
+}
+`}
+/>
 
 </details>
 
@@ -222,9 +246,21 @@ class Runner {
 
 <details>
 <summary>
-🧪 Try the code out! 
+🧪 Try the code out!
 </summary>
-<iframe src="https://trinket.io/embed/java/2bfb91b7e7" width="100%" height="1200" frameborder="0" marginwidth="0" marginheight="0" allowfullscreen></iframe>
+
+<PistonRunner
+  lang="java"
+  interactive={false}
+  height="520px"
+  code={`public class Main {
+  public static void main(String[] args) {
+    System.out.println("Size of short: " + (Short.SIZE / 8) + " bytes.");
+    System.out.println("Size of int: " + (Integer.SIZE / 8) + " bytes.");
+  }
+}
+`}
+/>
 
 </details>
 
@@ -356,9 +392,21 @@ The following program prints makes operations with differents variables you can 
 
 <details>
 <summary>
-🧪 Try the code out! 
+🧪 Try the code out!
 </summary>
-<iframe src="https://trinket.io/embed/java/28a729f904" width="100%" height="600" frameborder="0" marginwidth="0" marginheight="0" allowfullscreen></iframe>
+
+<PistonRunner
+  lang="java"
+  interactive={false}
+  height="520px"
+  code={`public class Main {
+  public static void main(String[] args) {
+    System.out.println("Size of short: " + (Short.SIZE / 8) + " bytes.");
+    System.out.println("Size of int: " + (Integer.SIZE / 8) + " bytes.");
+  }
+}
+`}
+/>
 
 </details>
 
@@ -415,9 +463,22 @@ public class Main {
 
 <details>
 <summary>
-✍  You can solve the problem <b>here</b> using Trinket
+✍  You can solve the problem <b>here</b> using Piston below
 </summary>
-<iframe src="https://trinket.io/embed/java/eebac3afea" width="100%" height="600" frameborder="0" marginwidth="0" marginheight="0" allowfullscreen></iframe>
+
+<PistonRunner
+  lang="java"
+  interactive={false}
+  height="520px"
+  code={`public class Main {
+  public static void main(String[] args) {
+    System.out.println("Size of short: " + (Short.SIZE / 8) + " bytes.");
+    System.out.println("Size of int: " + (Integer.SIZE / 8) + " bytes.");
+  }
+}
+`}
+/>
+
 </details>
 
 
@@ -442,9 +503,21 @@ Rene has $29.80 in her piggy bank. Rene’s dad has promised to give her $2.50 i
 
 <details>
 <summary>
-✍  You can solve the problem <b> here </b>using Trinket
+✍  You can solve the problem <b> here </b>using Piston below
 </summary>
-<iframe src="https://trinket.io/embed/java/6e661a677c" width="100%" height="600" frameborder="0" marginwidth="0" marginheight="0" allowfullscreen></iframe>
+
+<PistonRunner
+  lang="java"
+  interactive={false}
+  height="520px"
+  code={`public class Main {
+  public static void main(String[] args) {
+    System.out.println("Size of short: " + (Short.SIZE / 8) + " bytes.");
+    System.out.println("Size of int: " + (Integer.SIZE / 8) + " bytes.");
+  }
+}
+`}
+/>
 
 </details>
 :::

@@ -1,0 +1,309 @@
+---
+sidebar_position: 11
+title: SQL
+---
+
+> **Source:** Concepts adapted from *Ace the Data Science Interview* — Chapter 8 (“SQL & DB Design”) by Kevin Huo & Nick Singh. Rewritten in original wording for this course.
+
+Data science interviews love flashy ML buzzwords, but day-to-day analytics work is often **SQL wrangling**: pull rows, join facts, aggregate cleanly, explain churn or retention. Product and analytics teams almost always test query writing; early-stage startups may also probe basic schema design and why a join is slow.
+
+This lesson uses a fixed **Reddit-style** dataset (`users`, `posts`) that is **wrapped in** before your query runs (create + insert seed SQL). Open the **Data** tab to preview tables (first 15 rows). Write only the `SELECT` (or `WITH … SELECT`) you need — do not recreate the tables.
+
+Runtime is **SQLite** (seed + your query are wrapped and executed through Piston’s Python `sqlite3`). Prefer `LEFT JOIN` over `RIGHT JOIN` here; treat “right join” as swapping table order + left join.
+
+## How SQL interview questions are asked
+
+Interviewers usually give hypothetical tables plus a business ask, then watch you translate requirements into SQL in a shared editor or take-home runner. They rarely quiz obscure vendor syntax. They care whether you can:
+
+1. Restate the metric in plain language (“month-over-month retention”, “popular in category”).
+2. Sketch the ideal result table, then work **backwards** with joins / CTEs.
+3. Optionally discuss filters-before-joins and avoiding `SELECT *` when asked about performance.
+
+Open-ended prompts (“why are users churning?”) need clarifying definitions before code.
+
+**Working backwards:** imagine one denormalized table that already has every column you need, write the final `SELECT`, then replace missing pieces with joins, aggregates, and CTEs one layer at a time.
+
+## Schema (shipped seed)
+
+| Table | Columns |
+| --- | --- |
+| `users` | `user_id`, `country`, `active_status` (0/1), `join_time` |
+| `posts` | `post_id`, `user_id`, `subreddit_id`, `title`, `body`, `active_status`, `post_time` |
+
+`user_id` is the join key. There are **20 users** and **30 posts** (≥15 each). Use the Data tab before each exercise.
+
+## Basic SQL commands
+
+Core verbs you will see constantly:
+
+- **SELECT** — choose columns (expressions, aliases with `AS`)
+- **WHERE** — filter rows **before** grouping
+- **GROUP BY** — collapse rows that share key values
+- **HAVING** — filter **after** grouping
+- **ORDER BY** — sort (`ASC` / `DESC`)
+- **DISTINCT** — unique values
+- **UNION** — stack compatible result sets (duplicates removed; `UNION ALL` keeps them)
+
+Interview snippets often use PostgreSQL dialect; SQLite here is close enough for SELECT/JOIN/CTE/window practice. `active_status` is stored as `0`/`1` integers (SQLite has no native boolean).
+
+### Practice: SELECT, WHERE, DISTINCT, ORDER BY
+
+<ExerciseSet>
+  <SqlExercise
+    title="Active US users"
+    prompt="Count how many users have country = 'US' AND active_status = 1. Return a single integer."
+    starter={"SELECT\n  -- TODO: count active US users\n"}
+    tests={[{name: 'count', equals: '7'}]}
+    hint="Filter with WHERE on both country and active_status, then COUNT(*)."
+    solution={"SELECT COUNT(*)\nFROM users\nWHERE country = 'US'\n  AND active_status = 1;"}
+  />
+  <SqlExercise
+    title="Distinct active countries"
+    prompt="Return the distinct countries of active users (active_status = 1), sorted alphabetically ascending. One country per row."
+    starter={"SELECT\n  -- TODO\n"}
+    tests={[{name: 'countries', equals: 'AU BR CA DE FR IN MX UK US'}]}
+    hint="DISTINCT + WHERE + ORDER BY country."
+    solution={"SELECT DISTINCT country\nFROM users\nWHERE active_status = 1\nORDER BY country;"}
+  />
+  <SqlExercise
+    title="Inactive user ids"
+    prompt="List user_id for inactive users (active_status = 0), ordered by user_id ascending."
+    starter={"SELECT\n  -- TODO\n"}
+    tests={[{name: 'ids', equals: '4 8 13 17'}]}
+    sourceChecks={[{name: 'uses WHERE', pattern: 'WHERE', flags: 'i', hint: 'WHERE'}]}
+    hint="Simple WHERE on active_status."
+    solution={"SELECT user_id\nFROM users\nWHERE active_status = 0\nORDER BY user_id;"}
+  />
+</ExerciseSet>
+
+## Aggregation and filtering
+
+Must-know aggregates: `COUNT`, `SUM`, `AVG`, `MIN`, `MAX`. Combine with `GROUP BY`. Put non-aggregated filters in `WHERE`; put conditions on aggregates in `HAVING`.
+
+Comparisons: `=`, `<>` (or `!=`), `<`, `>`, `AND` / `OR`. Example pattern: active users outside the US → `active_status = 1 AND country <> 'US'`.
+
+### Practice: GROUP BY and HAVING
+
+<ExerciseSet>
+  <SqlExercise
+    title="Users per country"
+    prompt="For each country, return country and the number of users. Order by country ascending. Format: country|count"
+    starter={"SELECT\n  -- TODO\n"}
+    tests={[{name: 'grouped', equals: 'AU|1 BR|1 CA|2 DE|1 FR|1 IN|1 JP|1 MX|1 UK|2 US|9'}]}
+    sourceChecks={[{name: 'GROUP BY', pattern: 'GROUP\\s+BY', flags: 'i', hint: 'GROUP BY'}]}
+    hint="GROUP BY country, COUNT(*)."
+    solution={"SELECT country, COUNT(*)\nFROM users\nGROUP BY country\nORDER BY country;"}
+  />
+  <SqlExercise
+    title="Crowded countries"
+    prompt="Return countries that have more than one user, with their counts. Columns: country, n. Order by country. Format country|n"
+    starter={"SELECT\n  -- TODO\n"}
+    tests={[{name: 'having', equals: 'CA|2 UK|2 US|9'}]}
+    sourceChecks={[{name: 'HAVING', pattern: 'HAVING', flags: 'i', hint: 'HAVING'}]}
+    hint="GROUP BY then HAVING COUNT(*) > 1."
+    solution={"SELECT country, COUNT(*) AS n\nFROM users\nGROUP BY country\nHAVING COUNT(*) > 1\nORDER BY country;"}
+  />
+  <SqlExercise
+    title="Top posters"
+    prompt="Return the top 5 (user_id, post_count) pairs from posts, ordered by post_count DESC, then user_id ASC. Format user_id|n"
+    starter={"SELECT\n  -- TODO\n"}
+    tests={[{name: 'top5', equals: '1|3 10|3 2|2 3|2 5|2'}]}
+    sourceChecks={[
+      {name: 'GROUP BY', pattern: 'GROUP\\s+BY', flags: 'i', hint: 'GROUP BY'},
+      {name: 'LIMIT', pattern: 'LIMIT', flags: 'i', hint: 'LIMIT'},
+    ]}
+    hint="GROUP BY user_id, ORDER BY COUNT(*) DESC, user_id, LIMIT 5."
+    solution={"SELECT user_id, COUNT(*) AS n\nFROM posts\nGROUP BY user_id\nORDER BY n DESC, user_id\nLIMIT 5;"}
+  />
+</ExerciseSet>
+
+## Joins
+
+Joins combine rows from multiple tables on a shared key (`users.user_id = posts.user_id`).
+
+| Type | Keeps |
+| --- | --- |
+| **INNER JOIN** (`JOIN`) | Only matching keys on both sides |
+| **LEFT JOIN** | All rows from the left table; NULLs when no match |
+| **RIGHT JOIN** | All rows from the right table (emulate with swapped LEFT JOIN in SQLite) |
+| **FULL OUTER** | All rows from both (not available on this runtime — skip or UNION left/right anti-patterns) |
+
+**Self join:** join a table to itself (aliases) to compare pairs of rows.
+
+Example patterns (do not copy OCR typos from books — use clean aliases):
+
+```sql
+-- Distinct users who made at least one post
+SELECT COUNT(DISTINCT u.user_id)
+FROM users u
+JOIN posts p ON u.user_id = p.user_id;
+
+-- Share of users with ≥1 post (force real division)
+SELECT ROUND(
+  1.0 * COUNT(DISTINCT CASE WHEN p.post_id IS NOT NULL THEN u.user_id END)
+      / COUNT(DISTINCT u.user_id),
+  2
+) AS pct_users
+FROM users u
+LEFT JOIN posts p ON u.user_id = p.user_id;
+```
+
+### Join performance (concept)
+
+Joins are often the expensive step. Habit checklist:
+
+- Project **needed columns**, not `SELECT *`
+- **Filter / aggregate early** before joining large facts
+- Prefer fewer joins; stage with CTEs when clarity helps the optimizer *and* the interviewer
+- Use `LIMIT` while exploring
+
+### Practice: INNER and LEFT JOIN
+
+<ExerciseSet>
+  <SqlExercise
+    title="Users who posted"
+    prompt="Using an INNER JOIN, count distinct users who appear in posts. Single integer."
+    starter={"SELECT\n  -- TODO\n"}
+    tests={[{name: 'inner', equals: '18'}]}
+    sourceChecks={[{name: 'JOIN', pattern: '\\bJOIN\\b', flags: 'i', hint: 'JOIN'}]}
+    hint="JOIN on user_id, COUNT(DISTINCT u.user_id)."
+    solution={"SELECT COUNT(DISTINCT u.user_id)\nFROM users u\nJOIN posts p ON u.user_id = p.user_id;"}
+  />
+  <SqlExercise
+    title="Users with no posts"
+    prompt="Using LEFT JOIN, return user_id of users with no matching posts, ordered ascending."
+    starter={"SELECT\n  -- TODO\n"}
+    tests={[{name: 'anti', equals: '13 17'}]}
+    sourceChecks={[
+      {name: 'LEFT JOIN', pattern: 'LEFT\\s+JOIN', flags: 'i', hint: 'LEFT JOIN'},
+      {name: 'IS NULL', pattern: 'IS\\s+NULL', flags: 'i', hint: 'IS NULL'},
+    ]}
+    hint="LEFT JOIN posts, WHERE p.post_id IS NULL."
+    solution={"SELECT u.user_id\nFROM users u\nLEFT JOIN posts p ON u.user_id = p.user_id\nWHERE p.post_id IS NULL\nORDER BY u.user_id;"}
+  />
+  <SqlExercise
+    title="Percent of users who posted"
+    prompt="With LEFT JOIN, compute the fraction of users who have at least one post, rounded to 2 decimals (e.g. 0.90). Use real division (multiply by 1.0)."
+    starter={"SELECT\n  -- TODO\n"}
+    tests={[{name: 'pct', equals: '0.9'}]}
+    sourceChecks={[{name: 'LEFT JOIN', pattern: 'LEFT\\s+JOIN', flags: 'i', hint: 'LEFT JOIN'}]}
+    hint="CASE WHEN p.post_id IS NOT NULL THEN u.user_id END inside COUNT(DISTINCT …), divide by COUNT(DISTINCT u.user_id), ROUND(..., 2)."
+    solution={"SELECT ROUND(\n  1.0 * COUNT(DISTINCT CASE WHEN p.post_id IS NOT NULL THEN u.user_id END)\n      / COUNT(DISTINCT u.user_id),\n  2\n)\nFROM users u\nLEFT JOIN posts p ON u.user_id = p.user_id;"}
+  />
+</ExerciseSet>
+
+## CTEs and subqueries
+
+**CTEs** (`WITH name AS (…)` ) name intermediate result sets you can reference later — great for multi-step interview problems. **Subqueries** do the same inline and need an alias.
+
+Hard SQL interviews usually reduce to: break the ask into CTE layers (counts → distributions → final metric). CTEs can be recursive; subqueries cannot (in the same friendly way). Prefer CTEs for readability in interviews unless the prompt forbids them.
+
+### Practice: WITH and nested SELECT
+
+<ExerciseSet>
+  <SqlExercise
+    title="Post-count distribution"
+    prompt="Build a CTE that left-joins users to posts and counts posts per user (0 allowed). Then return num_posts and how many users have that count, ordered by num_posts. Format: num_posts|num_users"
+    starter={"WITH user_post_count AS (\n  -- TODO\n)\nSELECT\n  -- TODO\n"}
+    tests={[{name: 'dist', equals: '0|2 1|8 2|8 3|2'}]}
+    sourceChecks={[{name: 'WITH', pattern: '\\bWITH\\b', flags: 'i', hint: 'WITH … AS'}]}
+    hint="CTE: GROUP BY u.user_id, COUNT(p.post_id). Outer: GROUP BY num_posts."
+    solution={"WITH user_post_count AS (\n  SELECT u.user_id, COUNT(p.post_id) AS num_posts\n  FROM users u\n  LEFT JOIN posts p ON u.user_id = p.user_id\n  GROUP BY u.user_id\n)\nSELECT num_posts, COUNT(*) AS num_users\nFROM user_post_count\nGROUP BY num_posts\nORDER BY num_posts;"}
+  />
+  <SqlExercise
+    title="Same distribution via subquery"
+    prompt="Same result as the previous exercise (num_posts|num_users), but use a subquery in FROM — not WITH."
+    starter={"SELECT\n  num_posts,\n  COUNT(*) AS num_users\nFROM (\n  -- TODO subquery\n) t\nGROUP BY num_posts\nORDER BY num_posts;"}
+    tests={[{name: 'subq', equals: '0|2 1|8 2|8 3|2'}]}
+    sourceChecks={[
+      {name: 'no WITH', pattern: '\\bWITH\\b', flags: 'i', must: false, hint: 'do not use WITH'},
+      {name: 'FROM (', pattern: 'FROM\\s*\\(', flags: 'i', hint: 'FROM (subquery)'},
+    ]}
+    hint="Identical aggregation nested in FROM (…) t."
+    solution={"SELECT num_posts, COUNT(*) AS num_users\nFROM (\n  SELECT u.user_id, COUNT(p.post_id) AS num_posts\n  FROM users u\n  LEFT JOIN posts p ON u.user_id = p.user_id\n  GROUP BY u.user_id\n) t\nGROUP BY num_posts\nORDER BY num_posts;"}
+  />
+  <SqlExercise
+    title="Active US posters"
+    prompt="Using a CTE of active US users, count how many of those users have at least one post. Single integer."
+    starter={"WITH us_active AS (\n  -- TODO\n)\nSELECT\n  -- TODO\n"}
+    tests={[{name: 'us posters', equals: '7'}]}
+    sourceChecks={[{name: 'WITH', pattern: '\\bWITH\\b', flags: 'i', hint: 'WITH'}]}
+    hint="All 7 active US users in this seed have posts — join the CTE to posts and COUNT(DISTINCT …)."
+    solution={"WITH us_active AS (\n  SELECT user_id\n  FROM users\n  WHERE country = 'US' AND active_status = 1\n)\nSELECT COUNT(DISTINCT u.user_id)\nFROM us_active u\nJOIN posts p ON u.user_id = p.user_id;"}
+  />
+</ExerciseSet>
+
+## Window functions
+
+Window functions compute across a related set of rows **without collapsing** the row set the way `GROUP BY` does. You keep detail columns and still attach aggregates.
+
+```sql
+SUM(expr) OVER (
+  PARTITION BY …   -- like GROUP BY buckets
+  ORDER BY …       -- processing order
+  ROWS BETWEEN …   -- optional frame
+)
+```
+
+Compared to “aggregate in a subquery then join back,” windows are usually shorter and clearer.
+
+### LAG / LEAD and RANK
+
+- **LAG(col, n)** — value from *n* rows **before** the current row in the window order  
+- **LEAD(col, n)** — value from *n* rows **after**  
+- **RANK()** — rank with gaps on ties (also know `DENSE_RANK`, `ROW_NUMBER`)
+
+Example: previous post time in the same subreddit for a user:
+
+```sql
+LAG(post_time, 1) OVER (
+  PARTITION BY user_id, subreddit_id
+  ORDER BY post_time ASC
+)
+```
+
+### Practice: OVER, LAG, RANK
+
+<ExerciseSet>
+  <SqlExercise
+    title="Posts per user via window"
+    prompt="From posts, return distinct pairs (user_id, post_count) where post_count is COUNT(*) OVER (PARTITION BY user_id). Keep only user_id = 1. Format: user_id|post_count"
+    starter={"SELECT DISTINCT\n  -- TODO\nFROM posts\nWHERE user_id = 1;"}
+    tests={[{name: 'window', equals: '1|3'}]}
+    sourceChecks={[{name: 'OVER', pattern: '\\bOVER\\s*\\(', flags: 'i', hint: 'OVER (...)'}]}
+    hint="COUNT(*) OVER (PARTITION BY user_id), then DISTINCT / filter user 1."
+    solution={"SELECT DISTINCT\n  user_id,\n  COUNT(*) OVER (PARTITION BY user_id) AS post_count\nFROM posts\nWHERE user_id = 1;"}
+  />
+  <SqlExercise
+    title="Previous post time (LAG)"
+    prompt="For posts by user_id = 15 in subreddit_id = 10, return post_id and the previous post_time in that partition (ORDER BY post_time). First row's lag is empty. Format post_id|prev (empty after | for the first)."
+    starter={"SELECT\n  post_id,\n  -- TODO LAG\nFROM posts\nWHERE user_id = 15 AND subreddit_id = 10\nORDER BY post_time;"}
+    tests={[{name: 'lag', equals: '18| 19|2023-06-09 13:00:00'}]}
+    sourceChecks={[{name: 'LAG', pattern: '\\bLAG\\s*\\(', flags: 'i', hint: 'LAG(...)'}]}
+    hint="LAG(post_time) OVER (PARTITION BY user_id, subreddit_id ORDER BY post_time)."
+    solution={"SELECT\n  post_id,\n  LAG(post_time) OVER (\n    PARTITION BY user_id, subreddit_id\n    ORDER BY post_time\n  )\nFROM posts\nWHERE user_id = 15 AND subreddit_id = 10\nORDER BY post_time;"}
+  />
+  <SqlExercise
+    title="Rank posts by body length"
+    prompt="For user_id = 12, return post_id and RANK() by LENGTH(body) DESC. Format post_id|rank ordered by rank."
+    starter={"SELECT\n  post_id,\n  -- TODO RANK\nFROM posts\nWHERE user_id = 12\nORDER BY 2;"}
+    tests={[{name: 'rank', equals: '15|1 16|2'}]}
+    sourceChecks={[{name: 'RANK', pattern: '\\bRANK\\s*\\(', flags: 'i', hint: 'RANK()'}]}
+    hint="RANK() OVER (PARTITION BY user_id ORDER BY LENGTH(body) DESC)."
+    solution={"SELECT\n  post_id,\n  RANK() OVER (\n    PARTITION BY user_id\n    ORDER BY LENGTH(body) DESC\n  ) AS r\nFROM posts\nWHERE user_id = 12\nORDER BY r;"}
+  />
+</ExerciseSet>
+
+## Databases and systems (interview depth)
+
+Beyond query syntax, some loops ask about **normalization** (reduce duplication vs join cost), indexing join keys, and when a warehouse / columnar store beats a transactional DB. You are not expected to be a DBA — know enough to say “filter early, index the join key, avoid exploding joins” and to sketch a star schema (facts + dimensions) if prompted.
+
+## Checklist before the interview
+
+1. Restate the metric; define edge cases (inactive users, NULL joins).  
+2. Draw the ideal output grain (one row per user? per day?).  
+3. Layer CTEs: base filters → joins → aggregates → windows.  
+4. Sanity-check row counts and NULL behavior on LEFT JOIN.  
+5. If asked about speed: fewer columns, pre-aggregate, selective filters first.
+
+Next up (planned): SQL interview problem sets using this same wrap-seed editor.

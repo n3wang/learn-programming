@@ -16,6 +16,8 @@ const lessons = [
   },
   {subject: 'C++', title: 'Welcome to C++', to: '/cpp/lesson-notes/lesson-notes'},
   {subject: 'C++', title: 'Lesson 1A', to: '/cpp/lesson-notes/lesson-1a'},
+  {subject: 'Godot', title: 'Welcome to Godot', to: '/godot/lesson-notes'},
+  {subject: 'Godot', title: 'Lesson 1A', to: '/godot/lesson-notes/lesson-1a'},
   {subject: 'JavaScript', title: 'Intro', to: '/javascript/intro'},
   {subject: 'Robotics', title: 'Intro', to: '/robotics/intro'},
   {subject: 'iOS', title: 'Lesson Notes', to: '/ios/lesson-notes/lesson-notes'},

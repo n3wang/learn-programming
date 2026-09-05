@@ -1,0 +1,123 @@
+---
+sidebar_position: 15
+title: SQL Problems
+sidebar_label: 'SQL - Medium'
+---
+
+> **Source:** Problem prompts adapted from *Ace the Data Science Interview* — Chapter 8 Medium set (Huo & Singh). Seeds, SQLite solutions, and model answers here are original for this course.
+
+Twelve harder query problems (retention, concurrency, market-basket, rolling earnings) plus two system-design write-ups. Same runner as the [Easy](./lesson-13-sql-problems-easy) set: per-problem seed, **Data** tab, SQLite wrap execution. Prefer `CASE`, window functions, and CTEs; watch date filters carefully (several prompts use fixed as-of dates so results are reproducible).
+
+## Query problems (8.22–8.33)
+
+<ExerciseSet>
+  <SqlChapter8Exercise
+    problemId="8.22"
+    company="Twitter"
+    title="8.22 · Twitter"
+    prompt={`user_topics(user_id, topic_id, follow_date) and topic_rankings(topic_id, ranking, ranking_date). On 2021-01-01, find users who existed on that day (follow_date <= 2021-01-01) but did not follow any of the top 100 topics for that ranking_date. Return distinct user_id ordered ascending.`}
+    hint="CTE of top topics (ranking <= 100 on that date), then EXCEPT / NOT EXISTS against followers of those topics."
+  />
+  <SqlChapter8Exercise
+    problemId="8.23"
+    company="Facebook"
+    title="8.23 · Facebook"
+    prompt={`user_actions(user_id, event_id, timestamp) with event_id in ('sign-in','like','comment'). Active user retention by month: count users who took an action in month M and also in month M-1. Return month (YYYY-MM) and mau (retained count), ordered by month.`}
+    hint="Distinct user-months, self-join (or EXISTS) where previous month = date(current, '-1 month') truncated to month."
+  />
+  <SqlChapter8Exercise
+    problemId="8.24"
+    company="Twitter"
+    title="8.24 · Twitter"
+    prompt={`sessions(session_id, user_id, session_type, duration, start_time). Between 2021-01-01 and 2021-02-01 (inclusive start, exclusive end if you filter with <), rank users by total duration within each session_type. Return user_id, session_type, duration, rank.`}
+    hint="SUM duration GROUP BY user_id, session_type; RANK() PARTITION BY session_type ORDER BY duration DESC."
+  />
+  <SqlChapter8Exercise
+    problemId="8.25"
+    company="Snapchat"
+    title="8.25 · Snapchat"
+    prompt={`activities(activity_id, user_id, type, time_spent, activity_date) with type 'send'/'open', and age_breakdown(user_id, age_bucket). For each age_bucket, pct_send and pct_open as fractions of total send+open time. Round to 4 decimals; order by age_bucket.`}
+    hint="JOIN ages to activities, conditional SUMs, divide by total_timespent."
+  />
+  <SqlChapter8Exercise
+    problemId="8.26"
+    company="Pinterest"
+    title="8.26 · Pinterest"
+    prompt={`sessions(session_id, start_time, end_time). A session is concurrent with another if the other starts during its [start, end] interval. Return the session_id with the most concurrent others, and that count (LIMIT 1).`}
+    hint="Self-join WHERE s1.id != s2.id AND s2.start BETWEEN s1.start AND s1.end; GROUP BY s1; ORDER BY count DESC."
+  />
+  <SqlChapter8Exercise
+    problemId="8.27"
+    company="Yelp"
+    title="8.27 · Yelp"
+    prompt={`reviews(business_id, user_id, review_text, review_stars, review_date). A top-rated business has only 4–5 star reviews (min stars >= 4). Return the percentage of businesses that are top-rated (0–100, 2 decimals).`}
+    hint="MIN(stars) per business, then 100 * COUNT(top) / COUNT(*)."
+  />
+  <SqlChapter8Exercise
+    problemId="8.28"
+    company="Google"
+    title="8.28 · Google"
+    prompt={`measurements(measurement_id, measurement_value, measurement_time). Within each calendar day, number measurements in time order (1,2,3…). Sum odd-numbered vs even-numbered measurement_value by day. Return day, odd_sum, even_sum.`}
+    hint="ROW_NUMBER() PARTITION BY DATE(time); SUM CASE WHEN n%2 ..."
+  />
+  <SqlChapter8Exercise
+    problemId="8.29"
+    company="Etsy"
+    title="8.29 · Etsy"
+    prompt={`signups(user_id, signup_date) and user_purchases(user_id, product_id, purchase_amount, purchase_date). Using as-of date 2024-06-15 (not NOW), among users who signed up in the prior 7 days, what percentage also appear in user_purchases? Return one percentage rounded to 2 decimals.`}
+    hint="WHERE signup_date > date('2024-06-15','-7 days') AND signup_date <= '2024-06-15'; LEFT JOIN purchases; 100 * DISTINCT buyers / DISTINCT signups."
+  />
+  <SqlChapter8Exercise
+    problemId="8.30"
+    company="Walmart"
+    title="8.30 · Walmart"
+    prompt={`transactions(transaction_id, product_id, user_id, quantity, transaction_time) and products(product_id, product_name, price). Top product pairs bought in the same transaction (unordered pairs). Return product1, product2, count — use product_id order so each pair is counted once. LIMIT 10 by count DESC.`}
+    hint="Self-join on transaction_id with p1.product_id < p2.product_id; GROUP BY names; ORDER BY count DESC."
+  />
+  <SqlChapter8Exercise
+    problemId="8.31"
+    company="Facebook"
+    title="8.31 · Facebook"
+    prompt={`user_logins(user_id, login_date). Reactivated users: logged in during month M but had no login in month M-1. Return current_month (YYYY-MM) and num_reactivated_users.`}
+    hint="Users active in month M with NOT EXISTS login in previous month; COUNT DISTINCT; group by month."
+  />
+  <SqlChapter8Exercise
+    problemId="8.32"
+    company="Wayfair"
+    title="8.32 · Wayfair"
+    prompt={`user_transactions(transaction_id, product_id, user_id, spend, transaction_date). Week-over-year growth: weekly total spend per product vs the same product 52 weeks earlier. Return product_id, week, total_spend, prev_total_spend, spend_yoy (current/prev, 4 decimals) for weeks where prev exists, ordered by product_id then week, LIMIT 10.`}
+    hint="Truncate dates to week start, SUM, LAG(total_spend, 52) PARTITION BY product_id ORDER BY week; filter non-null prev."
+  />
+  <SqlChapter8Exercise
+    problemId="8.33"
+    company="Stripe"
+    title="8.33 · Stripe"
+    prompt={`user_transactions(transaction_id, user_id, amount, transaction_date). Rolling 7-day earnings: for each calendar day D, sum amounts on days in (D-6 … D]. Return transaction_date and weekly_rolling_total ordered by date.`}
+    hint="Daily SUM CTE, then self-join where t1.date between date(t2.date,'-6 days') and t2.date."
+  />
+</ExerciseSet>
+
+## Systems design (8.34–8.35)
+
+<ProblemSet id="ds-sql-medium-design-8">
+  <Problem
+    type="concept"
+    title="8.34"
+    company="Facebook"
+    minWords={55}
+    keywords={['map', 'intersection']}
+    prompt={`Given the Facebook friendship graph, how would you use MapReduce to count mutual friends for every pair of users?`}
+    answer={`Goal: for every unordered pair (X, Y), count friends in common. Map: for each user X with friend list F, emit for every friend Z a key that is the sorted pair (X, Z) with value F (X's full friend list). After shuffle, each pair key collects the friend lists of both endpoints. Reduce: intersect the two friend lists and emit the intersection size as the mutual-friend count. Sorting the pair in the key avoids counting (X,Y) and (Y,X) twice. This parallelizes pairwise intersections; in practice you still need care for huge degree, skewed hubs, and whether you want mutual friends of all pairs or only pairs that are already friends.`}
+  />
+  <Problem
+    type="concept"
+    title="8.35"
+    company="Google"
+    minWords={55}
+    keywords={['shard', 'hash']}
+    prompt={`Design a large-scale system that tracks search query strings and their frequencies. What trade-offs matter?`}
+    answer={`Start with a key-value (or wide-column) store: key = query string, value = count (or count + sketch). At Google scale, prefer horizontal sharding over vertical scaling. Range sharding by first letter is simple but skews load toward common prefixes; hash sharding balances better but makes ordered scans harder and complicates adding nodes unless you use consistent hashing. Writes are high-rate increments — batch or use counters/CRDTs; reads may need caching for hot queries. Trade-offs: exact counts vs approximate (Count-Min / HyperLogLog for related metrics), consistency of increments under failure, storage of long-tail queries, and whether you keep raw logs for reprocessing. Also plan secondary indexes if you need top-N queries without a full scan.`}
+  />
+</ProblemSet>
+
+Back: [SQL problems — Easy](./lesson-13-sql-problems-easy) · concepts also overlap [Databases and Systems](./lesson-12-databases-and-systems).

@@ -6,6 +6,7 @@ import CEBlock from '@site/src/components/interactive/shell/CEBlock';
 import FormulaChart from './formulaExplorer/FormulaChart';
 import {getPreset} from './formulaExplorer/presets';
 import {fmt} from './formulaExplorer/probMath';
+import styles from './formulaExplorer/explorer.module.css';
 
 function defaultsFrom(preset) {
   const o = {};
@@ -14,10 +15,8 @@ function defaultsFrom(preset) {
 }
 
 /**
- * Client-side formula playground: sliders → SVG chart.
- * No Piston / no chart npm packages.
- *
- * @param {{preset: string}} props
+ * Client-side formula playground.
+ * Chart on the left; sliders + result chips on the right.
  */
 export default function FormulaExplorer({preset: presetId}) {
   const preset = getPreset(presetId);
@@ -85,77 +84,69 @@ export default function FormulaExplorer({preset: presetId}) {
         </Box>
       ) : null}
 
-      <Stack spacing={1.75} sx={{mb: 2}}>
-        {preset.params.map((p) => (
-          <Box key={p.key}>
-            <Stack direction="row" justifyContent="space-between" sx={{mb: 0.25}} alignItems="baseline">
-              <Typography variant="body2" sx={{fontWeight: 600}}>
-                {p.label}
-              </Typography>
-              <Typography variant="body2" color="text.secondary" sx={{fontVariantNumeric: 'tabular-nums'}}>
-                {fmt(values[p.key], p.step < 1 ? 3 : 0)}
-              </Typography>
-            </Stack>
-            {p.meaning ? (
-              <Typography variant="caption" color="text.secondary" sx={{display: 'block', mb: 0.5}}>
-                {p.meaning}
-              </Typography>
-            ) : null}
-            <input
-              type="range"
-              min={p.min}
-              max={p.max}
-              step={p.step}
-              value={values[p.key]}
-              onChange={(e) => setParam(p.key, e.target.value)}
-              aria-label={p.label}
-              style={{width: '100%', accentColor: '#1976d2'}}
-            />
-          </Box>
-        ))}
-      </Stack>
-
-      {result ? (
-        <>
-          <CEBlock.Section label="Chart" noPaper>
+      <div className={styles.layout}>
+        <div className={styles.chartCol}>
+          <span className={styles.chartLabel}>Chart</span>
+          {result ? (
             <FormulaChart
               type={result.chartType}
               series={result.series}
               yLabel={result.yLabel}
               shadeToX={result.shadeToX ?? null}
+              refLineX={result.refLineX ?? null}
+              refLineY={result.refLineY ?? null}
+              width={440}
+              height={210}
             />
-          </CEBlock.Section>
+          ) : null}
+        </div>
 
-          <Stack direction="row" spacing={2} sx={{flexWrap: 'wrap', mt: 1}} useFlexGap>
-            {result.stats.map((s) => (
-              <Box
-                key={s.label}
-                sx={{
-                  px: 1.25,
-                  py: 0.75,
-                  border: '1px solid',
-                  borderColor: 'divider',
-                  borderRadius: 1,
-                  minWidth: 100,
-                }}
-              >
-                <Typography variant="caption" color="text.secondary" sx={{display: 'block'}}>
-                  {s.label}
-                </Typography>
-                <Typography sx={{fontWeight: 700, fontVariantNumeric: 'tabular-nums'}}>
-                  {s.value}
-                </Typography>
+        <div className={styles.controlsCol}>
+          <Stack spacing={1.5}>
+            {preset.params.map((p) => (
+              <Box key={p.key}>
+                <Stack direction="row" justifyContent="space-between" sx={{mb: 0.25}} alignItems="baseline">
+                  <Typography variant="body2" sx={{fontWeight: 600}}>
+                    {p.label}
+                  </Typography>
+                  <Typography variant="body2" color="text.secondary" sx={{fontVariantNumeric: 'tabular-nums'}}>
+                    {fmt(values[p.key], p.step < 1 ? 3 : 0)}
+                  </Typography>
+                </Stack>
+                {p.meaning ? (
+                  <Typography variant="caption" color="text.secondary" sx={{display: 'block', mb: 0.5}}>
+                    {p.meaning}
+                  </Typography>
+                ) : null}
+                <input
+                  className={styles.slider}
+                  type="range"
+                  min={p.min}
+                  max={p.max}
+                  step={p.step}
+                  value={values[p.key]}
+                  onChange={(e) => setParam(p.key, e.target.value)}
+                  aria-label={p.label}
+                />
               </Box>
             ))}
           </Stack>
 
-          {result.note ? (
-            <Typography variant="body2" color="text.secondary" sx={{mt: 1.5}}>
-              {result.note}
-            </Typography>
+          {result ? (
+            <>
+              <div className={styles.stats}>
+                {result.stats.map((s) => (
+                  <div key={s.label} className={styles.stat}>
+                    <span className={styles.statLabel}>{s.label}</span>
+                    <div className={styles.statValue}>{s.value}</div>
+                  </div>
+                ))}
+              </div>
+              {result.note ? <span className={styles.note}>{result.note}</span> : null}
+            </>
           ) : null}
-        </>
-      ) : null}
+        </div>
+      </div>
     </CEBlock>
   );
 }

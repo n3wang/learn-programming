@@ -1,0 +1,667 @@
+---
+sidebar_position: 13
+title: Databases and Systems
+---
+
+> **Source:** Concepts adapted from *Ace the Data Science Interview* — Chapter 8 (“SQL & DB Design”) by Kevin Huo & Nick Singh. Rewritten in original wording for this course.
+
+You do not need to know every storage-engine knob. Interviewers usually want a **high-level** picture: how tables relate, what to index, when to normalize vs denormalize, and the big distributed-system trade-offs (CAP, ACID/BASE, scale-up vs scale-out). That shows up more often at smaller companies where data scientists also touch pipelines and warehouse design.
+
+This lesson pairs short concept quizzes with a few **SQL drills** on the same Reddit-style seed from the [SQL lesson](./lesson-10-sql) (`users`, `posts` — open **Data** before each query).
+
+## Schema design in interviews
+
+A classic prompt: “Design tables for Reddit.” Sketch the entities (`users`, `posts`, `subreddits`, …), then the **relationships**. Posts carry a `user_id` pointing at the author — that column is the join key used everywhere.
+
+You may also be asked **what to index**. Index join / filter keys that appear in hot paths — for Reddit analytics, `posts.user_id` is an obvious candidate because almost every user-level report joins on it.
+
+| | Primary key | Foreign key |
+| --- | --- | --- |
+| Made of columns | Yes | Yes |
+| Duplicate values | No | Yes |
+| NULLs | No (usually) | Allowed (unless constrained) |
+| Uniquely IDs a row | Yes | Maybe (depends on design) |
+| Count per table | One PK | Zero or more FKs |
+| Index | Auto-indexed | Not auto-indexed |
+
+<MultipleChoice
+  id="ds-db-schema"
+  title="Schema & indexing"
+  questions={[
+    {
+      prompt: 'In a Reddit-style posts table, user_id is best described as…',
+      choices: [
+        'the primary key of posts',
+        'a foreign key referencing users',
+        'a random surrogate that never joins',
+        'a denormalized copy of the entire users row',
+      ],
+      answer: 1,
+      why: 'Each post points at one author in users; post_id is the posts primary key.',
+    },
+    {
+      type: 'multi',
+      prompt: 'Which statements about keys are true? (Select all that apply.)',
+      choices: [
+        'A primary key uniquely identifies a row',
+        'A foreign key may repeat across rows',
+        'Primary keys are typically auto-indexed',
+        'Every foreign key is auto-indexed like a PK',
+      ],
+      answers: [0, 1, 2],
+      why: 'FKs are not automatically indexed — you often add an index on hot join keys yourself.',
+    },
+    {
+      prompt: 'Which column would you most likely index first for analytics joins on posts?',
+      choices: [
+        'posts.title (free text)',
+        'posts.user_id (join / filter key)',
+        'posts.body (long text)',
+        'a column never used in WHERE or JOIN',
+      ],
+      answer: 1,
+      why: 'Hot join keys and selective filters benefit from indexes; long free-text columns rarely do.',
+    },
+    {
+      prompt: 'Compared with a primary key, a foreign key…',
+      choices: [
+        'must be unique in every table',
+        'may repeat and may be NULL (unless constrained)',
+        'is always auto-indexed like a PK',
+        'cannot reference another table',
+      ],
+      answer: 1,
+      why: 'Many posts can share one user_id; uniqueness and NOT NULL are optional constraints.',
+    },
+  ]}
+/>
+
+### Practice: keys in SQL
+
+<ExerciseSet>
+  <SqlExercise
+    title="Posts for one user"
+    prompt="Return post_id for every post authored by user_id = 10, ordered by post_id. (FK lookup pattern.)"
+    starter={"SELECT\n  -- TODO\n"}
+    tests={[{name: 'posts', equals: '12 13 14'}]}
+    hint="Filter posts.user_id = 10; ORDER BY post_id."
+    solution={"SELECT post_id\nFROM posts\nWHERE user_id = 10\nORDER BY post_id;"}
+  />
+  <SqlExercise
+    title="Authors via join key"
+    prompt="Using INNER JOIN, return distinct user_id values from users that have at least one post. Order ascending."
+    starter={"SELECT\n  -- TODO\n"}
+    tests={[{name: 'authors', equals: '1 2 3 4 5 6 7 8 9 10 11 12 14 15 16 18 19 20'}]}
+    sourceChecks={[{name: 'JOIN', pattern: '\\bJOIN\\b', flags: 'i', hint: 'JOIN on user_id'}]}
+    hint="JOIN posts ON users.user_id = posts.user_id, SELECT DISTINCT u.user_id."
+    solution={"SELECT DISTINCT u.user_id\nFROM users u\nJOIN posts p ON u.user_id = p.user_id\nORDER BY u.user_id;"}
+  />
+  <SqlExercise
+    title="Orphan check"
+    prompt="Find user_ids in users with no matching posts (LEFT JOIN anti-join). Order ascending."
+    starter={"SELECT\n  -- TODO\n"}
+    tests={[{name: 'orphans', equals: '13 17'}]}
+    sourceChecks={[
+      {name: 'LEFT JOIN', pattern: 'LEFT\\s+JOIN', flags: 'i', hint: 'LEFT JOIN'},
+      {name: 'IS NULL', pattern: 'IS\\s+NULL', flags: 'i', hint: 'IS NULL'},
+    ]}
+    hint="LEFT JOIN posts, WHERE p.post_id IS NULL."
+    solution={"SELECT u.user_id\nFROM users u\nLEFT JOIN posts p ON u.user_id = p.user_id\nWHERE p.post_id IS NULL\nORDER BY u.user_id;"}
+  />
+</ExerciseSet>
+
+## Keys and normalization
+
+- **Primary key** — unique row identity (e.g. `posts.post_id`).
+- **Foreign key** — relationship pointer (e.g. `posts.user_id` → `users.user_id`).
+
+Storing author country once in `users` and referencing it from `posts` is **normalization**: less duplication, clearer constraints, better integrity. The cost is **joins**.
+
+**Denormalization** copies fields into a wide table (or materializes aggregates) to avoid joins on hot read paths. Storage is cheap; repeated compute and consistency bugs are expensive — so warehouses and high-QPS feeds often denormalize deliberately.
+
+Interview angles:
+
+- Why does entity A hold an FK to B?
+- Is the mapping **1:1**, **1:N**, or **N:M**? (N:M usually needs a junction table.)
+- When would you denormalize anyway?
+
+Users → posts is **one-to-many**: one user, many posts.
+
+<MultipleChoice
+  id="ds-db-normalization"
+  title="Normalization & relationships"
+  questions={[
+    {
+      prompt: 'Normalization mainly aims to…',
+      choices: [
+        'maximize join count for fun',
+        'reduce redundancy and enforce clearer dependencies',
+        'guarantee CAP availability',
+        'replace all indexes with full table scans',
+      ],
+      answer: 1,
+      why: 'Split entities so facts live once; joins reconnect them when needed.',
+    },
+    {
+      type: 'multi',
+      prompt: 'Which are real benefits people cite for normalization? (Select all that apply.)',
+      choices: [
+        'Less duplicated data',
+        'Clearer foreign-key relationships',
+        'Guaranteed zero joins forever',
+        'Easier integrity constraints',
+      ],
+      answers: [0, 1, 3],
+      why: 'Normalization reduces redundancy and clarifies constraints — joins are the cost, not eliminated.',
+    },
+    {
+      prompt: 'Denormalization trades…',
+      choices: [
+        'slower writes / duplicated data for fewer expensive joins on reads',
+        'stronger ACID for weaker disks',
+        'primary keys for foreign keys',
+        'HDFS for Neo4j automatically',
+      ],
+      answer: 0,
+      why: 'You accept duplication (and update complexity) to speed common reads.',
+    },
+    {
+      prompt: 'users to posts is typically…',
+      choices: [
+        'many-to-many with no junction table',
+        'one-to-one only',
+        'one-to-many (one user, many posts)',
+        'zero-to-zero',
+      ],
+      answer: 2,
+      why: 'One author can write many posts; each post has one user_id.',
+    },
+    {
+      prompt: 'A many-to-many link (users ↔ subreddits) usually needs…',
+      choices: [
+        'only a boolean column on users',
+        'a junction / bridge table with two foreign keys',
+        'deleting the users table',
+        'CAP partition tolerance alone',
+      ],
+      answer: 1,
+      why: 'Bridge rows hold (user_id, subreddit_id) pairs.',
+    },
+  ]}
+/>
+
+### Practice: normalized vs “wide” reads
+
+<ExerciseSet>
+  <SqlExercise
+    title="Country of each post’s author"
+    prompt="Return post_id and author country for every post, ordered by post_id. Join users — do not invent a country column on posts."
+    starter={"SELECT\n  -- TODO\n"}
+    tests={[
+      {
+        name: 'joined',
+        includes: ['1|US', '12|US', '24|UK', '29|FR'],
+      },
+    ]}
+    sourceChecks={[{name: 'JOIN', pattern: '\\bJOIN\\b', flags: 'i', hint: 'JOIN users'}]}
+    hint="JOIN users ON posts.user_id = users.user_id; SELECT post_id, country."
+    solution={"SELECT p.post_id, u.country\nFROM posts p\nJOIN users u ON p.user_id = u.user_id\nORDER BY p.post_id;"}
+  />
+  <SqlExercise
+    title="Post counts per country"
+    prompt="Using a join + GROUP BY, return country and number of posts from that country’s users. Order by country. Format: country|n"
+    starter={"SELECT\n  -- TODO\n"}
+    tests={[{name: 'by country', equals: 'AU|1 BR|2 CA|3 DE|1 FR|1 IN|2 MX|1 UK|2 US|17'}]}
+    sourceChecks={[
+      {name: 'JOIN', pattern: '\\bJOIN\\b', flags: 'i', hint: 'JOIN'},
+      {name: 'GROUP BY', pattern: 'GROUP\\s+BY', flags: 'i', hint: 'GROUP BY'},
+    ]}
+    hint="JOIN users, GROUP BY u.country, COUNT(*)."
+    solution={"SELECT u.country, COUNT(*) AS n\nFROM posts p\nJOIN users u ON p.user_id = u.user_id\nGROUP BY u.country\nORDER BY u.country;"}
+  />
+  <SqlExercise
+    title="Users with 3+ posts"
+    prompt="Return user_id for users who have at least 3 posts, ordered ascending. (Aggregate on the FK side.)"
+    starter={"SELECT\n  -- TODO\n"}
+    tests={[{name: 'heavy', equals: '1 10'}]}
+    sourceChecks={[
+      {name: 'GROUP BY', pattern: 'GROUP\\s+BY', flags: 'i', hint: 'GROUP BY'},
+      {name: 'HAVING', pattern: 'HAVING', flags: 'i', hint: 'HAVING'},
+    ]}
+    hint="GROUP BY user_id HAVING COUNT(*) >= 3."
+    solution={"SELECT user_id\nFROM posts\nGROUP BY user_id\nHAVING COUNT(*) >= 3\nORDER BY user_id;"}
+  />
+</ExerciseSet>
+
+## CAP theorem
+
+For **distributed** stores, CAP says you can fully guarantee only **two** of:
+
+- **Consistency** — every client reads the same up-to-date data
+- **Availability** — every request gets a non-error response (may be stale)
+- **Partition tolerance** — the system keeps working when nodes cannot talk
+
+In practice partitions happen, so real systems choose **CP** or **AP** under stress. Business cost drives the choice:
+
+- Social feed / like counts → often favor **availability** (stale like counts are fine)
+- Payments / balances → favor **consistency** (double-spend is not fine; retries OK)
+
+Classic textbook labels (simplified): many SQL systems are discussed as **CA**-leaning in non-partitioned deployments; MongoDB/Redis often appear in **CP** teaching diagrams — treat labels as interview shorthand, not gospel for every cluster config.
+
+<MultipleChoice
+  id="ds-db-cap"
+  title="CAP theorem"
+  questions={[
+    {
+      prompt: 'CAP says a distributed system can simultaneously guarantee…',
+      choices: [
+        'all three of C, A, and P in every failure mode',
+        'at most two of Consistency, Availability, Partition tolerance',
+        'only Durability from ACID',
+        'only vertical scaling',
+      ],
+      answer: 1,
+      why: 'You pick trade-offs; partitions force C vs A decisions.',
+    },
+    {
+      type: 'multi',
+      prompt: 'Which CAP properties are named in the theorem? (Select all that apply.)',
+      choices: [
+        'Consistency',
+        'Availability',
+        'Partition tolerance',
+        'Durability',
+      ],
+      answers: [0, 1, 2],
+      why: 'CAP = Consistency, Availability, Partition tolerance — Durability is from ACID.',
+    },
+    {
+      prompt: 'For a payments ledger, you would usually prefer…',
+      choices: [
+        'availability over consistency (stale balances OK)',
+        'consistency over availability (retries OK; no double-spend)',
+        'dropping partition tolerance forever',
+        'BASE Soft State only',
+      ],
+      answer: 1,
+      why: 'Wrong balances are worse than a temporary failure/retry.',
+    },
+    {
+      prompt: 'An Instagram-style feed that must return something instantly usually leans toward…',
+      choices: [
+        'strict serializable money transfers',
+        'availability (slightly stale counts OK)',
+        'single-node only, forever',
+        'disabling all replication',
+      ],
+      answer: 1,
+      why: 'A slightly wrong like count is cheap; a blank feed feels broken.',
+    },
+  ]}
+/>
+
+## ACID transactions
+
+**ACID** describes transactional correctness (especially **OLTP**):
+
+| Letter | Meaning |
+| --- | --- |
+| **Atomicity** | All-or-nothing; abort → rollback |
+| **Consistency** | Constraints hold before/after (including FK integrity) |
+| **Isolation** | Concurrent transactions do not corrupt each other’s view |
+| **Durability** | Committed data survives crashes |
+
+Think checkout, transfers, inventory updates — many concurrent writers that must not leave half-applied state.
+
+<MultipleChoice
+  id="ds-db-acid"
+  title="ACID"
+  questions={[
+    {
+      type: 'order',
+      prompt: 'Order the ACID letters as they appear in the acronym (top = first letter).',
+      items: [
+        'Isolation — concurrent transactions do not step on each other',
+        'Atomicity — all-or-nothing commit / rollback',
+        'Durability — committed data survives crashes',
+        'Consistency — constraints hold before and after',
+      ],
+      order: [1, 3, 0, 2],
+      why: 'A → C → I → D: Atomicity, Consistency, Isolation, Durability.',
+    },
+    {
+      prompt: 'Atomicity means…',
+      choices: [
+        'the database never uses indexes',
+        'a transaction fully commits or fully rolls back',
+        'replicas may diverge forever',
+        'CAP availability is mandatory',
+      ],
+      answer: 1,
+      why: 'No partial writes from a failed transaction.',
+    },
+    {
+      type: 'multi',
+      prompt: 'Which of these are ACID properties? (Select all that apply.)',
+      choices: [
+        'Atomicity',
+        'Availability',
+        'Isolation',
+        'Durability',
+      ],
+      answers: [0, 2, 3],
+      why: 'Availability is CAP, not ACID. ACID = Atomicity, Consistency, Isolation, Durability.',
+    },
+    {
+      prompt: 'Durability means…',
+      choices: [
+        'uncommitted dirty reads are required',
+        'after commit, data survives failures',
+        'all nodes always agree instantly under partition',
+        'schemas must be schemaless',
+      ],
+      answer: 1,
+      why: 'Committed work is persisted (logs/replicas as designed).',
+    },
+    {
+      prompt: 'ACID matters most for…',
+      choices: [
+        'OLTP systems with many concurrent transactions',
+        'read-only static CSV files with no writers',
+        'drawing ER diagrams only',
+        'MapReduce shuffle alone',
+      ],
+      answer: 0,
+      why: 'High-volume transactional workloads need all-or-nothing + isolation.',
+    },
+  ]}
+/>
+
+## Scaling databases
+
+Older pattern: **full-copy clusters** behind a load balancer — every node holds all data (CAP issues under load remain).
+
+Cloud-era levers:
+
+- **Vertical scaling (scale up)** — bigger CPU/RAM on existing machines. Simple ops; eventually hits hardware/cost walls.
+- **Horizontal scaling (scale out)** — more commodity nodes. Cheaper elasticity and better fault tolerance; you inherit distributed consistency/ops complexity.
+
+**Sharding** is a common horizontal approach: same schema on each shard, rows partitioned by a key (hash, range, or lookup). Each row maps to exactly one shard for both reads and writes.
+
+<MultipleChoice
+  id="ds-db-scaling"
+  title="Scaling & sharding"
+  questions={[
+    {
+      prompt: 'Vertical scaling means…',
+      choices: [
+        'adding more machines to the pool',
+        'adding CPU/RAM to existing machines',
+        'deleting primary keys',
+        'turning ACID into BASE automatically',
+      ],
+      answer: 1,
+      why: 'Scale up the box you already have.',
+    },
+    {
+      type: 'multi',
+      prompt: 'Which are typical advantages of horizontal scaling? (Select all that apply.)',
+      choices: [
+        'Add commodity machines instead of one ever-bigger box',
+        'Often better fault tolerance with more nodes',
+        'Zero distributed-systems complexity',
+        'Cheaper elasticity in the cloud for many workloads',
+      ],
+      answers: [0, 1, 3],
+      why: 'Scale-out is flexible and fault-tolerant — but you still own consistency and ops complexity.',
+    },
+    {
+      prompt: 'A main downside of horizontal scaling is…',
+      choices: [
+        'it is always more expensive than one huge box forever',
+        'distributed consistency and ops complexity',
+        'you can never add commodity hardware',
+        'sharding forbids indexes',
+      ],
+      answer: 1,
+      why: 'More nodes → replication, partitions, and coordination work.',
+    },
+    {
+      prompt: 'In sharding, each node typically…',
+      choices: [
+        'stores a different random schema',
+        'shares the same table schema but a subset of rows',
+        'must hold a full copy of every row',
+        'cannot use a hash or range key',
+      ],
+      answer: 1,
+      why: 'Schema matches; data is partitioned across shards.',
+    },
+  ]}
+/>
+
+## Relational vs NoSQL
+
+**Relational (SQL)** — fixed tables/schemas (MySQL, Postgres). Strong fit for structured analytics + ACID OLTP.
+
+**NoSQL** (“non-relational”) families:
+
+| Style | Idea | Example |
+| --- | --- | --- |
+| Document | Flexible nested documents; easy new fields | MongoDB |
+| Key-value | Simple lookup by key | Redis (often) |
+| Column-family | Wide columns / sparse attributes | Cassandra-style |
+| Graph | Nodes + first-class relationships | Neo4j |
+
+Graph DBs shine when **edges** matter as much as nodes (social graphs, recommendations).
+
+### BASE (NoSQL-oriented)
+
+Analog of ACID with a different bias:
+
+- **Basically Available** — responses exist; may be inaccurate
+- **Soft State** — state can change without new client writes (reconciliation)
+- **Eventual Consistency** — replicas converge later, not on a hard deadline
+
+BASE prioritizes **availability and scale**; ACID prioritizes **correctness of each transaction**.
+
+<MultipleChoice
+  id="ds-db-nosql"
+  title="SQL vs NoSQL & BASE"
+  questions={[
+    {
+      prompt: 'A document store like MongoDB is attractive when…',
+      choices: [
+        'you need a rigid schema forever with no nested fields',
+        'records are nested/varied and fields evolve often',
+        'you only ever need ACID bank transfers',
+        'CAP forbids availability',
+      ],
+      answer: 1,
+      why: 'Documents tolerate heterogeneous, evolving shapes.',
+    },
+    {
+      type: 'multi',
+      prompt: 'Which are BASE ideas? (Select all that apply.)',
+      choices: [
+        'Basically Available',
+        'Soft State',
+        'Eventual Consistency',
+        'Atomic all-or-nothing transactions (ACID Atomicity)',
+      ],
+      answers: [0, 1, 2],
+      why: 'BASE = Basically Available, Soft State, Eventual Consistency — Atomicity is ACID.',
+    },
+    {
+      prompt: 'Graph databases emphasize…',
+      choices: [
+        'CSV-only storage',
+        'relationships (edges) as first-class data',
+        'removing all foreign keys from the universe',
+        'MapReduce shuffle exclusively',
+      ],
+      answer: 1,
+      why: 'Traversal-friendly pointers between related records.',
+    },
+    {
+      prompt: 'Eventual consistency (BASE) means…',
+      choices: [
+        'replicas are always identical at every instant',
+        'replicas will converge later without a hard timing guarantee',
+        'transactions never commit',
+        'primary keys may duplicate freely forever',
+      ],
+      answer: 1,
+      why: 'Correctness arrives “eventually,” not necessarily immediately.',
+    },
+    {
+      prompt: 'Relative to ACID, BASE typically emphasizes…',
+      choices: [
+        'stronger single-transaction correctness',
+        'availability and scalability over immediate correctness',
+        'mandatory full table locks on every read',
+        'forbidding horizontal scale',
+      ],
+      answer: 1,
+      why: 'Distributed NoSQL designs often accept temporary inconsistency.',
+    },
+  ]}
+/>
+
+## MapReduce, Hadoop, and Spark
+
+**MapReduce** processes huge datasets in parallel. Four steps:
+
+1. **Split** — chunk input across workers  
+2. **Map** — emit `<key, value>` pairs (e.g. each word → `<word, 1>`)  
+3. **Shuffle** — move equal keys onto the same worker (locality!)  
+4. **Reduce** — aggregate per key (e.g. sum counts → `<word, 5>`)
+
+Shuffle is the efficiency secret: related pairs land together so reducers avoid chatty cross-node fetches.
+
+**Hadoop** ecosystem pieces you’ll hear named:
+
+1. **HDFS** — distributed storage / replication  
+2. **MapReduce** — the processing model  
+3. **YARN** — scheduling / resource management  
+
+**Spark** — also batch (and more) processing, but favors **in-memory** computation for speed (higher RAM cost). Built-in scheduling/monitoring, unlike classic MapReduce depending on YARN.
+
+Orchestrators like **Airflow** / **Luigi** show up if your resume lists pipelines — expect conceptual “what / why,” not deep operator trivia, unless you claim expertise.
+
+<MultipleChoice
+  id="ds-db-mapreduce"
+  title="MapReduce & big data stack"
+  questions={[
+    {
+      type: 'order',
+      prompt: 'Put the MapReduce stages in the order they run (top = first).',
+      items: [
+        'Reduce — aggregate values for each key',
+        'Split — chunk input across workers',
+        'Shuffle — colocate identical keys on one worker',
+        'Map — emit <key, value> pairs',
+      ],
+      order: [1, 3, 2, 0],
+      why: 'Split → Map → Shuffle → Reduce. Shuffle enables local reduces.',
+    },
+    {
+      type: 'order',
+      prompt: 'For word count, order what happens to the phrase "hello world" on one mapper (top = first).',
+      items: [
+        'Emit <"world", 1>',
+        'Read the local text chunk',
+        'Emit <"hello", 1>',
+        'Tokenize into words',
+      ],
+      order: [1, 3, 2, 0],
+      why: 'Read chunk → tokenize → emit a <word, 1> pair per token (order of the two emits can vary in real systems; here hello then world).',
+    },
+    {
+      prompt: 'In word count MapReduce, the map step typically emits…',
+      choices: [
+        'a single global total immediately',
+        '<word, 1> pairs for tokens it sees',
+        'only HDFS block IDs',
+        'ACID commit records',
+      ],
+      answer: 1,
+      why: 'Local mappers count 1 per occurrence; reducers sum later.',
+    },
+    {
+      type: 'order',
+      prompt: 'After map emits many <"hello", 1> pairs, order the path to the final count (top = first).',
+      items: [
+        'Reducer outputs <"hello", 5> (example total)',
+        'Shuffle moves all "hello" pairs onto one worker',
+        'Reducer sums the 1s for key "hello"',
+        'Mappers finish writing <"hello", 1> pairs',
+      ],
+      order: [3, 1, 2, 0],
+      why: 'Map finishes → shuffle colocates keys → reduce sums → emit the aggregated pair.',
+    },
+    {
+      type: 'multi',
+      prompt: 'Which are part of the classic Hadoop stack mentioned here? (Select all that apply.)',
+      choices: ['HDFS', 'MapReduce', 'YARN', 'Neo4j'],
+      answers: [0, 1, 2],
+      why: 'HDFS + MapReduce + YARN. Neo4j is a graph database, not a Hadoop core piece.',
+    },
+    {
+      prompt: 'The shuffle step’s job is to…',
+      choices: [
+        'delete all keys',
+        'colocate identical keys on the same worker',
+        'replace Reduce with CAP Availability',
+        'normalize every table to 6NF',
+      ],
+      answer: 1,
+      why: 'Grouping by key enables local, efficient reduces.',
+    },
+    {
+      type: 'multi',
+      prompt: 'Relative to classic Hadoop MapReduce, which are true of Spark as described here? (Select all that apply.)',
+      choices: [
+        'Often keeps more working data in memory',
+        'Can be faster for iterative workloads',
+        'Never needs any cluster resources',
+        'Includes more built-in scheduling/monitoring than bare MapReduce+YARN setups',
+      ],
+      answers: [0, 1, 3],
+      why: 'Spark trades RAM for speed and bundles more runtime tooling — it still needs cluster resources.',
+    },
+    {
+      prompt: 'Compared with Hadoop MapReduce, Spark often…',
+      choices: [
+        'avoids RAM and only uses tape',
+        'keeps more working data in memory for speed',
+        'cannot schedule its own jobs',
+        'replaces HDFS with handwritten CSV always',
+      ],
+      answer: 1,
+      why: 'In-memory compute → faster iterations, higher memory cost.',
+    },
+    {
+      prompt: 'HDFS in the Hadoop stack primarily…',
+      choices: [
+        'runs the reducer math only',
+        'stores and replicates distributed files',
+        'is a graph query language',
+        'implements BASE Soft State alone',
+      ],
+      answer: 1,
+      why: 'Distributed filesystem layer under processing frameworks.',
+    },
+  ]}
+/>
+
+## Interview checklist
+
+1. Draw entities + PK/FK; name the cardinality (1:1 / 1:N / N:M).  
+2. Call out indexes on join/filter keys.  
+3. Say when you’d **denormalize** for read latency.  
+4. For distributed design: pick **C vs A** with a business reason; mention ACID vs BASE if NoSQL comes up.  
+5. Scale story: vertical vs horizontal; sharding key intuition.  
+6. Big data: Map → Shuffle → Reduce locality; Hadoop vs Spark one-liners.
+
+Next: more SQL interview problem sets, or ML system design trade-offs.

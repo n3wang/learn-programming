@@ -11,6 +11,12 @@ const FILE_NAMES = {
     js: 'index.js',
     yaml: 'manifest.yaml',
     yml: 'manifest.yaml',
+    sqlite3: 'query.sql',
+    sqlite: 'query.sql',
+    sql: 'query.sql',
+    godot: 'main.gd',
+    gdscript: 'main.gd',
+    gd: 'main.gd',
 };
 
 export default function defaultSourceFilename(lang, filename) {
