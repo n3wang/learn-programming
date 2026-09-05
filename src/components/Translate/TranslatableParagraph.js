@@ -1,12 +1,14 @@
-import React, { useCallback, useEffect, useRef, useState } from 'react';
-import { targetLocaleFor, translateParagraph } from './translateClient';
+import React, {useCallback, useEffect, useRef, useState} from 'react';
+import {
+  UI_LANG_CHANGE_EVENT,
+  readUiLang,
+  targetLocaleFor,
+  translateParagraph,
+} from './translateClient';
 
 /**
- * Hover text and press Ctrl (or Cmd on Mac) to translate in place —
- * Chinese ↔ English. Press again (or hit ×) to hide.
- *
- * Used as the MDX `p` override and for quiz/exercise feedback that otherwise
- * bypasses that mapping.
+ * Hover text and press Ctrl (or Cmd on Mac) to translate in place.
+ * Target language comes from Settings → EN / 中文 / ES.
  *
  * @param {object} props
  * @param {'p'|'div'|'span'} [props.as='p'] Element type for the source text.
@@ -21,6 +23,17 @@ export default function TranslatableParagraph({
   const [hovered, setHovered] = useState(false);
   const [status, setStatus] = useState('idle'); // idle | loading | shown | error
   const [translated, setTranslated] = useState('');
+  const [uiLang, setUiLang] = useState(() => readUiLang());
+
+  useEffect(() => {
+    const sync = (event) => {
+      setUiLang(event?.detail?.lang || readUiLang());
+      setStatus('idle');
+      setTranslated('');
+    };
+    window.addEventListener(UI_LANG_CHANGE_EVENT, sync);
+    return () => window.removeEventListener(UI_LANG_CHANGE_EVENT, sync);
+  }, []);
 
   const toggle = useCallback(async () => {
     if (status === 'shown' || status === 'error') {
@@ -52,7 +65,6 @@ export default function TranslatableParagraph({
     return () => document.removeEventListener('keydown', onKeyDown);
   }, [hovered, toggle]);
 
-  // Reset translation when the source text changes (e.g. next quiz question).
   const sourceKey =
     translateKey != null
       ? String(translateKey)
@@ -64,6 +76,13 @@ export default function TranslatableParagraph({
     setTranslated('');
   }, [sourceKey]);
 
+  const hoverHint =
+    uiLang === 'es'
+      ? 'Hold Ctrl / Cmd to translate → ES'
+      : uiLang === 'zh-CN'
+        ? 'Hold Ctrl / Cmd to translate → 中文'
+        : 'Hold Ctrl / Cmd to translate (中 ↔ EN)';
+
   return (
     <>
       <Tag
@@ -71,7 +90,7 @@ export default function TranslatableParagraph({
         ref={paragraphRef}
         onMouseEnter={() => setHovered(true)}
         onMouseLeave={() => setHovered(false)}
-        title={hovered && status === 'idle' ? 'Hold Ctrl / Cmd to translate' : undefined}
+        title={hovered && status === 'idle' ? hoverHint : undefined}
         style={{
           ...style,
           outline: hovered ? '2px dashed var(--ifm-color-primary-light)' : '2px dashed transparent',
@@ -84,6 +103,8 @@ export default function TranslatableParagraph({
       {status !== 'idle' && (
         <div
           role="note"
+          className="notranslate"
+          translate="no"
           lang={detectLangHint(translated)}
           style={{
             position: 'relative',
@@ -116,9 +137,10 @@ export default function TranslatableParagraph({
           >
             ×
           </button>
-          {status === 'loading' && 'Translating… / 翻译中…'}
+          {status === 'loading' && 'Translating… / 翻译中… / Traduciendo…'}
           {status === 'shown' && translated}
-          {status === 'error' && 'Translation failed — try again. / 翻译失败，请重试。'}
+          {status === 'error' &&
+            'Translation failed — try again. / 翻译失败，请重试。 / Error al traducir.'}
         </div>
       )}
     </>
@@ -127,5 +149,7 @@ export default function TranslatableParagraph({
 
 function detectLangHint(text) {
   if (!text) return undefined;
-  return /[一-鿿]/.test(text) ? 'zh-CN' : 'en';
+  if (/[一-鿿]/.test(text)) return 'zh-CN';
+  if (/[áéíóúñü¿¡]/i.test(text)) return 'es';
+  return 'en';
 }

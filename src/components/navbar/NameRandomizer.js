@@ -1,4 +1,4 @@
-import React, {useCallback, useEffect, useMemo, useState} from 'react';
+import React, {useCallback, useEffect, useState} from 'react';
 import {pinyin} from 'pinyin-pro';
 import {
   CLASS_ROSTERS,
@@ -96,17 +96,8 @@ export default function NameRandomizer() {
     return () => window.removeEventListener(CLASS_BEHAVIOR_CHANGE_EVENT, onChange);
   }, [dateKey, rosterId, loadBehavior]);
 
-  const pronunciation = useMemo(
-    () => (picked ? nameToPinyin(picked) : ''),
-    [picked],
-  );
+  const pronunciation = picked ? nameToPinyin(picked) : '';
   const approx = picked ? NAME_APPROX_OVERRIDES[picked] : '';
-
-  const activeCount = useMemo(() => {
-    const names = Array.isArray(roster?.names) ? roster.names : [];
-    const students = behavior?.students || {};
-    return names.filter((name) => !students?.[name]?.absent).length;
-  }, [roster, behavior]);
 
   const onPick = async () => {
     setBusy(true);
@@ -202,129 +193,113 @@ export default function NameRandomizer() {
         Pick student
       </button>
 
-      <div
-        aria-live="polite"
-        style={{
-          marginTop: '0.75rem',
-          minHeight: '4.25rem',
-          padding: '0.65rem 0.7rem',
-          borderRadius: 10,
-          border: '1px solid var(--ifm-color-emphasis-200)',
-          background: 'var(--ifm-color-emphasis-100)',
-          textAlign: 'center',
-        }}
-      >
-        {picked ? (
-          <>
-            <div
-              style={{
-                fontSize: '1.55rem',
-                fontWeight: 700,
-                lineHeight: 1.2,
-                letterSpacing: '0.02em',
-              }}
-            >
-              {picked}
-            </div>
-            <div
-              style={{
-                marginTop: '0.35rem',
-                fontSize: '0.95rem',
-                color: 'var(--ifm-color-emphasis-700)',
-              }}
-            >
-              {pronunciation}
-            </div>
-            {approx ? (
-              <div
-                style={{
-                  marginTop: '0.2rem',
-                  fontSize: '0.8rem',
-                  color: 'var(--ifm-color-emphasis-600)',
-                  fontStyle: 'italic',
-                }}
-              >
-                {approx}
-              </div>
-            ) : null}
+      {poolNote && !picked ? (
+        <div
+          style={{
+            marginTop: '0.45rem',
+            color: 'var(--ifm-color-danger)',
+            fontSize: '0.8rem',
+          }}
+        >
+          {poolNote}
+        </div>
+      ) : null}
 
-            {awaitingAction ? (
-              <div
-                style={{
-                  display: 'flex',
-                  gap: '0.4rem',
-                  justifyContent: 'center',
-                  marginTop: '0.75rem',
-                  flexWrap: 'wrap',
-                }}
-              >
-                <button
-                  type="button"
-                  className="button button--sm button--success"
-                  disabled={busy}
-                  onClick={() => onAction('plus')}
-                  title="+1 point"
-                >
-                  +
-                </button>
-                <button
-                  type="button"
-                  className="button button--sm button--warning"
-                  disabled={busy}
-                  onClick={() => onAction('minus')}
-                  title="−1 point"
-                >
-                  −
-                </button>
-                <button
-                  type="button"
-                  className="button button--sm button--secondary"
-                  disabled={busy}
-                  onClick={() => onAction('absent')}
-                  title="Exclude from today’s pool"
-                >
-                  Absent
-                </button>
-              </div>
-            ) : (
-              <div
-                style={{
-                  marginTop: '0.55rem',
-                  fontSize: '0.75rem',
-                  color: 'var(--ifm-color-emphasis-600)',
-                }}
-              >
-                Saved for {dateKey}. Pick again when ready.
-              </div>
-            )}
-          </>
-        ) : (
+      {picked ? (
+        <div
+          aria-live="polite"
+          style={{
+            marginTop: '0.55rem',
+            padding: '0.65rem 0.7rem',
+            borderRadius: 10,
+            border: '1px solid var(--ifm-color-emphasis-200)',
+            background: 'var(--ifm-color-emphasis-100)',
+            textAlign: 'center',
+          }}
+        >
           <div
             style={{
-              fontSize: '0.85rem',
-              color: 'var(--ifm-color-emphasis-600)',
-              paddingTop: '0.55rem',
+              fontSize: '1.55rem',
+              fontWeight: 700,
+              lineHeight: 1.2,
+              letterSpacing: '0.02em',
             }}
           >
-            {roster?.label || 'Class'} · {activeCount}/
-            {Array.isArray(roster?.names) ? roster.names.length : 0} in pool
-            <div style={{marginTop: '0.25rem', fontSize: '0.75rem'}}>
-              {dateKey} · lower points = higher pick chance
-            </div>
-            {poolNote ? (
-              <div
-                style={{
-                  marginTop: '0.45rem',
-                  color: 'var(--ifm-color-danger)',
-                  fontSize: '0.8rem',
-                }}
-              >
-                {poolNote}
-              </div>
-            ) : null}
+            {picked}
           </div>
-        )}
-      </div>
+          <div
+            style={{
+              marginTop: '0.35rem',
+              fontSize: '0.95rem',
+              color: 'var(--ifm-color-emphasis-700)',
+            }}
+          >
+            {pronunciation}
+          </div>
+          {approx ? (
+            <div
+              style={{
+                marginTop: '0.2rem',
+                fontSize: '0.8rem',
+                color: 'var(--ifm-color-emphasis-600)',
+                fontStyle: 'italic',
+              }}
+            >
+              {approx}
+            </div>
+          ) : null}
+
+          {awaitingAction ? (
+            <div
+              style={{
+                display: 'flex',
+                gap: '0.4rem',
+                justifyContent: 'center',
+                marginTop: '0.75rem',
+                flexWrap: 'wrap',
+              }}
+            >
+              <button
+                type="button"
+                className="button button--sm button--success"
+                disabled={busy}
+                onClick={() => onAction('plus')}
+                title="+1 point"
+              >
+                +
+              </button>
+              <button
+                type="button"
+                className="button button--sm button--warning"
+                disabled={busy}
+                onClick={() => onAction('minus')}
+                title="−1 point"
+              >
+                −
+              </button>
+              <button
+                type="button"
+                className="button button--sm button--secondary"
+                disabled={busy}
+                onClick={() => onAction('absent')}
+                title="Exclude from today’s pool"
+              >
+                Absent
+              </button>
+            </div>
+          ) : (
+            <div
+              style={{
+                marginTop: '0.55rem',
+                fontSize: '0.75rem',
+                color: 'var(--ifm-color-emphasis-600)',
+              }}
+            >
+              Saved for {dateKey}. Pick again when ready.
+            </div>
+          )}
+        </div>
+      ) : null}
     </div>
   );
 }

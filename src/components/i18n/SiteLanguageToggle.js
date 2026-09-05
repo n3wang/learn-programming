@@ -1,15 +1,9 @@
-import React from 'react';
-import useDocusaurusContext from '@docusaurus/useDocusaurusContext';
-import { useLocation } from '@docusaurus/router';
-
-function getCanonicalPath(pathname) {
-  return pathname.startsWith('/zh-Hans') ? pathname.slice('/zh-Hans'.length) || '/' : pathname;
-}
-
-function getGoogleTranslateUrl(targetUrl) {
-  const encodedUrl = encodeURIComponent(targetUrl);
-  return `https://translate.google.com/translate?sl=auto&tl=zh-CN&u=${encodedUrl}`;
-}
+import React, {useEffect, useState} from 'react';
+import {
+  UI_LANG_CHANGE_EVENT,
+  readUiLang,
+  writeUiLang,
+} from '@site/src/components/Translate/translateClient';
 
 function toggleButtonStyle(active) {
   return {
@@ -25,28 +19,45 @@ function toggleButtonStyle(active) {
   };
 }
 
-export default function SiteLanguageToggle({ compact = false }) {
-  const { i18n: { currentLocale } } = useDocusaurusContext();
-  const location = useLocation();
+const OPTIONS = [
+  {
+    id: 'en',
+    label: 'EN',
+    title: 'Hover + Ctrl/Cmd: Chinese ↔ English',
+  },
+  {
+    id: 'zh-CN',
+    label: '中文',
+    title: 'Hover + Ctrl/Cmd: translate into 中文 (English ↔ 中文)',
+  },
+  {
+    id: 'es',
+    label: 'ES',
+    title: 'Hover + Ctrl/Cmd: translate into Spanish',
+  },
+];
 
-  const switchLocale = (targetLocale) => {
-    const canonicalPath = getCanonicalPath(location.pathname);
+/**
+ * Sets the target language for in-page hover + Ctrl/Cmd translation only.
+ * Does not open Google Translate (that breaks React’s DOM).
+ */
+export default function SiteLanguageToggle({compact = false}) {
+  const [uiLang, setUiLang] = useState(() => readUiLang());
 
-    if (targetLocale === 'zh-Hans') {
-      // Use browser translation on the current canonical URL instead of i18n routes.
-      const currentUrl = `${window.location.origin}${canonicalPath}${location.search}${location.hash}`;
-      window.location.href = getGoogleTranslateUrl(currentUrl);
-      return;
-    }
-
-    // EN should always go to the canonical non-localized route.
-    window.location.href = `${canonicalPath}${location.search}${location.hash}`;
-  };
+  useEffect(() => {
+    const sync = (event) => {
+      setUiLang(event?.detail?.lang || readUiLang());
+    };
+    window.addEventListener(UI_LANG_CHANGE_EVENT, sync);
+    return () => window.removeEventListener(UI_LANG_CHANGE_EVENT, sync);
+  }, []);
 
   return (
     <div
       role="group"
-      aria-label="Site language"
+      aria-label="Hover translate language"
+      className="notranslate"
+      translate="no"
       style={{
         display: 'inline-flex',
         alignItems: 'center',
@@ -54,22 +65,21 @@ export default function SiteLanguageToggle({ compact = false }) {
         marginBottom: compact ? '0.75rem' : 0,
       }}
     >
-      <button
-        type="button"
-        onClick={() => switchLocale('en')}
-        aria-pressed={currentLocale === 'en'}
-        style={toggleButtonStyle(currentLocale === 'en')}
-      >
-        EN
-      </button>
-      <button
-        type="button"
-        onClick={() => switchLocale('zh-Hans')}
-        aria-pressed={currentLocale === 'zh-Hans'}
-        style={toggleButtonStyle(currentLocale === 'zh-Hans')}
-      >
-        中文
-      </button>
+      {OPTIONS.map((opt) => (
+        <button
+          key={opt.id}
+          type="button"
+          onClick={() => {
+            writeUiLang(opt.id);
+            setUiLang(opt.id);
+          }}
+          aria-pressed={uiLang === opt.id}
+          title={opt.title}
+          style={toggleButtonStyle(uiLang === opt.id)}
+        >
+          {opt.label}
+        </button>
+      ))}
     </div>
   );
 }

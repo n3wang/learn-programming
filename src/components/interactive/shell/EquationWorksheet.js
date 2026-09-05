@@ -5,6 +5,7 @@ import Collapse from '@site/src/components/ui/Collapse';
 import Stack from '@site/src/components/ui/Stack';
 import Typography from '@site/src/components/ui/Typography';
 import MathText from '@site/src/components/ProblemSet/MathText';
+import DraftHomeworkButton from '@site/src/components/homework/DraftHomeworkButton';
 import CEBlock from './CEBlock';
 import styles from './EquationWorksheet.module.css';
 
@@ -12,7 +13,7 @@ function makeBatch(generator, count) {
   return Array.from({ length: count }, (_, i) => ({ ...generator(), key: `${Date.now()}-${i}-${Math.random()}` }));
 }
 
-function WorksheetItem({ index, problem }) {
+function WorksheetItem({ index, problem, sectionTitle }) {
   const [showAnswer, setShowAnswer] = useState(false);
   return (
     <Box
@@ -33,9 +34,23 @@ function WorksheetItem({ index, problem }) {
           </Box>
           <MathText text={problem.prompt} />
         </Box>
-        <Button size="small" variant="outlined" onClick={() => setShowAnswer((s) => !s)} sx={{ flexShrink: 0 }}>
-          {showAnswer ? '隐藏解答' : '显示解答'}
-        </Button>
+        <Stack direction="row" spacing={0.5} sx={{ flexShrink: 0 }} useFlexGap>
+          <Button size="small" variant="outlined" onClick={() => setShowAnswer((s) => !s)}>
+            {showAnswer ? '隐藏解答' : '显示解答'}
+          </Button>
+          <DraftHomeworkButton
+            getPayload={() => ({
+              title: `${sectionTitle || 'Worksheet'} (${index + 1})`,
+              prompt: problem.prompt || '',
+              answer: [
+                ...(Array.isArray(problem.steps) ? problem.steps : []),
+                problem.answer || '',
+              ]
+                .filter(Boolean)
+                .join('\n'),
+            })}
+          />
+        </Stack>
       </Stack>
       <Collapse in={showAnswer} timeout={350}>
         <Box className={styles.solution} sx={{ mt: 1, pt: 1, borderTop: '1px dashed', borderColor: 'divider' }}>
@@ -81,7 +96,12 @@ export default function EquationWorksheet({ title, subtitle, generator, count = 
       }
     >
       {batch.map((problem, i) => (
-        <WorksheetItem key={problem.key} index={i} problem={problem} />
+        <WorksheetItem
+          key={problem.key}
+          index={i}
+          problem={problem}
+          sectionTitle={title}
+        />
       ))}
     </CEBlock>
   );

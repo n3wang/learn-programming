@@ -116,6 +116,7 @@ const config = {
       },
     },
   },
+  clientModules: [require.resolve('./src/client/googleTranslateDomPatch.js')],
   presets: [
     [
       'classic',
@@ -291,6 +292,12 @@ const config = {
             to: '/godot/lesson-notes',
           },
           ],
+        }, {
+          title: 'Games',
+          items: [{
+            label: 'Fighting Game',
+            to: '/misc/fighting-game',
+          },],
         }, {
           title: 'Community',
           items: [{

@@ -4,6 +4,9 @@ import {useColorMode, useThemeConfig} from '@docusaurus/theme-common';
 import ColorModeToggle from '@theme/ColorModeToggle';
 import SiteLanguageToggle from '@site/src/components/i18n/SiteLanguageToggle';
 import NameRandomizer from '@site/src/components/navbar/NameRandomizer';
+import SiteLoginPanel from '@site/src/components/navbar/SiteLoginPanel';
+import {useHomeworkDraftMode} from '@site/src/components/homework/useHomeworkDraftMode';
+import {useSiteAuth} from '@site/src/components/navbar/useSiteAuth';
 
 const OFFICIAL_SITE_ORIGIN = 'https://learn.l.l0l.in';
 
@@ -43,83 +46,131 @@ function sectionLabelStyle() {
 function SettingsPanel({pageUrl, showQr, setShowQr, qrDataUrl, qrError}) {
   const {colorModeChoice, setColorMode} = useColorMode();
   const {respectPrefersColorScheme} = useThemeConfig().colorMode;
+  const {isAdmin} = useSiteAuth();
+  const {
+    active: hwActive,
+    busy: hwBusy,
+    session: hwSession,
+    setActive: setHwActive,
+  } = useHomeworkDraftMode();
 
   return (
-    <div style={{display: 'grid', gap: '1rem', minWidth: 240}}>
+    <div style={{display: 'grid', gap: '1rem', minWidth: 320}}>
       <div>
-        <div style={sectionLabelStyle()}>Pick student</div>
-        <NameRandomizer />
+        <div style={sectionLabelStyle()}>Account</div>
+        <SiteLoginPanel />
       </div>
 
-      <div>
-        <div style={sectionLabelStyle()}>Language</div>
-        <SiteLanguageToggle />
-      </div>
-
-      <div>
-        <div style={sectionLabelStyle()}>Theme</div>
-        <ColorModeToggle
-          value={colorModeChoice}
-          onChange={setColorMode}
-          respectPrefersColorScheme={respectPrefersColorScheme}
-        />
-      </div>
-
-      <div>
-        <div style={sectionLabelStyle()}>Page QR</div>
-        <button
-          type="button"
-          className="button button--sm button--secondary"
-          onClick={() => setShowQr((open) => !open)}
-          aria-expanded={showQr}
-        >
-          {showQr ? 'Hide QR' : 'Show QR'}
-        </button>
-        {showQr && (
-          <div
-            style={{
-              marginTop: '0.75rem',
-              display: 'grid',
-              gap: '0.5rem',
-              justifyItems: 'center',
-            }}
-          >
-            {qrError ? (
-              <p style={{margin: 0, fontSize: '0.85rem', color: 'var(--ifm-color-danger)'}}>
-                {qrError}
-              </p>
-            ) : qrDataUrl ? (
-              <img
-                src={qrDataUrl}
-                alt={`QR code for ${pageUrl}`}
-                width={180}
-                height={180}
-                style={{
-                  display: 'block',
-                  borderRadius: 8,
-                  background: '#fff',
-                  padding: 8,
-                }}
-              />
-            ) : (
-              <p style={{margin: 0, fontSize: '0.85rem'}}>Generating…</p>
-            )}
-            <a
-              href={pageUrl}
-              target="_blank"
-              rel="noreferrer"
+      {isAdmin ? (
+        <>
+          <div>
+            <div style={sectionLabelStyle()}>Homework draft</div>
+            <button
+              type="button"
+              className={`button button--sm ${hwActive ? 'button--primary' : 'button--secondary'}`}
+              disabled={hwBusy}
+              onClick={() => setHwActive(!hwActive)}
+              style={{width: '100%'}}
+            >
+              {hwBusy
+                ? '…'
+                : hwActive
+                  ? 'Draft mode ON — turn off'
+                  : 'Start draft homework mode'}
+            </button>
+            <div
               style={{
+                marginTop: '0.45rem',
                 fontSize: '0.75rem',
-                wordBreak: 'break-all',
-                textAlign: 'center',
+                color: 'var(--ifm-color-emphasis-600)',
                 lineHeight: 1.35,
               }}
             >
-              {pageUrl}
-            </a>
+              {hwActive
+                ? `${hwSession?.title || 'HW'} · ${hwSession?.problemCount || 0} problems · stays on across pages`
+                : 'Adds 加入作业 beside 显示解答. Each ON starts a new assignment (new prompt + answer notes).'}
+            </div>
           </div>
-        )}
+
+          <div>
+            <div style={sectionLabelStyle()}>Pick student</div>
+            <NameRandomizer />
+          </div>
+        </>
+      ) : null}
+
+      <div>
+        <div style={sectionLabelStyle()}>Settings</div>
+        <div
+          style={{
+            display: 'flex',
+            alignItems: 'center',
+            gap: '0.35rem',
+            flexWrap: 'wrap',
+          }}
+        >
+          <ColorModeToggle
+            value={colorModeChoice}
+            onChange={setColorMode}
+            respectPrefersColorScheme={respectPrefersColorScheme}
+          />
+          <SiteLanguageToggle />
+          <button
+            type="button"
+            className="button button--sm button--secondary"
+            onClick={() => setShowQr((open) => !open)}
+            aria-expanded={showQr}
+            aria-label={showQr ? 'Hide page QR' : 'Show page QR'}
+            title={showQr ? 'Hide page QR' : 'Show page QR'}
+          >
+            {showQr ? 'Hide QR' : 'Show QR'}
+          </button>
+        </div>
       </div>
+
+      {showQr ? (
+        <div
+          style={{
+            display: 'grid',
+            gap: '0.5rem',
+            justifyItems: 'center',
+          }}
+        >
+          {qrError ? (
+            <p style={{margin: 0, fontSize: '0.85rem', color: 'var(--ifm-color-danger)'}}>
+              {qrError}
+            </p>
+          ) : qrDataUrl ? (
+            <img
+              src={qrDataUrl}
+              alt={`QR code for ${pageUrl}`}
+              width={180}
+              height={180}
+              style={{
+                display: 'block',
+                borderRadius: 8,
+                background: '#fff',
+                padding: 8,
+              }}
+            />
+          ) : (
+            <p style={{margin: 0, fontSize: '0.85rem'}}>Generating…</p>
+          )}
+          <a
+            href={pageUrl}
+            target="_blank"
+            rel="noreferrer"
+            style={{
+              fontSize: '0.75rem',
+              wordBreak: 'break-all',
+              textAlign: 'center',
+              lineHeight: 1.35,
+            }}
+          >
+            {pageUrl}
+          </a>
+        </div>
+      ) : null}
     </div>
   );
 }
@@ -281,7 +332,7 @@ export default function SiteSettingsNavbarItem({mobile = false}) {
             top: 'calc(100% + 0.4rem)',
             right: 0,
             zIndex: 200,
-            minWidth: 280,
+            minWidth: 360,
             padding: '0.9rem 1rem',
             borderRadius: 12,
             border: '1px solid var(--ifm-color-emphasis-200)',

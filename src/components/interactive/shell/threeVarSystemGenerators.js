@@ -26,14 +26,53 @@ function fmtTerm(coeff, name, leading) {
   return coeff < 0 ? ` - ${core}` : ` + ${core}`;
 }
 
-/** Format ax+by+cz = d (omit zero terms). */
+function gcd(a, b) {
+  a = Math.abs(a);
+  b = Math.abs(b);
+  while (b) [a, b] = [b, a % b];
+  return a || 1;
+}
+
+/** Best rational approx with denominator ≤ maxDen (for display, never long decimals). */
+function floatToFrac(n, maxDen = 24) {
+  if (!Number.isFinite(n)) return null;
+  if (Math.abs(n - Math.round(n)) < 1e-9) return { num: Math.round(n), den: 1 };
+  const sign = n < 0 ? -1 : 1;
+  const abs = Math.abs(n);
+  let best = null;
+  let bestErr = Infinity;
+  for (let den = 1; den <= maxDen; den++) {
+    const num = Math.round(abs * den);
+    const err = Math.abs(abs - num / den);
+    if (err < bestErr - 1e-12) {
+      bestErr = err;
+      best = { num: sign * num, den };
+    }
+    if (err < 1e-10) break;
+  }
+  if (!best || bestErr > 1e-8) return null;
+  const g = gcd(best.num, best.den);
+  return { num: best.num / g, den: best.den / g };
+}
+
+/** Format a number for KaTeX: integers plain, otherwise reduced \\dfrac{p}{q}. */
+function fmtNum(n) {
+  if (typeof n === 'string') return n;
+  const fr = floatToFrac(n);
+  if (!fr) return `${Number(n.toFixed(4))}`;
+  if (fr.den === 1) return `${fr.num}`;
+  const sign = fr.num < 0 ? '-' : '';
+  return `${sign}\\dfrac{${Math.abs(fr.num)}}{${fr.den}}`;
+}
+
+/** Format ax+by+cz = d (omit zero terms). RHS always via fmtNum — never 4.333…. */
 function fmtLin3(a, b, c, d) {
   const parts = [];
   if (a !== 0) parts.push(fmtTerm(a, 'x', parts.length === 0));
   if (b !== 0) parts.push(fmtTerm(b, 'y', parts.length === 0));
   if (c !== 0) parts.push(fmtTerm(c, 'z', parts.length === 0));
   const left = parts.length === 0 ? '0' : parts.join('');
-  return `${left} = ${d}`;
+  return `${left} = ${fmtNum(d)}`;
 }
 
 function fmtSystem3(eq1, eq2, eq3) {
@@ -42,28 +81,6 @@ function fmtSystem3(eq1, eq2, eq3) {
 
 function fmtAnswer3(x, y, z) {
   return `${m(`x = ${x}`)}，${m(`y = ${y}`)}，${m(`z = ${z}`)}`;
-}
-
-function fmtNum(n) {
-  if (Number.isInteger(n)) return `${n}`;
-  // halves
-  const twice = n * 2;
-  if (Number.isInteger(twice)) {
-    const g = Math.abs(twice) === 1 ? 1 : 1;
-    if (twice % 2 === 0) return `${twice / 2}`;
-    const sign = twice < 0 ? '-' : '';
-    return `${sign}\\dfrac{${Math.abs(twice)}}{2}`;
-  }
-  // thirds
-  const thrice = n * 3;
-  if (Math.abs(thrice - Math.round(thrice)) < 1e-9) {
-    const t = Math.round(thrice);
-    const sign = t < 0 ? '-' : '';
-    const abs = Math.abs(t);
-    if (abs % 3 === 0) return `${t / 3}`;
-    return `${sign}\\dfrac{${abs}}{3}`;
-  }
-  return `${Number(n.toFixed(4))}`;
 }
 
 /**
@@ -247,13 +264,6 @@ export function genGeneralThreeVar() {
     };
   }
   return bookGeneral();
-}
-
-function gcd(a, b) {
-  a = Math.abs(a);
-  b = Math.abs(b);
-  while (b) [a, b] = [b, a % b];
-  return a || 1;
 }
 
 function bookGeneral() {
