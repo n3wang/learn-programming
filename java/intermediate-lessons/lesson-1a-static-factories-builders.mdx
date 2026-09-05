@@ -215,6 +215,46 @@ Exactly one instance. Harder to mock unless the type is an interface.
 
 Serializable field/factory singletons need `transient` fields + `readResolve()` returning `INSTANCE`, or deserialization creates clones.
 
+<CodeExercise
+  title="Elvis singleton"
+  heading="Challenge: Elvis singleton"
+  lang="java"
+  filename="Main.java"
+  prompt="Elvis is a singleton: a private constructor increments a static counter each time it runs; INSTANCE is a public static final field built exactly once. wrap accesses INSTANCE twice and prints whether both refs are == plus the constructor count."
+  sampleLog={`true 1`}
+  starter={`public class Main {
+    public static final class Elvis {
+        public static final Elvis INSTANCE = null; // TODO new Elvis()
+        private static int constructions = 0;
+
+        private Elvis() {
+            // TODO count constructions
+        }
+
+        public int constructions() {
+            return constructions;
+        }
+    }
+}
+`}
+  wrapSuffix={`
+class Runner {
+    public static void main(String[] args) {
+        Main.Elvis a = Main.Elvis.INSTANCE;
+        Main.Elvis b = Main.Elvis.INSTANCE;
+        System.out.println((a == b) + " " + a.constructions());
+    }
+}
+`}
+  sourceChecks={[
+    { name: 'private ctor', pattern: 'private\\s+Elvis\\s*\\(', must: true, hint: 'private Elvis() { ... }' },
+    { name: 'single field instance', pattern: 'INSTANCE\\s*=\\s*new\\s+Elvis\\s*\\(', must: true, hint: 'public static final Elvis INSTANCE = new Elvis();' },
+  ]}
+  tests={[
+    { name: 'one instance', stdin: '', equals: 'true 1' },
+  ]}
+/>
+
 ## Item 4: Noninstantiable utility classes
 
 `Math`, `Arrays`, `Collections`: static groups only. Making the class `abstract` fails — someone subclasses and constructs. Suppress the default constructor:
@@ -228,6 +268,35 @@ public class UtilityClass {
 ```
 
 Side effect: **no subclasses** (no accessible super constructor).
+
+<MultipleChoice
+  id="java-int-ch2-utility"
+  title="Noninstantiable utility classes"
+  questions={[
+    {
+      prompt: 'A class like Math or Collections that only holds static methods',
+      choices: [
+        'needs no constructor — the compiler-supplied default is fine',
+        'private constructor that throws AssertionError, blocking every caller including code inside the class',
+        'protected constructor so it can be subclassed',
+        'a public no-arg constructor documented as unused',
+      ],
+      answer: 1,
+      why: 'Omitting a constructor leaves the public default in place. A private constructor that throws blocks every caller.',
+    },
+    {
+      prompt: 'Making the utility class abstract instead of adding a private constructor',
+      choices: [
+        'fully prevents instantiation',
+        'still lets a subclass be instantiated — abstract does not block "new"',
+        'is the standard fix used by Math and Arrays',
+        'removes the need for static methods',
+      ],
+      answer: 1,
+      why: 'abstract only blocks direct instantiation of that class; a trivial subclass can still be constructed.',
+    },
+  ]}
+/>
 
 ## Item 5: Prefer dependency injection
 
@@ -247,20 +316,9 @@ public class SpellChecker {
 Simple, testable, immutable-friendly. Large graphs → Guice / Spring / Dagger — APIs designed for manual DI adapt cleanly.
 
 <MultipleChoice
-  id="java-int-ch2-singleton-di"
-  title="Singleton, utility, DI"
+  id="java-int-ch2-di"
+  title="Dependency injection"
   questions={[
-    {
-      prompt: 'Preferred singleton today (no superclass other than Enum)',
-      choices: [
-        'public static field only',
-        'single-element enum',
-        'mutable static dictionary field',
-        'abstract class with default constructor',
-      ],
-      answer: 1,
-      why: 'Serialization and reflection are handled; still one INSTANCE.',
-    },
     {
       prompt: 'SpellChecker that must work with many dictionaries',
       choices: [

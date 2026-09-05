@@ -1,0 +1,951 @@
+---
+sidebar_position: 1
+title: "Spring Boot Common Tasks"
+---
+
+> **Source:** *Spring Boot in Practice* — Chapter 2 by Somnath Musib (Manning). Concepts rewritten for this course; companion samples: [spring-boot-in-practice/repo](https://github.com/spring-boot-in-practice/repo/tree/main/ch02).
+
+Spring Boot hides a lot of wiring so you can ship features faster. This lesson covers the day-to-day tasks you will keep repeating: externalize config, bind typed properties, run startup hooks, tune logging, and validate input with Bean Validation.
+
+:::tip Pattern-check challenges
+Spring Boot needs a full app context, so these editors **do not compile or run Java**. On **Check**, the site only verifies patterns in your code (`sourceChecks`). Annotated snippets above each exercise show the usual shape — inline comments explain what each part does; you still type it into the editor yourself. **Paste is disabled** (keyboard, right-click, drag-drop) so you practice writing the code.
+:::
+
+## What this chapter covers
+
+- Managing configuration across environments
+- Typed custom config with `@ConfigurationProperties`
+- Startup work via `CommandLineRunner`
+- Default Logback logging and switching to Log4j2
+- Bean Validation (built-in and custom constraints)
+
+---
+
+## 1. Managing configurations
+
+Real apps usually have several environments (dev, test, staging, prod). The **code** stays mostly the same; **config** changes: datasources, security, feature flags, ports.
+
+Spring Boot lets you externalize config without editing source for every environment:
+
+| Approach | Typical use |
+|---|---|
+| `SpringApplication.setDefaultProperties` | One-shot defaults before bootstrap |
+| `@PropertySource` | Extra `.properties` files on a `@Configuration` class |
+| `application.properties` / `.yml` | Main config data files |
+| OS environment variables | Secrets and host-specific values |
+| Command-line arguments | Highest-precedence overrides at launch |
+
+### 1.1 `SpringApplication` defaults
+
+`SpringApplication.setDefaultProperties(...)` accepts a `Properties` or `Map`. Useful for early bootstrap knobs that must exist before normal config loading.
+
+Example: optional config imports. With `spring.config.import=classpath:extra.properties`, a missing file normally fails startup. Setting `spring.config.on-not-found=ignore` lets bootstrap continue.
+
+```java
+Properties properties = new Properties();
+properties.setProperty("spring.config.on-not-found", "ignore");
+SpringApplication application = new SpringApplication(DemoApplication.class);
+application.setDefaultProperties(properties);
+application.run(args);
+```
+
+```java
+properties.setProperty("spring.config.on-not-found", "ignore"); // continue if an imported config file is missing
+application.setDefaultProperties(properties); // apply defaults before normal config loading
+application.run(args);
+```
+
+<CodeExercise
+  title="Ignore missing config imports"
+  heading="Challenge: setDefaultProperties"
+  lang="java"
+  filename="DemoApplication.java"
+  prompt={`(1) Before run, configure the SpringApplication so missing optional config imports do not abort startup.
+
+(2) Put the bootstrap property in the Properties instance.
+
+(3) Pass that map through setDefaultProperties, then run.
+
+(4) Do not change @SpringBootApplication.`}
+  starter={`package com.example.demo;
+
+import java.util.Properties;
+import org.springframework.boot.SpringApplication;
+import org.springframework.boot.autoconfigure.SpringBootApplication;
+
+@SpringBootApplication
+public class DemoApplication {
+    public static void main(String[] args) {
+        Properties properties = new Properties();
+
+        SpringApplication application = new SpringApplication(DemoApplication.class);
+
+        application.run(args);
+    }
+}
+`}
+  sourceChecks={[
+    {
+      name: 'sets on-not-found',
+      pattern: 'setProperty\\s*\\(\\s*"spring\\.config\\.on-not-found"\\s*,\\s*"ignore"\\s*\\)',
+      must: true,
+      hint: 'Use setProperty on the Properties object for spring.config.on-not-found',
+    },
+    {
+      name: 'calls setDefaultProperties',
+      pattern: 'application\\.setDefaultProperties\\s*\\(\\s*properties\\s*\\)',
+      must: true,
+      hint: 'Call setDefaultProperties on the SpringApplication before run',
+    },
+    {
+      name: 'not only in application.properties style',
+      pattern: 'spring\\.config\\.on-not-found\\s*=\\s*ignore',
+      must: false,
+      hint: 'Set the property on the Properties instance, not as a properties-file line',
+    },
+  ]}
+/>
+
+### 1.2 `@PropertySource`
+
+On a `@Configuration` class, `@PropertySource("classpath:dbConfig.properties")` loads a classic properties file into the `Environment`. Inject `Environment` (or use `@Value`) to read keys.
+
+```java
+@Configuration
+@PropertySource("classpath:dbConfig.properties")
+public class DbConfiguration {
+    @Autowired
+    private Environment env;
+
+    @Override
+    public String toString() {
+        return "Username: " + env.getProperty("user")
+            + ", Password: " + env.getProperty("password");
+    }
+}
+```
+
+Notes:
+
+- `@PropertySource` does **not** load YAML out of the box; stick to `.properties` or add extra support.
+- On Java 8+, repeat `@PropertySource` for multiple files (or use `@PropertySources`).
+
+```java
+import org.springframework.context.annotation.PropertySource;
+
+@PropertySource("classpath:dbConfig.properties") // load extra keys into Environment
+@Configuration
+public class DbConfiguration { ... }
+```
+
+<CodeExercise
+  title="@PropertySource on DbConfiguration"
+  heading="Challenge: PropertySource"
+  lang="java"
+  filename="DbConfiguration.java"
+  prompt={`(1) Wire DbConfiguration to load dbConfig.properties from the classpath using @PropertySource.
+
+(2) Add any imports you need.
+
+(3) Keep @Configuration, the Environment field, and toString unchanged.`}
+  starter={`package com.example.demo;
+
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.context.annotation.Configuration;
+import org.springframework.core.env.Environment;
+
+@Configuration
+public class DbConfiguration {
+    @Autowired
+    private Environment env;
+
+    @Override
+    public String toString() {
+        return "Username: " + env.getProperty("user")
+            + ", Password: " + env.getProperty("password");
+    }
+}
+`}
+  sourceChecks={[
+    {
+      name: 'imports PropertySource',
+      pattern: 'import\\s+org\\.springframework\\.context\\.annotation\\.PropertySource\\s*;',
+      must: true,
+      hint: 'Import PropertySource from org.springframework.context.annotation',
+    },
+    {
+      name: 'annotates class',
+      pattern: '@PropertySource\\s*\\(\\s*"classpath:dbConfig\\.properties"\\s*\\)',
+      must: true,
+      hint: 'Place @PropertySource on the class with classpath:dbConfig.properties',
+    },
+    {
+      name: 'not file: prefix',
+      pattern: '@PropertySource\\s*\\(\\s*"file:dbConfig\\.properties"\\s*\\)',
+      must: false,
+      hint: 'Use classpath:dbConfig.properties, not a filesystem path',
+    },
+  ]}
+/>
+
+### 1.3 Config data files
+
+Most teams use `application.properties` or `application.yml` under `src/main/resources`. Values land in `Environment` and work with `@Value`.
+
+Properties style:
+
+```properties
+server.port=8081
+spring.datasource.username=sa
+spring.datasource.password=password
+```
+
+YAML style (mind indentation):
+
+```yaml
+server:
+  port: 8081
+spring:
+  datasource:
+    username: sa
+    password: password
+```
+
+**Rename the file** with `spring.config.name` (for example `sbip` loads `sbip.yml`). **Point at a path** with `spring.config.location`. Both are early-binding: set them via CLI, env, or `setDefaultProperties` — **not** inside `application.properties` itself.
+
+Default search order includes classpath root, classpath `/config`, the process working directory, and `/config` under that directory. From Boot 2.4+, a missing location fails unless you mark it `optional:...`.
+
+**Profiles:** `application-dev.properties` / `application-test.yml` activate with `spring.profiles.active=dev` (etc.). Later sources override earlier ones; outside-the-jar profile files beat packaged ones.
+
+### 1.4 Environment variables and CLI args
+
+Placeholders pull OS env into config files:
+
+```properties
+spring.datasource.username=${DB_USERNAME}
+spring.datasource.password=${DB_PASSWORD}
+```
+
+Command-line flags win when you need a one-off override:
+
+```bash
+java -jar app.jar --server.port=9090 --spring.config.name=sbip
+```
+
+### 1.5 Precedence (low → high)
+
+If the same key appears in several places, **higher wins**:
+
+1. `SpringApplication` defaults  
+2. `@PropertySource`  
+3. Config data files  
+4. OS environment variables  
+5. Command-line arguments  
+
+So `--server.port=9090` beats `server.port` in `application.properties`.
+
+<MultipleChoice
+  id="sb-ch2-config-precedence"
+  title="Configuration quiz"
+  questions={[
+    {
+      prompt: 'Which source wins if server.port is set in application.properties and also passed as --server.port=9090?',
+      choices: [
+        'application.properties',
+        'Command-line argument',
+        '@PropertySource',
+        'SpringApplication defaults',
+      ],
+      answer: 1,
+      why: 'Command-line arguments sit at the top of the common precedence order for these sources.',
+    },
+    {
+      prompt: 'Why can you not set spring.config.name inside application.properties?',
+      choices: [
+        'The property is illegal',
+        'It is only valid in YAML',
+        'It is read too early, before that file is processed',
+        'It only works with @PropertySource',
+      ],
+      answer: 2,
+      why: 'name/location are resolved in early bootstrap; use CLI, env, or setDefaultProperties.',
+    },
+    {
+      prompt: '@PropertySource("classpath:app.yml")',
+      choices: [
+        'Loads YAML like properties files',
+        'Is the recommended way to load YAML',
+        'Does not support YAML without extra work',
+        'Overrides command-line args',
+      ],
+      answer: 2,
+      why: '@PropertySource targets classic .properties; YAML needs config data files or custom support.',
+    },
+  ]}
+/>
+
+---
+
+## 2. Custom properties with `@ConfigurationProperties`
+
+Built-in keys like `server.port` are documented by Spring Boot. App-specific keys (`app.sbip.ct.name`, nested security flags, role lists) are better as a **typed bean** than a pile of `@Value` strings.
+
+Problems with raw `Environment` / `@Value`:
+
+- Weak typing (URLs, ports, lists) and late failures
+- Scattered individual lookups instead of one cohesive object
+
+### Technique: bind a type-safe properties class
+
+1. Add optional `spring-boot-configuration-processor` for IDE metadata / autocomplete.  
+2. Declare keys in `application.properties` (or YAML).  
+3. Map them with `@ConfigurationProperties("app.sbip.ct")` on a POJO (nested static class for `security.*`).  
+4. Prefer **constructor binding** for immutability (Boot 3 binds a single constructor automatically; older samples used `@ConstructorBinding`).  
+5. Register with `@EnableConfigurationProperties(AppProperties.class)` or `@ConfigurationPropertiesScan`.  
+6. Inject `AppProperties` into services.
+
+```properties
+app.sbip.ct.name=CourseTracker
+app.sbip.ct.ip=127.0.0.1
+app.sbip.ct.port=9090
+app.sbip.ct.security.enabled=true
+app.sbip.ct.security.token=...
+app.sbip.ct.security.roles=USER,ADMIN
+```
+
+```java
+@ConfigurationProperties("app.sbip.ct")
+public class AppProperties {
+    private final String name;
+    private final String ip;
+    private final int port;
+    private final Security security;
+    // constructor + getters ...
+}
+```
+
+Optional `@DefaultValue` on constructor parameters supplies fallbacks when a key is missing.
+
+```java
+@ConfigurationProperties("app.sbip.ct") // maps app.sbip.ct.* properties onto this type
+public class AppProperties { ... }
+
+@EnableConfigurationProperties(AppProperties.class) // register the properties bean in the context
+@SpringBootApplication
+public class DemoApplication { ... }
+```
+
+<CodeExercise
+  title="Enable AppProperties"
+  heading="Challenge: @ConfigurationProperties wiring"
+  lang="java"
+  filename="DemoApplication.java"
+  prompt={`(1) AppProperties maps keys under app.sbip.ct (see the properties block above).
+
+(2) Mark it as a configuration-properties type with that prefix.
+
+(3) Register it on the Spring Boot application class so AppService can receive it.
+
+(4) Leave AppService as-is.`}
+  starter={`package com.example.demo;
+
+import org.springframework.boot.SpringApplication;
+import org.springframework.boot.autoconfigure.SpringBootApplication;
+import org.springframework.boot.context.properties.ConfigurationProperties;
+import org.springframework.boot.context.properties.EnableConfigurationProperties;
+import org.springframework.stereotype.Service;
+
+public class AppProperties {
+    private final String name;
+    private final int port;
+
+    public AppProperties(String name, int port) {
+        this.name = name;
+        this.port = port;
+    }
+
+    public String getName() { return name; }
+    public int getPort() { return port; }
+}
+
+@Service
+class AppService {
+    private final AppProperties appProperties;
+    AppService(AppProperties appProperties) { this.appProperties = appProperties; }
+    AppProperties getAppProperties() { return appProperties; }
+}
+
+@SpringBootApplication
+public class DemoApplication {
+    public static void main(String[] args) {
+        SpringApplication.run(DemoApplication.class, args);
+    }
+}
+`}
+  sourceChecks={[
+    {
+      name: 'prefix on AppProperties',
+      pattern: '@ConfigurationProperties\\s*\\(\\s*"app\\.sbip\\.ct"\\s*\\)',
+      must: true,
+      hint: 'Use @ConfigurationProperties with the app.sbip.ct prefix on AppProperties',
+    },
+    {
+      name: 'enable on application',
+      pattern: '@EnableConfigurationProperties\\s*\\(\\s*AppProperties\\.class\\s*\\)',
+      must: true,
+      hint: 'Enable AppProperties on DemoApplication with @EnableConfigurationProperties',
+    },
+    {
+      name: 'wrong shorter prefix',
+      pattern: '@ConfigurationProperties\\s*\\(\\s*"app\\.sbip"\\s*\\)',
+      must: false,
+      hint: 'The prefix must include ct: app.sbip.ct',
+    },
+  ]}
+/>
+
+<MultipleChoice
+  id="sb-ch2-config-properties"
+  title="@ConfigurationProperties quiz"
+  questions={[
+    {
+      prompt: 'Main benefit of @ConfigurationProperties over many @Value fields?',
+      choices: [
+        'Faster JVM startup only',
+        'Typed, structured binding (and optional validation)',
+        'It disables Environment entirely',
+        'It only works with YAML',
+      ],
+      answer: 1,
+      why: 'You get a cohesive, type-safe object instead of scattered string lookups.',
+    },
+    {
+      prompt: 'Prefix app.sbip.ct with field port maps to which key?',
+      choices: [
+        'port',
+        'app.port',
+        'app.sbip.ct.port',
+        'ct.port',
+      ],
+      answer: 2,
+      why: 'Prefix + property path: app.sbip.ct.port.',
+    },
+  ]}
+/>
+
+---
+
+## 3. Startup code with `CommandLineRunner`
+
+Need to seed data, warm a cache, or call a remote API once the context is almost ready? Implement `CommandLineRunner` (or `ApplicationRunner`). Spring invokes `run(...)` once, just before `SpringApplication.run` returns.
+
+Common shapes:
+
+1. Main class **implements** `CommandLineRunner`  
+2. `@Bean` returning a `CommandLineRunner` lambda  
+3. Separate `@Component` implementing the interface  
+
+`@Bean` / `@Component` scale better: multiple runners, `@Order` for sequence, and less clutter in `main`. Inside `run`, you can inject any ready bean (for example a Spring Data repository).
+
+```java
+@Bean
+public CommandLineRunner commandLineRunner() {
+    return args -> {
+        logger.info("started with " + args.length + " args");
+    };
+}
+```
+
+```java
+@Order(1)
+@Component
+public class MyCommandLineRunner implements CommandLineRunner {
+    @Override
+    public void run(String... args) {
+        // init work
+    }
+}
+```
+
+```java
+@Bean
+public CommandLineRunner commandLineRunner() { // invoked once near end of startup
+    return args -> logger.info("ready"); // lambda implements CommandLineRunner.run
+}
+```
+
+<CodeExercise
+  heading="Challenge: @Bean CommandLineRunner"
+  lang="java"
+  filename="DemoApplication.java"
+  prompt={`(1) Register a startup hook as a @Bean named commandLineRunner.
+
+(2) Implement CommandLineRunner with a lambda that logs exactly ready at INFO through the class logger.
+
+(3) Do not implement CommandLineRunner on the application class itself.`}
+  starter={`package com.example.demo;
+
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+import org.springframework.boot.CommandLineRunner;
+import org.springframework.boot.SpringApplication;
+import org.springframework.boot.autoconfigure.SpringBootApplication;
+import org.springframework.context.annotation.Bean;
+
+@SpringBootApplication
+public class DemoApplication {
+    private final Logger logger = LoggerFactory.getLogger(getClass());
+
+    public static void main(String[] args) {
+        SpringApplication.run(DemoApplication.class, args);
+    }
+}
+`}
+  sourceChecks={[
+    {
+      name: '@Bean method',
+      pattern: '@Bean\\s+public\\s+CommandLineRunner\\s+commandLineRunner\\s*\\(',
+      must: true,
+      hint: 'Declare a @Bean method returning CommandLineRunner named commandLineRunner',
+    },
+    {
+      name: 'returns lambda',
+      pattern: 'return\\s+args\\s*->',
+      must: true,
+      hint: 'Return a lambda (args -> ...) from the bean method',
+    },
+    {
+      name: 'logs ready',
+      pattern: 'logger\\.info\\s*\\(\\s*"ready"\\s*\\)',
+      must: true,
+      hint: 'Inside the lambda, log the literal message ready at INFO',
+    },
+    {
+      name: 'not main implements runner',
+      pattern: 'class\\s+DemoApplication\\s+implements\\s+CommandLineRunner',
+      must: false,
+      hint: 'Use a @Bean method, not implements CommandLineRunner on the class',
+    },
+  ]}
+/>
+
+<MultipleChoice
+  id="sb-ch2-clr"
+  title="CommandLineRunner quiz"
+  questions={[
+    {
+      prompt: 'When does CommandLineRunner.run execute?',
+      choices: [
+        'Before the ApplicationContext exists',
+        'Once, near the end of SpringApplication.run',
+        'On every HTTP request',
+        'Only in tests',
+      ],
+      answer: 1,
+      why: 'Runners fire once when startup is essentially complete.',
+    },
+    {
+      prompt: 'Best way to run two startup tasks in a fixed order?',
+      choices: [
+        'Two implements on the main class',
+        'Two @Component runners with @Order',
+        'System.exit between them',
+        'Only application.properties',
+      ],
+      answer: 1,
+      why: '@Order on separate component (or bean) runners controls sequence.',
+    },
+  ]}
+/>
+
+---
+
+## 4. Logging
+
+### 4.1 Default Logback console logging
+
+Any `spring-boot-starter-*` pulls in `spring-boot-starter-logging` → **Logback**. Console lines typically include timestamp, level, PID, thread, logger, and message.
+
+Useful properties:
+
+| Property | Role |
+|---|---|
+| `logging.pattern.console` | Custom console pattern |
+| `debug=true` / `trace=true` | Raise verbosity |
+| `logging.file.name` **or** `logging.file.path` | File logging (pick one style) |
+| `logging.logback.rollingpolicy.max-file-size` | Size-based rollover (default ~10MB) |
+| `logging.logback.rollingpolicy.max-history` | How many archived files to keep |
+
+Default levels include INFO / WARN / ERROR; enable DEBUG/TRACE when diagnosing.
+
+### 4.2 Switch to Log4j2
+
+1. Clear `logging.*` experiments from `application.properties` if you are moving config into Log4j2 XML.  
+2. Exclude `spring-boot-starter-logging` from `spring-boot-starter-web` (and other starters that bring it in).  
+3. Add `spring-boot-starter-log4j2`.  
+4. Add `src/main/resources/log4j2-spring.xml` (preferred over `log4j2.xml` so Boot can control initialization).  
+5. Log via SLF4J (`LoggerFactory.getLogger`) so the facade still works.
+
+```xml
+<dependency>
+  <groupId>org.springframework.boot</groupId>
+  <artifactId>spring-boot-starter-web</artifactId>
+  <exclusions>
+    <exclusion>
+      <groupId>org.springframework.boot</groupId>
+      <artifactId>spring-boot-starter-logging</artifactId>
+    </exclusion>
+  </exclusions>
+</dependency>
+<dependency>
+  <groupId>org.springframework.boot</groupId>
+  <artifactId>spring-boot-starter-log4j2</artifactId>
+</dependency>
+```
+
+A typical XML file defines a `LOG_PATTERN`, `Console` + `RollingFile` appenders (size/time policies), package loggers, and a `Root` logger.
+
+```xml
+<dependency>
+  <groupId>org.springframework.boot</groupId>
+  <artifactId>spring-boot-starter-web</artifactId>
+  <exclusions>
+    <exclusion>
+      <groupId>org.springframework.boot</groupId>
+      <artifactId>spring-boot-starter-logging</artifactId> <!-- remove default Logback -->
+    </exclusion>
+  </exclusions>
+</dependency>
+<dependency>
+  <groupId>org.springframework.boot</groupId>
+  <artifactId>spring-boot-starter-log4j2</artifactId> <!-- use Log4j2 on the classpath -->
+</dependency>
+```
+
+<CodeExercise
+  title="Exclude Logback, add Log4j2"
+  heading="Challenge: pom logging swap"
+  lang="xml"
+  filename="pom-snippet.xml"
+  prompt={`(1) Exclude the transitive logging starter from spring-boot-starter-web.
+
+(2) Add the Log4j2 Boot starter as its own dependency.
+
+(3) Keep the outer <dependencies> wrapper.`}
+  starter={`<dependencies>
+  <dependency>
+    <groupId>org.springframework.boot</groupId>
+    <artifactId>spring-boot-starter-web</artifactId>
+  </dependency>
+</dependencies>
+`}
+  sourceChecks={[
+    {
+      name: 'excludes starter-logging',
+      pattern: '<artifactId>\\s*spring-boot-starter-logging\\s*</artifactId>',
+      must: true,
+      hint: 'Exclude spring-boot-starter-logging from the web starter',
+    },
+    {
+      name: 'has exclusions block',
+      pattern: '<exclusions>[\\s\\S]*</exclusions>',
+      must: true,
+      hint: 'Use an <exclusions> block inside the web dependency',
+    },
+    {
+      name: 'adds log4j2 starter',
+      pattern: '<artifactId>\\s*spring-boot-starter-log4j2\\s*</artifactId>',
+      must: true,
+      hint: 'Add a separate dependency for spring-boot-starter-log4j2',
+    },
+    {
+      name: 'log4j2 not inside exclusion',
+      pattern: '<exclusion>[\\s\\S]*spring-boot-starter-log4j2[\\s\\S]*</exclusion>',
+      must: false,
+      hint: 'Log4j2 should be a new dependency, not an exclusion',
+    },
+  ]}
+/>
+
+<MultipleChoice
+  id="sb-ch2-logging"
+  title="Logging quiz"
+  questions={[
+    {
+      prompt: 'Why does a typical Boot web app use Logback by default?',
+      choices: [
+        'The JDK forces it',
+        'spring-boot-starter-logging is transitive from starters',
+        'YAML cannot configure Log4j2',
+        'SLF4J only supports Logback',
+      ],
+      answer: 1,
+      why: 'Starters bring spring-boot-starter-logging, which wires Logback.',
+    },
+    {
+      prompt: 'Preferred Log4j2 config file name with Spring Boot?',
+      choices: [
+        'logback.xml only',
+        'logging.properties',
+        'log4j2-spring.xml',
+        'application-log4j.yml only',
+      ],
+      answer: 2,
+      why: 'Boot can initialize logging more cleanly with log4j2-spring.xml.',
+    },
+  ]}
+/>
+
+---
+
+## 5. Bean Validation
+
+Bean Validation (Jakarta Validation; Hibernate Validator is the usual implementation) expresses constraints as annotations. Add `spring-boot-starter-validation`.
+
+### 5.1 Built-in annotations
+
+Common field constraints:
+
+| Annotation | Checks |
+|---|---|
+| `@NotNull` / `@NotEmpty` / `@NotBlank` | Null / empty rules |
+| `@Min` / `@Max` | Numeric bounds |
+| `@Size(min, max)` | Length / collection size |
+| `@Pattern` | Regex |
+| `@Email` | Email shape |
+
+Example: course rating must be 1–5.
+
+```java
+public class Course {
+    private long id;
+    private String name;
+
+    @Min(value = 1, message = "A course should have a minimum of 1 rating")
+    @Max(value = 5, message = "A course should have a maximum of 5 rating")
+    private int rating;
+}
+```
+
+You can validate programmatically:
+
+```java
+Validator validator = Validation.buildDefaultValidatorFactory().getValidator();
+Set<ConstraintViolation<Course>> violations = validator.validate(course);
+```
+
+Later chapters wire the same annotations into MVC / REST with `@Valid`.
+
+```java
+@Min(value = 1, message = "…") // rating must be at least 1
+@Max(value = 5, message = "…") // rating must be at most 5
+private int rating;
+```
+
+<CodeExercise
+  heading="Challenge: @Min and @Max"
+  lang="java"
+  filename="Course.java"
+  prompt={`(1) Course ratings must be 1–5 stars.
+
+(2) Add Bean Validation on the rating field (imports provided).
+
+(3) Use custom violation messages on both constraints, not the defaults.`}
+  starter={`package com.example.demo.model;
+
+import jakarta.validation.constraints.Max;
+import jakarta.validation.constraints.Min;
+
+public class Course {
+    private long id;
+    private String name;
+    private String category;
+    private int rating;
+    private String description;
+
+    public int getRating() { return rating; }
+    public void setRating(int rating) { this.rating = rating; }
+}
+`}
+  sourceChecks={[
+    {
+      name: '@Min value 1',
+      pattern: '@Min\\s*\\(\\s*value\\s*=\\s*1\\b',
+      must: true,
+      hint: 'Add @Min with value 1 on rating',
+    },
+    {
+      name: '@Max value 5',
+      pattern: '@Max\\s*\\(\\s*value\\s*=\\s*5\\b',
+      must: true,
+      hint: 'Add @Max with value 5 on rating',
+    },
+    {
+      name: 'custom @Min message',
+      pattern: '@Min\\s*\\([^)]*message\\s*=\\s*"[^"]+"',
+      must: true,
+      hint: '@Min needs a message = "..." attribute',
+    },
+    {
+      name: 'custom @Max message',
+      pattern: '@Max\\s*\\([^)]*message\\s*=\\s*"[^"]+"',
+      must: true,
+      hint: '@Max needs a message = "..." attribute',
+    },
+    {
+      name: '@Min on rating field',
+      pattern: '@Min\\s*\\([^)]*\\)\\s*\\n\\s*(@Max\\s*\\([^)]*\\)\\s*\\n\\s*)?private\\s+int\\s+rating\\s*;',
+      must: true,
+      hint: 'Place @Min (and @Max) immediately above private int rating',
+    },
+    {
+      name: 'not on name field',
+      pattern: '@Min\\s*\\([^)]*\\)[\\s\\S]*private\\s+String\\s+name',
+      must: false,
+      hint: 'Put validation on rating, not name',
+    },
+    {
+      name: 'not zero-based min',
+      pattern: '@Min\\s*\\(\\s*value\\s*=\\s*0\\b',
+      must: false,
+      hint: 'Minimum rating is 1, not 0',
+    },
+  ]}
+/>
+
+### 5.2 Custom constraints
+
+For domain rules (password policy, IP format), implement:
+
+1. `ConstraintValidator<YourAnnotation, ValueType>` with `isValid(...)`  
+2. An annotation marked `@Constraint(validatedBy = ...)` with `message`, `groups`, `payload`  
+3. Apply the annotation on fields  
+
+Libraries like [Passay](https://www.passay.org/) help encode password rules (length, character classes, max repeats) inside `isValid`.
+
+```java
+@Target({ElementType.METHOD, ElementType.FIELD})
+@Retention(RetentionPolicy.RUNTIME)
+@Constraint(validatedBy = PasswordRuleValidator.class)
+public @interface Password {
+    String message() default "Password do not adhere to the specified rule";
+    Class<?>[] groups() default {};
+    Class<? extends Payload>[] payload() default {};
+}
+```
+
+```java
+public class User {
+    private String userName;
+    @Password
+    private String password;
+}
+```
+
+```java
+@Target({ElementType.METHOD, ElementType.FIELD}) // may annotate fields or methods
+@Retention(RetentionPolicy.RUNTIME) // visible to the validator at runtime
+@Constraint(validatedBy = PasswordRuleValidator.class) // logic lives in the validator class
+public @interface Password {
+    String message() default "...";
+    Class<?>[] groups() default {};
+    Class<? extends Payload>[] payload() default {};
+}
+```
+
+<CodeExercise
+  title="Wire @Password constraint"
+  heading="Challenge: custom validation annotation"
+  lang="java"
+  filename="Password.java"
+  prompt={`(1) Make Password a Bean Validation constraint usable on fields and methods at runtime.
+
+(2) Wire it to PasswordRuleValidator.
+
+(3) Keep the message, groups, and payload members unchanged.`}
+  starter={`package com.example.demo.validation;
+
+import jakarta.validation.Constraint;
+import jakarta.validation.Payload;
+import java.lang.annotation.ElementType;
+import java.lang.annotation.Retention;
+import java.lang.annotation.RetentionPolicy;
+import java.lang.annotation.Target;
+
+public @interface Password {
+    String message() default "Password do not adhere to the specified rule";
+    Class<?>[] groups() default {};
+    Class<? extends Payload>[] payload() default {};
+}
+`}
+  sourceChecks={[
+    {
+      name: '@Target METHOD FIELD',
+      pattern: '@Target\\s*\\(\\s*\\{\\s*ElementType\\.METHOD\\s*,\\s*ElementType\\.FIELD\\s*\\}\\s*\\)',
+      must: true,
+      hint: 'Add @Target for METHOD and FIELD',
+    },
+    {
+      name: '@Retention RUNTIME',
+      pattern: '@Retention\\s*\\(\\s*RetentionPolicy\\.RUNTIME\\s*\\)',
+      must: true,
+      hint: 'Retention must be RUNTIME so validation runs',
+    },
+    {
+      name: 'validatedBy PasswordRuleValidator',
+      pattern: '@Constraint\\s*\\(\\s*validatedBy\\s*=\\s*PasswordRuleValidator\\.class\\s*\\)',
+      must: true,
+      hint: 'Wire @Constraint to PasswordRuleValidator',
+    },
+    {
+      name: 'not SOURCE retention',
+      pattern: '@Retention\\s*\\(\\s*RetentionPolicy\\.SOURCE\\s*\\)',
+      must: false,
+      hint: 'Use RUNTIME, not SOURCE',
+    },
+  ]}
+/>
+
+<MultipleChoice
+  id="sb-ch2-validation"
+  title="Bean Validation quiz"
+  questions={[
+    {
+      prompt: 'Which starter pulls in Hibernate Validator for Boot?',
+      choices: [
+        'spring-boot-starter-logging',
+        'spring-boot-starter-validation',
+        'spring-boot-configuration-processor',
+        'spring-boot-starter-log4j2',
+      ],
+      answer: 1,
+      why: 'spring-boot-starter-validation is the usual dependency.',
+    },
+    {
+      prompt: 'A custom constraint needs which piece?',
+      choices: [
+        'Only a message string in application.properties',
+        'A ConstraintValidator implementation referenced by @Constraint',
+        'A CommandLineRunner',
+        'Log4j2 RollingFile',
+      ],
+      answer: 1,
+      why: 'validatedBy points at your ConstraintValidator.isValid logic.',
+    },
+  ]}
+/>
+
+---
+
+## Chapter checklist
+
+| Topic | Takeaway |
+|---|---|
+| External config | Properties/YAML, env, CLI, `@PropertySource`, early defaults |
+| Precedence | CLI generally beats env, which beats files, which beat `@PropertySource` / app defaults |
+| `@ConfigurationProperties` | Typed, nested, documentable app settings |
+| `CommandLineRunner` | One-shot startup hooks; prefer beans + `@Order` |
+| Logging | Logback by default; exclude logging starter to use Log4j2 |
+| Bean Validation | Built-in annotations + custom `@Constraint` validators |
+
+Next stop in the book journey: accessing databases from Spring Boot (repositories, schema init, and related patterns).

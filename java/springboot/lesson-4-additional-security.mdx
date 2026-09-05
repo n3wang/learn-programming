@@ -1,0 +1,727 @@
+---
+sidebar_position: 4
+title: "Additional Security with Spring Security"
+---
+
+> **Source:** *Spring Boot in Practice* — Chapter 6 by Somnath Musib (Manning). Concepts rewritten for this course; companion samples: [spring-boot-in-practice/repo ch06](https://github.com/spring-boot-in-practice/repo/tree/main/ch06). Assumes Spring Security basics from Chapter 5.
+
+HTTPS, secrets, registration flows, CAPTCHA, 2FA, OAuth2, and locking down Actuator — the extras real apps add after “form login works.”
+
+:::tip Pattern-check challenges
+Editors **do not compile or run** Spring Boot. **Check** uses `sourceChecks` only. Snippets above exercises show the usual shape with inline comments; type the code yourself. **Paste is disabled** on Spring Boot lessons.
+:::
+
+## What this lesson covers
+
+- HTTPS (TLS) and redirecting HTTP → HTTPS
+- Secrets with Spring Cloud Vault (vs plain `application.properties`)
+- User registration, email verification, account lockout
+- Remember-me, Google reCAPTCHA, TOTP 2FA
+- OAuth2 login (e.g. Google)
+- Securing Actuator endpoints by role
+
+:::note API versions
+Book samples often use `WebSecurityConfigurerAdapter`. On **Spring Security 6 / Boot 3**, prefer a `@Bean SecurityFilterChain`. Concepts map 1:1; snippets below show the modern style where it matters.
+:::
+
+---
+
+## 1. Enable HTTPS
+
+HTTP sends cleartext. TLS encrypts traffic. Steps:
+
+1. Obtain a certificate (trusted CA for prod; `keytool` / `openssl` self-signed for demos)
+2. Put the keystore on the classpath and set `server.ssl.*`
+3. Optionally force HTTPS in the security filter chain
+4. Optionally redirect port 8080 → 8443 with an extra Tomcat connector
+
+```properties
+server.ssl.key-store-type=PKCS12
+server.ssl.key-store=classpath:keystore/sbip.p12 # keystore on classpath
+server.ssl.key-store-password=${keystore} # prefer Vault/env — not plain text in git
+server.ssl.key-alias=sbip
+server.port=8443 # HTTPS listen port
+```
+
+```java
+http.requiresChannel(channel -> channel.anyRequest().requiresSecure()); // force HTTPS
+```
+
+Self-signed certs show browser warnings — expected in demos; use a CA in production.
+
+```properties
+server.ssl.key-store-type=PKCS12
+server.ssl.key-store=classpath:keystore/sbip.p12
+server.ssl.key-store-password=p@ssw0rd
+server.ssl.key-alias=sbip
+server.port=8443
+```
+
+<CodeExercise
+  title="HTTPS properties"
+  heading="Challenge: server.ssl.*"
+  lang="properties"
+  filename="application.properties"
+  prompt={`(1) Use PKCS12 keystore type.
+
+(2) Point key-store at classpath:keystore/sbip.p12.
+
+(3) Set alias sbip and HTTPS port 8443.`}
+  starter={`# TLS
+`}
+  sourceChecks={[
+    {
+      name: 'keystore type',
+      pattern: '^server\\.ssl\\.key-store-type\\s*=\\s*PKCS12\\s*$',
+      flags: 'm',
+      must: true,
+      hint: 'server.ssl.key-store-type=PKCS12',
+    },
+    {
+      name: 'keystore path',
+      pattern: '^server\\.ssl\\.key-store\\s*=\\s*classpath:keystore/sbip\\.p12\\s*$',
+      flags: 'm',
+      must: true,
+      hint: 'server.ssl.key-store=classpath:keystore/sbip.p12',
+    },
+    {
+      name: 'key alias',
+      pattern: '^server\\.ssl\\.key-alias\\s*=\\s*sbip\\s*$',
+      flags: 'm',
+      must: true,
+      hint: 'server.ssl.key-alias=sbip',
+    },
+    {
+      name: 'port 8443',
+      pattern: '^server\\.port\\s*=\\s*8443\\s*$',
+      flags: 'm',
+      must: true,
+      hint: 'server.port=8443',
+    },
+  ]}
+/>
+
+---
+
+## 2. Secrets with HashiCorp Vault
+
+Putting passwords and API keys in `application.properties` in git is a common leak. **Vault** stores secrets; Spring Cloud Vault loads them at startup.
+
+```xml
+<dependency>
+  <groupId>org.springframework.cloud</groupId>
+  <artifactId>spring-cloud-starter-vault-config</artifactId>
+</dependency>
+```
+
+Import the Cloud BOM, then:
+
+```properties
+spring.cloud.vault.host=localhost
+spring.cloud.vault.port=8200
+spring.cloud.vault.scheme=https # use TLS in production
+spring.cloud.vault.authentication=token
+spring.cloud.vault.token=${VAULT_TOKEN} # from env — not committed
+spring.config.import=vault://secret/coursetracker
+server.ssl.key-store-password=${keystore} # key stored in Vault
+```
+
+Demo setups sometimes use HTTP + root token in properties — **never** do that in production.
+
+```properties
+spring.config.import=vault://secret/coursetracker # load secret/coursetracker path
+server.ssl.key-store-password=${keystore} # resolve keystore from Vault
+```
+
+<CodeExercise
+  title="Vault-backed password"
+  heading="Challenge: spring.config.import vault"
+  lang="properties"
+  filename="application.properties"
+  prompt={`(1) Import secrets from vault://secret/coursetracker.
+
+(2) Set server.ssl.key-store-password from the keystore property placeholder.
+
+(3) Do not hard-code the keystore password as plain text.`}
+  starter={`# Vault
+`}
+  sourceChecks={[
+    {
+      name: 'vault import',
+      pattern: '^spring\\.config\\.import\\s*=\\s*vault://secret/coursetracker\\s*$',
+      flags: 'm',
+      must: true,
+      hint: 'spring.config.import=vault://secret/coursetracker',
+    },
+    {
+      name: 'keystore placeholder',
+      pattern: '^server\\.ssl\\.key-store-password\\s*=\\s*\\$\\{keystore\\}\\s*$',
+      flags: 'm',
+      must: true,
+      hint: 'server.ssl.key-store-password=${keystore}',
+    },
+    {
+      name: 'not plain password',
+      pattern: '^server\\.ssl\\.key-store-password\\s*=\\s*p@ssw0rd',
+      flags: 'm',
+      must: false,
+      hint: 'Use ${keystore}, not a literal password',
+    },
+  ]}
+/>
+
+---
+
+## 3. User registration
+
+Typical pieces:
+
+| Piece | Role |
+|---|---|
+| Form + `UserDto` | Capture + Bean Validation |
+| `ApplicationUser` `@Entity` | Persist to `CT_USERS` |
+| `UserService` | Map DTO → entity; **encode** password |
+| `UserDetailsService` | Bridge entity → Spring Security `UserDetails` |
+| `RegistrationController` | GET form / POST create |
+| `SecurityFilterChain` | Permit `/adduser`, `/login`; encode with `BCryptPasswordEncoder` |
+
+```java
+applicationUser.setPassword(passwordEncoder.encode(userDto.getPassword())); // never store raw
+```
+
+```java
+User.withUsername(username)
+    .password(applicationUser.getPassword())
+    .roles("USER")
+    .disabled(!applicationUser.isVerified()) // gate on email verification later
+    .build();
+```
+
+```java
+@Bean
+public PasswordEncoder passwordEncoder() {
+    return new BCryptPasswordEncoder(); // hash passwords at rest
+}
+```
+
+<CodeExercise
+  title="BCrypt PasswordEncoder"
+  heading="Challenge: PasswordEncoder bean"
+  lang="java"
+  filename="SecurityConfig.java"
+  prompt={`(1) Declare a @Bean method passwordEncoder.
+
+(2) Return a new BCryptPasswordEncoder.
+
+(3) Keep the surrounding class annotations.`}
+  starter={`package com.example.demo.security;
+
+import org.springframework.context.annotation.Bean;
+import org.springframework.context.annotation.Configuration;
+import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
+import org.springframework.security.crypto.password.PasswordEncoder;
+
+@Configuration
+public class SecurityConfig {
+}
+`}
+  sourceChecks={[
+    {
+      name: '@Bean passwordEncoder',
+      pattern: '@Bean\\s+public\\s+PasswordEncoder\\s+passwordEncoder\\s*\\(',
+      must: true,
+      hint: '@Bean public PasswordEncoder passwordEncoder()',
+    },
+    {
+      name: 'BCryptPasswordEncoder',
+      pattern: 'new\\s+BCryptPasswordEncoder\\s*\\(\\s*\\)',
+      must: true,
+      hint: 'return new BCryptPasswordEncoder()',
+    },
+    {
+      name: 'not NoOp',
+      pattern: 'NoOpPasswordEncoder',
+      must: false,
+      hint: 'Use BCrypt, not NoOpPasswordEncoder',
+    },
+  ]}
+/>
+
+---
+
+## 4. Email verification
+
+Flow:
+
+1. On register, save user with `verified=false`
+2. Publish `UserRegistrationEvent` (optionally async)
+3. Listener sends mail via `JavaMailSender` + `spring-boot-starter-mail`
+4. Store a UUID in `CT_EMAIL_VERIFICATIONS`; put Base64 id in activation link
+5. `/verify/email?id=…` marks user verified
+6. Unverified login → `DisabledException` → custom failure handler → “activate account” page
+
+```xml
+<dependency>
+  <groupId>org.springframework.boot</groupId>
+  <artifactId>spring-boot-starter-mail</artifactId>
+</dependency>
+```
+
+```properties
+spring.mail.host=smtp.example.com
+spring.mail.port=587
+spring.mail.username=${MAIL_USER}
+spring.mail.password=${MAIL_PASSWORD} # never commit real credentials
+spring.mail.properties.mail.smtp.auth=true
+spring.mail.properties.mail.smtp.starttls.enable=true
+```
+
+```java
+if (exception instanceof DisabledException) {
+    redirectStrategy.sendRedirect(request, response, "/login-disabled");
+}
+```
+
+---
+
+## 5. Lock after failed logins
+
+Listen to Security events:
+
+- `AuthenticationFailureBadCredentialsEvent` → increment Guava (or similar) cache
+- `AuthenticationSuccessEvent` → invalidate counter
+- In `UserDetailsService`, if attempts ≥ N → throw `LockedException`
+
+```java
+if (loginAttemptService.isBlocked(username)) {
+    throw new LockedException("User Account is Locked"); // temporary lock
+}
+```
+
+Cache `expireAfterWrite(1, TimeUnit.DAYS)` auto-clears locks after 24h in the book’s design.
+
+```java
+public UserDetails loadUserByUsername(String username) {
+    if (loginAttemptService.isBlocked(username)) {
+        throw new LockedException("User Account is Locked");
+    }
+    // load user …
+}
+```
+
+<CodeExercise
+  title="Throw LockedException"
+  heading="Challenge: account lock check"
+  lang="java"
+  filename="CustomUserDetailsService.java"
+  prompt={`(1) If loginAttemptService.isBlocked(username) is true, throw LockedException.
+
+(2) Keep the LockedException message containing Locked.
+
+(3) Do not change the method signature.`}
+  starter={`package com.example.demo.service;
+
+import org.springframework.security.authentication.LockedException;
+import org.springframework.security.core.userdetails.UserDetails;
+import org.springframework.security.core.userdetails.UserDetailsService;
+import org.springframework.security.core.userdetails.UsernameNotFoundException;
+
+public class CustomUserDetailsService implements UserDetailsService {
+    private LoginAttemptService loginAttemptService;
+
+    @Override
+    public UserDetails loadUserByUsername(String username) throws UsernameNotFoundException {
+        // block locked users here
+        return null;
+    }
+}
+`}
+  sourceChecks={[
+    {
+      name: 'isBlocked check',
+      pattern: 'loginAttemptService\\.isBlocked\\s*\\(\\s*username\\s*\\)',
+      must: true,
+      hint: 'Call loginAttemptService.isBlocked(username)',
+    },
+    {
+      name: 'throw LockedException',
+      pattern: 'throw\\s+new\\s+LockedException\\s*\\(',
+      must: true,
+      hint: 'throw new LockedException(...)',
+    },
+  ]}
+/>
+
+---
+
+## 6. Remember-me
+
+1. Login form checkbox named **`remember-me`** (exact name)
+2. Security DSL: `.rememberMe().key("…").rememberMeCookieName("…")`
+3. Provide a `UserDetailsService` so tokens can be rebuilt
+
+**Hash-based token** (cookie): convenient but stealable; key should be stable across restarts.  
+**Persistent token**: store series/token in DB — safer.
+
+```html
+<input type="checkbox" name="remember-me" /> <!-- Spring Security looks for this name -->
+```
+
+```java
+http.rememberMe(remember -> remember
+    .key("remember-me-key") // HMAC secret; set explicitly
+    .rememberMeCookieName("course-tracker-remember-me"));
+```
+
+```java
+http.rememberMe(r -> r
+    .key("remember-me-key")
+    .rememberMeCookieName("course-tracker-remember-me"));
+```
+
+<CodeExercise
+  title="Remember-me DSL"
+  heading="Challenge: rememberMe configuration"
+  lang="java"
+  filename="SecurityConfig.java"
+  prompt={`(1) Inside the SecurityFilterChain bean, enable rememberMe.
+
+(2) Set key remember-me-key and cookie name course-tracker-remember-me.
+
+(3) Keep authorizeHttpRequests as-is.`}
+  starter={`package com.example.demo.security;
+
+import org.springframework.context.annotation.Bean;
+import org.springframework.context.annotation.Configuration;
+import org.springframework.security.config.annotation.web.builders.HttpSecurity;
+import org.springframework.security.web.SecurityFilterChain;
+
+@Configuration
+public class SecurityConfig {
+    @Bean
+    SecurityFilterChain filterChain(HttpSecurity http) throws Exception {
+        http.authorizeHttpRequests(auth -> auth.anyRequest().authenticated())
+            .formLogin(form -> form.loginPage("/login").permitAll());
+        // enable remember-me here
+        return http.build();
+    }
+}
+`}
+  sourceChecks={[
+    {
+      name: 'rememberMe',
+      pattern: '\\.rememberMe\\s*\\(',
+      must: true,
+      hint: 'Call http.rememberMe(...)',
+    },
+    {
+      name: 'key',
+      pattern: '\\.key\\s*\\(\\s*"remember-me-key"\\s*\\)',
+      must: true,
+      hint: '.key("remember-me-key")',
+    },
+    {
+      name: 'cookie name',
+      pattern: '\\.rememberMeCookieName\\s*\\(\\s*"course-tracker-remember-me"\\s*\\)',
+      must: true,
+      hint: '.rememberMeCookieName("course-tracker-remember-me")',
+    },
+  ]}
+/>
+
+---
+
+## 7. Google reCAPTCHA
+
+Not a Spring feature — but common on registration:
+
+1. Site key in HTML (`g-recaptcha` + `api.js`)
+2. Secret in Vault/env (`captcha.secret.key`)
+3. On POST, read `g-recaptcha-response` and verify with Google’s siteverify API via `RestTemplate` / `WebClient`
+4. Reject registration if verification fails
+
+Balance UX: some apps show CAPTCHA only after repeated failures.
+
+---
+
+## 8. Two-factor authentication (TOTP)
+
+With Google Authenticator (or compatible apps):
+
+1. After password login, offer “Enable 2FA”
+2. Generate secret + QR (`googleauth` library); store in `CT_TOTP_DETAILS`
+3. Confirm with a code → set `totpEnabled` on user
+4. Later logins: password → OTP page
+5. Custom filter / success handler checks authority `TOTP_AUTH_AUTHORITY`, verifies code, then grants `ROLE_USER`
+
+TOTP = shared secret + current time window. Treat QR/secret like a password.
+
+```java
+if (user.isTotpEnabled()) {
+    authority = new SimpleGrantedAuthority("TOTP_AUTH_AUTHORITY"); // needs OTP step
+} else {
+    authority = new SimpleGrantedAuthority("ROLE_USER");
+}
+```
+
+---
+
+## 9. OAuth2 login (e.g. Google)
+
+1. Register the app with the IdP → client id + secret  
+2. Add `spring-boot-starter-oauth2-client`  
+3. Properties under `spring.security.oauth2.client.registration.google.*`  
+4. `.oauth2Login()` alongside form login  
+5. Success handler → app home  
+
+```xml
+<dependency>
+  <groupId>org.springframework.boot</groupId>
+  <artifactId>spring-boot-starter-oauth2-client</artifactId>
+</dependency>
+```
+
+```properties
+spring.security.oauth2.client.registration.google.client-id=${GOOGLE_CLIENT_ID}
+spring.security.oauth2.client.registration.google.client-secret=${GOOGLE_CLIENT_SECRET}
+spring.security.oauth2.client.registration.google.scope=email,profile
+```
+
+```java
+http.oauth2Login(oauth -> oauth
+    .loginPage("/login")
+    .successHandler(oauth2SuccessHandler)); // redirect after Google consent
+```
+
+```xml
+<dependency>
+  <groupId>org.springframework.boot</groupId>
+  <artifactId>spring-boot-starter-oauth2-client</artifactId>
+</dependency>
+```
+
+<CodeExercise
+  title="OAuth2 client starter"
+  heading="Challenge: oauth2-client dependency"
+  lang="xml"
+  filename="pom-snippet.xml"
+  prompt={`(1) Add spring-boot-starter-oauth2-client.
+
+(2) Use groupId org.springframework.boot.
+
+(3) Do not use test scope.`}
+  starter={`<dependencies>
+</dependencies>
+`}
+  sourceChecks={[
+    {
+      name: 'oauth2-client artifact',
+      pattern: '<artifactId>\\s*spring-boot-starter-oauth2-client\\s*</artifactId>',
+      must: true,
+      hint: 'Add spring-boot-starter-oauth2-client',
+    },
+    {
+      name: 'boot groupId',
+      pattern: '<groupId>\\s*org\\.springframework\\.boot\\s*</groupId>[\\s\\S]*oauth2-client',
+      must: true,
+      hint: 'groupId org.springframework.boot',
+    },
+  ]}
+/>
+
+```properties
+spring.security.oauth2.client.registration.google.client-id=${GOOGLE_CLIENT_ID}
+spring.security.oauth2.client.registration.google.client-secret=${GOOGLE_CLIENT_SECRET}
+spring.security.oauth2.client.registration.google.scope=email,profile
+```
+
+<CodeExercise
+  title="Google OAuth2 properties"
+  heading="Challenge: oauth2 client registration"
+  lang="properties"
+  filename="application.properties"
+  prompt={`(1) Set Google client-id from GOOGLE_CLIENT_ID.
+
+(2) Set client-secret from GOOGLE_CLIENT_SECRET.
+
+(3) Scope email and profile.`}
+  starter={`# OAuth2
+`}
+  sourceChecks={[
+    {
+      name: 'client-id',
+      pattern: '^spring\\.security\\.oauth2\\.client\\.registration\\.google\\.client-id\\s*=\\s*\\$\\{GOOGLE_CLIENT_ID\\}\\s*$',
+      flags: 'm',
+      must: true,
+      hint: '…google.client-id=${GOOGLE_CLIENT_ID}',
+    },
+    {
+      name: 'client-secret',
+      pattern: '^spring\\.security\\.oauth2\\.client\\.registration\\.google\\.client-secret\\s*=\\s*\\$\\{GOOGLE_CLIENT_SECRET\\}\\s*$',
+      flags: 'm',
+      must: true,
+      hint: '…google.client-secret=${GOOGLE_CLIENT_SECRET}',
+    },
+    {
+      name: 'scope',
+      pattern: '^spring\\.security\\.oauth2\\.client\\.registration\\.google\\.scope\\s*=\\s*email\\s*,\\s*profile\\s*$',
+      flags: 'm',
+      must: true,
+      hint: 'scope=email,profile',
+    },
+  ]}
+/>
+
+---
+
+## 10. Secure Actuator endpoints
+
+Actuator data is sensitive. Pattern:
+
+- `health` → `USER` or `ENDPOINT_ADMIN`
+- All other endpoints → `ENDPOINT_ADMIN` only  
+Use `EndpointRequest.to("health")` / `toAnyEndpoint()`.
+
+```java
+http.authorizeHttpRequests(auth -> auth
+    .requestMatchers(EndpointRequest.to("health")).hasAnyRole("USER", "ENDPOINT_ADMIN")
+    .requestMatchers(EndpointRequest.toAnyEndpoint()).hasRole("ENDPOINT_ADMIN")
+    .anyRequest().authenticated())
+    .formLogin(Customizer.withDefaults());
+```
+
+```java
+.requestMatchers(EndpointRequest.to("health")).hasAnyRole("USER", "ENDPOINT_ADMIN")
+.requestMatchers(EndpointRequest.toAnyEndpoint()).hasRole("ENDPOINT_ADMIN")
+```
+
+<CodeExercise
+  title="Actuator authorization"
+  heading="Challenge: EndpointRequest roles"
+  lang="java"
+  filename="SecurityConfig.java"
+  prompt={`(1) Allow health for roles USER and ENDPOINT_ADMIN.
+
+(2) Require ENDPOINT_ADMIN for any other actuator endpoint.
+
+(3) Use EndpointRequest helpers.`}
+  starter={`package com.example.demo.security;
+
+import org.springframework.boot.actuate.autoconfigure.security.servlet.EndpointRequest;
+import org.springframework.context.annotation.Bean;
+import org.springframework.context.annotation.Configuration;
+import org.springframework.security.config.Customizer;
+import org.springframework.security.config.annotation.web.builders.HttpSecurity;
+import org.springframework.security.web.SecurityFilterChain;
+
+@Configuration
+public class SecurityConfig {
+    @Bean
+    SecurityFilterChain filterChain(HttpSecurity http) throws Exception {
+        http.authorizeHttpRequests(auth -> auth
+                // actuator rules here
+                .anyRequest().authenticated())
+            .formLogin(Customizer.withDefaults());
+        return http.build();
+    }
+}
+`}
+  sourceChecks={[
+    {
+      name: 'health matcher',
+      pattern: 'EndpointRequest\\.to\\s*\\(\\s*"health"\\s*\\)',
+      must: true,
+      hint: 'EndpointRequest.to("health")',
+    },
+    {
+      name: 'hasAnyRole USER ADMIN',
+      pattern: 'hasAnyRole\\s*\\(\\s*"USER"\\s*,\\s*"ENDPOINT_ADMIN"\\s*\\)',
+      must: true,
+      hint: 'hasAnyRole("USER", "ENDPOINT_ADMIN")',
+    },
+    {
+      name: 'toAnyEndpoint',
+      pattern: 'EndpointRequest\\.toAnyEndpoint\\s*\\(\\s*\\)',
+      must: true,
+      hint: 'EndpointRequest.toAnyEndpoint()',
+    },
+    {
+      name: 'ENDPOINT_ADMIN only',
+      pattern: 'toAnyEndpoint\\s*\\(\\s*\\)\\)\\s*\\.hasRole\\s*\\(\\s*"ENDPOINT_ADMIN"\\s*\\)',
+      must: true,
+      hint: 'hasRole("ENDPOINT_ADMIN") on toAnyEndpoint()',
+    },
+  ]}
+/>
+
+<MultipleChoice
+  id="sb-ch6-security"
+  title="Additional security quiz"
+  questions={[
+    {
+      prompt: 'Best place for a production TLS keystore password?',
+      choices: [
+        'Committed application.properties as plain text',
+        'Vault / environment / secret store, referenced by placeholder',
+        'Hard-coded in a public GitHub gist',
+        'Only in the HTML login form',
+      ],
+      answer: 1,
+      why: 'Secrets must not live in source control.',
+    },
+    {
+      prompt: 'Remember-me checkbox must be named…',
+      choices: [
+        'keepLoggedIn',
+        'remember-me',
+        'persistSession',
+        'oauth2',
+      ],
+      answer: 1,
+      why: 'Spring Security looks for the remember-me request parameter.',
+    },
+    {
+      prompt: 'DisabledException on login often means…',
+      choices: [
+        'Wrong CSRF token only',
+        'Account not activated (e.g. email not verified)',
+        'Actuator is down',
+        'Vault is unreachable always',
+      ],
+      answer: 1,
+      why: 'Unverified users are commonly marked disabled until email confirm.',
+    },
+    {
+      prompt: 'EndpointRequest.toAnyEndpoint().hasRole("ENDPOINT_ADMIN") protects…',
+      choices: [
+        'Only /login',
+        'Actuator endpoints (beyond rules already matched, e.g. health)',
+        'Static CSS only',
+        'MongoDB collections',
+      ],
+      answer: 1,
+      why: 'EndpointRequest targets Actuator paths.',
+    },
+  ]}
+/>
+
+---
+
+## Chapter checklist
+
+| Feature | Idea |
+|---|---|
+| HTTPS | `server.ssl.*` + require secure channel + optional HTTP redirect |
+| Vault | Externalize secrets; `spring.config.import=vault://…` |
+| Registration | DTO → encoded password → `UserDetailsService` |
+| Email verify | Disabled until link; mail starter + events |
+| Lockout | Security events + cache + `LockedException` |
+| Remember-me | Checkbox + DSL; prefer persistent tokens for higher risk |
+| reCAPTCHA | Verify server-side with secret |
+| 2FA | TOTP secret + QR + second factor filter |
+| OAuth2 | Client registration + `oauth2Login()` |
+| Actuator | Role-gate with `EndpointRequest` |
+
+Full walkthroughs (QR pages, filters, email listeners) live in the book’s [ch06 samples](https://github.com/spring-boot-in-practice/repo/tree/main/ch06).
+
+Next in the book: **RESTful APIs** with Spring Boot → [Lesson 5](./lesson-5-restful-apis).

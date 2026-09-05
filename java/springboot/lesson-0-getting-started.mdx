@@ -1,0 +1,745 @@
+---
+sidebar_position: 0
+title: "Getting Started with Spring Boot"
+---
+
+> **Source:** *Spring Boot in Practice* — Chapter 1 (§1.3–1.4) by Somnath Musib (Manning). Concepts rewritten for this course; sample project: [spring-boot-app-demo](https://github.com/spring-boot-in-practice/repo/tree/main/ch01/spring-boot-app-demo).
+
+You know what Spring Boot is for — this lesson is about **generating** a project, reading its layout, and understanding the pieces Initializr creates before you write business logic.
+
+:::tip Pattern-check challenges
+These editors **do not compile or run** Spring Boot. **Check** validates patterns in your code (`sourceChecks`) only. Annotated snippets above each exercise show the usual shape — inline comments explain what each part does; you still type it into the editor yourself. **Paste is disabled** (keyboard, right-click, drag-drop) so you practice writing the code.
+:::
+
+## What this lesson covers
+
+- Creating a project with [Spring Initializr](https://start.spring.io)
+- Standard Maven layout and what each folder is for
+- `pom.xml`: parent POM, starters, and the Boot Maven plugin
+- The main class: `@SpringBootApplication` and `SpringApplication`
+- `application.properties` / YAML
+- Executable JAR layout and graceful shutdown
+- Brief preview: startup events, Actuator, DevTools
+
+---
+
+## 1. Your first Spring Boot project
+
+**Spring Initializr** ([start.spring.io](https://start.spring.io)) generates a skeleton app: pick Java version, build tool, packaging, and **starters** (curated dependency bundles). IDEs embed the same API so you can generate projects without leaving the editor.
+
+Typical choices for a web API:
+
+| Initializr field | Common choice |
+|---|---|
+| Project | Maven |
+| Language | Java |
+| Spring Boot | Current stable (book examples often use 2.4.x; use 3.x for new work) |
+| Packaging | Jar |
+| Java | 17+ (LTS) |
+| Dependencies | Spring Web, Spring Boot DevTools (optional), Spring Boot Actuator (optional) |
+
+Download the zip, unzip, and open it in your IDE — or clone the book’s [demo repo](https://github.com/spring-boot-in-practice/repo/tree/main/ch01/spring-boot-app-demo).
+
+Run locally (from the directory with `pom.xml`):
+
+```bash
+./mvnw spring-boot:run
+```
+
+Default HTTP port is **8080** unless you override it in config.
+
+<MultipleChoice
+  id="sb-ch1-initializr"
+  title="Spring Initializr"
+  questions={[
+    {
+      prompt: 'What does selecting spring-boot-starter-web on Initializr mainly give you?',
+      choices: [
+        'Only a static HTML page',
+        'A curated set of dependencies for building a servlet-based web app (including embedded Tomcat)',
+        'A replacement for the Java compiler',
+        'Database migration scripts only',
+      ],
+      answer: 1,
+      why: 'Starters bundle dependencies and versions Boot tests together — web starter pulls Tomcat, Spring MVC, Jackson, etc.',
+    },
+    {
+      prompt: 'mvnw in a generated project exists so that…',
+      choices: [
+        'You must install Gradle separately',
+        'You can build without a global Maven install',
+        'It replaces pom.xml',
+        'It only runs tests',
+      ],
+      answer: 1,
+      why: 'The Maven Wrapper downloads the right Maven version for the project.',
+    },
+  ]}
+/>
+
+---
+
+## 2. Project structure
+
+A generated Boot app is intentionally small:
+
+```
+my-app/
+├── pom.xml                 # dependencies, parent, plugins
+├── mvnw, mvnw.cmd          # Maven wrapper
+├── src/main/java/          # application source (main class lives here)
+├── src/main/resources/     # application.properties, static files, templates
+└── src/test/java/          # tests (often one empty @SpringBootTest class)
+```
+
+| Piece | Role |
+|---|---|
+| `pom.xml` | Declares parent, starters, Java version, `spring-boot-maven-plugin` |
+| `src/main/java` | Your code; Initializr creates `…Application` with `main` |
+| `src/main/resources` | Config files; empty `application.properties` by default |
+| `src/test/java` | JUnit tests; `spring-boot-starter-test` on the classpath |
+
+Package naming follows reverse domain (`com.example.demo`). The **main class** is usually named `{AppName}Application`.
+
+---
+
+## 3. The `pom.xml` file
+
+Three areas matter most: **parent**, **dependencies**, **build plugin**.
+
+### 3.1 Parent: `spring-boot-starter-parent`
+
+```xml
+<parent>
+  <groupId>org.springframework.boot</groupId>
+  <artifactId>spring-boot-starter-parent</artifactId>
+  <version>3.2.0</version>
+  <relativePath/>
+</parent>
+```
+
+The parent is a special “starter” POM that supplies:
+
+- Default **Java version** and compiler settings
+- **Dependency management** — you omit versions on Boot-managed artifacts
+- Sensible defaults for plugins (Surefire, etc.)
+
+**Already have a corporate parent POM?** You cannot inherit two parents. Import Boot’s BOM instead:
+
+```xml
+<dependencyManagement>
+  <dependencies>
+    <dependency>
+      <groupId>org.springframework.boot</groupId>
+      <artifactId>spring-boot-dependencies</artifactId>
+      <version>3.2.0</version>
+      <type>pom</type>
+      <scope>import</scope>
+    </dependency>
+  </dependencies>
+</dependencyManagement>
+```
+
+You still add `spring-boot-maven-plugin` explicitly in `<build>`.
+
+```xml
+<dependencyManagement>
+  <dependencies>
+    <dependency>
+      <groupId>org.springframework.boot</groupId>
+      <artifactId>spring-boot-dependencies</artifactId>
+      <version>3.2.0</version>
+      <type>pom</type> <!-- import the BOM, not a jar -->
+      <scope>import</scope> <!-- merge Boot's version catalog without starter-parent -->
+    </dependency>
+  </dependencies>
+</dependencyManagement>
+```
+
+<CodeExercise
+  title="Import Boot BOM"
+  heading="Challenge: dependencyManagement import"
+  lang="xml"
+  filename="pom-snippet.xml"
+  prompt={`(1) Add a dependencyManagement section with an import of spring-boot-dependencies.
+
+(2) Use type pom and scope import.
+
+(3) Keep the outer project element as-is.`}
+  starter={`<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 https://maven.apache.org/xsd/maven-4.0.0.xsd">
+  <modelVersion>4.0.0</modelVersion>
+  <groupId>com.example</groupId>
+  <artifactId>legacy-parent-child</artifactId>
+  <version>1.0.0</version>
+</project>
+`}
+  sourceChecks={[
+    {
+      name: 'dependencyManagement block',
+      pattern: '<dependencyManagement>[\\s\\S]*</dependencyManagement>',
+      must: true,
+      hint: 'Wrap the import in dependencyManagement',
+    },
+    {
+      name: 'spring-boot-dependencies artifact',
+      pattern: '<artifactId>\\s*spring-boot-dependencies\\s*</artifactId>',
+      must: true,
+      hint: 'Import the spring-boot-dependencies BOM',
+    },
+    {
+      name: 'import scope',
+      pattern: '<scope>\\s*import\\s*</scope>',
+      must: true,
+      hint: 'BOM imports use scope import',
+    },
+    {
+      name: 'type pom',
+      pattern: '<type>\\s*pom\\s*</type>',
+      must: true,
+      hint: 'BOM imports need type pom',
+    },
+    {
+      name: 'not starter-parent as parent',
+      pattern: '<artifactId>\\s*spring-boot-starter-parent\\s*</artifactId>',
+      must: false,
+      hint: 'This scenario uses dependencyManagement import, not starter-parent parent',
+    },
+  ]}
+/>
+
+### 3.2 Starter dependencies
+
+**Starters** group dependencies for a feature area and pin compatible versions. `spring-boot-starter-web` pulls Spring MVC, Jackson, and **embedded Tomcat** — you run with `main()`, not by deploying a WAR to an external server (WAR packaging is still supported if you need it).
+
+Starters can depend on other starters (`starter-web` → `starter`, `starter-tomcat`, `starter-json`). You pick capabilities on Initializr; Boot handles the graph.
+
+Generated projects often include:
+
+- `spring-boot-starter-web` — runtime web stack
+- `spring-boot-starter-test` — JUnit 5, Mockito, AssertJ, etc. (`test` scope)
+
+```xml
+<dependency>
+  <groupId>org.springframework.boot</groupId>
+  <artifactId>spring-boot-starter-web</artifactId>
+  <!-- MVC + Jackson + embedded Tomcat; omit version when parent/BOM manages it -->
+</dependency>
+```
+
+<CodeExercise
+  title="Declare web starter"
+  heading="Challenge: spring-boot-starter-web"
+  lang="xml"
+  filename="pom-snippet.xml"
+  prompt={`(1) Inside dependencies, declare spring-boot-starter-web.
+
+(2) Use groupId org.springframework.boot (no version — parent/BOM manages it).
+
+(3) Do not add scope test.`}
+  starter={`<?xml version="1.0" encoding="UTF-8"?>
+<project>
+  <dependencies>
+  </dependencies>
+</project>
+`}
+  sourceChecks={[
+    {
+      name: 'web starter artifact',
+      pattern: '<artifactId>\\s*spring-boot-starter-web\\s*</artifactId>',
+      must: true,
+      hint: 'Add artifact spring-boot-starter-web',
+    },
+    {
+      name: 'boot groupId',
+      pattern: '<groupId>\\s*org\\.springframework\\.boot\\s*</groupId>[\\s\\S]*<artifactId>\\s*spring-boot-starter-web',
+      must: true,
+      hint: 'groupId org.springframework.boot for the web starter',
+    },
+    {
+      name: 'not test scope',
+      pattern: 'spring-boot-starter-web[\\s\\S]*<scope>\\s*test\\s*</scope>',
+      must: false,
+      hint: 'Web starter is a main dependency, not test scope',
+    },
+  ]}
+/>
+
+### 3.3 Spring Boot Maven plugin
+
+`spring-boot-maven-plugin` adds goals such as:
+
+| Goal | Purpose |
+|---|---|
+| `spring-boot:run` | Run the app in place (compile + start) |
+| `spring-boot:repackage` | Turn the packaged JAR into an **executable** fat JAR (bound to `package` phase) |
+| `spring-boot:build-image` | Build an OCI container image |
+
+`mvn package` produces an executable JAR because **repackage** runs after the plain JAR is built.
+
+```xml
+<build>
+  <plugins>
+    <plugin>
+      <groupId>org.springframework.boot</groupId>
+      <artifactId>spring-boot-maven-plugin</artifactId>
+      <!-- adds spring-boot:run and repackages an executable fat JAR at package -->
+    </plugin>
+  </plugins>
+</build>
+```
+
+<CodeExercise
+  title="Add Boot Maven plugin"
+  heading="Challenge: spring-boot-maven-plugin"
+  lang="xml"
+  filename="pom-snippet.xml"
+  prompt={`(1) Add a build/plugins section.
+
+(2) Register spring-boot-maven-plugin under org.springframework.boot.
+
+(3) Keep the project wrapper unchanged.`}
+  starter={`<?xml version="1.0" encoding="UTF-8"?>
+<project>
+  <groupId>com.example</groupId>
+  <artifactId>demo</artifactId>
+  <version>1.0.0</version>
+</project>
+`}
+  sourceChecks={[
+    {
+      name: 'build plugins',
+      pattern: '<build>[\\s\\S]*<plugins>[\\s\\S]*</plugins>[\\s\\S]*</build>',
+      must: true,
+      hint: 'Use build → plugins',
+    },
+    {
+      name: 'boot maven plugin',
+      pattern: '<artifactId>\\s*spring-boot-maven-plugin\\s*</artifactId>',
+      must: true,
+      hint: 'Artifact spring-boot-maven-plugin',
+    },
+    {
+      name: 'wrong plugin id',
+      pattern: '<artifactId>\\s*maven-spring-boot-plugin\\s*</artifactId>',
+      must: false,
+      hint: 'The official artifact is spring-boot-maven-plugin',
+    },
+  ]}
+/>
+
+<MultipleChoice
+  id="sb-ch1-pom"
+  title="pom.xml quiz"
+  questions={[
+    {
+      prompt: 'Why can you omit version numbers on spring-boot-starter-* dependencies?',
+      choices: [
+        'Maven ignores versions for jars',
+        'spring-boot-starter-parent (or spring-boot-dependencies BOM) manages them',
+        'Versions are in application.properties',
+        'Initializr deletes version tags at runtime',
+      ],
+      answer: 1,
+      why: 'Boot’s dependency management imports aligned versions for the whole stack.',
+    },
+    {
+      prompt: 'Which command runs the app without building a separate executable JAR first?',
+      choices: [
+        'mvn test',
+        'mvn spring-boot:run',
+        'java -jar before mvn package',
+        'mvn clean only',
+      ],
+      answer: 1,
+      why: 'spring-boot:run compiles and launches the app from sources/classes.',
+    },
+  ]}
+/>
+
+---
+
+## 4. The main application class
+
+Initializr generates a class named like `DemoApplication` in your base package:
+
+```java
+@SpringBootApplication
+public class DemoApplication {
+    public static void main(String[] args) {
+        SpringApplication.run(DemoApplication.class, args);
+    }
+}
+```
+
+### 4.1 Why `main()` is enough for a web app
+
+Boot embeds **Tomcat** (via `spring-boot-starter-tomcat` transitively). Calling `main` starts the servlet container in-process — no separate app-server install for local dev.
+
+### 4.2 `@SpringBootApplication`
+
+Convenience meta-annotation combining:
+
+| Annotation | Effect |
+|---|---|
+| `@SpringBootConfiguration` | Marks config; meta-`@Configuration` |
+| `@EnableAutoConfiguration` | Auto-config beans from classpath (starters trigger configs) |
+| `@ComponentScan` | Scan current package and **sub-packages** for `@Component`, `@Service`, etc. |
+
+Components outside the base package tree are **not** picked up unless you widen scan settings.
+
+### 4.3 `SpringApplication.run`
+
+Bootstrap sequence (simplified):
+
+1. Create an `ApplicationContext` suited to the app type (Servlet web, Reactive, or plain)
+2. Register command-line args as a property source
+3. Refresh the context — load singleton beans
+4. Run `ApplicationRunner` / `CommandLineRunner` beans
+
+You can customize bootstrap:
+
+```java
+SpringApplication app = new SpringApplication(DemoApplication.class);
+app.setWebApplicationType(WebApplicationType.REACTIVE);
+app.run(args);
+```
+
+```java
+import org.springframework.boot.autoconfigure.SpringBootApplication;
+
+@SpringBootApplication // @Configuration + @EnableAutoConfiguration + @ComponentScan
+public class DemoApplication {
+    public static void main(String[] args) {
+        SpringApplication.run(DemoApplication.class, args); // bootstrap context + embedded server
+    }
+}
+```
+
+<CodeExercise
+  title="Bootstrap entry point"
+  heading="Challenge: main application class"
+  lang="java"
+  filename="DemoApplication.java"
+  prompt={`(1) Mark DemoApplication as a Spring Boot application with the standard composite annotation.
+
+(2) In main, bootstrap with SpringApplication.run for this class.
+
+(3) Do not add extra classes.`}
+  starter={`package com.example.demo;
+
+import org.springframework.boot.SpringApplication;
+
+public class DemoApplication {
+    public static void main(String[] args) {
+    }
+}
+`}
+  sourceChecks={[
+    {
+      name: 'SpringBootApplication',
+      pattern: '@SpringBootApplication',
+      must: true,
+      hint: 'Use @SpringBootApplication on the class',
+    },
+    {
+      name: 'SpringApplication.run',
+      pattern: 'SpringApplication\\.run\\s*\\(\\s*DemoApplication\\.class\\s*,\\s*args\\s*\\)',
+      must: true,
+      hint: 'Call SpringApplication.run(DemoApplication.class, args) in main',
+    },
+    {
+      name: 'imports SpringBootApplication',
+      pattern: 'import\\s+org\\.springframework\\.boot\\.autoconfigure\\.SpringBootApplication\\s*;',
+      must: true,
+      hint: 'Add the import for @SpringBootApplication',
+    },
+    {
+      name: 'not @Configuration only',
+      pattern: '@Configuration\\s*\\n\\s*public\\s+class\\s+DemoApplication',
+      must: false,
+      hint: 'Use @SpringBootApplication, not plain @Configuration',
+    },
+  ]}
+/>
+
+---
+
+## 5. `application.properties` and YAML
+
+`src/main/resources/application.properties` externalizes config as key=value:
+
+```properties
+server.address=localhost
+server.port=8081
+```
+
+Equivalent YAML (`application.yml`):
+
+```yaml
+server:
+  address: localhost
+  port: 8081
+```
+
+Change `server.port`, restart, and the embedded server binds to the new port. Full property list: [Spring Boot application properties](https://docs.spring.io/spring-boot/docs/current/reference/html/appendix-application-properties.html).
+
+```properties
+server.port=9090 # HTTP port for embedded Tomcat (server.* namespace)
+```
+
+<CodeExercise
+  title="Change HTTP port"
+  heading="Challenge: server.port"
+  lang="properties"
+  filename="application.properties"
+  prompt={`(1) Bind the embedded server to port 9090.
+
+(2) Use the standard server.port property key.
+
+(3) Do not add unrelated keys.`}
+  starter={`# HTTP server configuration
+`}
+  sourceChecks={[
+    {
+      name: 'server.port 9090',
+      pattern: '^server\\.port\\s*=\\s*9090\\s*$',
+      flags: 'm',
+      must: true,
+      hint: 'Set server.port=9090',
+    },
+    {
+      name: 'not wrong key',
+      pattern: '^port\\s*=\\s*9090',
+      flags: 'm',
+      must: false,
+      hint: 'Use server.port, not bare port',
+    },
+  ]}
+/>
+
+---
+
+## 6. Executable JAR
+
+```bash
+mvn clean package
+java -jar target/demo-1.0.0.jar
+```
+
+Plain `mvn package` alone would not produce a runnable JAR — **repackage** nests dependencies and sets the manifest launcher.
+
+Fat JAR layout (conceptual):
+
+```
+demo.jar
+├── META-INF/MANIFEST.MF     # Main-Class → Boot loader; Start-Class → your @SpringBootApplication
+├── org/springframework/boot/loader/…
+└── BOOT-INF/
+    ├── classes/             # your .class files
+    └── lib/                 # dependency JARs
+```
+
+`classpath.idx` and `layers.idx` help ordered loading and container image layering (Docker/OCI builds later in the book).
+
+---
+
+## 7. Shutting down gracefully
+
+Foreground run: **Ctrl+C** stops the JVM immediately (`server.shutdown=immediate` by default) — in-flight requests may be cut off.
+
+For graceful drain:
+
+```properties
+server.shutdown=graceful
+spring.lifecycle.timeout-per-shutdown-phase=30s
+```
+
+New requests stop; existing work gets up to 30s to finish.
+
+```properties
+server.shutdown=graceful # drain in-flight work instead of stopping immediately
+spring.lifecycle.timeout-per-shutdown-phase=30s # cap how long each shutdown phase waits
+```
+
+<CodeExercise
+  title="Graceful shutdown"
+  heading="Challenge: shutdown properties"
+  lang="properties"
+  filename="application.properties"
+  prompt={`(1) Configure graceful server shutdown (not immediate).
+
+(2) Allow up to 30 seconds per shutdown phase.
+
+(3) Use the standard Boot property keys.`}
+  starter={`# Server lifecycle
+`}
+  sourceChecks={[
+    {
+      name: 'graceful shutdown',
+      pattern: '^server\\.shutdown\\s*=\\s*graceful\\s*$',
+      flags: 'm',
+      must: true,
+      hint: 'server.shutdown=graceful',
+    },
+    {
+      name: '30s timeout',
+      pattern: '^spring\\.lifecycle\\.timeout-per-shutdown-phase\\s*=\\s*30s\\s*$',
+      flags: 'm',
+      must: true,
+      hint: 'spring.lifecycle.timeout-per-shutdown-phase=30s',
+    },
+    {
+      name: 'not immediate',
+      pattern: '^server\\.shutdown\\s*=\\s*immediate',
+      flags: 'm',
+      must: false,
+      hint: 'Use graceful, not immediate',
+    },
+  ]}
+/>
+
+---
+
+## 8. Preview: events, Actuator, DevTools
+
+These topics get full chapters later — know the names now.
+
+### 8.1 Startup events
+
+Boot publishes lifecycle events (`ApplicationStartingEvent`, `ApplicationEnvironmentPreparedEvent`, `ApplicationReadyEvent`, `ApplicationFailedEvent`, …). Subscribe with `@EventListener` for most; very early events need `ApplicationListener` registered on `SpringApplication` or via `META-INF/spring.factories` / `META-INF/spring/org.springframework.context.ApplicationListener.imports` (Boot 3).
+
+```java
+@EventListener(ApplicationReadyEvent.class)
+public void onReady(ApplicationReadyEvent event) {
+    // safe to assume app can serve traffic
+}
+```
+
+`@EventListener` does **not** fire for the earliest events (before the context exists).
+
+```java
+import org.springframework.boot.context.event.ApplicationReadyEvent;
+import org.springframework.context.event.EventListener;
+
+@Component
+public class StartupHooks {
+    @EventListener(ApplicationReadyEvent.class) // fires when the app can serve traffic
+    public void ready(ApplicationReadyEvent event) {
+    }
+}
+```
+
+<CodeExercise
+  title="ApplicationReadyEvent listener"
+  heading="Challenge: @EventListener"
+  lang="java"
+  filename="StartupHooks.java"
+  prompt={`(1) Add a method ready that listens for ApplicationReadyEvent.
+
+(2) Use @EventListener with the event type as the annotation value.
+
+(3) Method may have an empty body; keep the class and imports you add minimal.`}
+  starter={`package com.example.demo;
+
+import org.springframework.stereotype.Component;
+
+@Component
+public class StartupHooks {
+}
+`}
+  sourceChecks={[
+    {
+      name: 'EventListener annotation',
+      pattern: '@EventListener\\s*\\(\\s*ApplicationReadyEvent\\.class\\s*\\)',
+      must: true,
+      hint: '@EventListener(ApplicationReadyEvent.class) on the method',
+    },
+    {
+      name: 'imports ApplicationReadyEvent',
+      pattern: 'import\\s+org\\.springframework\\.boot\\.context\\.event\\.ApplicationReadyEvent\\s*;',
+      must: true,
+      hint: 'Import ApplicationReadyEvent',
+    },
+    {
+      name: 'imports EventListener',
+      pattern: 'import\\s+org\\.springframework\\.context\\.event\\.EventListener\\s*;',
+      must: true,
+      hint: 'Import @EventListener',
+    },
+    {
+      name: 'wrong event type',
+      pattern: '@EventListener\\s*\\(\\s*ApplicationStartingEvent\\.class',
+      must: false,
+      hint: 'Listen for ApplicationReadyEvent, not ApplicationStartingEvent',
+    },
+  ]}
+/>
+
+### 8.2 Actuator
+
+Add `spring-boot-starter-actuator` for production-ready endpoints (`/actuator/health`, `/actuator/info`, …). Expose more over HTTP with `management.endpoints.web.exposure.include` (use carefully in production).
+
+### 8.3 DevTools
+
+`spring-boot-devtools` (optional) restarts the app on classpath changes and offers LiveReload for static assets during development.
+
+### 8.4 Later in the book
+
+Custom **starters**, **auto-configuration**, and **FailureAnalyzer** implementations extend the same Boot infrastructure — same idea as official starters, but for your organization’s shared modules.
+
+<MultipleChoice
+  id="sb-ch1-events-actuator"
+  title="Events and tooling"
+  questions={[
+    {
+      prompt: '@SpringBootApplication combines which three concerns?',
+      choices: [
+        'Security, JPA, and Caching',
+        'Configuration, auto-configuration, and component scan',
+        'Tomcat, Jetty, and Netty',
+        'JUnit, Mockito, and AssertJ',
+      ],
+      answer: 1,
+      why: '@SpringBootConfiguration + @EnableAutoConfiguration + @ComponentScan.',
+    },
+    {
+      prompt: 'ApplicationReadyEvent is published when…',
+      choices: [
+        'The JVM process exits',
+        'The app is ready to service requests (after context refresh, before runners in some ordering — “ready” for traffic)',
+        'Only when Actuator is on the classpath',
+        'Before Environment is created',
+      ],
+      answer: 1,
+      why: 'Ready means initialization finished; good hook for post-start checks.',
+    },
+    {
+      prompt: 'Executable fat JAR manifest: Start-Class points to…',
+      choices: [
+        'org.springframework.boot.loader.JarLauncher only',
+        'Your @SpringBootApplication class',
+        'application.properties',
+        'The first @Controller found',
+      ],
+      answer: 1,
+      why: 'Boot loader loads your main application class as Start-Class.',
+    },
+  ]}
+/>
+
+---
+
+## Checklist before lesson 1
+
+| Topic | You should know |
+|---|---|
+| Initializr | Generate project, pick starters, run with `mvnw spring-boot:run` |
+| `pom.xml` | Parent or BOM, starters, `spring-boot-maven-plugin` |
+| Main class | `@SpringBootApplication`, `SpringApplication.run`, embedded Tomcat |
+| Config | `application.properties` / YAML, `server.port` |
+| Packaging | `mvn package` → executable JAR via repackage |
+| Shutdown | `server.shutdown=graceful` + timeout for drain |
+| Next | Lesson 1 — configuration, logging, validation, startup hooks in depth |

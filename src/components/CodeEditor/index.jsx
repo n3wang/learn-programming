@@ -3,6 +3,7 @@ import BrowserOnly from '@docusaurus/BrowserOnly';
 import CodeMirror from '@uiw/react-codemirror';
 import {autocompletion} from '@codemirror/autocomplete';
 import {EditorView} from '@codemirror/view';
+import {disablePasteExtensions} from '@site/src/components/codeWorkspace/disablePaste';
 import {githubLight} from '@uiw/codemirror-theme-github';
 import {oneDark} from '@codemirror/theme-one-dark';
 import useHtmlColorMode from '@site/src/components/codeWorkspace/useHtmlColorMode';
@@ -111,7 +112,7 @@ function completionsFor(lang) {
   };
 }
 
-function EditorInner({value, onChange, lang, readOnly}) {
+function EditorInner({value, onChange, lang, readOnly, disablePaste}) {
   const colorMode = useHtmlColorMode();
   const [languageExtension, setLanguageExtension] = useState([]);
 
@@ -140,8 +141,9 @@ function EditorInner({value, onChange, lang, readOnly}) {
         '.cm-gutters': {minWidth: '36px'},
       }),
       EditorView.lineWrapping,
+      ...(disablePaste ? disablePasteExtensions() : []),
     ],
-    [lang, languageExtension]
+    [lang, languageExtension, disablePaste]
   );
 
   return (
@@ -173,12 +175,20 @@ export default function CodeEditor({
   lang = 'c++',
   height = '280px',
   readOnly = false,
+  disablePaste = false,
 }) {
   return (
     <div className={styles.fill} style={{minHeight: height}}>
       <BrowserOnly
         fallback={
-          <textarea value={value} readOnly className={styles.fallback} style={{minHeight: height}} />
+          <textarea
+            value={value}
+            readOnly={readOnly}
+            className={styles.fallback}
+            style={{minHeight: height}}
+            onPaste={disablePaste ? (e) => e.preventDefault() : undefined}
+            onDrop={disablePaste ? (e) => e.preventDefault() : undefined}
+          />
         }
       >
         {() => (
@@ -187,6 +197,7 @@ export default function CodeEditor({
             onChange={onChange}
             lang={lang}
             readOnly={readOnly}
+            disablePaste={disablePaste}
           />
         )}
       </BrowserOnly>

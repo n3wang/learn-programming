@@ -1,0 +1,559 @@
+---
+sidebar_position: 8
+title: "Spring MVC and Thymeleaf"
+---
+
+> **Source:** *Spring Boot in Practice* — Appendix B by Somnath Musib (Manning). Concepts rewritten for this course; companion samples: [spring-boot-in-practice/repo appendix02](https://github.com/spring-boot-in-practice/repo/tree/main/appendix02).
+
+Server-rendered Course Tracker UI: **DispatcherServlet**, models, views, and **Thymeleaf** tags for text, loops, conditionals, and forms.
+
+:::tip Pattern-check challenges
+Editors **do not compile or run** Spring Boot / Thymeleaf. **Check** uses `sourceChecks` only. Snippets above exercises show the usual shape with inline comments; type the code yourself. **Paste is disabled** on Spring Boot lessons.
+:::
+
+## What this lesson covers
+
+- MVC + front controller (`DispatcherServlet`) request flow
+- Key collaborators: `HandlerMapping`, `HandlerAdapter`, `ViewResolver`, locale & exception resolvers
+- Thymeleaf basics: `th:text`, `th:each`, conditionals, forms
+- Boot + Thymeleaf CRUD pattern (`@Controller`, templates under `templates/`)
+- SPA vs server-side templates
+
+---
+
+## 1. Spring MVC and the front controller
+
+**MVC** splits UI apps into:
+
+| Piece | Role |
+|---|---|
+| Model | Data for the view |
+| View | Renders HTML (here: Thymeleaf) |
+| Controller | Handles HTTP, calls services, fills the model, returns a **logical view name** |
+
+Spring MVC sits on the IoC container. All requests go through a **front controller**: the **`DispatcherServlet`**. It does not do all work itself — it delegates.
+
+Simplified flow:
+
+1. Request hits `DispatcherServlet`
+2. **`HandlerMapping`** finds a controller/handler
+3. **`HandlerAdapter`** invokes it
+4. Controller runs business logic, builds a **model**, returns a view name
+5. **`ViewResolver`** maps name → real view (e.g. `index` → `templates/index.html`)
+6. View renders model data to the response
+
+Other collaborators:
+
+- **`LocaleResolver`** — client locale (default often `AcceptHeaderLocaleResolver`)
+- **`HandlerExceptionResolver`** — map errors to error views / status (or pass along)
+
+In Boot web apps, `DispatcherServlet` is auto-configured; you rarely write `web.xml` by hand.
+
+```java
+@Controller
+public class CourseController {
+
+  @GetMapping("/index")
+  public String index(Model model) {
+    model.addAttribute("courses", courseService.findAllCourses()); // key → view
+    return "index"; // logical view → templates/index.html
+  }
+}
+```
+
+<MultipleChoice
+  title="MVC flow quiz"
+  questions={[
+    {
+      prompt: 'In Spring MVC, the DispatcherServlet is…',
+      choices: [
+        'Only a database driver',
+        'The front controller that receives requests and delegates to mappings/adapters/views',
+        'A Thymeleaf dialect',
+        'Kubernetes Ingress only',
+      ],
+      answer: 1,
+      why: 'Front-controller pattern: one entry servlet, many collaborators.',
+    },
+    {
+      prompt: 'A ViewResolver’s job is to…',
+      choices: [
+        'Encrypt passwords',
+        'Turn a logical view name into an actual View implementation',
+        'Replace WebClient',
+        'Start Netty always',
+      ],
+      answer: 1,
+      why: 'e.g. "index" → Thymeleaf template index.html.',
+    },
+  ]}
+/>
+
+---
+
+## 2. Thymeleaf overview
+
+**Thymeleaf** is a server-side template engine (HTML, XML, TEXT, JS, CSS, RAW). HTML templates mix normal HTML with `th:*` attributes. The engine replaces them with data from the Spring **model**, then sends plain HTML to the browser.
+
+Declare the namespace:
+
+```html
+<html xmlns:th="http://www.thymeleaf.org">
+```
+
+Boot: add `spring-boot-starter-thymeleaf` and put templates in `src/main/resources/templates/`.
+
+Two common web styles with Boot:
+
+1. **SPA frontend** (React/Angular/Vue) + Boot **REST** JSON API  
+2. **MVC + template engine** (Thymeleaf) — same app serves HTML views  
+
+This lesson focuses on (2).
+
+---
+
+## 3. Displaying model attributes
+
+Controller:
+
+```java
+@GetMapping
+public String getLoggedInUserName(Model model) {
+  model.addAttribute("userName", user.getName());
+  return "index";
+}
+```
+
+Template:
+
+```html
+Logged in user: <span th:text="${userName}"></span> <!-- ${key} from model -->
+```
+
+Iterate a list:
+
+```html
+<tr th:each="course : ${courses}">
+  <td th:text="${course.id}"></td>
+  <td th:text="${course.name}"></td>
+  <td th:text="${course.description}"></td>
+</tr>
+```
+
+```html
+<html xmlns:th="http://www.thymeleaf.org">
+<body>
+  <span><!-- show userName --></span>
+  <table>
+    <tbody>
+      <!-- each course row -->
+    </tbody>
+  </table>
+</body>
+</html>
+```
+
+<CodeExercise
+  title="th:text and th:each"
+  heading="Challenge: userName + course rows"
+  lang="html"
+  filename="index.html"
+  prompt={`(1) On the span, use th:text="\${userName}".
+
+(2) On the tr, use th:each="course : \${courses}".
+
+(3) Fill three td cells with course.id, course.name, and course.description via th:text.`}
+  starter={`<html xmlns:th="http://www.thymeleaf.org">
+<body>
+  <span></span>
+  <table>
+    <tbody>
+      <tr>
+        <td></td>
+        <td></td>
+        <td></td>
+      </tr>
+    </tbody>
+  </table>
+</body>
+</html>
+`}
+  sourceChecks={[
+    {
+      name: 'th:text userName',
+      pattern: 'th:text\\s*=\\s*"\\$\\{userName\\}"',
+      must: true,
+      hint: 'th:text="${userName}"',
+    },
+    {
+      name: 'th:each courses',
+      pattern: 'th:each\\s*=\\s*"course\\s*:\\s*\\$\\{courses\\}"',
+      must: true,
+      hint: 'th:each="course : ${courses}"',
+    },
+    {
+      name: 'course.id',
+      pattern: 'th:text\\s*=\\s*"\\$\\{course\\.id\\}"',
+      must: true,
+      hint: 'th:text="${course.id}"',
+    },
+    {
+      name: 'course.name',
+      pattern: 'th:text\\s*=\\s*"\\$\\{course\\.name\\}"',
+      must: true,
+      hint: 'th:text="${course.name}"',
+    },
+    {
+      name: 'course.description',
+      pattern: 'th:text\\s*=\\s*"\\$\\{course\\.description\\}"',
+      must: true,
+      hint: 'th:text="${course.description}"',
+    },
+  ]}
+/>
+
+---
+
+## 4. Conditionals
+
+```html
+<span th:if="${author.gender} == 'M'" th:text="Male"></span>
+<span th:unless="${author.gender} == 'M'" th:text="Female"></span>
+```
+
+Switch / case:
+
+```html
+<div th:switch="${course.category}">
+  <div th:case="'Spring'"><h2>Spring Course</h2></div>
+  <div th:case="'Python'"><h2>Python Course</h2></div>
+  <div th:case="*"><h2>Some other course</h2></div> <!-- default -->
+</div>
+```
+
+```html
+<td>
+  <!-- Male if gender == 'M', else Female -->
+</td>
+```
+
+<CodeExercise
+  title="th:if / th:unless"
+  heading="Challenge: Male / Female"
+  lang="html"
+  filename="author-cell.html"
+  prompt={`(1) Span with th:if gender == 'M' and th:text Male.
+
+(2) Span with th:unless gender == 'M' and th:text Female.
+
+(3) Use \${author.gender} in both conditions.`}
+  starter={`<td>
+</td>
+`}
+  sourceChecks={[
+    {
+      name: 'th:if Male',
+      pattern: 'th:if\\s*=\\s*"\\$\\{author\\.gender\\}\\s*==\\s*\'M\'"',
+      must: true,
+      hint: "th:if=\"${author.gender} == 'M'\"",
+    },
+    {
+      name: 'th:text Male',
+      pattern: 'th:text\\s*=\\s*"Male"',
+      must: true,
+      hint: 'th:text="Male"',
+    },
+    {
+      name: 'th:unless',
+      pattern: 'th:unless\\s*=\\s*"\\$\\{author\\.gender\\}\\s*==\\s*\'M\'"',
+      must: true,
+      hint: "th:unless=\"${author.gender} == 'M'\"",
+    },
+    {
+      name: 'th:text Female',
+      pattern: 'th:text\\s*=\\s*"Female"',
+      must: true,
+      hint: 'th:text="Female"',
+    },
+  ]}
+/>
+
+---
+
+## 5. Forms, validation, and hidden HTTP methods
+
+Form binding:
+
+```html
+<form th:action="@{/addcourse}" th:object="${course}" method="post">
+  <input type="text" th:field="*{name}" />
+  <span th:if="${#fields.hasErrors('name')}" th:errors="*{name}"></span>
+  <button type="submit">Add Course</button>
+</form>
+```
+
+- `th:action="@{...}"` — form POST URL (Thymeleaf link expression)  
+- `th:object` — command object bound to the form  
+- `th:field="*{prop}"` — property on that object  
+- `#fields.hasErrors` / `th:errors` — show Bean Validation messages  
+
+Controller pattern:
+
+```java
+@PostMapping("/addcourse")
+public String addCourse(@Valid Course course, BindingResult result, Model model) {
+  if (result.hasErrors()) {
+    return "add-course"; // redisplay form
+  }
+  courseService.createCourse(course);
+  return "redirect:/index";
+}
+```
+
+Browsers mainly send GET/POST. For PUT/DELETE, enable:
+
+```properties
+spring.mvc.hiddenmethod.filter.enabled=true
+```
+
+Then in the template:
+
+```html
+<form th:action="@{/delete/{id}(id=${course.id})}" th:method="delete">
+  <button type="submit">Delete</button>
+</form>
+```
+
+Thymeleaf emits a hidden `_method` field; `HiddenHttpMethodFilter` rewrites the verb.
+
+```html
+<form action="#" method="post">
+  <!-- th:action, th:object, name field + errors -->
+</form>
+```
+
+<CodeExercise
+  title="Add-course form"
+  heading="Challenge: action, object, field, errors"
+  lang="html"
+  filename="add-course.html"
+  prompt={`(1) On the form: th:action="@{/addcourse}" and th:object="\${course}".
+
+(2) On the name input: th:field="*{name}".
+
+(3) Error span: th:if="#fields.hasErrors('name')" and th:errors="*{name}".`}
+  starter={`<html xmlns:th="http://www.thymeleaf.org">
+<form action="#" method="post">
+  <input type="text" id="name" placeholder="Name" />
+  <span class="text-danger"></span>
+  <button type="submit">Add Course</button>
+</form>
+</html>
+`}
+  sourceChecks={[
+    {
+      name: 'th:action',
+      pattern: 'th:action\\s*=\\s*"@\\{/addcourse\\}"',
+      must: true,
+      hint: 'th:action="@{/addcourse}"',
+    },
+    {
+      name: 'th:object',
+      pattern: 'th:object\\s*=\\s*"\\$\\{course\\}"',
+      must: true,
+      hint: 'th:object="${course}"',
+    },
+    {
+      name: 'th:field name',
+      pattern: 'th:field\\s*=\\s*"\\*\\{name\\}"',
+      must: true,
+      hint: 'th:field="*{name}"',
+    },
+    {
+      name: 'hasErrors',
+      pattern: '#fields\\.hasErrors\\(\\s*\'name\'\\s*\\)',
+      must: true,
+      hint: "#fields.hasErrors('name')",
+    },
+    {
+      name: 'th:errors',
+      pattern: 'th:errors\\s*=\\s*"\\*\\{name\\}"',
+      must: true,
+      hint: 'th:errors="*{name}"',
+    },
+  ]}
+/>
+
+```java
+@Controller
+public class CourseController {
+
+  @PostMapping("/addcourse")
+  public String addCourse(@Valid Course course, BindingResult result, Model model) {
+    // if errors → "add-course"; else create + redirect:/index
+    return null;
+  }
+}
+```
+
+<CodeExercise
+  title="addCourse controller"
+  heading="Challenge: Valid + BindingResult + redirect"
+  lang="java"
+  filename="CourseController.java"
+  prompt={`(1) Keep @PostMapping("/addcourse") and the method parameters.
+
+(2) If result.hasErrors(), return "add-course".
+
+(3) Otherwise call courseService.createCourse(course) and return "redirect:/index".`}
+  starter={`import javax.validation.Valid;
+import org.springframework.stereotype.Controller;
+import org.springframework.ui.Model;
+import org.springframework.validation.BindingResult;
+import org.springframework.web.bind.annotation.PostMapping;
+
+@Controller
+public class CourseController {
+
+  private final CourseService courseService;
+
+  public CourseController(CourseService courseService) {
+    this.courseService = courseService;
+  }
+
+  @PostMapping("/addcourse")
+  public String addCourse(@Valid Course course, BindingResult result, Model model) {
+    return null;
+  }
+}
+`}
+  sourceChecks={[
+    {
+      name: 'hasErrors branch',
+      pattern: 'result\\.hasErrors\\s*\\(\\s*\\)',
+      must: true,
+      hint: 'if (result.hasErrors())',
+    },
+    {
+      name: 'return add-course',
+      pattern: 'return\\s+"add-course"',
+      must: true,
+      hint: 'return "add-course"',
+    },
+    {
+      name: 'createCourse',
+      pattern: 'courseService\\.createCourse\\s*\\(\\s*course\\s*\\)',
+      must: true,
+      hint: 'courseService.createCourse(course)',
+    },
+    {
+      name: 'redirect index',
+      pattern: 'return\\s+"redirect:/index"',
+      must: true,
+      hint: 'return "redirect:/index"',
+    },
+  ]}
+/>
+
+```properties
+# enable PUT/DELETE from HTML forms via _method
+```
+
+<CodeExercise
+  title="Hidden method filter"
+  heading="Challenge: enable HiddenHttpMethodFilter"
+  lang="properties"
+  filename="application.properties"
+  prompt={`(1) Set spring.mvc.hiddenmethod.filter.enabled=true.`}
+  starter={`# MVC
+`}
+  sourceChecks={[
+    {
+      name: 'hiddenmethod filter',
+      pattern: '^spring\\.mvc\\.hiddenmethod\\.filter\\.enabled\\s*=\\s*true\\s*$',
+      flags: 'm',
+      must: true,
+      hint: 'spring.mvc.hiddenmethod.filter.enabled=true',
+    },
+  ]}
+/>
+
+---
+
+## 6. End-to-end Course Tracker (MVC + Thymeleaf)
+
+Typical pieces:
+
+- **`@Controller`** (not `@RestController`) — returns view names  
+- Service interface + in-memory or JPA impl  
+- Entity with Bean Validation (`@NotEmpty`, `@Min` / `@Max`)  
+- Templates: `index.html`, `add-course.html`, `update-course.html`  
+- CRUD mappings: GET list/forms, POST create, PUT update, DELETE remove  
+
+Index page often uses `#lists.size(courses)` with `th:switch` for empty vs filled table, `th:href` for edit links, and `th:method="delete"` for deletes.
+
+```java
+@GetMapping("/index")
+public String index(Model model) {
+  model.addAttribute("courses", courseService.findAllCourses());
+  return "index";
+}
+```
+
+```html
+<a th:href="@{/update/{id}(id=${course.id})}">Edit</a>
+```
+
+<MultipleChoice
+  title="Thymeleaf + Boot quiz"
+  questions={[
+    {
+      prompt: 'Default location for Thymeleaf HTML in a Boot app is…',
+      choices: [
+        'src/main/webapp/WEB-INF/jsp only',
+        'src/main/resources/templates',
+        '/tmp/thymeleaf',
+        'Only on S3',
+      ],
+      answer: 1,
+      why: 'Boot’s Thymeleaf auto-config looks under classpath:/templates/.',
+    },
+    {
+      prompt: '@RestController vs @Controller for Thymeleaf pages…',
+      choices: [
+        'Use @Controller so return values are view names, not response bodies',
+        'Always use @RestController for HTML',
+        'Neither can return strings',
+        'Only @Service works',
+      ],
+      answer: 0,
+      why: '@RestController implies @ResponseBody — wrong for server-rendered views.',
+    },
+    {
+      prompt: 'th:method="delete" works with browsers because…',
+      choices: [
+        'Browsers natively prefer DELETE for all forms',
+        'A hidden _method field + HiddenHttpMethodFilter rewrites POST to DELETE',
+        'Thymeleaf disables HTTP',
+        'Jackson converts verbs',
+      ],
+      answer: 1,
+      why: 'Filter maps the override parameter to the real HTTP method.',
+    },
+  ]}
+/>
+
+---
+
+## Chapter checklist
+
+| Topic | Idea |
+|---|---|
+| Front controller | `DispatcherServlet` + mappings / adapters / views |
+| Model | `model.addAttribute` → `${…}` in templates |
+| Thymeleaf | `th:text`, `th:each`, `th:if` / `switch`, forms |
+| Validation | `@Valid` + `BindingResult` + `#fields` / `th:errors` |
+| Verbs | Hidden method filter for PUT/DELETE |
+| Layout | Templates under `resources/templates` |
+
+Full samples: [appendix02 on GitHub](https://github.com/spring-boot-in-practice/repo/tree/main/appendix02).

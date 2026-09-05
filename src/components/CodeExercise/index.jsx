@@ -115,9 +115,12 @@ export default function CodeExercise({
     anchor,
     hint,
     solution,
+    disablePaste: disablePasteProp,
 }) {
     const {siteConfig} = useDocusaurusContext();
     const {pathname} = useLocation();
+    const disablePaste =
+        disablePasteProp ?? pathname.includes('/springboot/');
     const fileName = useMemo(
         () => defaultSourceFilename(lang, filename),
         [lang, filename]
@@ -312,7 +315,13 @@ export default function CodeExercise({
 
             <SplitPanes split={split}>
                 <div className={chrome.editorPane}>
-                    <CodeEditor value={code} onChange={setCode} lang={lang} height={height} />
+                    <CodeEditor
+                        value={code}
+                        onChange={setCode}
+                        lang={lang}
+                        height={height}
+                        disablePaste={disablePaste}
+                    />
                 </div>
                 {split ? (
                     <div className={chrome.side}>

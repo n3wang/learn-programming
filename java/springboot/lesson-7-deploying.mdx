@@ -1,0 +1,659 @@
+---
+sidebar_position: 7
+title: "Deploying Spring Boot Applications"
+---
+
+> **Source:** *Spring Boot in Practice* — Chapter 9 by Somnath Musib (Manning). Concepts rewritten for this course; companion samples: [spring-boot-in-practice/repo ch09](https://github.com/spring-boot-in-practice/repo/tree/main/ch09).
+
+From fat JAR and WAR to PaaS, Docker, Kubernetes, and OpenShift — choose a packaging and platform that matches scale, ops skill, and compliance needs.
+
+:::tip Pattern-check challenges
+Editors **do not compile or run** Spring Boot, Docker, or `kubectl`. **Check** uses `sourceChecks` only. Snippets above exercises show the usual shape with inline comments; type the code yourself. **Paste is disabled** on Spring Boot lessons.
+:::
+
+## What this lesson covers
+
+- Executable JAR (`spring-boot-maven-plugin`, layers / `layertools`)
+- WAR + `SpringBootServletInitializer` (e.g. WildFly)
+- Cloud Foundry & Heroku (PaaS overview)
+- Docker images (Dockerfile + Boot `build-image`)
+- Kubernetes Deployment / Service basics
+- OpenShift “from Git” overview
+
+---
+
+## 1. Executable JAR
+
+Boot’s default path: package a **fat JAR** and run with embedded Tomcat (or another embedded server).
+
+Requirements:
+
+1. `<packaging>jar</packaging>` (or omit — jar is default)
+2. `spring-boot-maven-plugin` so the **repackage** goal runs on `mvn package`
+
+```xml
+<plugin>
+  <groupId>org.springframework.boot</groupId>
+  <artifactId>spring-boot-maven-plugin</artifactId> <!-- repackages fat JAR -->
+</plugin>
+```
+
+```bash
+mvn package
+java -jar target/course-tracker-app-jar-1.0.0.jar
+```
+
+Inside the fat JAR:
+
+- `Main-Class` → Boot loader (`JarLauncher`)
+- `Start-Class` → your `@SpringBootApplication`
+- App classes under `BOOT-INF/classes/`, deps under `BOOT-INF/lib/`
+- `layers.idx` for Docker-friendly layering: `dependencies`, `spring-boot-loader`, `snapshot-dependencies`, `application`
+
+Inspect layers:
+
+```bash
+java -Djarmode=layertools -jar app.jar list
+java -Djarmode=layertools -jar app.jar extract --destination layers
+```
+
+```xml
+<build>
+  <plugins>
+    <!-- spring-boot-maven-plugin here -->
+  </plugins>
+</build>
+```
+
+<CodeExercise
+  title="Boot Maven plugin"
+  heading="Challenge: spring-boot-maven-plugin"
+  lang="xml"
+  filename="pom-snippet.xml"
+  prompt={`(1) Add a <plugin> for org.springframework.boot / spring-boot-maven-plugin.
+
+(2) Include groupId, artifactId only (version can come from parent).`}
+  starter={`<build>
+  <plugins>
+  </plugins>
+</build>
+`}
+  sourceChecks={[
+    {
+      name: 'groupId',
+      pattern: '<groupId>\\s*org\\.springframework\\.boot\\s*</groupId>',
+      must: true,
+      hint: 'groupId org.springframework.boot',
+    },
+    {
+      name: 'artifactId',
+      pattern: '<artifactId>\\s*spring-boot-maven-plugin\\s*</artifactId>',
+      must: true,
+      hint: 'artifactId spring-boot-maven-plugin',
+    },
+    {
+      name: 'plugin wrapper',
+      pattern: '<plugin>[\\s\\S]*spring-boot-maven-plugin[\\s\\S]*</plugin>',
+      must: true,
+      hint: 'Wrap coordinates in <plugin>...</plugin>',
+    },
+  ]}
+/>
+
+<MultipleChoice
+  title="JAR basics"
+  questions={[
+    {
+      prompt: 'What does spring-boot-maven-plugin’s repackage goal mainly do?',
+      choices: [
+        'Deletes BOOT-INF',
+        'Builds an executable fat JAR with loader + nested libs',
+        'Only runs Checkstyle',
+        'Starts Kubernetes',
+      ],
+      answer: 1,
+      why: 'It wraps the Maven jar into a Boot-launchable archive.',
+    },
+    {
+      prompt: 'jarmode=layertools is useful when…',
+      choices: [
+        'Writing Thymeleaf only',
+        'Listing/extracting JAR layers for optimized Docker images',
+        'Disabling Actuator',
+        'Replacing Git',
+      ],
+      answer: 1,
+      why: 'Layers map to Docker COPY steps for better caching.',
+    },
+  ]}
+/>
+
+---
+
+## 2. WAR on an application server
+
+When ops already runs WildFly / Tomcat / JBoss:
+
+1. `<packaging>war</packaging>`
+2. Mark embedded Tomcat `provided` if the server supplies the servlet container
+3. Extend `SpringBootServletInitializer` and point at your main class
+
+```java
+public class ServletInitializer extends SpringBootServletInitializer {
+  @Override
+  protected SpringApplicationBuilder configure(SpringApplicationBuilder application) {
+    return application.sources(CourseTrackerSpringBootApplication.class); // WAR entry
+  }
+}
+```
+
+WildFly extras (book demo): exclude conflicting `logback-classic`; set context root via `jboss-web.xml`. Automate with `wildfly-maven-plugin` (`deploy` on install, `undeploy` on clean) and keep credentials out of the POM (e.g. `settings.xml`).
+
+```java
+import org.springframework.boot.builder.SpringApplicationBuilder;
+import org.springframework.boot.web.servlet.support.SpringBootServletInitializer;
+
+public class ServletInitializer extends SpringBootServletInitializer {
+
+  @Override
+  protected SpringApplicationBuilder configure(SpringApplicationBuilder application) {
+    return null;
+  }
+}
+```
+
+<CodeExercise
+  title="ServletInitializer"
+  heading="Challenge: sources(...) for WAR"
+  lang="java"
+  filename="ServletInitializer.java"
+  prompt={`(1) Keep extends SpringBootServletInitializer.
+
+(2) In configure, return application.sources(CourseTrackerSpringBootApplication.class).`}
+  starter={`import org.springframework.boot.builder.SpringApplicationBuilder;
+import org.springframework.boot.web.servlet.support.SpringBootServletInitializer;
+
+public class ServletInitializer extends SpringBootServletInitializer {
+
+  @Override
+  protected SpringApplicationBuilder configure(SpringApplicationBuilder application) {
+    return null;
+  }
+}
+`}
+  sourceChecks={[
+    {
+      name: 'sources main class',
+      pattern: 'application\\.sources\\s*\\(\\s*CourseTrackerSpringBootApplication\\.class\\s*\\)',
+      must: true,
+      hint: 'application.sources(CourseTrackerSpringBootApplication.class)',
+    },
+    {
+      name: 'return',
+      pattern: 'return\\s+application\\.sources',
+      must: true,
+      hint: 'return the builder from sources(...)',
+    },
+  ]}
+/>
+
+```xml
+<packaging>war</packaging>
+```
+
+<CodeExercise
+  title="WAR packaging"
+  heading="Challenge: packaging war"
+  lang="xml"
+  filename="pom-packaging.xml"
+  prompt={`(1) Set packaging to war (exact element <packaging>war</packaging>).`}
+  starter={`<!-- packaging -->
+`}
+  sourceChecks={[
+    {
+      name: 'packaging war',
+      pattern: '<packaging>\\s*war\\s*</packaging>',
+      must: true,
+      hint: '<packaging>war</packaging>',
+    },
+    {
+      name: 'not jar',
+      pattern: '<packaging>\\s*jar\\s*</packaging>',
+      must: false,
+      hint: 'Use war for this exercise.',
+    },
+  ]}
+/>
+
+---
+
+## 3. Cloud Foundry (PaaS)
+
+**PaaS** manages runtime/OS; you manage app + data. Cloud Foundry can take a JAR (or source) and a **buildpack**.
+
+Typical flow:
+
+```bash
+cf login -a <API_ENDPOINT> -u <USER>
+mvn clean install
+cf push   # reads manifest.yml
+cf apps   # show routes
+```
+
+```yaml
+applications:
+  - name: course-tracker-app-cf
+    instances: 1
+    memory: 1024M
+    path: target/course-tracker-app-cf-1.0.0.jar # artifact to push
+    random-route: true
+    buildpacks:
+      - java_buildpack
+```
+
+Bind managed services (`cf create-service`, `cf bind-service`). VCAP / `java-cfenv` expose credentials into Spring `Environment`.
+
+```yaml
+applications:
+  - name: course-tracker-app-cf
+    instances: 1
+    memory: 1024M
+    # path + buildpacks
+```
+
+<CodeExercise
+  title="CF manifest"
+  heading="Challenge: path + java_buildpack"
+  lang="yaml"
+  filename="manifest.yml"
+  prompt={`(1) Keep name, instances, memory.
+
+(2) Set path to target/course-tracker-app-cf-1.0.0.jar.
+
+(3) Set buildpacks to a list containing java_buildpack.
+
+(4) Set random-route: true.`}
+  starter={`applications:
+  - name: course-tracker-app-cf
+    instances: 1
+    memory: 1024M
+`}
+  sourceChecks={[
+    {
+      name: 'path jar',
+      pattern: 'path:\\s*target/course-tracker-app-cf-1\\.0\\.0\\.jar',
+      must: true,
+      hint: 'path: target/course-tracker-app-cf-1.0.0.jar',
+    },
+    {
+      name: 'java_buildpack',
+      pattern: 'java_buildpack',
+      must: true,
+      hint: 'buildpacks include java_buildpack',
+    },
+    {
+      name: 'random-route',
+      pattern: 'random-route:\\s*true',
+      must: true,
+      hint: 'random-route: true',
+    },
+  ]}
+/>
+
+---
+
+## 4. Heroku
+
+Heroku builds from **Git** (or Maven plugin), runs on **dynos**, and can attach add-ons (e.g. Postgres).
+
+```bash
+heroku login
+git init && git add . && git commit -am "first"
+heroku create
+heroku addons:create heroku-postgresql
+git push heroku master   # or main, per app default
+heroku open
+heroku logs
+```
+
+Spring often reads `SPRING_DATASOURCE_URL` / username / password injected by the Postgres add-on. Prefer secrets in config vars, not committed files.
+
+<MultipleChoice
+  title="PaaS quiz"
+  questions={[
+    {
+      prompt: 'cf push with a Java buildpack typically…',
+      choices: [
+        'Only formats hard disks',
+        'Uploads the app and stages it with a JRE/runtime via the buildpack',
+        'Replaces Docker Hub permanently',
+        'Disables HTTPS forever',
+      ],
+      answer: 1,
+      why: 'Buildpacks detect Java artifacts and provide a runtime.',
+    },
+    {
+      prompt: 'Heroku dynos are…',
+      choices: [
+        'Only physical mainframes',
+        'Lightweight Linux containers that run your processes',
+        'MongoDB drivers',
+        'OpenAPI schemas',
+      ],
+      answer: 1,
+      why: 'Dynos host the running app processes.',
+    },
+  ]}
+/>
+
+---
+
+## 5. Docker
+
+A **image** packages app + runtime; a **container** is a running instance. Same image → more consistent Dev/UAT/Prod.
+
+### Simple Dockerfile
+
+```dockerfile
+FROM adoptopenjdk:11-jre-hotspot
+ADD target/*.jar application.jar
+ENTRYPOINT ["java", "-jar", "application.jar"]
+EXPOSE 8080
+```
+
+```bash
+docker build --tag course-tracker:v1 .
+docker run -p 8080:8080 course-tracker:v1
+```
+
+### Layered multi-stage (better cache)
+
+Extract Boot layers, then `COPY` each layer separately; entrypoint `JarLauncher`.
+
+### Boot buildpacks (no hand-written Dockerfile)
+
+```bash
+mvn spring-boot:build-image -Dspring-boot.build-image.imageName=course-tracker:v3
+```
+
+Uses Cloud Native / Paketo buildpacks — similar idea to CF/Heroku: source/JAR → runnable image.
+
+```dockerfile
+FROM adoptopenjdk:11-jre-hotspot
+# ADD jar, ENTRYPOINT, EXPOSE
+```
+
+<CodeExercise
+  title="Simple Dockerfile"
+  heading="Challenge: ADD + ENTRYPOINT + EXPOSE"
+  lang="dockerfile"
+  filename="Dockerfile"
+  prompt={`(1) Keep FROM adoptopenjdk:11-jre-hotspot.
+
+(2) ADD target/*.jar as application.jar.
+
+(3) ENTRYPOINT exec form: java -jar application.jar.
+
+(4) EXPOSE 8080.`}
+  starter={`FROM adoptopenjdk:11-jre-hotspot
+`}
+  sourceChecks={[
+    {
+      name: 'ADD jar',
+      pattern: 'ADD\\s+target/\\*\\.jar\\s+application\\.jar',
+      must: true,
+      hint: 'ADD target/*.jar application.jar',
+    },
+    {
+      name: 'ENTRYPOINT',
+      pattern: 'ENTRYPOINT\\s*\\[\\s*"java"\\s*,\\s*"-jar"\\s*,\\s*"application\\.jar"\\s*\\]',
+      must: true,
+      hint: 'ENTRYPOINT ["java", "-jar", "application.jar"]',
+    },
+    {
+      name: 'EXPOSE 8080',
+      pattern: 'EXPOSE\\s+8080',
+      must: true,
+      hint: 'EXPOSE 8080',
+    },
+  ]}
+/>
+
+---
+
+## 6. Kubernetes
+
+Kubernetes **orchestrates** containers across a cluster (Pods, Deployments, Services). Local demos often use Kind / Minikube / Docker Desktop.
+
+Typical path:
+
+1. Build/tag image (`course-tracker:v3` → `musibs/course-tracker`)
+2. Push to a registry (needed for remote nodes)
+3. Create Deployment + Service YAML
+4. `kubectl apply -f .`
+5. Port-forward for local access if using ClusterIP
+
+```bash
+kubectl create deployment course-tracker --image musibs/course-tracker --dry-run=client -o=yaml > deployment.yaml
+kubectl create service clusterip course-tracker-service --tcp 80:8080 -o yaml --dry-run=client > service.yaml
+kubectl apply -f .
+kubectl port-forward pod/<pod-name> 8080:8080
+```
+
+Deployment snippet idea: `kind: Deployment`, container `image: musibs/course-tracker`, `replicas: 1`.  
+Service: map port **80** → container **8080** (`ClusterIP`).
+
+```yaml
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: course-tracker
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: course-tracker
+  template:
+    metadata:
+      labels:
+        app: course-tracker
+    spec:
+      containers:
+        - name: course-tracker
+          image: musibs/course-tracker # image from registry
+```
+
+<CodeExercise
+  title="K8s Deployment image"
+  heading="Challenge: container image"
+  lang="yaml"
+  filename="deployment.yaml"
+  prompt={`(1) Keep kind Deployment and name course-tracker.
+
+(2) Under containers, set image to musibs/course-tracker.
+
+(3) Keep replicas: 1.`}
+  starter={`apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: course-tracker
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: course-tracker
+  template:
+    metadata:
+      labels:
+        app: course-tracker
+    spec:
+      containers:
+        - name: course-tracker
+          image: CHANGE_ME
+`}
+  sourceChecks={[
+    {
+      name: 'image',
+      pattern: 'image:\\s*musibs/course-tracker\\s*$',
+      flags: 'm',
+      must: true,
+      hint: 'image: musibs/course-tracker',
+    },
+    {
+      name: 'replicas',
+      pattern: 'replicas:\\s*1',
+      must: true,
+      hint: 'replicas: 1',
+    },
+    {
+      name: 'not CHANGE_ME',
+      pattern: 'CHANGE_ME',
+      must: false,
+      hint: 'Replace CHANGE_ME with the real image.',
+    },
+  ]}
+/>
+
+```yaml
+apiVersion: v1
+kind: Service
+metadata:
+  name: course-tracker-service
+spec:
+  type: ClusterIP
+  ports:
+    - port: 80
+      targetPort: 8080
+  selector:
+    app: course-tracker
+```
+
+<CodeExercise
+  title="K8s Service ports"
+  heading="Challenge: 80 → 8080"
+  lang="yaml"
+  filename="service.yaml"
+  prompt={`(1) Keep kind Service and name course-tracker-service.
+
+(2) Set type ClusterIP.
+
+(3) Map port 80 to targetPort 8080.`}
+  starter={`apiVersion: v1
+kind: Service
+metadata:
+  name: course-tracker-service
+spec:
+  type: ClusterIP
+  ports:
+    - port: 0
+      targetPort: 0
+  selector:
+    app: course-tracker
+`}
+  sourceChecks={[
+    {
+      name: 'port 80',
+      pattern: 'port:\\s*80\\b',
+      must: true,
+      hint: 'port: 80',
+    },
+    {
+      name: 'targetPort 8080',
+      pattern: 'targetPort:\\s*8080\\b',
+      must: true,
+      hint: 'targetPort: 8080',
+    },
+    {
+      name: 'ClusterIP',
+      pattern: 'type:\\s*ClusterIP',
+      must: true,
+      hint: 'type: ClusterIP',
+    },
+  ]}
+/>
+
+---
+
+## 7. RedHat OpenShift
+
+OpenShift is enterprise Kubernetes with a developer console and extra workflows (From Git, Dockerfile, container image, …).
+
+Sandbox-style flow:
+
+1. Create/login to OpenShift Developer Sandbox  
+2. **From Git** → paste repo URL  
+3. Platform builds, deploys to a Pod, exposes a **Route**  
+4. Use liveness / readiness / startup probes for health  
+
+Same container ideas as K8s; OpenShift adds opinionated tooling and multi-tenant ops.
+
+---
+
+## Choosing a strategy
+
+| Approach | When it fits |
+|---|---|
+| Fat JAR | Simple VMs, CI artifact, embedded server |
+| WAR | Existing app-server estate |
+| CF / Heroku | PaaS, less infra ownership |
+| Docker | Portable runtime unit |
+| Kubernetes / OpenShift | Scale, self-heal, multi-service |
+
+Always match **availability, compliance, and team skill** — not hype.
+
+---
+
+## Chapter checklist
+
+| Topic | Idea |
+|---|---|
+| JAR | `mvn package` + `java -jar`; layers for Docker |
+| WAR | `packaging` war + `SpringBootServletInitializer` |
+| CF | `manifest.yml` + `cf push` + buildpack |
+| Heroku | Git push / plugin + dynos + add-ons |
+| Docker | Dockerfile or `spring-boot:build-image` |
+| K8s | Deployment + Service + registry + port-forward |
+| OpenShift | Git → build → Route |
+
+Full samples: [ch09 on GitHub](https://github.com/spring-boot-in-practice/repo/tree/main/ch09).
+
+Next: **Spring MVC + Thymeleaf** (server-rendered UI) → [Lesson 8](./lesson-8-mvc-thymeleaf).
+
+<MultipleChoice
+  title="Chapter wrap-up"
+  questions={[
+    {
+      prompt: 'mvn spring-boot:build-image primarily…',
+      choices: [
+        'Only prints Javadoc',
+        'Builds a container image via buildpacks without a hand-written Dockerfile',
+        'Deletes Kubernetes namespaces',
+        'Converts YAML to XML only',
+      ],
+      answer: 1,
+      why: 'Boot Maven plugin invokes CNB/Paketo to produce an image.',
+    },
+    {
+      prompt: 'A Kubernetes Service with type ClusterIP…',
+      choices: [
+        'Always publishes on the public internet without extra work',
+        'Exposes the app on the cluster network (often need Ingress/port-forward externally)',
+        'Replaces Dockerfiles',
+        'Is only for MongoDB',
+      ],
+      answer: 1,
+      why: 'ClusterIP is internal; demos often port-forward.',
+    },
+    {
+      prompt: 'SpringBootServletInitializer is needed when…',
+      choices: [
+        'You only ever run java -jar fat JARs',
+        'You deploy as a WAR into an external servlet container',
+        'You disable all logging',
+        'You use only RSocket',
+      ],
+      answer: 1,
+      why: 'It boots the SpringApplication from the servlet container.',
+    },
+  ]}
+/>

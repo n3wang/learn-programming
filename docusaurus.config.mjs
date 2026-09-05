@@ -211,6 +211,10 @@ const config = {
                 label: 'Math and Science',
               },
               {
+                to: '/fundamentals/data-science/intro',
+                label: 'Data Science',
+              },
+              {
                 to: '/fundamentals/electronics/intro',
                 label: 'Electronics',
               },

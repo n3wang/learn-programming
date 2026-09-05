@@ -1,0 +1,859 @@
+---
+sidebar_position: 6
+title: "Reactive Spring Boot with WebFlux"
+---
+
+> **Source:** *Spring Boot in Practice* — Chapter 8 by Somnath Musib (Manning). Concepts rewritten for this course; companion samples: [spring-boot-in-practice/repo ch08](https://github.com/spring-boot-in-practice/repo/tree/main/ch08).
+
+Non-blocking APIs with **Spring WebFlux** and **Project Reactor**, then **WebClient**, **RSocket**, and **WebSocket** for richer client–server communication.
+
+:::tip Pattern-check challenges
+Editors **do not compile or run** Spring Boot. **Check** uses `sourceChecks` only. Snippets above exercises show the usual shape with inline comments; type the code yourself. **Paste is disabled** on Spring Boot lessons.
+:::
+
+## What this lesson covers
+
+- Reactive ideas: async streams, backpressure, `Flux` / `Mono`
+- WebFlux annotated controllers and functional endpoints
+- Calling APIs with `WebClient`
+- RSocket interaction models
+- WebSocket + STOMP messaging
+
+:::note Starters
+Use `spring-boot-starter-webflux` (not `starter-web`) for a reactive stack. Mixing both is possible but easy to get wrong — prefer one stack per app while learning.
+:::
+
+---
+
+## 1. Reactive programming in brief
+
+A **data stream** emits values over time (clicks, DB rows, messages). In reactive code you **subscribe** to a stream and react to:
+
+- **next** — a value  
+- **error** — failure  
+- **complete** — stream finished  
+
+**Asynchronous** means the calling thread does not block waiting; work continues and the result arrives later.
+
+**Backpressure:** if a producer is faster than a consumer, unbounded buffers risk OOM. Reactive Streams let the subscriber **request(n)** — pull what it can handle.
+
+Benefits vs blocking + nested callbacks/`Future` hell:
+
+- Non-blocking I/O (better resource use under load)
+- Declarative operators (`map`, `flatMap`, `filter`, …)
+- Backpressure built into the model
+- Nothing runs until **`subscribe()`** (cold publishers)
+
+```java
+Flux<Integer> ints = Flux.just(1, 2, 3);
+ints.map(i -> i * 2).subscribe(System.out::println); // subscribe starts the pipeline
+```
+
+<MultipleChoice
+  title="Reactive basics"
+  questions={[
+    {
+      prompt: 'Backpressure primarily lets a consumer…',
+      choices: [
+        'Encrypt every frame',
+        'Signal how much data it can accept so a fast producer slows down',
+        'Replace HTTP with FTP',
+        'Disable subscribe forever',
+      ],
+      answer: 1,
+      why: 'request(n) / pull semantics protect slow consumers.',
+    },
+    {
+      prompt: 'A reactive pipeline typically does not start until…',
+      choices: [
+        'The JVM boots',
+        'Someone calls subscribe() (or an equivalent terminal operator)',
+        'You add starter-web',
+        'Tomcat binds port 80',
+      ],
+      answer: 1,
+      why: 'Cold publishers are lazy until subscribed.',
+    },
+  ]}
+/>
+
+---
+
+## 2. Project Reactor: Flux and Mono
+
+Reactor implements **Reactive Streams** (`Publisher`, `Subscriber`, `Subscription`, `Processor`).
+
+| Type | Emits |
+|---|---|
+| `Flux<T>` | 0..N items, then complete or error |
+| `Mono<T>` | 0..1 item, then complete or error |
+
+```java
+Flux<Integer> a = Flux.just(1, 2, 3);
+Flux<Integer> b = Flux.range(1, 10);
+Flux<String> c = Flux.fromIterable(List.of("foo", "bar"));
+
+Mono<Integer> empty = Mono.empty();
+Mono<Integer> one = Mono.just(1);
+```
+
+```java
+Flux<Integer> intFlux = Flux.just(1, 2, 3);
+// map each element, then subscribe to print
+```
+
+<CodeExercise
+  title="Flux map + subscribe"
+  heading="Challenge: double and print"
+  lang="java"
+  filename="ReactorDemo.java"
+  prompt={`(1) Create Flux.just(1, 2, 3) into intFlux.
+
+(2) map each value by multiplying by 2.
+
+(3) subscribe with System.out::println.`}
+  starter={`import reactor.core.publisher.Flux;
+
+public class ReactorDemo {
+  public static void main(String[] args) {
+    // build pipeline here
+  }
+}
+`}
+  sourceChecks={[
+    {
+      name: 'Flux.just',
+      pattern: 'Flux\\.just\\s*\\(\\s*1\\s*,\\s*2\\s*,\\s*3\\s*\\)',
+      must: true,
+      hint: 'Flux.just(1, 2, 3)',
+    },
+    {
+      name: 'map * 2',
+      pattern: '\\.map\\s*\\(\\s*[a-zA-Z_]\\w*\\s*->\\s*\\1\\s*\\*\\s*2\\s*\\)|\\.map\\s*\\(\\s*i\\s*->\\s*i\\s*\\*\\s*2\\s*\\)',
+      must: true,
+      hint: 'map(i -> i * 2)',
+    },
+    {
+      name: 'subscribe println',
+      pattern: '\\.subscribe\\s*\\(\\s*System\\.out::println\\s*\\)',
+      must: true,
+      hint: 'subscribe(System.out::println)',
+    },
+  ]}
+/>
+
+---
+
+## 3. WebFlux annotated controllers
+
+WebFlux offers two styles: **annotated controllers** (familiar `@GetMapping`) and **functional endpoints** (`RouterFunction`).
+
+Typical reactive Course Tracker stack:
+
+```xml
+<dependency>
+  <groupId>org.springframework.boot</groupId>
+  <artifactId>spring-boot-starter-webflux</artifactId>
+</dependency>
+<dependency>
+  <groupId>org.springframework.boot</groupId>
+  <artifactId>spring-boot-starter-data-mongodb-reactive</artifactId>
+</dependency>
+```
+
+Repository returns reactive types:
+
+```java
+public interface CourseRepository extends ReactiveMongoRepository<Course, String> {
+  Flux<Course> findAllByCategory(String category); // Flux = many courses
+}
+```
+
+Controller returns `Flux` / `Mono` (and often `Mono<ResponseEntity<…>>` for 404):
+
+```java
+@RestController
+@RequestMapping("/courses/")
+public class CourseController {
+
+  private final CourseRepository courseRepository;
+
+  @GetMapping
+  public Flux<Course> getAllCourses() {
+    return courseRepository.findAll(); // 0..N
+  }
+
+  @GetMapping("{id}")
+  public Mono<ResponseEntity<Course>> getCourseById(@PathVariable String id) {
+    return courseRepository.findById(id)
+        .map(ResponseEntity::ok)
+        .defaultIfEmpty(ResponseEntity.notFound().build()); // 404 when empty
+  }
+
+  @PostMapping
+  public Mono<Course> createCourse(@RequestBody Course course) {
+    return courseRepository.save(course);
+  }
+}
+```
+
+Nothing hits the DB until the HTTP layer **subscribes** to your returned publisher.
+
+Seed data with a lazy chain that ends in `subscribe`:
+
+```java
+Flux.just(course1, course2, course3)
+    .flatMap(courseRepository::save)
+    .thenMany(courseRepository.findAll())
+    .subscribe(System.out::println);
+```
+
+```java
+@RestController
+@RequestMapping("/courses/")
+public class CourseController {
+
+  private final CourseRepository courseRepository;
+
+  public CourseController(CourseRepository courseRepository) {
+    this.courseRepository = courseRepository;
+  }
+
+  public Flux<Course> getAllCourses() {
+    return null;
+  }
+
+  public Mono<ResponseEntity<Course>> getCourseById(@PathVariable("id") String courseId) {
+    return null;
+  }
+}
+```
+
+<CodeExercise
+  title="Reactive CourseController"
+  heading="Challenge: Flux list + Mono 404"
+  lang="java"
+  filename="CourseController.java"
+  prompt={`(1) Add @GetMapping on getAllCourses; return courseRepository.findAll().
+
+(2) Add @GetMapping("{id}") on getCourseById.
+
+(3) findById → map to ResponseEntity.ok → defaultIfEmpty(ResponseEntity.notFound().build()).`}
+  starter={`import org.springframework.http.ResponseEntity;
+import org.springframework.web.bind.annotation.*;
+import reactor.core.publisher.Flux;
+import reactor.core.publisher.Mono;
+
+@RestController
+@RequestMapping("/courses/")
+public class CourseController {
+
+  private final CourseRepository courseRepository;
+
+  public CourseController(CourseRepository courseRepository) {
+    this.courseRepository = courseRepository;
+  }
+
+  public Flux<Course> getAllCourses() {
+    return null;
+  }
+
+  public Mono<ResponseEntity<Course>> getCourseById(@PathVariable("id") String courseId) {
+    return null;
+  }
+}
+`}
+  sourceChecks={[
+    {
+      name: 'GetMapping list',
+      pattern: '@GetMapping(\\s*(\\(\\s*\\))?\\s*)\\s*(public\\s+)?Flux',
+      must: true,
+      hint: '@GetMapping on getAllCourses',
+    },
+    {
+      name: 'findAll',
+      pattern: 'courseRepository\\.findAll\\s*\\(\\s*\\)',
+      must: true,
+      hint: 'return courseRepository.findAll()',
+    },
+    {
+      name: 'GetMapping id',
+      pattern: '@GetMapping\\(\\s*"\\{id\\}"\\s*\\)',
+      must: true,
+      hint: '@GetMapping("{id}")',
+    },
+    {
+      name: 'findById',
+      pattern: 'courseRepository\\.findById\\s*\\(\\s*courseId\\s*\\)',
+      must: true,
+      hint: 'courseRepository.findById(courseId)',
+    },
+    {
+      name: 'defaultIfEmpty notFound',
+      pattern: 'defaultIfEmpty\\s*\\(\\s*ResponseEntity\\.notFound\\s*\\(\\s*\\)\\s*\\.\\s*build\\s*\\(\\s*\\)\\s*\\)',
+      must: true,
+      hint: 'defaultIfEmpty(ResponseEntity.notFound().build())',
+    },
+    {
+      name: 'map ok',
+      pattern: '\\.map\\s*\\(',
+      must: true,
+      hint: 'map course to ResponseEntity.ok(...)',
+    },
+  ]}
+/>
+
+---
+
+## 4. Functional endpoints
+
+Instead of annotations, declare **routes** and **handlers**:
+
+```java
+@Configuration
+public class RouterContext {
+
+  @Bean
+  RouterFunction<ServerResponse> routes(CourseHandler handler) {
+    return route(GET("/courses").and(accept(APPLICATION_JSON)), handler::findAllCourses)
+        .andRoute(GET("/courses/{id}").and(accept(APPLICATION_JSON)), handler::findCourseById)
+        .andRoute(POST("/courses").and(accept(APPLICATION_JSON)), handler::createCourse)
+        .andRoute(DELETE("/courses/{id}").and(accept(APPLICATION_JSON)), handler::deleteCourse);
+  }
+}
+```
+
+Handler takes `ServerRequest`, returns `Mono<ServerResponse>`:
+
+```java
+public Mono<ServerResponse> findAllCourses(ServerRequest request) {
+  Flux<Course> courses = courseRepository.findAll();
+  return ServerResponse.ok().contentType(APPLICATION_JSON).body(courses, Course.class);
+}
+
+public Mono<ServerResponse> findCourseById(ServerRequest request) {
+  String id = request.pathVariable("id");
+  return courseRepository.findById(id)
+      .flatMap(course -> ServerResponse.ok().contentType(APPLICATION_JSON).bodyValue(course))
+      .switchIfEmpty(ServerResponse.notFound().build());
+}
+```
+
+Routes are matched **in order** — put specific paths before catch-alls.
+
+```java
+@Configuration
+public class RouterContext {
+
+  @Bean
+  RouterFunction<ServerResponse> routes(CourseHandler courseHandler) {
+    // GET /courses → findAllCourses
+    // GET /courses/{id} → findCourseById
+    return null;
+  }
+}
+```
+
+<CodeExercise
+  title="RouterFunction routes"
+  heading="Challenge: GET list and by id"
+  lang="java"
+  filename="RouterContext.java"
+  prompt={`(1) Return a RouterFunction built with route(...) / andRoute(...).
+
+(2) GET("/courses") with accept(APPLICATION_JSON) → courseHandler::findAllCourses.
+
+(3) GET("/courses/{id}") with accept(APPLICATION_JSON) → courseHandler::findCourseById.
+
+(4) Use static imports or fully qualified RouterFunctions.route / RequestPredicates.GET as you prefer.`}
+  starter={`import static org.springframework.http.MediaType.APPLICATION_JSON;
+import static org.springframework.web.reactive.function.server.RequestPredicates.GET;
+import static org.springframework.web.reactive.function.server.RequestPredicates.accept;
+import static org.springframework.web.reactive.function.server.RouterFunctions.route;
+
+import org.springframework.context.annotation.Bean;
+import org.springframework.context.annotation.Configuration;
+import org.springframework.web.reactive.function.server.RouterFunction;
+import org.springframework.web.reactive.function.server.ServerResponse;
+
+@Configuration
+public class RouterContext {
+
+  @Bean
+  RouterFunction<ServerResponse> routes(CourseHandler courseHandler) {
+    return null;
+  }
+}
+`}
+  sourceChecks={[
+    {
+      name: 'GET /courses',
+      pattern: 'GET\\s*\\(\\s*"/courses"\\s*\\)',
+      must: true,
+      hint: 'GET("/courses")',
+    },
+    {
+      name: 'findAllCourses',
+      pattern: 'courseHandler::findAllCourses',
+      must: true,
+      hint: 'courseHandler::findAllCourses',
+    },
+    {
+      name: 'GET by id',
+      pattern: 'GET\\s*\\(\\s*"/courses/\\{id\\}"\\s*\\)',
+      must: true,
+      hint: 'GET("/courses/{id}")',
+    },
+    {
+      name: 'findCourseById',
+      pattern: 'courseHandler::findCourseById',
+      must: true,
+      hint: 'courseHandler::findCourseById',
+    },
+    {
+      name: 'accept JSON',
+      pattern: 'accept\\s*\\(\\s*APPLICATION_JSON\\s*\\)',
+      must: true,
+      hint: 'and(accept(APPLICATION_JSON))',
+    },
+    {
+      name: 'not null return',
+      pattern: 'return\\s+null\\s*;',
+      must: false,
+      hint: 'Return route(...).andRoute(...), not null.',
+    },
+  ]}
+/>
+
+---
+
+## 5. WebClient
+
+`WebClient` is the reactive HTTP client (fluent, non-blocking). Prefer it over legacy `RestTemplate` for WebFlux apps.
+
+```java
+WebClient client = WebClient.builder().baseUrl("http://localhost:8080/courses/").build();
+
+public Mono<Course> getCourseById(String id) {
+  return client.get()
+      .uri("{id}", id)
+      .retrieve()
+      .bodyToMono(Course.class);
+}
+
+public Flux<Course> getAllCourses() {
+  return client.get()
+      .retrieve()
+      .bodyToFlux(Course.class);
+}
+
+public Mono<ResponseEntity<Course>> postNewCourse(Course course) {
+  return client.post()
+      .body(Mono.just(course), Course.class)
+      .retrieve()
+      .toEntity(Course.class);
+}
+```
+
+Chain calls with operators (`thenMany`, `flatMap`, …) and still end with `subscribe` (or return the publisher to the framework).
+
+```java
+@Component
+public class WebClientApi {
+
+  private final WebClient webClient;
+
+  public WebClientApi() {
+    this.webClient = WebClient.builder().baseUrl("http://localhost:8080/courses/").build();
+  }
+
+  public Mono<Course> getCourseById(String id) {
+    return null; // GET {id} → bodyToMono(Course.class)
+  }
+}
+```
+
+<CodeExercise
+  title="WebClient GET by id"
+  heading="Challenge: get + uri + bodyToMono"
+  lang="java"
+  filename="WebClientApi.java"
+  prompt={`(1) Keep the WebClient field and constructor.
+
+(2) In getCourseById: webClient.get().uri("{id}", id).retrieve().bodyToMono(Course.class).`}
+  starter={`import org.springframework.stereotype.Component;
+import org.springframework.web.reactive.function.client.WebClient;
+import reactor.core.publisher.Mono;
+
+@Component
+public class WebClientApi {
+
+  private final WebClient webClient;
+
+  public WebClientApi() {
+    this.webClient = WebClient.builder().baseUrl("http://localhost:8080/courses/").build();
+  }
+
+  public Mono<Course> getCourseById(String id) {
+    return null;
+  }
+}
+`}
+  sourceChecks={[
+    {
+      name: 'get()',
+      pattern: 'webClient\\.get\\s*\\(\\s*\\)',
+      must: true,
+      hint: 'webClient.get()',
+    },
+    {
+      name: 'uri template',
+      pattern: '\\.uri\\s*\\(\\s*"\\{id\\}"\\s*,\\s*id\\s*\\)',
+      must: true,
+      hint: '.uri("{id}", id)',
+    },
+    {
+      name: 'retrieve',
+      pattern: '\\.retrieve\\s*\\(\\s*\\)',
+      must: true,
+      hint: '.retrieve()',
+    },
+    {
+      name: 'bodyToMono Course',
+      pattern: '\\.bodyToMono\\s*\\(\\s*Course\\.class\\s*\\)',
+      must: true,
+      hint: '.bodyToMono(Course.class)',
+    },
+  ]}
+/>
+
+---
+
+## 6. RSocket
+
+**RSocket** is a multiplexed, duplex binary protocol (often over TCP or WebSocket) with four interaction models:
+
+| Model | Client → Server |
+|---|---|
+| Fire-and-forget | 1 message, no reply |
+| Request-response | 1 → 1 |
+| Request-stream | 1 → stream |
+| Channel | stream ↔ stream |
+
+```xml
+<dependency>
+  <groupId>org.springframework.boot</groupId>
+  <artifactId>spring-boot-starter-rsocket</artifactId>
+</dependency>
+```
+
+```properties
+spring.rsocket.server.port=7000
+```
+
+Map routes with `@MessageMapping` (messaging, not MVC path mapping):
+
+```java
+@Controller
+public class CourseController {
+
+  @MessageMapping("request-response")
+  public Mono<Course> requestResponse(Course course) {
+    return Mono.just(new Course("Your course name: " + course.getCourseName()));
+  }
+
+  @MessageMapping("fire-and-forget")
+  public Mono<Void> fireAndForget(Course course) {
+    return Mono.empty(); // no payload back
+  }
+
+  @MessageMapping("request-stream")
+  public Flux<Course> requestStream(Course course) {
+    return Flux.interval(Duration.ofSeconds(1))
+        .map(i -> new Course("Your course name: " + course.getCourseName() + ". Response #" + i));
+  }
+}
+```
+
+Tests often use `RSocketRequester` + Reactor `StepVerifier`.
+
+```java
+@Controller
+public class CourseController {
+
+  @MessageMapping("request-response")
+  public Mono<Course> requestResponse(final Course course) {
+    return null;
+  }
+
+  @MessageMapping("fire-and-forget")
+  public Mono<Void> fireAndForget(final Course course) {
+    return null;
+  }
+}
+```
+
+<CodeExercise
+  title="RSocket handlers"
+  heading="Challenge: request-response + fire-and-forget"
+  lang="java"
+  filename="CourseController.java"
+  prompt={`(1) Keep both @MessageMapping methods.
+
+(2) requestResponse: return Mono.just(new Course("Your course name: " + course.getCourseName())).
+
+(3) fireAndForget: return Mono.empty().`}
+  starter={`import org.springframework.messaging.handler.annotation.MessageMapping;
+import org.springframework.stereotype.Controller;
+import reactor.core.publisher.Mono;
+
+@Controller
+public class CourseController {
+
+  @MessageMapping("request-response")
+  public Mono<Course> requestResponse(final Course course) {
+    return null;
+  }
+
+  @MessageMapping("fire-and-forget")
+  public Mono<Void> fireAndForget(final Course course) {
+    return null;
+  }
+}
+`}
+  sourceChecks={[
+    {
+      name: 'Mono.just course name',
+      pattern: 'Mono\\.just\\s*\\(\\s*new\\s+Course\\s*\\(\\s*"Your course name:\\s*"\\s*\\+\\s*course\\.getCourseName\\s*\\(\\s*\\)\\s*\\)\\s*\\)',
+      must: true,
+      hint: 'Mono.just(new Course("Your course name: " + course.getCourseName()))',
+    },
+    {
+      name: 'Mono.empty',
+      pattern: 'Mono\\.empty\\s*\\(\\s*\\)',
+      must: true,
+      hint: 'return Mono.empty() for fire-and-forget',
+    },
+    {
+      name: 'MessageMapping request-response',
+      pattern: '@MessageMapping\\(\\s*"request-response"\\s*\\)',
+      must: true,
+      hint: 'Keep @MessageMapping("request-response")',
+    },
+    {
+      name: 'MessageMapping fire-and-forget',
+      pattern: '@MessageMapping\\(\\s*"fire-and-forget"\\s*\\)',
+      must: true,
+      hint: 'Keep @MessageMapping("fire-and-forget")',
+    },
+  ]}
+/>
+
+<MultipleChoice
+  title="RSocket quiz"
+  questions={[
+    {
+      prompt: 'Fire-and-forget means…',
+      choices: [
+        'Client sends one message and expects no response payload',
+        'Always opens two TCP ports',
+        'Only works with Thymeleaf',
+        'Replaces Mono with Future only',
+      ],
+      answer: 0,
+      why: 'One-way send; handler often returns Mono&lt;Void&gt; / empty.',
+    },
+    {
+      prompt: 'spring.rsocket.server.port configures…',
+      choices: [
+        'Only Actuator',
+        'The standalone RSocket server listen port',
+        'MongoDB port',
+        'Swagger UI only',
+      ],
+      answer: 1,
+      why: 'Boot’s RSocket server auto-config binds that port.',
+    },
+  ]}
+/>
+
+---
+
+## 7. WebSocket and STOMP
+
+HTTP is **request/response** initiated by the client. **WebSocket** upgrades an HTTP connection to a full-duplex TCP channel so either side can push.
+
+Raw WebSocket frames are low-level; Spring apps often use **STOMP** over WebSocket for destinations and routing.
+
+```xml
+<dependency>
+  <groupId>org.springframework.boot</groupId>
+  <artifactId>spring-boot-starter-websocket</artifactId>
+</dependency>
+```
+
+```java
+@Configuration
+@EnableWebSocketMessageBroker
+public class WebSocketConfiguration implements WebSocketMessageBrokerConfigurer {
+
+  @Override
+  public void registerStompEndpoints(StompEndpointRegistry registry) {
+    registry.addEndpoint("/ws").withSockJS(); // handshake + SockJS fallback
+  }
+
+  @Override
+  public void configureMessageBroker(MessageBrokerRegistry registry) {
+    registry.enableSimpleBroker("/topic"); // broker destinations
+    registry.setApplicationDestinationPrefixes("/app"); // @MessageMapping prefix
+  }
+}
+```
+
+```java
+@Controller
+public class MessageController {
+
+  @MessageMapping("/chat") // client sends to /app/chat
+  @SendTo("/topic/messages") // broadcast to subscribers
+  public OutputMessage message(InputMessage message) {
+    return OutputMessage.builder()
+        .time(Instant.now())
+        .content(message.getContent())
+        .build();
+  }
+}
+```
+
+Browser clients often use SockJS + stomp.js: connect to `/ws`, send to `/app/chat`, subscribe to `/topic/messages`. Handshake uses `Upgrade: websocket`; success is **101 Switching Protocols**.
+
+```java
+@Configuration
+@EnableWebSocketMessageBroker
+public class WebSocketConfiguration implements WebSocketMessageBrokerConfigurer {
+
+  @Override
+  public void registerStompEndpoints(StompEndpointRegistry registry) {
+    // register /ws with SockJS
+  }
+
+  @Override
+  public void configureMessageBroker(MessageBrokerRegistry registry) {
+    // simple broker /topic + app prefix /app
+  }
+}
+```
+
+<CodeExercise
+  title="WebSocket broker config"
+  heading="Challenge: endpoint + broker prefixes"
+  lang="java"
+  filename="WebSocketConfiguration.java"
+  prompt={`(1) Keep @EnableWebSocketMessageBroker and the interface.
+
+(2) registerStompEndpoints: addEndpoint("/ws").withSockJS().
+
+(3) configureMessageBroker: enableSimpleBroker("/topic") and setApplicationDestinationPrefixes("/app").`}
+  starter={`import org.springframework.context.annotation.Configuration;
+import org.springframework.messaging.simp.config.MessageBrokerRegistry;
+import org.springframework.web.socket.config.annotation.EnableWebSocketMessageBroker;
+import org.springframework.web.socket.config.annotation.StompEndpointRegistry;
+import org.springframework.web.socket.config.annotation.WebSocketMessageBrokerConfigurer;
+
+@Configuration
+@EnableWebSocketMessageBroker
+public class WebSocketConfiguration implements WebSocketMessageBrokerConfigurer {
+
+  @Override
+  public void registerStompEndpoints(StompEndpointRegistry registry) {
+  }
+
+  @Override
+  public void configureMessageBroker(MessageBrokerRegistry registry) {
+  }
+}
+`}
+  sourceChecks={[
+    {
+      name: 'endpoint /ws',
+      pattern: 'addEndpoint\\s*\\(\\s*"/ws"\\s*\\)',
+      must: true,
+      hint: 'registry.addEndpoint("/ws")',
+    },
+    {
+      name: 'SockJS',
+      pattern: '\\.withSockJS\\s*\\(\\s*\\)',
+      must: true,
+      hint: '.withSockJS()',
+    },
+    {
+      name: 'simple broker',
+      pattern: 'enableSimpleBroker\\s*\\(\\s*"/topic"\\s*\\)',
+      must: true,
+      hint: 'enableSimpleBroker("/topic")',
+    },
+    {
+      name: 'app prefix',
+      pattern: 'setApplicationDestinationPrefixes\\s*\\(\\s*"/app"\\s*\\)',
+      must: true,
+      hint: 'setApplicationDestinationPrefixes("/app")',
+    },
+  ]}
+/>
+
+---
+
+## Chapter checklist
+
+| Topic | Idea |
+|---|---|
+| Reactive | Async streams, subscribe, backpressure |
+| Reactor | `Flux` (0..N), `Mono` (0..1) |
+| WebFlux MVC-style | Same annotations; return reactive types |
+| Functional | `RouterFunction` + `HandlerFunction` |
+| WebClient | Non-blocking HTTP client |
+| RSocket | Four interaction models over duplex protocol |
+| WebSocket | Bidirectional; often STOMP destinations |
+
+Full samples: [ch08 on GitHub](https://github.com/spring-boot-in-practice/repo/tree/main/ch08).
+
+Next in the book: **deploying** Boot apps → [Lesson 7](./lesson-7-deploying).
+
+<MultipleChoice
+  title="Chapter wrap-up"
+  questions={[
+    {
+      prompt: 'ReactiveMongoRepository methods typically return…',
+      choices: [
+        'Only List and Optional',
+        'Flux and Mono publishers',
+        'JdbcTemplate only',
+        'void always',
+      ],
+      answer: 1,
+      why: 'Reactive Spring Data exposes Flux/Mono APIs.',
+    },
+    {
+      prompt: 'WebClient is best described as…',
+      choices: [
+        'A Thymeleaf dialect',
+        'A reactive HTTP client with a fluent API',
+        'An RSocket frame logger only',
+        'A MongoDB driver',
+      ],
+      answer: 1,
+      why: 'WebClient performs non-blocking HTTP requests.',
+    },
+    {
+      prompt: 'STOMP @SendTo("/topic/messages") typically…',
+      choices: [
+        'Writes only to application.properties',
+        'Broadcasts the return value to subscribers of that destination',
+        'Opens port 7000 for RSocket',
+        'Disables SockJS',
+      ],
+      answer: 1,
+      why: 'Broker fans out to topic subscribers.',
+    },
+  ]}
+/>

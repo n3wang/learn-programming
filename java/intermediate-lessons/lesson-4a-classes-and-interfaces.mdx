@@ -23,6 +23,35 @@ Public instance fields: almost never (Item 16). `public static final` constants 
 
 Java 9 modules add export-based levels; mostly advisory outside the JDK — skip unless you need them.
 
+<MultipleChoice
+  id="java-int-ch4-min-access"
+  title="Minimize accessibility"
+  questions={[
+    {
+      prompt: "Default choice for a brand-new top-level class's access level",
+      choices: [
+        'public, so every caller can use it right away',
+        'package-private unless there is a real reason to export it',
+        'protected, so subclasses elsewhere can extend it',
+        'access does not matter for top-level classes',
+      ],
+      answer: 1,
+      why: 'Package-private stays an implementation detail you can redesign or delete freely; public is a permanent commitment.',
+    },
+    {
+      prompt: 'Overriding a protected method with a narrower (private) access level in a subclass',
+      choices: [
+        'allowed if the subclass is final',
+        'not allowed — an override cannot narrow access below the superclass method',
+        'allowed only for interfaces',
+        'required by Liskov substitution',
+      ],
+      answer: 1,
+      why: 'Callers holding a superclass reference must still be able to call the method, so the compiler forbids narrowing.',
+    },
+  ]}
+/>
+
 ## Item 16: Accessors, not public fields
 
 Public `Point { public double x, y; }` cannot change representation or enforce invariants. Public classes need private fields + getters/setters. Package-private / private nested classes may expose fields. Immutable public fields are still questionable. Do not copy AWT `Point` / `Dimension`.
@@ -125,6 +154,35 @@ Implementation inheritance across packages breaks encapsulation — subclasses d
 
 **Composition + forwarding:** wrap a `Set`, implement `Set`, forward; `InstrumentedSet` only overrides `add` / `addAll`. Works with **any** `Set`. Decorator / wrapper. SELF problem in callbacks. Prefer when “is-a” is false (`Stack`/`Vector`, `Properties`/`Hashtable`).
 
+<MultipleChoice
+  id="java-int-ch4-composition"
+  title="Composition over inheritance"
+  questions={[
+    {
+      prompt: 'InstrumentedHashSet extends HashSet, overriding add and addAll to each increment a counter then call super',
+      choices: [
+        'always counts correctly, since both overrides increment',
+        'can double-count — HashSet.addAll may call its own add internally, incrementing twice',
+        'is required to track size',
+        'is safe as long as the counter field is volatile',
+      ],
+      answer: 1,
+      why: "This is exactly the self-use trap: the subclass depends on HashSet's undocumented implementation.",
+    },
+    {
+      prompt: 'Stack is often cited as a design mistake because it',
+      choices: [
+        'extends Vector, even though a stack is not "a kind of" resizable array',
+        'implements too many interfaces',
+        'cannot be subclassed',
+        'has no push/pop methods',
+      ],
+      answer: 0,
+      why: 'Stack "is-a" Vector is false in spirit — composition (wrap a Vector/List) would have been cleaner.',
+    },
+  ]}
+/>
+
 ## Item 19: Design for inheritance or prohibit it
 
 Document self-use of overridable methods (`@implSpec`). Export few protected hooks; **test by writing ~3 subclasses**. Constructors / `clone` / `readObject` must **not** call overridable methods (`Super`/`Sub` prints `null`). `Cloneable`/`Serializable` burden subclasses.
@@ -165,6 +223,57 @@ Ordinary concrete classes: make **`final`** or private ctors + factories unless 
 Interfaces: multiple implementation, retrofit existing classes, **mixins** (`Comparable`), nonhierarchical types (`SingerSongwriter`), wrappers. Default methods help; cannot default `equals`/`hashCode`/`toString`; limited fields.
 
 **Skeletal** `AbstractList` / `AbstractMapEntry`: primitives abstract; rest implemented. Optional to extend — or simulate multiple inheritance with a private skeletal helper. Simple implementations (`SimpleEntry`) are concrete minimal classes.
+
+<CodeExercise
+  title="interface default method"
+  heading="Challenge: default method needs no abstract class"
+  lang="java"
+  filename="Main.java"
+  prompt="Sized declares size() and a default isEmpty() returning size() == 0. Basket implements Sized, storing items in a List, and must NOT override isEmpty — the default does the work. wrap: add one item; print isEmpty()."
+  sampleLog={`false`}
+  starter={`import java.util.ArrayList;
+import java.util.List;
+
+public class Main {
+    public interface Sized {
+        int size();
+
+        default boolean isEmpty() {
+            return false; // TODO size() == 0
+        }
+    }
+
+    public static final class Basket implements Sized {
+        private final List<String> items = new ArrayList<>();
+
+        public void add(String item) {
+            items.add(item);
+        }
+
+        @Override
+        public int size() {
+            return items.size();
+        }
+    }
+}
+`}
+  wrapSuffix={`
+class Runner {
+    public static void main(String[] args) {
+        Main.Basket b = new Main.Basket();
+        b.add("apple");
+        System.out.println(b.isEmpty());
+    }
+}
+`}
+  sourceChecks={[
+    { name: 'default checks size', pattern: 'size\\s*\\(\\s*\\)\\s*==\\s*0', must: true, hint: 'default boolean isEmpty() { return size() == 0; }' },
+    { name: 'Basket does not override isEmpty', pattern: 'class\\s+Basket[\\s\\S]*isEmpty', must: false, hint: 'Basket only implements size(); isEmpty comes from the interface default' },
+  ]}
+  tests={[
+    { name: 'has one item', stdin: '', equals: 'false' },
+  ]}
+/>
 
 <CodeExercise
   title="forwarding size"

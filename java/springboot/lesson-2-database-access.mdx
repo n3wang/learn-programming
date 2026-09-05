@@ -1,0 +1,787 @@
+---
+sidebar_position: 2
+title: "Database Access with Spring Data"
+---
+
+> **Source:** *Spring Boot in Practice* — Chapter 3 by Somnath Musib (Manning). Concepts rewritten for this course; companion samples: [spring-boot-in-practice/repo ch03](https://github.com/spring-boot-in-practice/repo/tree/main/ch03).
+
+Most apps need a database. This lesson covers how Spring Data gives you a consistent way to configure stores, map entities, and query data from a Spring Boot app — relational (JPA/H2) and a look at MongoDB.
+
+:::tip Pattern-check challenges
+These editors **do not compile or run** Spring Boot / JPA. **Check** validates patterns in your code (`sourceChecks`) only. Annotated snippets above each exercise show the usual shape — inline comments explain what each part does; you still type it into the editor yourself. **Paste is disabled** (keyboard, right-click, drag-drop) so you practice writing the code.
+:::
+
+## What this lesson covers
+
+- Spring Data as an umbrella project and why it exists
+- Configuring a relational DB (H2 + JPA) and MongoDB
+- Schema init with `schema.sql` / `data.sql`
+- `CrudRepository`, custom repositories, and JPA entities
+- Query methods, `@NamedQuery`, `@Query`, Criteria API, Querydsl (overview)
+- Pagination/sorting and many-to-many relationships (overview)
+
+---
+
+## 1. Introducing Spring Data
+
+[Spring Data](https://spring.io/projects/spring-data) is an umbrella of modules for relational DBs, MongoDB, and other stores. The goal: a **familiar Spring programming model** — annotations on domain types, repository interfaces, and optional **templates** (`JdbcTemplate`, `MongoTemplate`) that hide connection / exception boilerplate.
+
+### Why Spring Data?
+
+Without an ORM or repository layer you write a lot of JDBC: open a connection, prepare statements, bind params, map rows, close resources. **JPA** (Java Persistence API) is a *specification* for mapping objects ↔ tables (ORM). Hibernate and EclipseLink implement it. Spring Data JPA sits on top and gives you:
+
+- Metadata-driven persistence (`@Entity`, `@Id`, …)
+- Repository interfaces that generate CRUD implementations at runtime
+- Query derivation from method names, plus explicit JPQL/SQL when you need it
+
+### Core commons interfaces
+
+Spring Data Commons defines store-agnostic building blocks:
+
+| Interface | Role |
+|---|---|
+| `Repository<T, ID>` | Marker — captures entity type + id type |
+| `CrudRepository<T, ID>` | `save`, `findById`, `findAll`, `count`, `deleteById`, … |
+| `PagingAndSortingRepository<T, ID>` | Extends CRUD with `Pageable` / `Sort` |
+
+Store modules (JPA, MongoDB, …) extend these. Example: `JpaRepository` extends paging/sorting and adds JPA-specific helpers.
+
+```
+Repository
+    └── CrudRepository
+            └── PagingAndSortingRepository
+                    └── JpaRepository (Spring Data JPA)
+```
+
+<MultipleChoice
+  id="sb-ch3-intro"
+  title="Spring Data basics"
+  questions={[
+    {
+      prompt: 'JPA is best described as…',
+      choices: [
+        'A concrete database product from Oracle',
+        'A persistence specification; Hibernate is one implementation',
+        'A replacement for Spring Boot',
+        'Only useful for MongoDB',
+      ],
+      answer: 1,
+      why: 'JPA defines the API; vendors like Hibernate implement ORM.',
+    },
+    {
+      prompt: 'Which interface adds pagination and sorting on top of CRUD?',
+      choices: [
+        'Repository alone',
+        'PagingAndSortingRepository',
+        'MongoTemplate',
+        '@Entity',
+      ],
+      answer: 1,
+      why: 'PagingAndSortingRepository extends CrudRepository with Pageable/Sort support.',
+    },
+  ]}
+/>
+
+---
+
+## 2. Configuring databases
+
+### 2.1 Relational database (H2 + Spring Data JPA)
+
+Add the JPA starter and a driver. For demos, **H2** is an embedded in-memory DB (data is lost on restart). MySQL/PostgreSQL work the same way — swap the driver and URL.
+
+```xml
+<dependency>
+  <groupId>org.springframework.boot</groupId>
+  <artifactId>spring-boot-starter-data-jpa</artifactId> <!-- JPA + Hibernate + HikariCP -->
+</dependency>
+<dependency>
+  <groupId>com.h2database</groupId>
+  <artifactId>h2</artifactId>
+  <scope>runtime</scope> <!-- driver needed at runtime only -->
+</dependency>
+```
+
+```properties
+spring.datasource.url=jdbc:h2:mem:sbipdb
+spring.datasource.driverClassName=org.h2.Driver
+spring.datasource.username=sa
+spring.datasource.password=password
+spring.h2.console.enabled=true # H2 web console for ad-hoc SQL
+```
+
+Boot auto-configures a `DataSource`. By default that is **HikariCP** (connection pool), pulled transitively through `spring-boot-starter-jdbc` → HikariCP. To use Tomcat JDBC instead, exclude HikariCP from the JPA starter and add `tomcat-jdbc`.
+
+Pool detection order if Hikari is missing: Tomcat pool → Commons DBCP2 → JDK `DataSource`.
+
+```xml
+<dependency>
+  <groupId>org.springframework.boot</groupId>
+  <artifactId>spring-boot-starter-data-jpa</artifactId>
+</dependency>
+<dependency>
+  <groupId>com.h2database</groupId>
+  <artifactId>h2</artifactId>
+  <scope>runtime</scope>
+</dependency>
+```
+
+<CodeExercise
+  title="Add JPA and H2"
+  heading="Challenge: pom data dependencies"
+  lang="xml"
+  filename="pom-snippet.xml"
+  prompt={`(1) Declare spring-boot-starter-data-jpa.
+
+(2) Declare the H2 driver with runtime scope.
+
+(3) Use groupId org.springframework.boot for the starter and com.h2database for H2.`}
+  starter={`<?xml version="1.0" encoding="UTF-8"?>
+<project>
+  <dependencies>
+  </dependencies>
+</project>
+`}
+  sourceChecks={[
+    {
+      name: 'data-jpa starter',
+      pattern: '<artifactId>\\s*spring-boot-starter-data-jpa\\s*</artifactId>',
+      must: true,
+      hint: 'Add spring-boot-starter-data-jpa',
+    },
+    {
+      name: 'h2 artifact',
+      pattern: '<artifactId>\\s*h2\\s*</artifactId>',
+      must: true,
+      hint: 'Add the h2 dependency',
+    },
+    {
+      name: 'h2 runtime scope',
+      pattern: 'h2[\\s\\S]*<scope>\\s*runtime\\s*</scope>',
+      must: true,
+      hint: 'Give H2 <scope>runtime</scope>',
+    },
+    {
+      name: 'not test-scoped jpa',
+      pattern: 'spring-boot-starter-data-jpa[\\s\\S]*<scope>\\s*test\\s*</scope>',
+      must: false,
+      hint: 'JPA starter is a main dependency, not test scope',
+    },
+  ]}
+/>
+
+```properties
+spring.datasource.url=jdbc:h2:mem:sbipdb # in-memory schema name sbipdb
+spring.datasource.username=sa
+spring.datasource.password=password
+spring.h2.console.enabled=true # enable /h2-console UI
+```
+
+<CodeExercise
+  title="H2 datasource properties"
+  heading="Challenge: application.properties H2"
+  lang="properties"
+  filename="application.properties"
+  prompt={`(1) Set an in-memory H2 JDBC URL for schema sbipdb.
+
+(2) Set username sa and password password.
+
+(3) Enable the H2 console.`}
+  starter={`# Datasource
+`}
+  sourceChecks={[
+    {
+      name: 'h2 mem url',
+      pattern: '^spring\\.datasource\\.url\\s*=\\s*jdbc:h2:mem:sbipdb\\s*$',
+      flags: 'm',
+      must: true,
+      hint: 'spring.datasource.url=jdbc:h2:mem:sbipdb',
+    },
+    {
+      name: 'username',
+      pattern: '^spring\\.datasource\\.username\\s*=\\s*sa\\s*$',
+      flags: 'm',
+      must: true,
+      hint: 'spring.datasource.username=sa',
+    },
+    {
+      name: 'password',
+      pattern: '^spring\\.datasource\\.password\\s*=\\s*password\\s*$',
+      flags: 'm',
+      must: true,
+      hint: 'spring.datasource.password=password',
+    },
+    {
+      name: 'h2 console',
+      pattern: '^spring\\.h2\\.console\\.enabled\\s*=\\s*true\\s*$',
+      flags: 'm',
+      must: true,
+      hint: 'spring.h2.console.enabled=true',
+    },
+  ]}
+/>
+
+### 2.2 MongoDB
+
+Use `spring-boot-starter-data-mongodb`. For tests/demos, Flapdoodle’s embedded Mongo is common; for a real server, configure `spring.data.mongodb.*` (host, port, uri, credentials) and drop the embed dependency. `MongoTemplate` (or Mongo repositories) perform document operations.
+
+```xml
+<dependency>
+  <groupId>org.springframework.boot</groupId>
+  <artifactId>spring-boot-starter-data-mongodb</artifactId>
+</dependency>
+```
+
+### 2.3 Initialize schema with `schema.sql` / `data.sql`
+
+Boot can run DDL/DML scripts from the classpath on startup:
+
+| File | Typical content |
+|---|---|
+| `schema.sql` | `CREATE TABLE …` |
+| `data.sql` | `INSERT …` |
+
+Control with `spring.sql.init.mode` (Boot 2.5+; older books used `spring.datasource.initialization-mode`): `embedded` (default for H2), `always`, or `never`. Customize paths with `spring.sql.init.schema-locations` / `data-locations` (or legacy `spring.datasource.schema` / `data`).
+
+Platform-specific files: `schema-h2.sql`, `data-mysql.sql` with `spring.sql.init.platform=h2`.
+
+**Important:** pick **either** script-based DDL **or** Hibernate `ddl-auto` — not both fighting each other. If you use `schema.sql`, set `spring.jpa.hibernate.ddl-auto=none`.
+
+```sql
+CREATE TABLE COURSES (
+  id int NOT NULL,
+  name varchar(100) NOT NULL,
+  category varchar(20) NOT NULL,
+  rating int NOT NULL,
+  description varchar(1000) NOT NULL,
+  PRIMARY KEY (id)
+);
+```
+
+```properties
+spring.jpa.hibernate.ddl-auto=none # let schema.sql own DDL
+spring.sql.init.mode=always # run scripts even for non-embedded DBs
+```
+
+<CodeExercise
+  title="Script-based schema mode"
+  heading="Challenge: ddl-auto and init mode"
+  lang="properties"
+  filename="application.properties"
+  prompt={`(1) Disable Hibernate auto DDL so schema.sql can create tables.
+
+(2) Force SQL init to always run.
+
+(3) Use the modern spring.sql.init.mode property (Boot 2.5+).`}
+  starter={`# Schema initialization
+`}
+  sourceChecks={[
+    {
+      name: 'ddl-auto none',
+      pattern: '^spring\\.jpa\\.hibernate\\.ddl-auto\\s*=\\s*none\\s*$',
+      flags: 'm',
+      must: true,
+      hint: 'spring.jpa.hibernate.ddl-auto=none',
+    },
+    {
+      name: 'sql init always',
+      pattern: '^spring\\.sql\\.init\\.mode\\s*=\\s*always\\s*$',
+      flags: 'm',
+      must: true,
+      hint: 'spring.sql.init.mode=always',
+    },
+    {
+      name: 'not create-drop',
+      pattern: '^spring\\.jpa\\.hibernate\\.ddl-auto\\s*=\\s*create-drop',
+      flags: 'm',
+      must: false,
+      hint: 'Use none when schema.sql owns the schema',
+    },
+  ]}
+/>
+
+<MultipleChoice
+  id="sb-ch3-config"
+  title="Database config quiz"
+  questions={[
+    {
+      prompt: 'Default connection pool with spring-boot-starter-data-jpa?',
+      choices: [
+        'Commons DBCP2 only',
+        'HikariCP',
+        'No pool — one connection per request',
+        'MongoTemplate',
+      ],
+      answer: 1,
+      why: 'Boot defaults to HikariCP via the JDBC starter.',
+    },
+    {
+      prompt: 'Using schema.sql for DDL, you should usually set…',
+      choices: [
+        'spring.jpa.hibernate.ddl-auto=create-drop',
+        'spring.jpa.hibernate.ddl-auto=none',
+        'spring.h2.console.enabled=false always',
+        'Remove the H2 dependency',
+      ],
+      answer: 1,
+      why: 'Avoid Hibernate recreating tables that scripts already define.',
+    },
+  ]}
+/>
+
+---
+
+## 3. CrudRepository and JPA entities
+
+### 3.1 Annotate the domain type
+
+Map a POJO to a table with JPA annotations (Jakarta Persistence in Boot 3; older books used `javax.persistence`):
+
+| Annotation | Purpose |
+|---|---|
+| `@Entity` | Persistable type |
+| `@Table(name=…)` | Table name when it differs from the class name |
+| `@Id` | Primary key |
+| `@GeneratedValue` | How ids are assigned (`IDENTITY`, `SEQUENCE`, `TABLE`, `AUTO`) |
+| `@Column` | Column name / constraints when defaults are wrong |
+
+```java
+@Entity
+@Table(name = "COURSES") // maps to COURSES table
+public class Course {
+    @Id
+    @GeneratedValue(strategy = GenerationType.IDENTITY) // DB identity column
+    private Long id;
+
+    @Column(name = "NAME")
+    private String name;
+    // category, rating, description …
+}
+```
+
+### 3.2 Repository interface
+
+```java
+@Repository
+public interface CourseRepository extends CrudRepository<Course, Long> {
+    // empty — Spring Data supplies save/findAll/delete implementations
+}
+```
+
+`@Repository` helps component scanning and exception translation (store-specific exceptions → Spring’s `DataAccessException`). Prefer injecting repositories through a **service** layer in real apps; tests often wire the repository directly for clarity.
+
+### 3.3 `spring.jpa.hibernate.ddl-auto`
+
+| Value | Behavior |
+|---|---|
+| `none` | No DDL from Hibernate |
+| `validate` | Check schema matches entities |
+| `update` | Alter schema if needed |
+| `create` | Create schema; wipe data |
+| `create-drop` | Create then drop at end of session (default for embedded) |
+
+```java
+@Entity
+@Table(name = "COURSES")
+public class Course {
+    @Id
+    @GeneratedValue(strategy = GenerationType.IDENTITY)
+    private Long id;
+
+    @Column(name = "NAME")
+    private String name;
+}
+```
+
+<CodeExercise
+  title="Map Course entity"
+  heading="Challenge: JPA entity annotations"
+  lang="java"
+  filename="Course.java"
+  prompt={`(1) Mark Course as a JPA entity mapped to table COURSES.
+
+(2) Make id the primary key with IDENTITY generation.
+
+(3) Map the name field to column NAME.`}
+  starter={`package com.example.demo.model;
+
+import jakarta.persistence.Column;
+import jakarta.persistence.Entity;
+import jakarta.persistence.GeneratedValue;
+import jakarta.persistence.GenerationType;
+import jakarta.persistence.Id;
+import jakarta.persistence.Table;
+
+public class Course {
+    private Long id;
+    private String name;
+    private String category;
+    private int rating;
+    private String description;
+
+    public Long getId() { return id; }
+    public String getName() { return name; }
+}
+`}
+  sourceChecks={[
+    {
+      name: '@Entity',
+      pattern: '@Entity',
+      must: true,
+      hint: 'Add @Entity on the class',
+    },
+    {
+      name: '@Table COURSES',
+      pattern: '@Table\\s*\\(\\s*name\\s*=\\s*"COURSES"\\s*\\)',
+      must: true,
+      hint: '@Table(name = "COURSES")',
+    },
+    {
+      name: '@Id on id',
+      pattern: '@Id',
+      must: true,
+      hint: 'Annotate the primary key with @Id',
+    },
+    {
+      name: 'IDENTITY generation',
+      pattern: '@GeneratedValue\\s*\\(\\s*strategy\\s*=\\s*GenerationType\\.IDENTITY\\s*\\)',
+      must: true,
+      hint: '@GeneratedValue(strategy = GenerationType.IDENTITY)',
+    },
+    {
+      name: 'NAME column',
+      pattern: '@Column\\s*\\(\\s*name\\s*=\\s*"NAME"\\s*\\)',
+      must: true,
+      hint: '@Column(name = "NAME") on name',
+    },
+  ]}
+/>
+
+```java
+@Repository // scan + exception translation
+public interface CourseRepository extends CrudRepository<Course, Long> {
+}
+```
+
+<CodeExercise
+  title="CourseRepository"
+  heading="Challenge: CrudRepository"
+  lang="java"
+  filename="CourseRepository.java"
+  prompt={`(1) Declare CourseRepository as a Spring @Repository.
+
+(2) Extend CrudRepository for Course with Long ids.
+
+(3) Leave the interface body empty.`}
+  starter={`package com.example.demo.repository;
+
+import com.example.demo.model.Course;
+import org.springframework.data.repository.CrudRepository;
+
+public interface CourseRepository {
+}
+`}
+  sourceChecks={[
+    {
+      name: '@Repository',
+      pattern: '@Repository',
+      must: true,
+      hint: 'Annotate with @Repository',
+    },
+    {
+      name: 'extends CrudRepository',
+      pattern: 'extends\\s+CrudRepository\\s*<\\s*Course\\s*,\\s*Long\\s*>',
+      must: true,
+      hint: 'extends CrudRepository<Course, Long>',
+    },
+    {
+      name: 'import Repository stereotype',
+      pattern: 'import\\s+org\\.springframework\\.stereotype\\.Repository\\s*;',
+      must: true,
+      hint: 'Import org.springframework.stereotype.Repository',
+    },
+    {
+      name: 'not JpaRepository only required',
+      pattern: 'extends\\s+Repository\\s*<',
+      must: false,
+      hint: 'Extend CrudRepository, not bare Repository',
+    },
+  ]}
+/>
+
+### 3.4 Custom base repository (limit CRUD surface)
+
+To hide `delete` methods, define a base interface that extends `Repository` (not `CrudRepository`), list only the methods you want, mark it `@NoRepositoryBean`, then have `CustomizedCourseRepository` extend that base.
+
+```java
+@NoRepositoryBean // do not create a bean for this base type
+public interface BaseRepository<T, ID> extends Repository<T, ID> {
+    <S extends T> S save(S entity);
+    Iterable<T> findAll();
+}
+```
+
+Testing tip: `@DataJpaTest` loads JPA slice only; `@SpringBootTest` boots the full context.
+
+---
+
+## 4. Retrieving data
+
+### 4.1 Derived query methods
+
+Declare methods following Spring Data’s naming grammar. The framework parses **subject** (before `By`) and **predicate** (after):
+
+Examples:
+
+```java
+Iterable<Course> findAllByCategory(String category);
+Iterable<Course> findAllByCategoryOrderByName(String category);
+boolean existsByName(String name);
+long countByCategory(String category);
+Iterable<Course> findByNameOrCategory(String name, String category);
+Iterable<Course> findByNameStartsWith(String name);
+Stream<Course> streamAllByCategory(String category);
+```
+
+Common prefixes: `find…By`, `count…By`, `exists…By`, `delete…By`. Keywords: `And`, `Or`, `OrderBy`, `StartsWith`, `Containing`, …
+
+```java
+@Repository
+public interface CourseRepository extends CrudRepository<Course, Long> {
+    Iterable<Course> findAllByCategory(String category); // WHERE category = ?
+    boolean existsByName(String name); // existence check
+    long countByCategory(String category); // COUNT(*)
+}
+```
+
+<CodeExercise
+  title="Derived finders"
+  heading="Challenge: query method names"
+  lang="java"
+  filename="CourseRepository.java"
+  prompt={`(1) Add findAllByCategory returning Iterable of Course.
+
+(2) Add existsByName returning boolean.
+
+(3) Add countByCategory returning long.`}
+  starter={`package com.example.demo.repository;
+
+import com.example.demo.model.Course;
+import org.springframework.data.repository.CrudRepository;
+import org.springframework.stereotype.Repository;
+
+@Repository
+public interface CourseRepository extends CrudRepository<Course, Long> {
+}
+`}
+  sourceChecks={[
+    {
+      name: 'findAllByCategory',
+      pattern: 'Iterable\\s*<\\s*Course\\s*>\\s+findAllByCategory\\s*\\(\\s*String\\s+\\w+\\s*\\)',
+      must: true,
+      hint: 'Iterable<Course> findAllByCategory(String …)',
+    },
+    {
+      name: 'existsByName',
+      pattern: 'boolean\\s+existsByName\\s*\\(\\s*String\\s+\\w+\\s*\\)',
+      must: true,
+      hint: 'boolean existsByName(String …)',
+    },
+    {
+      name: 'countByCategory',
+      pattern: 'long\\s+countByCategory\\s*\\(\\s*String\\s+\\w+\\s*\\)',
+      must: true,
+      hint: 'long countByCategory(String …)',
+    },
+  ]}
+/>
+
+### 4.2 `PagingAndSortingRepository`
+
+```java
+public interface CourseRepository extends PagingAndSortingRepository<Course, Long> {
+}
+
+Pageable pageable = PageRequest.of(0, 5); // page 0, size 5
+PageRequest.of(0, 5, Sort.by(Sort.Order.asc("Name")));
+```
+
+`findAll(Pageable)` returns a `Page`; `findAll(Sort)` returns a sorted `Iterable`.
+
+### 4.3 `@NamedQuery` vs `@Query`
+
+**`@NamedQuery`** — JPQL on the entity (`name = "Course.findAllByCategoryAndRating"`). Works, but mixes persistence metadata into the domain class.
+
+**`@Query`** — Prefer putting JPQL/SQL on the repository method. Supports named params (`@Param`), `nativeQuery = true`, and modifying queries with `@Modifying` + `@Transactional`.
+
+```java
+@NamedQuery(
+    name = "Course.findAllByCategoryAndRating",
+    query = "select c from Course c where c.category=?1 and c.rating=?2"
+)
+@Entity
+public class Course { … }
+```
+
+```java
+@Query("select c from Course c where c.category=?1")
+Iterable<Course> findAllByCategory(String category);
+
+@Query("select c from Course c where c.category=:category and c.rating >:rating")
+Iterable<Course> findAllByCategoryAndRatingGreaterThan(
+    @Param("category") String category,
+    @Param("rating") int rating);
+
+@Modifying
+@Transactional
+@Query("update Course c set c.rating=:rating where c.name=:name")
+int updateCourseRatingByName(@Param("rating") int rating, @Param("name") String name);
+```
+
+You can also externalize named queries in `META-INF/jpa-named-queries.properties` (`Entity.method=JPQL`).
+
+```java
+@Query("select c from Course c where c.category=?1") // JPQL on the method
+Iterable<Course> findAllByCategory(String category);
+```
+
+<CodeExercise
+  title="@Query finder"
+  heading="Challenge: repository @Query"
+  lang="java"
+  filename="CourseRepository.java"
+  prompt={`(1) Keep the CrudRepository extension.
+
+(2) Add findAllByCategory with a @Query selecting Course by category using positional parameter ?1.
+
+(3) Return Iterable of Course.`}
+  starter={`package com.example.demo.repository;
+
+import com.example.demo.model.Course;
+import org.springframework.data.jpa.repository.Query;
+import org.springframework.data.repository.CrudRepository;
+import org.springframework.stereotype.Repository;
+
+@Repository
+public interface CourseRepository extends CrudRepository<Course, Long> {
+}
+`}
+  sourceChecks={[
+    {
+      name: '@Query present',
+      pattern: '@Query\\s*\\(\\s*"select\\s+c\\s+from\\s+Course\\s+c\\s+where\\s+c\\.category\\s*=\\s*\\?1"\\s*\\)',
+      must: true,
+      hint: '@Query with select c from Course c where c.category=?1',
+    },
+    {
+      name: 'method signature',
+      pattern: 'Iterable\\s*<\\s*Course\\s*>\\s+findAllByCategory\\s*\\(\\s*String\\s+\\w+\\s*\\)',
+      must: true,
+      hint: 'Iterable<Course> findAllByCategory(String …)',
+    },
+    {
+      name: 'not native only',
+      pattern: 'nativeQuery\\s*=\\s*true',
+      must: false,
+      hint: 'Use JPQL here, not nativeQuery=true',
+    },
+  ]}
+/>
+
+### 4.4 Criteria API (type-safe, verbose)
+
+Build queries with `CriteriaBuilder` → `CriteriaQuery` → `Root` → `Predicate` → `TypedQuery`. Compile-time types help; even a simple `WHERE category = 'Spring'` takes several lines. Prefer for dynamic predicates.
+
+### 4.5 Querydsl (fluent alternative)
+
+Add `querydsl-jpa`, `querydsl-apt`, and `apt-maven-plugin` to generate **Q-types** (`QCourse`). Extend `QuerydslPredicateExecutor<Course>` on the repository. Build with `JPAQuery` / predicates like `course.category.eq("Spring")`. Compared to Criteria: third-party, more concise, also works with other stores.
+
+<MultipleChoice
+  id="sb-ch3-queries"
+  title="Querying quiz"
+  questions={[
+    {
+      prompt: 'findAllByCategoryOrderByName is an example of…',
+      choices: [
+        'A native SQL string only',
+        'A derived query method Spring Data implements from the name',
+        'A MongoDB aggregation',
+        'An Actuator endpoint',
+      ],
+      answer: 1,
+      why: 'Spring Data parses the method name into a query.',
+    },
+    {
+      prompt: 'Advantage of @Query on the repository over @NamedQuery on the entity?',
+      choices: [
+        'It disables transactions',
+        'Keeps JPQL next to the method instead of on the domain class',
+        'It only works with MongoDB',
+        'It replaces CrudRepository',
+      ],
+      answer: 1,
+      why: 'Persistence details stay in the repository layer.',
+    },
+    {
+      prompt: 'Querydsl’s main pitch vs Criteria API?',
+      choices: [
+        'It replaces the need for a database',
+        'Fluent, concise, type-safe queries (with generated Q-types)',
+        'It only works for deletes',
+        'It is built into the JDK',
+      ],
+      answer: 1,
+      why: 'Querydsl aims for readable type-safe DSLs; Criteria is native but verbose.',
+    },
+  ]}
+/>
+
+---
+
+## 5. Relationships and projections
+
+### Projections
+
+- **Interface projection** — interface with getters for selected fields (`DescriptionOnly.getDescription()`); repository returns `Iterable<DescriptionOnly>`.
+- **Class-based / DTO** — POJO constructor matching a JPQL `select new com.example.AuthorCourseDto(...)`.
+
+### Association types
+
+| Mapping | Meaning |
+|---|---|
+| `@OneToOne` | Exactly one related entity |
+| `@OneToMany` / `@ManyToOne` | Parent–children / many share one parent |
+| `@ManyToMany` | e.g. Author ↔ Course via join table |
+
+For many-to-many: owning side uses `@JoinTable`; inverse side uses `@ManyToMany(mappedBy = "…")`. Join table holds foreign keys to both sides. Combine with `@Query` joining author / course / link tables into a DTO.
+
+```java
+@ManyToMany
+@JoinTable(
+    name = "AUTHORS_COURSES",
+    joinColumns = @JoinColumn(name = "author_id"),
+    inverseJoinColumns = @JoinColumn(name = "course_id")
+)
+private Set<Course> courses;
+```
+
+```java
+@ManyToMany(mappedBy = "courses") // inverse side
+private Set<Author> authors;
+```
+
+---
+
+## Chapter checklist
+
+| Topic | Takeaway |
+|---|---|
+| Spring Data | Umbrella; Commons repositories + store modules |
+| Config | JPA starter + driver + `spring.datasource.*`; Mongo starter for documents |
+| Init | `schema.sql` / `data.sql` **or** `ddl-auto`, not conflicting both |
+| Entities | `@Entity`, `@Id`, `@Column`, `@GeneratedValue` |
+| Repositories | `CrudRepository` / paging; optional custom base + `@NoRepositoryBean` |
+| Queries | Derived names, `@NamedQuery`, `@Query`, Criteria, Querydsl |
+| Relations | `@ManyToMany` + join table; projections for selected columns |
+
+Next in the book: Boot **auto-configuration** and the **Actuator** for monitoring → [Lesson 3](./lesson-3-autoconfig-actuator).

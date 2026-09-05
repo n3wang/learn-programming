@@ -1,0 +1,768 @@
+---
+sidebar_position: 3
+title: "Auto-configuration and Actuator"
+---
+
+> **Source:** *Spring Boot in Practice* — Chapter 4 by Somnath Musib (Manning). Concepts rewritten for this course; companion samples: [spring-boot-in-practice/repo ch04](https://github.com/spring-boot-in-practice/repo/tree/main/ch04).
+
+Auto-configuration is why Boot feels “magical.” Actuator is how you **observe** a running app. This lesson covers conditionals, DevTools, custom failure analysis, and production-ready endpoints and metrics.
+
+:::tip Pattern-check challenges
+These editors **do not compile or run** Spring Boot. **Check** validates patterns (`sourceChecks`) only. Annotated snippets above each exercise show the usual shape — inline comments explain what each part does; type it yourself. **Paste is disabled** on Spring Boot lessons.
+:::
+
+## What this lesson covers
+
+- Auto-configuration motivation and `@Conditional` / Boot’s high-level conditionals
+- How `EnableAutoConfiguration` loads configs (historically `spring.factories`; Boot 3 uses `META-INF/spring/…imports`)
+- DevTools for faster local feedback
+- Custom `FailureAnalyzer`
+- Actuator endpoints, health/info customization, metrics overview
+
+---
+
+## 1. Auto-configuration
+
+Boot **guesses** what you need from the classpath and properties, then registers beans — unless you already defined them. Example: `spring-boot-starter-web` → embedded Tomcat. Prefer Jetty? Exclude Tomcat and add the Jetty starter; Boot **backs off**.
+
+```xml
+<dependency>
+  <groupId>org.springframework.boot</groupId>
+  <artifactId>spring-boot-starter-web</artifactId>
+  <exclusions>
+    <exclusion>
+      <groupId>org.springframework.boot</groupId>
+      <artifactId>spring-boot-starter-tomcat</artifactId> <!-- drop default server -->
+    </exclusion>
+  </exclusions>
+</dependency>
+<dependency>
+  <groupId>org.springframework.boot</groupId>
+  <artifactId>spring-boot-starter-jetty</artifactId> <!-- use Jetty instead -->
+</dependency>
+```
+
+### Motivation: shared configs and opting out
+
+Teams often extract shared `@Configuration` beans into a library and `@Import` them. That breaks when one consumer needs **most** beans but not one of them (e.g. no relational `DataSource`). Spring’s `@Conditional` (and Boot’s specialized variants) gate bean creation on classpath, properties, or existing beans.
+
+### `@Conditional`
+
+Place `@Conditional(MyCondition.class)` on `@Bean` / `@Component` / `@Configuration`. Implement `Condition.matches(...)` — `true` → create; `false` → skip. Typical checks: class present on classpath, or a property set via `ConditionContext`.
+
+### Boot’s high-level conditionals
+
+| Annotation | True when… |
+|---|---|
+| `@ConditionalOnClass` | Named class is on the classpath |
+| `@ConditionalOnMissingBean` | No bean of that type already exists |
+| `@ConditionalOnBean` | A bean of that type exists |
+| `@ConditionalOnProperty` | Property is present / matches |
+| `@ConditionalOnWebApplication` | App is a web app |
+| `@ConditionalOnMissingClass` | Class is **not** on the classpath |
+
+These power auto-config: e.g. create a pooled `DataSource` only if the classes exist **and** you did not define one yourself (`@ConditionalOnMissingBean`).
+
+```java
+@Bean
+@ConditionalOnMissingBean(DataSource.class) // only if user did not define one
+@ConditionalOnClass(DataSource.class)
+public DataSource dataSource() { … }
+```
+
+<CodeExercise
+  title="Conditional bean"
+  heading="Challenge: @ConditionalOnMissingBean"
+  lang="java"
+  filename="DemoConfig.java"
+  prompt={`(1) Keep the @Configuration class.
+
+(2) Gate dataSource() with @ConditionalOnMissingBean for DataSource.
+
+(3) Also require DataSource on the classpath with @ConditionalOnClass.`}
+  starter={`package com.example.demo;
+
+import javax.sql.DataSource;
+import org.springframework.boot.autoconfigure.condition.ConditionalOnClass;
+import org.springframework.boot.autoconfigure.condition.ConditionalOnMissingBean;
+import org.springframework.context.annotation.Bean;
+import org.springframework.context.annotation.Configuration;
+
+@Configuration
+public class DemoConfig {
+    @Bean
+    public DataSource dataSource() {
+        return null; // placeholder — focus on annotations
+    }
+}
+`}
+  sourceChecks={[
+    {
+      name: 'ConditionalOnMissingBean',
+      pattern: '@ConditionalOnMissingBean\\s*\\(\\s*DataSource\\.class\\s*\\)',
+      must: true,
+      hint: '@ConditionalOnMissingBean(DataSource.class) on the bean method',
+    },
+    {
+      name: 'ConditionalOnClass',
+      pattern: '@ConditionalOnClass\\s*\\(\\s*DataSource\\.class\\s*\\)',
+      must: true,
+      hint: '@ConditionalOnClass(DataSource.class)',
+    },
+    {
+      name: 'not ConditionalOnBean alone',
+      pattern: '@ConditionalOnBean\\s*\\(\\s*DataSource\\.class\\s*\\)',
+      must: false,
+      hint: 'Use OnMissingBean, not OnBean, for default auto-config style',
+    },
+  ]}
+/>
+
+### Deep dive: `DataSourceAutoConfiguration` (idea)
+
+Boot’s JDBC auto-config is a `@Configuration` that roughly:
+
+1. `@ConditionalOnClass({ DataSource.class, EmbeddedDatabaseType.class })`
+2. `@EnableConfigurationProperties(DataSourceProperties.class)` for `spring.datasource.*`
+3. Nested configs for **embedded** vs **pooled** datasources, each with `@ConditionalOnMissingBean({ DataSource.class, XADataSource.class })`
+4. Imports Hikari / Tomcat / DBCP2 configuration classes when the pool condition matches
+
+Same pattern everywhere: **classpath + missing user bean ⇒ Boot supplies a default**.
+
+Registration: older Boot listed auto-configs under `EnableAutoConfiguration` in `META-INF/spring.factories`. Boot 3 prefers `META-INF/spring/org.springframework.boot.autoconfigure.AutoConfiguration.imports`.
+
+```xml
+<dependency>
+  <groupId>org.springframework.boot</groupId>
+  <artifactId>spring-boot-starter-web</artifactId>
+  <exclusions>
+    <exclusion>
+      <groupId>org.springframework.boot</groupId>
+      <artifactId>spring-boot-starter-tomcat</artifactId>
+    </exclusion>
+  </exclusions>
+</dependency>
+<dependency>
+  <groupId>org.springframework.boot</groupId>
+  <artifactId>spring-boot-starter-jetty</artifactId>
+</dependency>
+```
+
+<CodeExercise
+  title="Swap Tomcat for Jetty"
+  heading="Challenge: exclude Tomcat, add Jetty"
+  lang="xml"
+  filename="pom-snippet.xml"
+  prompt={`(1) Keep spring-boot-starter-web.
+
+(2) Exclude spring-boot-starter-tomcat from it.
+
+(3) Add spring-boot-starter-jetty as a sibling dependency.`}
+  starter={`<dependencies>
+  <dependency>
+    <groupId>org.springframework.boot</groupId>
+    <artifactId>spring-boot-starter-web</artifactId>
+  </dependency>
+</dependencies>
+`}
+  sourceChecks={[
+    {
+      name: 'excludes tomcat starter',
+      pattern: '<artifactId>\\s*spring-boot-starter-tomcat\\s*</artifactId>',
+      must: true,
+      hint: 'Exclude spring-boot-starter-tomcat',
+    },
+    {
+      name: 'exclusions block',
+      pattern: '<exclusions>[\\s\\S]*</exclusions>',
+      must: true,
+      hint: 'Wrap the exclusion in <exclusions>',
+    },
+    {
+      name: 'adds jetty starter',
+      pattern: '<artifactId>\\s*spring-boot-starter-jetty\\s*</artifactId>',
+      must: true,
+      hint: 'Add spring-boot-starter-jetty',
+    },
+    {
+      name: 'jetty not excluded',
+      pattern: '<exclusion>[\\s\\S]*spring-boot-starter-jetty[\\s\\S]*</exclusion>',
+      must: false,
+      hint: 'Jetty is a new dependency, not an exclusion',
+    },
+  ]}
+/>
+
+<MultipleChoice
+  id="sb-ch4-autoconfig"
+  title="Auto-configuration quiz"
+  questions={[
+    {
+      prompt: 'Why does Boot often skip creating a DataSource bean?',
+      choices: [
+        'DataSource is illegal in Boot',
+        '@ConditionalOnMissingBean — you already defined one',
+        'Only MongoDB is supported',
+        'Actuator disables JDBC',
+      ],
+      answer: 1,
+      why: 'User beans win; auto-config backs off.',
+    },
+    {
+      prompt: '@ConditionalOnClass(DataSource.class) is true when…',
+      choices: [
+        'A DataSource bean exists',
+        'DataSource is on the classpath',
+        'server.port is set',
+        'DevTools is optional',
+      ],
+      answer: 1,
+      why: 'OnClass checks classpath, not bean definitions.',
+    },
+  ]}
+/>
+
+---
+
+## 2. DevTools
+
+```xml
+<dependency>
+  <groupId>org.springframework.boot</groupId>
+  <artifactId>spring-boot-devtools</artifactId>
+  <optional>true</optional> <!-- do not leak to dependents -->
+</dependency>
+```
+
+DevTools (development only):
+
+- **Property defaults** — turns off caches that hurt local edit/refresh (templates, etc.)
+- **Automatic restart** — classpath changes reload app code via a restart classloader (third-party jars stay in a base loader)
+- **LiveReload** — browser refresh when static resources change (browser extension required)
+
+```xml
+<dependency>
+  <groupId>org.springframework.boot</groupId>
+  <artifactId>spring-boot-devtools</artifactId>
+  <optional>true</optional>
+</dependency>
+```
+
+<CodeExercise
+  title="Add DevTools"
+  heading="Challenge: spring-boot-devtools"
+  lang="xml"
+  filename="pom-snippet.xml"
+  prompt={`(1) Add spring-boot-devtools under org.springframework.boot.
+
+(2) Mark it optional so it is not transitive.
+
+(3) Keep the outer dependencies wrapper.`}
+  starter={`<dependencies>
+</dependencies>
+`}
+  sourceChecks={[
+    {
+      name: 'devtools artifact',
+      pattern: '<artifactId>\\s*spring-boot-devtools\\s*</artifactId>',
+      must: true,
+      hint: 'Add spring-boot-devtools',
+    },
+    {
+      name: 'optional true',
+      pattern: '<optional>\\s*true\\s*</optional>',
+      must: true,
+      hint: '<optional>true</optional>',
+    },
+    {
+      name: 'boot groupId nearby',
+      pattern: '<groupId>\\s*org\\.springframework\\.boot\\s*</groupId>[\\s\\S]*spring-boot-devtools',
+      must: true,
+      hint: 'groupId org.springframework.boot',
+    },
+  ]}
+/>
+
+---
+
+## 3. Custom FailureAnalyzer
+
+Boot formats startup failures (e.g. port in use) via `FailureAnalyzer`. You can plug in domain checks:
+
+1. Throw a custom exception (e.g. `UrlNotAccessibleException`)
+2. Extend `AbstractFailureAnalyzer<YourException>` and return `FailureAnalysis(description, action, cause)`
+3. Register in `META-INF/spring.factories` (or Boot 3 imports) under `org.springframework.boot.diagnostics.FailureAnalyzer`
+4. Trigger validation on a lifecycle event (`ContextRefreshedEvent`, etc.)
+
+```java
+public class UrlNotAccessibleFailureAnalyzer
+    extends AbstractFailureAnalyzer<UrlNotAccessibleException> {
+    @Override
+    protected FailureAnalysis analyze(Throwable root, UrlNotAccessibleException cause) {
+        return new FailureAnalysis(
+            "Unable to access the URL " + cause.getUrl(), // what failed
+            "Validate the URL and ensure it is accessible", // what to do
+            cause);
+    }
+}
+```
+
+```properties
+org.springframework.boot.diagnostics.FailureAnalyzer=\
+com.example.demo.UrlNotAccessibleFailureAnalyzer
+```
+
+```java
+public class UrlNotAccessibleFailureAnalyzer
+        extends AbstractFailureAnalyzer<UrlNotAccessibleException> {
+    @Override
+    protected FailureAnalysis analyze(Throwable rootFailure, UrlNotAccessibleException cause) {
+        return new FailureAnalysis(
+            "Unable to access the URL " + cause.getUrl(),
+            "Validate the URL and ensure it is accessible",
+            cause);
+    }
+}
+```
+
+<CodeExercise
+  title="FailureAnalyzer subclass"
+  heading="Challenge: AbstractFailureAnalyzer"
+  lang="java"
+  filename="UrlNotAccessibleFailureAnalyzer.java"
+  prompt={`(1) Extend AbstractFailureAnalyzer parameterized with UrlNotAccessibleException.
+
+(2) Implement analyze returning a FailureAnalysis with a description and an action string.
+
+(3) Pass the cause into FailureAnalysis.`}
+  starter={`package com.example.demo;
+
+import org.springframework.boot.diagnostics.AbstractFailureAnalyzer;
+import org.springframework.boot.diagnostics.FailureAnalysis;
+
+public class UrlNotAccessibleFailureAnalyzer {
+}
+`}
+  sourceChecks={[
+    {
+      name: 'extends AbstractFailureAnalyzer',
+      pattern: 'extends\\s+AbstractFailureAnalyzer\\s*<\\s*UrlNotAccessibleException\\s*>',
+      must: true,
+      hint: 'extends AbstractFailureAnalyzer<UrlNotAccessibleException>',
+    },
+    {
+      name: 'analyze method',
+      pattern: 'FailureAnalysis\\s+analyze\\s*\\(',
+      must: true,
+      hint: 'Override analyze(...) returning FailureAnalysis',
+    },
+    {
+      name: 'new FailureAnalysis',
+      pattern: 'new\\s+FailureAnalysis\\s*\\(',
+      must: true,
+      hint: 'return new FailureAnalysis(description, action, cause)',
+    },
+  ]}
+/>
+
+```properties
+# META-INF/spring.factories (or Boot 3 FailureAnalyzer.imports)
+org.springframework.boot.diagnostics.FailureAnalyzer=\
+com.example.demo.UrlNotAccessibleFailureAnalyzer
+```
+
+<CodeExercise
+  title="Register FailureAnalyzer"
+  heading="Challenge: spring.factories key"
+  lang="properties"
+  filename="spring.factories"
+  prompt={`(1) Register a FailureAnalyzer implementation.
+
+(2) Use the org.springframework.boot.diagnostics.FailureAnalyzer key.
+
+(3) Point the value at com.example.demo.UrlNotAccessibleFailureAnalyzer.`}
+  starter={`# Failure analysis
+`}
+  sourceChecks={[
+    {
+      name: 'FailureAnalyzer key',
+      pattern: 'org\\.springframework\\.boot\\.diagnostics\\.FailureAnalyzer\\s*=',
+      must: true,
+      hint: 'Key org.springframework.boot.diagnostics.FailureAnalyzer=',
+    },
+    {
+      name: 'implementation FQCN',
+      pattern: 'com\\.example\\.demo\\.UrlNotAccessibleFailureAnalyzer',
+      must: true,
+      hint: 'Value is the fully qualified analyzer class',
+    },
+  ]}
+/>
+
+---
+
+## 4. Spring Boot Actuator
+
+### Enable
+
+```xml
+<dependency>
+  <groupId>org.springframework.boot</groupId>
+  <artifactId>spring-boot-starter-actuator</artifactId>
+</dependency>
+```
+
+Brings actuator auto-config + **Micrometer** for metrics. Discovery page: `/actuator`. Default HTTP exposure is mainly **`health`** and **`info`**; many other IDs are on JMX by default.
+
+### Common endpoints
+
+| Id | Purpose |
+|---|---|
+| `health` | Aggregated / component health |
+| `info` | App info from properties / contributors |
+| `metrics` | Micrometer meters |
+| `env`, `beans`, `conditions` | Environment, beans, auto-config report |
+| `loggers`, `threaddump`, `heapdump` | Ops diagnostics |
+| `shutdown` | Stop the app (disabled by default) |
+
+Expose over HTTP:
+
+```properties
+management.endpoints.web.exposure.include=health,info,metrics
+# or * then exclude sensitive ones
+management.endpoints.web.exposure.exclude=shutdown,heapdump
+management.endpoints.web.base-path=/actuator
+management.server.port=8081 # optional separate management port
+```
+
+```xml
+<dependency>
+  <groupId>org.springframework.boot</groupId>
+  <artifactId>spring-boot-starter-actuator</artifactId>
+</dependency>
+```
+
+<CodeExercise
+  title="Actuator starter"
+  heading="Challenge: spring-boot-starter-actuator"
+  lang="xml"
+  filename="pom-snippet.xml"
+  prompt={`(1) Add spring-boot-starter-actuator.
+
+(2) Use groupId org.springframework.boot.
+
+(3) Do not set scope test.`}
+  starter={`<dependencies>
+</dependencies>
+`}
+  sourceChecks={[
+    {
+      name: 'actuator artifact',
+      pattern: '<artifactId>\\s*spring-boot-starter-actuator\\s*</artifactId>',
+      must: true,
+      hint: 'Add spring-boot-starter-actuator',
+    },
+    {
+      name: 'boot groupId',
+      pattern: '<groupId>\\s*org\\.springframework\\.boot\\s*</groupId>[\\s\\S]*spring-boot-starter-actuator',
+      must: true,
+      hint: 'groupId org.springframework.boot',
+    },
+    {
+      name: 'not test scope',
+      pattern: 'spring-boot-starter-actuator[\\s\\S]*<scope>\\s*test\\s*</scope>',
+      must: false,
+      hint: 'Actuator is a main dependency',
+    },
+  ]}
+/>
+
+```properties
+management.endpoints.web.exposure.include=health,info,metrics # expose these over HTTP
+management.endpoint.health.show-details=always # include diskSpace, db, custom indicators
+```
+
+<CodeExercise
+  title="Expose endpoints"
+  heading="Challenge: management exposure"
+  lang="properties"
+  filename="application.properties"
+  prompt={`(1) Expose health, info, and metrics over the web.
+
+(2) Show full health details always.
+
+(3) Use management.endpoints.web.exposure.include and management.endpoint.health.show-details.`}
+  starter={`# Actuator
+`}
+  sourceChecks={[
+    {
+      name: 'include health',
+      pattern: '^management\\.endpoints\\.web\\.exposure\\.include\\s*=\\s*.*\\bhealth\\b',
+      flags: 'm',
+      must: true,
+      hint: 'Include health in management.endpoints.web.exposure.include',
+    },
+    {
+      name: 'include info',
+      pattern: '^management\\.endpoints\\.web\\.exposure\\.include\\s*=\\s*.*\\binfo\\b',
+      flags: 'm',
+      must: true,
+      hint: 'Include info in the exposure list',
+    },
+    {
+      name: 'include metrics',
+      pattern: '^management\\.endpoints\\.web\\.exposure\\.include\\s*=\\s*.*\\bmetrics\\b',
+      flags: 'm',
+      must: true,
+      hint: 'Include metrics in the exposure list',
+    },
+    {
+      name: 'show-details always',
+      pattern: '^management\\.endpoint\\.health\\.show-details\\s*=\\s*always\\s*$',
+      flags: 'm',
+      must: true,
+      hint: 'management.endpoint.health.show-details=always',
+    },
+  ]}
+/>
+
+### Health deep dive
+
+Statuses: `UP`, `DOWN`, `OUT_OF_SERVICE`, `UNKNOWN` (custom via `Health.status("FATAL")`). Aggregation uses priority (DOWN wins by default). Map statuses to HTTP codes with `management.endpoint.health.status.http-mapping.*`.
+
+Built-in indicators: disk space, ping; **DataSource** appears when JDBC is on the classpath.
+
+**Custom `HealthIndicator`:** `@Component` class implementing `health()` → `Health.up()` / `down()`, optionally `withDetails` / `withException`. Convention: name ends with `HealthIndicator`.
+
+```java
+@Component
+public class DogsApiHealthIndicator implements HealthIndicator {
+    @Override
+    public Health health() {
+        // call remote API; return Health.up() or Health.down()
+        return Health.up().withDetail("api", "reachable").build();
+    }
+}
+```
+
+```java
+@Component
+public class DogsApiHealthIndicator implements HealthIndicator {
+    @Override
+    public Health health() {
+        return Health.up().withDetail("api", "reachable").build();
+    }
+}
+```
+
+<CodeExercise
+  title="Custom HealthIndicator"
+  heading="Challenge: HealthIndicator"
+  lang="java"
+  filename="DogsApiHealthIndicator.java"
+  prompt={`(1) Make DogsApiHealthIndicator a @Component that implements HealthIndicator.
+
+(2) Implement health() returning Health.up() with a detail entry.
+
+(3) Add any required imports.`}
+  starter={`package com.example.demo.health;
+
+import org.springframework.boot.actuate.health.Health;
+import org.springframework.boot.actuate.health.HealthIndicator;
+
+public class DogsApiHealthIndicator {
+}
+`}
+  sourceChecks={[
+    {
+      name: '@Component',
+      pattern: '@Component',
+      must: true,
+      hint: 'Annotate with @Component',
+    },
+    {
+      name: 'implements HealthIndicator',
+      pattern: 'implements\\s+HealthIndicator',
+      must: true,
+      hint: 'implements HealthIndicator',
+    },
+    {
+      name: 'Health.up',
+      pattern: 'Health\\.up\\s*\\(',
+      must: true,
+      hint: 'Return Health.up()...',
+    },
+    {
+      name: 'withDetail',
+      pattern: 'withDetail\\s*\\(',
+      must: true,
+      hint: 'Chain withDetail(...)',
+    },
+  ]}
+/>
+
+### Info deep dive
+
+Default `/info` is empty. Fill it with:
+
+- `info.*` properties in `application.properties`
+- Maven/`@project.*@` expansion or `build-info` goal → `build-info.properties`
+- `git.properties` via git-commit-id plugin
+- Custom `InfoContributor` `@Component` implementing `contribute(Info.Builder)`
+
+```properties
+info.app.name=Course Tracker
+info.app.version=1.0.0
+```
+
+```java
+@Component
+public class CourseInfoContributor implements InfoContributor {
+    @Override
+    public void contribute(Info.Builder builder) {
+        builder.withDetail("courses", List.of()); // attach custom payload
+    }
+}
+```
+
+### Custom actuator endpoint
+
+```java
+@Component
+@Endpoint(id = "courses") // appears as /actuator/courses when exposed
+public class CourseEndpoint {
+    @ReadOperation
+    public Iterable<Course> courses() { … }
+
+    @WriteOperation
+    public void updateRating(@Selector Long id, int newRating) { … }
+
+    @DeleteOperation
+    public void deleteAll() { … }
+}
+```
+
+Expose with `management.endpoints.web.exposure.include=courses` (or `*`). Prefer not to put core business mutations only on Actuator in production — use REST APIs; Actuator is for ops.
+
+### Metrics (Micrometer)
+
+`/actuator/metrics` lists meters; `/actuator/metrics/{name}` shows one. Custom meters: **Counter**, **Gauge**, **Timer**, **DistributionSummary** registered on `MeterRegistry`. Export to Prometheus with `micrometer-registry-prometheus` → `/actuator/prometheus`; visualize in Grafana.
+
+```java
+@Bean
+public Counter createCourseCounter(MeterRegistry registry) {
+    return Counter.builder("api.courses.created.count") // metric name
+        .description("Total number of courses created")
+        .register(registry);
+}
+```
+
+```java
+@Bean
+public Counter createCourseCounter(MeterRegistry meterRegistry) {
+    return Counter.builder("api.courses.created.count")
+        .description("Total number of courses created")
+        .register(meterRegistry);
+}
+```
+
+<CodeExercise
+  title="Counter metric bean"
+  heading="Challenge: Micrometer Counter"
+  lang="java"
+  filename="MetricsConfig.java"
+  prompt={`(1) Keep @Configuration and the method signature.
+
+(2) Build a Counter named api.courses.created.count.
+
+(3) Register it on the MeterRegistry and return it.`}
+  starter={`package com.example.demo;
+
+import io.micrometer.core.instrument.Counter;
+import io.micrometer.core.instrument.MeterRegistry;
+import org.springframework.context.annotation.Bean;
+import org.springframework.context.annotation.Configuration;
+
+@Configuration
+public class MetricsConfig {
+    @Bean
+    public Counter createCourseCounter(MeterRegistry meterRegistry) {
+        return null; // build and register the Counter
+    }
+}
+`}
+  sourceChecks={[
+    {
+      name: 'Counter.builder',
+      pattern: 'Counter\\.builder\\s*\\(\\s*"api\\.courses\\.created\\.count"\\s*\\)',
+      must: true,
+      hint: 'Counter.builder("api.courses.created.count")',
+    },
+    {
+      name: 'register',
+      pattern: '\\.register\\s*\\(\\s*meterRegistry\\s*\\)',
+      must: true,
+      hint: 'Chain .register(meterRegistry)',
+    },
+    {
+      name: 'not leave null',
+      pattern: 'return\\s+null\\s*;',
+      must: false,
+      hint: 'Return the registered Counter, not null',
+    },
+  ]}
+/>
+
+<MultipleChoice
+  id="sb-ch4-actuator"
+  title="Actuator quiz"
+  questions={[
+    {
+      prompt: 'By default over HTTP, Spring Boot typically exposes…',
+      choices: [
+        'All endpoints including shutdown',
+        'Primarily health and info',
+        'Only heapdump',
+        'Nothing until Micrometer is added',
+      ],
+      answer: 1,
+      why: 'HTTP exposure is conservative; use exposure.include to open more.',
+    },
+    {
+      prompt: 'HealthIndicator implementations are picked up when…',
+      choices: [
+        'Listed only in application.yml under info.*',
+        'Registered as Spring components (e.g. @Component)',
+        'Named Controller',
+        'Placed in META-INF only',
+      ],
+      answer: 1,
+      why: 'Component scan finds HealthIndicator beans and merges them into /health.',
+    },
+    {
+      prompt: 'Micrometer Counter vs Gauge for “courses in DB after restarts”?',
+      choices: [
+        'Counter always persists across restarts by itself',
+        'Gauge (or DB-backed reading) better reflects durable counts; Counter resets in memory',
+        'Neither can be registered',
+        'Only Timer works with JDBC',
+      ],
+      answer: 1,
+      why: 'Counters are process-local increments; gauges can sample current DB size.',
+    },
+  ]}
+/>
+
+---
+
+## Chapter checklist
+
+| Topic | Takeaway |
+|---|---|
+| Auto-config | Classpath + `@Conditional*` + back off if user beans exist |
+| DevTools | Optional dependency; restart + LiveReload + cache defaults |
+| FailureAnalyzer | Custom exception → analyzer → register → lifecycle trigger |
+| Actuator | Starter + controlled HTTP exposure; health/info/metrics |
+| Extensions | `HealthIndicator`, `InfoContributor`, `@Endpoint`, Micrometer meters |
+
+Next in the book: securing Boot apps with **Spring Security** (advanced topics in [Lesson 4](./lesson-4-additional-security)).

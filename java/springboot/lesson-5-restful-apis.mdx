@@ -1,0 +1,902 @@
+---
+sidebar_position: 5
+title: "RESTful Web Services with Spring Boot"
+---
+
+> **Source:** *Spring Boot in Practice* — Chapter 7 by Somnath Musib (Manning). Concepts rewritten for this course; companion samples: [spring-boot-in-practice/repo ch07](https://github.com/spring-boot-in-practice/repo/tree/main/ch07).
+
+Expose Course Tracker as JSON APIs: controllers, status codes, exceptions, MockMvc tests, OpenAPI docs, versioning, and JWT resource-server security.
+
+:::tip Pattern-check challenges
+Editors **do not compile or run** Spring Boot. **Check** uses `sourceChecks` only. Snippets above exercises show the usual shape with inline comments; type the code yourself. **Paste is disabled** on Spring Boot lessons.
+:::
+
+## What this lesson covers
+
+- Designing CRUD REST endpoints with `@RestController`
+- Exception handling (`@ControllerAdvice`, HTTP status codes)
+- Integration testing with MockMvc
+- Documenting APIs with OpenAPI / springdoc
+- Versioning strategies (URI, query param, header, media type)
+- Securing APIs with OAuth2 resource server + JWT (overview)
+
+---
+
+## 1. Building a REST API
+
+REST clients request a **resource**; the server returns a **representation** (usually JSON). Spring Boot + Jackson map JSON ↔ Java types.
+
+Typical stack:
+
+```text
+Client → @RestController → service interface → repository → DB
+```
+
+Prefer **plural nouns** in paths (`/courses`), not verbs (`/getCourses`). The HTTP method already is the verb:
+
+| Method | Path | Purpose |
+|---|---|---|
+| GET | `/courses/` | List all |
+| GET | `/courses/{id}` | One course |
+| GET | `/courses/category/{name}` | Filter by category |
+| POST | `/courses/` | Create |
+| PUT | `/courses/{id}` | Update |
+| DELETE | `/courses/{id}` | Delete one |
+| DELETE | `/courses/` | Delete all |
+
+`@RestController` = `@Controller` + `@ResponseBody` (return value goes in the HTTP body, not a view).
+
+```java
+@RestController
+@RequestMapping("/courses/") // base path for this resource
+public class CourseController {
+
+  private final CourseService courseService;
+
+  @GetMapping // GET /courses/
+  public Iterable<Course> getAllCourses() {
+    return courseService.getCourses();
+  }
+
+  @GetMapping("{id}") // GET /courses/1
+  public Optional<Course> getCourseById(@PathVariable("id") long courseId) {
+    return courseService.getCourseById(courseId);
+  }
+
+  @PostMapping // POST /courses/ — JSON body → Course
+  public Course createCourse(@RequestBody Course course) {
+    return courseService.createCourse(course);
+  }
+
+  @PutMapping("{id}")
+  public void updateCourse(@PathVariable("id") long courseId, @RequestBody Course course) {
+    courseService.updateCourse(courseId, course);
+  }
+
+  @DeleteMapping("{id}")
+  public void deleteCourseById(@PathVariable("id") long courseId) {
+    courseService.deleteCourseById(courseId);
+  }
+}
+```
+
+Wire the controller to a **service interface** (not the impl class) so you can swap implementations later.
+
+```java
+@RestController
+@RequestMapping("/courses/")
+public class CourseController {
+
+  // inject CourseService here
+
+  @GetMapping
+  public Iterable<Course> getAllCourses() {
+    return null; // replace
+  }
+
+  @GetMapping("{id}")
+  public Optional<Course> getCourseById(@PathVariable("id") long courseId) {
+    return Optional.empty(); // replace
+  }
+
+  @PostMapping
+  public Course createCourse(@RequestBody Course course) {
+    return null; // replace
+  }
+}
+```
+
+<CodeExercise
+  title="Course REST controller"
+  heading="Challenge: RestController CRUD mapping"
+  lang="java"
+  filename="CourseController.java"
+  prompt={`(1) Annotate the class with @RestController and @RequestMapping("/courses/").
+
+(2) Add @GetMapping on getAllCourses (no extra path).
+
+(3) Add @GetMapping("{id}") with @PathVariable("id") on getCourseById.
+
+(4) Add @PostMapping with @RequestBody on createCourse.
+
+(5) Call courseService methods; leave the field declaration as-is.`}
+  starter={`import java.util.Optional;
+
+// TODO: class-level annotations
+public class CourseController {
+
+  private final CourseService courseService;
+
+  public CourseController(CourseService courseService) {
+    this.courseService = courseService;
+  }
+
+  public Iterable<Course> getAllCourses() {
+    return null;
+  }
+
+  public Optional<Course> getCourseById(long courseId) {
+    return Optional.empty();
+  }
+
+  public Course createCourse(Course course) {
+    return null;
+  }
+}
+`}
+  sourceChecks={[
+    {
+      name: 'RestController',
+      pattern: '@RestController',
+      must: true,
+      hint: 'Use @RestController (not only @Controller).',
+    },
+    {
+      name: 'RequestMapping courses',
+      pattern: '@RequestMapping\\(\\s*"/courses/"\\s*\\)',
+      must: true,
+      hint: '@RequestMapping("/courses/")',
+    },
+    {
+      name: 'GetMapping list',
+      pattern: '@GetMapping(\\s*(\\(\\s*\\))?\\s*)\\s*(public\\s+)?Iterable',
+      must: true,
+      hint: '@GetMapping on getAllCourses',
+    },
+    {
+      name: 'GetMapping by id',
+      pattern: '@GetMapping\\(\\s*"\\{id\\}"\\s*\\)',
+      must: true,
+      hint: '@GetMapping("{id}")',
+    },
+    {
+      name: 'PathVariable id',
+      pattern: '@PathVariable\\(\\s*"id"\\s*\\)',
+      must: true,
+      hint: '@PathVariable("id")',
+    },
+    {
+      name: 'PostMapping',
+      pattern: '@PostMapping',
+      must: true,
+      hint: '@PostMapping for create',
+    },
+    {
+      name: 'RequestBody',
+      pattern: '@RequestBody',
+      must: true,
+      hint: '@RequestBody Course course',
+    },
+    {
+      name: 'delegate to service',
+      pattern: 'courseService\\.(getCourses|getCourseById|createCourse)\\s*\\(',
+      must: true,
+      hint: 'Call courseService methods instead of returning null.',
+    },
+    {
+      name: 'not Controller alone',
+      pattern: '@Controller(?!Advice)',
+      must: false,
+      hint: 'Prefer @RestController for JSON APIs.',
+    },
+  ]}
+/>
+
+:::note HTTP status polish
+Returning an entity often yields **200**. Many APIs use `@ResponseStatus(HttpStatus.CREATED)` on POST and **204 NO_CONTENT** on delete/update-with-no-body. Pick status codes deliberately — clients depend on them.
+:::
+
+<MultipleChoice
+  title="REST design quiz"
+  questions={[
+    {
+      prompt: '@RestController differs from @Controller mainly because…',
+      choices: [
+        'It only works with Thymeleaf',
+        'Return values bind to the HTTP response body (@ResponseBody semantics)',
+        'It disables Jackson',
+        'It requires XML responses',
+      ],
+      answer: 1,
+      why: '@RestController is @Controller + @ResponseBody.',
+    },
+    {
+      prompt: 'Preferred path to list courses is…',
+      choices: [
+        'GET /getAllCourses',
+        'GET /retrieveCourses',
+        'GET /courses/',
+        'POST /courses/list',
+      ],
+      answer: 2,
+      why: 'Nouns + HTTP method; avoid verbs in the path.',
+    },
+  ]}
+/>
+
+---
+
+## 2. Exception handling
+
+Unhandled deletes on missing IDs often become **500** with stack traces — useless and leaky. Map domain errors to meaningful statuses:
+
+- Missing resource → **404**
+- Malformed JSON / validation → **400**
+
+Throw a custom `CourseNotFoundException`, then handle it globally:
+
+```java
+@ControllerAdvice // applies across controllers
+public class CourseTrackerGlobalExceptionHandler extends ResponseEntityExceptionHandler {
+
+  @ExceptionHandler(CourseNotFoundException.class)
+  public ResponseEntity<?> handleCourseNotFound(
+      CourseNotFoundException ex, WebRequest request) {
+    return handleExceptionInternal(
+        ex, ex.getMessage(), new HttpHeaders(), HttpStatus.NOT_FOUND, request); // 404
+  }
+}
+```
+
+In the service, fail closed:
+
+```java
+courseRepository.findById(courseId)
+    .orElseThrow(() -> new CourseNotFoundException("No course with id " + courseId));
+```
+
+```java
+@ControllerAdvice
+public class CourseTrackerGlobalExceptionHandler extends ResponseEntityExceptionHandler {
+
+  // handle CourseNotFoundException → 404
+}
+```
+
+<CodeExercise
+  title="Global exception handler"
+  heading="Challenge: @ControllerAdvice + 404"
+  lang="java"
+  filename="CourseTrackerGlobalExceptionHandler.java"
+  prompt={`(1) Annotate the class with @ControllerAdvice.
+
+(2) Keep extends ResponseEntityExceptionHandler.
+
+(3) Add @ExceptionHandler(CourseNotFoundException.class) that returns NOT_FOUND via handleExceptionInternal (or ResponseEntity.status(HttpStatus.NOT_FOUND)).`}
+  starter={`import org.springframework.http.HttpHeaders;
+import org.springframework.http.HttpStatus;
+import org.springframework.http.ResponseEntity;
+import org.springframework.web.bind.annotation.ExceptionHandler;
+import org.springframework.web.context.request.WebRequest;
+import org.springframework.web.servlet.mvc.method.annotation.ResponseEntityExceptionHandler;
+
+public class CourseTrackerGlobalExceptionHandler extends ResponseEntityExceptionHandler {
+
+  public ResponseEntity<?> handleCourseNotFound(
+      CourseNotFoundException ex, WebRequest request) {
+    return null;
+  }
+}
+`}
+  sourceChecks={[
+    {
+      name: 'ControllerAdvice',
+      pattern: '@ControllerAdvice',
+      must: true,
+      hint: '@ControllerAdvice on the handler class',
+    },
+    {
+      name: 'ExceptionHandler',
+      pattern: '@ExceptionHandler\\s*\\(\\s*(value\\s*=\\s*)?\\{?\\s*CourseNotFoundException\\.class',
+      must: true,
+      hint: '@ExceptionHandler(CourseNotFoundException.class)',
+    },
+    {
+      name: 'NOT_FOUND',
+      pattern: 'HttpStatus\\.NOT_FOUND|NOT_FOUND',
+      must: true,
+      hint: 'Use HttpStatus.NOT_FOUND (404)',
+    },
+    {
+      name: 'no empty return null only',
+      pattern: 'return\\s+null\\s*;',
+      must: false,
+      hint: 'Return a ResponseEntity with 404, not null.',
+    },
+  ]}
+/>
+
+---
+
+## 3. Testing with MockMvc
+
+CLI tools (HTTPie, cURL) and GUIs (Postman) are fine for exploration. For regressions, use **MockMvc**: Spring MVC request handling with mock request/response — no real HTTP server required for many tests.
+
+```java
+@SpringBootTest
+@AutoConfigureMockMvc
+class CourseTrackerApiApplicationTests {
+
+  @Autowired MockMvc mockMvc;
+
+  @Test
+  void testPostCourse() throws Exception {
+    String json = """
+      {"name":"Rapid Spring Boot","category":"Spring","rating":5,"description":"..."}
+      """;
+    mockMvc.perform(post("/courses/")
+            .contentType("application/json")
+            .content(json))
+        .andExpect(status().isCreated()) // or isOk() depending on your API
+        .andExpect(jsonPath("$.name").value("Rapid Spring Boot"));
+  }
+}
+```
+
+Key pieces: `@SpringBootTest`, `@AutoConfigureMockMvc`, fluent `perform` / `andExpect`, often `jsonPath` for JSON asserts.
+
+```java
+@SpringBootTest
+@AutoConfigureMockMvc
+class CourseApiTests {
+
+  @Autowired
+  private MockMvc mockMvc;
+
+  @Test
+  void missingCourseIsNotFound() throws Exception {
+    // GET /courses/100 → expect 404
+  }
+}
+```
+
+<CodeExercise
+  title="MockMvc not-found test"
+  heading="Challenge: assert HTTP 404"
+  lang="java"
+  filename="CourseApiTests.java"
+  prompt={`(1) Keep @SpringBootTest and @AutoConfigureMockMvc.
+
+(2) In missingCourseIsNotFound, perform GET /courses/100.
+
+(3) Expect status().isNotFound().`}
+  starter={`import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
+
+import org.junit.jupiter.api.Test;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
+import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.test.web.servlet.MockMvc;
+
+@SpringBootTest
+@AutoConfigureMockMvc
+class CourseApiTests {
+
+  @Autowired
+  private MockMvc mockMvc;
+
+  @Test
+  void missingCourseIsNotFound() throws Exception {
+    // write MockMvc perform + expect
+  }
+}
+`}
+  sourceChecks={[
+    {
+      name: 'SpringBootTest',
+      pattern: '@SpringBootTest',
+      must: true,
+      hint: 'Keep @SpringBootTest',
+    },
+    {
+      name: 'AutoConfigureMockMvc',
+      pattern: '@AutoConfigureMockMvc',
+      must: true,
+      hint: 'Keep @AutoConfigureMockMvc',
+    },
+    {
+      name: 'perform get',
+      pattern: 'mockMvc\\.perform\\s*\\(\\s*get\\s*\\(',
+      must: true,
+      hint: 'mockMvc.perform(get(...))',
+    },
+    {
+      name: 'path 100',
+      pattern: 'get\\s*\\(\\s*"/courses/\\{id\\}"\\s*,\\s*100\\s*\\)|get\\s*\\(\\s*"/courses/100"\\s*\\)',
+      must: true,
+      hint: 'GET /courses/100 (path or template + 100)',
+    },
+    {
+      name: 'isNotFound',
+      pattern: 'status\\s*\\(\\s*\\)\\s*\\.\\s*isNotFound\\s*\\(\\s*\\)',
+      must: true,
+      hint: 'andExpect(status().isNotFound())',
+    },
+  ]}
+/>
+
+WebTestClient (reactive / WebFlux-friendly) is another option; MockMvc is the classic servlet-stack choice.
+
+---
+
+## 4. Documenting with OpenAPI
+
+API docs are a **contract**: paths, bodies, status codes, security. **OpenAPI** is the spec; **Swagger UI** is a common viewer. In Spring Boot, [springdoc-openapi](https://springdoc.org/) introspects your app and serves UI (historically `/swagger-ui.html`).
+
+```xml
+<dependency>
+  <groupId>org.springdoc</groupId>
+  <artifactId>springdoc-openapi-ui</artifactId>
+  <version>1.5.9</version> <!-- book-era artifact; Boot 3 often uses springdoc-openapi-starter-webmvc-ui -->
+</dependency>
+```
+
+Annotate controllers:
+
+```java
+@Tag(name = "Course Controller", description = "Manage courses")
+@RestController
+@RequestMapping("/courses/")
+public class CourseController {
+
+  @GetMapping
+  @ResponseStatus(HttpStatus.OK)
+  @Operation(summary = "List all courses")
+  public Iterable<Course> getAllCourses() { ... }
+
+  @PostMapping
+  @ResponseStatus(HttpStatus.CREATED)
+  @Operation(summary = "Create a course")
+  public Course createCourse(@Valid @RequestBody Course course) { ... }
+}
+```
+
+Optional metadata bean:
+
+```java
+@Bean
+OpenAPI customOpenAPI(
+    @Value("${app.description}") String description,
+    @Value("${app.version}") String version) {
+  return new OpenAPI().info(new Info()
+      .title("Course Tracker API")
+      .version(version)
+      .description(description));
+}
+```
+
+Export machine-readable docs from `/v3/api-docs` (JSON) for Swagger Editor / Codegen.
+
+```java
+@RestController
+@RequestMapping("/courses/")
+@Tag(name = "Course Controller", description = "Manage courses in Course Tracker")
+public class CourseController {
+
+  @GetMapping
+  @ResponseStatus(code = HttpStatus.OK)
+  @Operation(summary = "Provides all courses available")
+  public Iterable<Course> getAllCourses() {
+    return courseService.getCourses();
+  }
+}
+```
+
+<CodeExercise
+  title="OpenAPI annotations"
+  heading="Challenge: Tag + Operation + CREATED"
+  lang="java"
+  filename="CourseController.java"
+  prompt={`(1) Add @Tag on the class (name Course Controller).
+
+(2) On createCourse, add @ResponseStatus(code = HttpStatus.CREATED) and @Operation with a non-empty summary.
+
+(3) Keep @PostMapping and @RequestBody.`}
+  starter={`import org.springframework.http.HttpStatus;
+import org.springframework.web.bind.annotation.*;
+import io.swagger.v3.oas.annotations.Operation;
+import io.swagger.v3.oas.annotations.tags.Tag;
+
+@RestController
+@RequestMapping("/courses/")
+public class CourseController {
+
+  private final CourseService courseService;
+
+  public CourseController(CourseService courseService) {
+    this.courseService = courseService;
+  }
+
+  @PostMapping
+  public Course createCourse(@RequestBody Course course) {
+    return courseService.createCourse(course);
+  }
+}
+`}
+  sourceChecks={[
+    {
+      name: 'Tag',
+      pattern: '@Tag\\s*\\(',
+      must: true,
+      hint: '@Tag(name = "Course Controller", ...)',
+    },
+    {
+      name: 'Tag name',
+      pattern: 'name\\s*=\\s*"Course Controller"',
+      must: true,
+      hint: 'name = "Course Controller"',
+    },
+    {
+      name: 'Operation',
+      pattern: '@Operation\\s*\\(',
+      must: true,
+      hint: '@Operation(summary = "...")',
+    },
+    {
+      name: 'summary',
+      pattern: 'summary\\s*=\\s*"[^"]+"',
+      must: true,
+      hint: 'Provide summary = "..."',
+    },
+    {
+      name: 'CREATED',
+      pattern: '@ResponseStatus\\s*\\([^)]*HttpStatus\\.CREATED',
+      must: true,
+      hint: '@ResponseStatus(code = HttpStatus.CREATED)',
+    },
+  ]}
+/>
+
+---
+
+## 5. API versioning
+
+Breaking changes (e.g. adding required `price`) should not silently break existing clients. Common strategies:
+
+| Strategy | Example |
+|---|---|
+| URI | `/courses/v1`, `/courses/v2` |
+| Request param | `/courses/?version=v2` |
+| Custom header | `X-API-VERSION: v2` |
+| Media type (Accept) | `Accept: application/vnd.sbip.app-v2+json` |
+
+URI versioning (clearest in demos):
+
+```java
+@RestController
+@RequestMapping("/courses/v1")
+public class LegacyCourseController { ... }
+
+@RestController
+@RequestMapping("/courses/v2")
+public class ModernCourseController { ... }
+```
+
+Request parameter:
+
+```java
+@GetMapping(params = "version=v1")
+public Iterable<Course> getAllLegacyCourses() { ... }
+
+@GetMapping(params = "version=v2")
+public Iterable<ModernCourse> getAllModernCourses() { ... }
+```
+
+Custom header:
+
+```java
+@GetMapping(headers = "X-API-VERSION=v2")
+public Iterable<ModernCourse> getAllModernCourses() { ... }
+```
+
+Accept / content negotiation:
+
+```java
+@GetMapping(produces = "application/vnd.sbip.app-v2+json")
+public Iterable<ModernCourse> getAllModernCourses() { ... }
+```
+
+No single industry winner (Amazon, GitHub, Microsoft, Twitter pick different styles). Choose deliberately and document it.
+
+```java
+@RestController
+@RequestMapping("/courses/")
+public class VersionedCourseController {
+
+  @GetMapping(/* v1 */)
+  public Iterable<Course> getAllLegacyCourses() {
+    return List.of();
+  }
+
+  @GetMapping(/* v2 */)
+  public Iterable<ModernCourse> getAllModernCourses() {
+    return List.of();
+  }
+}
+```
+
+<CodeExercise
+  title="Request-param versioning"
+  heading="Challenge: params = version"
+  lang="java"
+  filename="RequestParameterVersioningCourseController.java"
+  prompt={`(1) Keep @RestController and @RequestMapping("/courses/").
+
+(2) Map getAllLegacyCourses with @GetMapping(params = "version=v1").
+
+(3) Map getAllModernCourses with @GetMapping(params = "version=v2").`}
+  starter={`import org.springframework.web.bind.annotation.*;
+
+@RestController
+@RequestMapping("/courses/")
+public class RequestParameterVersioningCourseController {
+
+  public Iterable<Course> getAllLegacyCourses() {
+    return List.of();
+  }
+
+  public Iterable<ModernCourse> getAllModernCourses() {
+    return List.of();
+  }
+}
+`}
+  sourceChecks={[
+    {
+      name: 'v1 params',
+      pattern: '@GetMapping\\s*\\(\\s*params\\s*=\\s*"version=v1"\\s*\\)',
+      must: true,
+      hint: '@GetMapping(params = "version=v1")',
+    },
+    {
+      name: 'v2 params',
+      pattern: '@GetMapping\\s*\\(\\s*params\\s*=\\s*"version=v2"\\s*\\)',
+      must: true,
+      hint: '@GetMapping(params = "version=v2")',
+    },
+    {
+      name: 'not only path versions',
+      pattern: '@RequestMapping\\("/courses/v[12]"\\)',
+      must: false,
+      hint: 'Use query params on /courses/, not /courses/v1 path mapping for this exercise.',
+    },
+  ]}
+/>
+
+<MultipleChoice
+  title="Versioning quiz"
+  questions={[
+    {
+      prompt: '@GetMapping(headers = "X-API-VERSION=v2") selects handlers by…',
+      choices: [
+        'Path segment /v2 only',
+        'A custom HTTP request header',
+        'Database schema version',
+        'Actuator build-info',
+      ],
+      answer: 1,
+      why: 'The headers attribute matches request headers.',
+    },
+    {
+      prompt: 'Media-type versioning typically uses…',
+      choices: [
+        'Only cookies',
+        'Accept / produces custom MIME types',
+        'FTP',
+        'JMX only',
+      ],
+      answer: 1,
+      why: 'Clients send Accept with a versioned media type; produces declares what the method returns.',
+    },
+  ]}
+/>
+
+---
+
+## 6. Securing REST APIs
+
+**HTTP Basic** is simple (username/password, often Base64 over the wire) — fine for local demos, weak for public APIs without HTTPS and without central identity. Prefer **OAuth2 / OIDC** with a token from an authorization server (e.g. Keycloak).
+
+Typical **Bearer JWT** flow:
+
+1. Client calls API without token → **401** + `WWW-Authenticate: Bearer`
+2. Client obtains `access_token` from the auth server
+3. Client retries with `Authorization: Bearer <jwt>`
+4. Resource server validates JWT and authorizes
+
+Boot dependencies (resource server):
+
+```xml
+<dependency>
+  <groupId>org.springframework.boot</groupId>
+  <artifactId>spring-boot-starter-oauth2-resource-server</artifactId>
+</dependency>
+```
+
+```properties
+spring.security.oauth2.resourceserver.jwt.issuer-uri=http://localhost:9999/auth/realms/master
+```
+
+Use `@AuthenticationPrincipal Jwt jwt` to read claims (e.g. username). Fix **IDOR** (accessing another user’s resource by ID) with method security:
+
+```java
+@EnableMethodSecurity // Boot 3; older books: @EnableGlobalMethodSecurity(prePostEnabled = true)
+```
+
+```java
+@GetMapping("{id}")
+@PreAuthorize("hasAuthority('SCOPE_course:read')")
+@PostAuthorize("@getAuthor.apply(returnObject, principal.claims['user_name'])")
+public Optional<Course> getCourseById(@PathVariable("id") long courseId) {
+  return courseRepository.findById(courseId);
+}
+```
+
+Scopes like `course:read` / `course:write` limit what a token may do even after authentication.
+
+```properties
+# JWT issuer — Keycloak realm example from the book era
+spring.security.oauth2.resourceserver.jwt.issuer-uri=http://localhost:9999/auth/realms/master
+```
+
+<CodeExercise
+  title="JWT resource server property"
+  heading="Challenge: issuer-uri"
+  lang="properties"
+  filename="application.properties"
+  prompt={`(1) Set spring.security.oauth2.resourceserver.jwt.issuer-uri to http://localhost:9999/auth/realms/master.
+
+(2) Do not invent other oauth2 client-registration keys for this exercise.`}
+  starter={`# resource server
+`}
+  sourceChecks={[
+    {
+      name: 'issuer-uri',
+      pattern: '^spring\\.security\\.oauth2\\.resourceserver\\.jwt\\.issuer-uri\\s*=\\s*http://localhost:9999/auth/realms/master\\s*$',
+      flags: 'm',
+      must: true,
+      hint: 'spring.security.oauth2.resourceserver.jwt.issuer-uri=http://localhost:9999/auth/realms/master',
+    },
+    {
+      name: 'not client-secret here',
+      pattern: 'client-secret',
+      must: false,
+      hint: 'This exercise is issuer-uri for a resource server, not a client secret.',
+    },
+  ]}
+/>
+
+```java
+@GetMapping("{id}")
+public Optional<Course> getCourseById(@PathVariable("id") long courseId) {
+  return courseRepository.findById(courseId);
+}
+```
+
+<CodeExercise
+  title="Scope pre-authorize"
+  heading="Challenge: @PreAuthorize SCOPE_course:read"
+  lang="java"
+  filename="CourseController.java"
+  prompt={`(1) Keep the @GetMapping("{id}") method.
+
+(2) Add @PreAuthorize("hasAuthority('SCOPE_course:read')") on getCourseById.
+
+(3) Leave the method body returning findById.`}
+  starter={`import java.util.Optional;
+import org.springframework.web.bind.annotation.*;
+
+@RestController
+@RequestMapping("/courses/")
+public class CourseController {
+
+  private final CourseRepository courseRepository;
+
+  public CourseController(CourseRepository courseRepository) {
+    this.courseRepository = courseRepository;
+  }
+
+  @GetMapping("{id}")
+  public Optional<Course> getCourseById(@PathVariable("id") long courseId) {
+    return courseRepository.findById(courseId);
+  }
+}
+`}
+  sourceChecks={[
+    {
+      name: 'PreAuthorize',
+      pattern: '@PreAuthorize\\s*\\(',
+      must: true,
+      hint: '@PreAuthorize(...)',
+    },
+    {
+      name: 'SCOPE_course:read',
+      pattern: "hasAuthority\\(\\s*'SCOPE_course:read'\\s*\\)",
+      must: true,
+      hint: "hasAuthority('SCOPE_course:read')",
+    },
+    {
+      name: 'still findById',
+      pattern: 'courseRepository\\.findById\\s*\\(\\s*courseId\\s*\\)',
+      must: true,
+      hint: 'Keep findById(courseId)',
+    },
+  ]}
+/>
+
+---
+
+## Chapter checklist
+
+| Topic | Idea |
+|---|---|
+| REST controller | `@RestController`, nouns, GET/POST/PUT/DELETE |
+| Layering | Controller → service interface → repository |
+| Errors | Custom exceptions + `@ControllerAdvice` → correct status |
+| Tests | `@AutoConfigureMockMvc` + `MockMvc` + `jsonPath` |
+| Docs | springdoc + `@Tag` / `@Operation` / OpenAPI bean |
+| Versioning | URI, param, header, or Accept — pick and stick |
+| Security | Prefer JWT resource server over Basic for public APIs; scopes + `@PreAuthorize` / `@PostAuthorize` |
+
+Full samples: [ch07 on GitHub](https://github.com/spring-boot-in-practice/repo/tree/main/ch07).
+
+Next in the book: **reactive** apps with WebFlux → [Lesson 6](./lesson-6-reactive).
+
+<MultipleChoice
+  title="Chapter wrap-up"
+  questions={[
+    {
+      prompt: 'Deleting a missing course should usually return…',
+      choices: [
+        '200 with empty body always',
+        '404 after mapping CourseNotFoundException',
+        '301 redirect to /login',
+        '418 teapot only',
+      ],
+      answer: 1,
+      why: 'Missing resources map to 404, not a generic 500 stack dump.',
+    },
+    {
+      prompt: 'spring-boot-starter-oauth2-resource-server is used when your API…',
+      choices: [
+        'Only serves Thymeleaf forms',
+        'Validates Bearer JWTs issued by an authorization server',
+        'Replaces Jackson',
+        'Starts Vault',
+      ],
+      answer: 1,
+      why: 'Resource server validates access tokens for API calls.',
+    },
+    {
+      prompt: '@AutoConfigureMockMvc helps you…',
+      choices: [
+        'Deploy to Kubernetes',
+        'Inject MockMvc for servlet-stack integration tests',
+        'Generate OpenAPI YAML at build time only',
+        'Configure Keycloak realms',
+      ],
+      answer: 1,
+      why: 'It auto-configures MockMvc for Spring MVC tests.',
+    },
+  ]}
+/>

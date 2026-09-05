@@ -28,6 +28,7 @@ export const FUNDAMENTALS_FOLDERS = [
   'algorithms',
   'artificial-intelligence',
   'computer-engineering',
+  'data-science',
   'electronics',
   'finance',
   'game-engine-development',
