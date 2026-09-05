@@ -20,21 +20,7 @@ class Main {
 
 ```
 
-<PistonRunner
-  lang="java"
-  interactive={false}
-  height="520px"
-  code={`import java.util.*;
-class Main {
-  public static void main(String[] args) {
-    for(int i = 1; i<3; i++){
-      System.out.println(i);
-    }
-    
-  }
-}
-`}
-/>
+<iframe src="https://trinket.io/embed/java/4827fcc3f6" width="100%" height="600" frameborder="0" marginwidth="0" marginheight="0" allowfullscreen></iframe>
 
 
 :::note

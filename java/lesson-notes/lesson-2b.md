@@ -14,8 +14,8 @@ We can sort of do something similar in Java, but with Variable Types
 
 
 <details>
-<summary>
-📚 Explicit & Implicit?
+    <summary>
+      📚 Explicit & Implicit?
     </summary>
 
 - **Explicit**: stated clearly and in detail, leaving no room for confusion or doubt.
@@ -45,21 +45,9 @@ z = 'x+1.0f'(x=10) = 11.0
 
 <details>
 <summary>
-🧪 Try the code out!
+🧪 Try the code out! 
 </summary>
-
-<PistonRunner
-  lang="java"
-  interactive={false}
-  height="300px"
-  code={`public class Main {
-  public static void main(String[] args) {
-    // TODO: write your program here
-    System.out.println("Hello");
-  }
-}
-`}
-/>
+<iframe src="https://trinket.io/embed/java/67bc304013" width="100%" height="300" frameborder="0" marginwidth="0" marginheight="0" allowfullscreen></iframe>
 
 </details>
 
@@ -85,17 +73,7 @@ val = 1
 <summary>
 🧪 Try the code out! 
 </summary>
-<PistonRunner
-  lang="java"
-  interactive={false}
-  height="300px"
-  code={`public class Main {
-  public static void main(String[] args) {
-    val = 1
-  }
-}
-`}
-/>
+<iframe src="https://trinket.io/embed/java/22d570ec86" width="100%" height="300" frameborder="0" marginwidth="0" marginheight="0" allowfullscreen></iframe>
 
 🙋‍♂️ Analysis
 - Why do you think that the code prints `1` instead of `1.6`?
@@ -131,19 +109,7 @@ public class Main {
 <summary>
 🧪 Try the code out! - This will throw an error
 </summary>
-
-<PistonRunner
-  lang="java"
-  interactive={false}
-  height="300px"
-  code={`public class Main {
-  public static void main(String[] args) {
-    // TODO: write your program here
-    System.out.println("Hello");
-  }
-}
-`}
-/>
+<iframe src="https://trinket.io/embed/java/e9412a0e94" width="100%" height="300" frameborder="0" marginwidth="0" marginheight="0" allowfullscreen></iframe>
 
 </details>
 
@@ -161,21 +127,9 @@ public class Main {
 
 <details>
 <summary>
-🧪 Try the code out!
+🧪 Try the code out! 
 </summary>
-
-<PistonRunner
-  lang="java"
-  interactive={false}
-  height="300px"
-  code={`public class Main {
-  public static void main(String[] args) {
-    // TODO: write your program here
-    System.out.println("Hello");
-  }
-}
-`}
-/>
+<iframe src="https://trinket.io/embed/java/2977c211c5" width="100%" height="300" frameborder="0" marginwidth="0" marginheight="0" allowfullscreen></iframe>
 
 </details>
 

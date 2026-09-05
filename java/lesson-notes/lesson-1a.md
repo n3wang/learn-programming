@@ -13,20 +13,9 @@ int age=15;
 
 <details>
 <summary>
-🧪 Try the code out!
+🧪 Try the code out! 
 </summary>
-
-<PistonRunner
-  lang="java"
-  interactive={false}
-  height="520px"
-  code={`public class Main {
-  public static void main(String[] args) {
-    int age=15;
-  }
-}
-`}
-/>
+<iframe src="https://trinket.io/embed/java/e5ba4977ab" width="100%" height="550" frameborder="0" marginwidth="0" marginheight="0" allowfullscreen></iframe>
 
 </details>
 
@@ -56,20 +45,9 @@ int age=15;
 
 <details>
 <summary>
-🧪 Try the code out!
+🧪 Try the code out! 
 </summary>
-
-<PistonRunner
-  lang="java"
-  interactive={false}
-  height="520px"
-  code={`public class Main {
-  public static void main(String[] args) {
-    int age=15;
-  }
-}
-`}
-/>
+<iframe src="https://trinket.io/embed/java/7903edc271" width="100%" height="600" frameborder="0" marginwidth="0" marginheight="0" allowfullscreen></iframe>
 
 </details>
 
@@ -183,20 +161,9 @@ It is important to follow the below guidelines to name a variable in java.
 ![](../../static/img/2022-04-27-04-14-39.png)
 <details>
 <summary>
-🧪 Try the code out!
+🧪 Try the code out! 
 </summary>
-
-<PistonRunner
-  lang="java"
-  interactive={false}
-  height="520px"
-  code={`public class Main {
-  public static void main(String[] args) {
-    int age=15;
-  }
-}
-`}
-/>
+<iframe src="https://trinket.io/embed/java/a89cdfe56d" width="100%" height="600" frameborder="0" marginwidth="0" marginheight="0" allowfullscreen></iframe>
 
 </details>
 
@@ -210,20 +177,9 @@ System.out.println("Pineapple " + " Pen");
 
 <details>
 <summary>
-🧪 Try the code out!
+🧪 Try the code out! 
 </summary>
-
-<PistonRunner
-  lang="java"
-  interactive={false}
-  height="300px"
-  code={`public class Main {
-  public static void main(String[] args) {
-    int age=15;
-  }
-}
-`}
-/>
+<iframe src="https://trinket.io/embed/java/e48a0091fd" width="100%" height="300" frameborder="0" marginwidth="0" marginheight="0" allowfullscreen></iframe>
 
 </details>
 
@@ -237,20 +193,9 @@ System.out.println("I have " + books + " books in my study");
 
 <details>
 <summary>
-🧪 Try the code out!
+🧪 Try the code out! 
 </summary>
-
-<PistonRunner
-  lang="java"
-  interactive={false}
-  height="300px"
-  code={`public class Main {
-  public static void main(String[] args) {
-    int age=15;
-  }
-}
-`}
-/>
+<iframe src="https://trinket.io/embed/java/9f4104cc68" width="100%" height="300" frameborder="0" marginwidth="0" marginheight="0" allowfullscreen></iframe>
 
 </details>
 
@@ -359,39 +304,18 @@ Age : 15
 
 <details>
 <summary>
-✍  You can solve the problem here using Piston below
+✍  You can solve the problem here using Trinket
 </summary>
-
-<PistonRunner
-  lang="java"
-  interactive={false}
-  height="520px"
-  code={`public class Main {
-  public static void main(String[] args) {
-    int age=15;
-  }
-}
-`}
-/>
+<iframe src="https://trinket.io/embed/java/6e661a677c" width="100%" height="600" frameborder="0" marginwidth="0" marginheight="0" allowfullscreen></iframe>
 
 </details>
 
 <details>
     <summary>
         💡 Hint Program: This program calculates when you will be 20.
-</summary>
+    </summary>
 
-<PistonRunner
-  lang="java"
-  interactive={false}
-  height="300px"
-  code={`public class Main {
-  public static void main(String[] args) {
-    int age=15;
-  }
-}
-`}
-/>
+<iframe src="https://trinket.io/embed/java/fdb7ec76da" width="100%" height="300" frameborder="0" marginwidth="0" marginheight="0" allowfullscreen></iframe>
 
 </details>
 
@@ -419,20 +343,9 @@ If Shannon covers twice as much distance as Pete, distance travelled by Shannon 
 
 <details>
 <summary>
-✍  You can solve the problem here using Piston below
+✍  You can solve the problem here using Trinket
 </summary>
-
-<PistonRunner
-  lang="java"
-  interactive={false}
-  height="520px"
-  code={`public class Main {
-  public static void main(String[] args) {
-    int age=15;
-  }
-}
-`}
-/>
+<iframe src="https://trinket.io/embed/java/6e661a677c" width="100%" height="600" frameborder="0" marginwidth="0" marginheight="0" allowfullscreen></iframe>
 
 </details>
 

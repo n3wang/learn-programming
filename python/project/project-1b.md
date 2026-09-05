@@ -12,12 +12,7 @@ In todays lesson we will be making Mr. Sanic over here move around and collect c
 
 The following code will print out the environment of Sanic, **don't worry about
 understanding it yet!**
-:::caution Canvas game not available on Piston
-This lab used a Trinket **canvas / game** embed (Sanic). Piston cannot host that UI.
-
-Use the written steps and any screenshots on this page; rebuild the game locally if you still have a copy of the starter.
-:::
-
+<iframe src="https://trinket.io/embed/python/050b5b6826" width="100%" height="600" frameborder="0" marginwidth="0" marginheight="0" allowfullscreen></iframe>
 
 
 :::
@@ -29,12 +24,7 @@ Use the written steps and any screenshots on this page; rebuild the game locally
 The following program makes Mr. Sanic pass through 2 coins. Please modify the
 program so Sanic can also pass through the  third coin!
 
-:::caution Canvas game not available on Piston
-This lab used a Trinket **canvas / game** embed (Sanic). Piston cannot host that UI.
-
-Use the written steps and any screenshots on this page; rebuild the game locally if you still have a copy of the starter.
-:::
-
+<iframe src="https://trinket.io/embed/python/05705cf21d?start=result" width="100%" height="600" frameborder="0" marginwidth="0" marginheight="0" allowfullscreen></iframe>
 :::
 
 ## Sanic! You are almost there
@@ -43,10 +33,5 @@ Use the written steps and any screenshots on this page; rebuild the game locally
 
 The following program makes mr. Sanic do the wrong circle. How do you fix this code?
 
-:::caution Canvas game not available on Piston
-This lab used a Trinket **canvas / game** embed (Sanic). Piston cannot host that UI.
-
-Use the written steps and any screenshots on this page; rebuild the game locally if you still have a copy of the starter.
-:::
-
+<iframe src="https://trinket.io/embed/python/0407f93539" width="100%" height="600" frameborder="0" marginwidth="0" marginheight="0" allowfullscreen></iframe>
 :::

@@ -24,21 +24,7 @@ public class Main {
 <summary>
 🧪 Try the code out~!
 </summary>
-
-<PistonRunner
-  lang="java"
-  interactive={false}
-  height="520px"
-  code={`public class Main {
-  public static void main(String[] args) {
-    boolean isJavaFun = true;
-    boolean isFishTasty = false;    
-    System.out.println(isJavaFun);
-    System.out.println(isFishTasty);
-  }
-}
-`}
-/>
+<iframe src="https://trinket.io/embed/java/db4b075d67" width="100%" height="600" frameborder="0" marginwidth="0" marginheight="0" allowfullscreen></iframe>
 
 </details>
 
@@ -65,21 +51,7 @@ class Main{
 <summary>
 🧪 Try the code out~!
 </summary>
-
-<PistonRunner
-  lang="java"
-  interactive={false}
-  height="520px"
-  code={`public class Main {
-  public static void main(String[] args) {
-    boolean isJavaFun = true;
-    boolean isFishTasty = false;    
-    System.out.println(isJavaFun);
-    System.out.println(isFishTasty);
-  }
-}
-`}
-/>
+<iframe src="https://trinket.io/embed/java/e8aaef8339" width="100%" height="600" frameborder="0" marginwidth="0" marginheight="0" allowfullscreen></iframe>
 
 </details>
 
@@ -158,23 +130,9 @@ class Main{
 
 <details>
 <summary>
-🧪 Try the code out!
+🧪 Try the code out! 
 </summary>
-
-<PistonRunner
-  lang="java"
-  interactive={false}
-  height="520px"
-  code={`public class Main {
-  public static void main(String[] args) {
-    boolean isJavaFun = true;
-    boolean isFishTasty = false;    
-    System.out.println(isJavaFun);
-    System.out.println(isFishTasty);
-  }
-}
-`}
-/>
+<iframe src="https://trinket.io/embed/java/f4a2082f58" width="100%" height="600" frameborder="0" marginwidth="0" marginheight="0" allowfullscreen></iframe>
 
 </details>
 
@@ -276,22 +234,7 @@ Write code that takes two values from the user, user’s age and his/her friend�
 <summary>
 💻 Sample Program
 </summary>
-
-<PistonRunner
-  lang="java"
-  interactive={false}
-  height="400px"
-  code={`public class Main {
-  public static void main(String[] args) {
-    boolean isJavaFun = true;
-    boolean isFishTasty = false;    
-    System.out.println(isJavaFun);
-    System.out.println(isFishTasty);
-  }
-}
-`}
-/>
-
+<iframe src="https://trinket.io/embed/java/7989b0de78?outputOnly=true" width="100%" height="400" frameborder="0" marginwidth="0" marginheight="0" allowfullscreen></iframe>
 </details>
 
 
@@ -308,23 +251,9 @@ Write code that takes two values from the user, user’s age and his/her friend�
 
 <details>
 <summary>
-✍  You can solve the problem <b>here</b> using Piston below
+✍  You can solve the problem <b>here</b> using Trinket
 </summary>
-
-<PistonRunner
-  lang="java"
-  interactive={false}
-  height="520px"
-  code={`public class Main {
-  public static void main(String[] args) {
-    boolean isJavaFun = true;
-    boolean isFishTasty = false;    
-    System.out.println(isJavaFun);
-    System.out.println(isFishTasty);
-  }
-}
-`}
-/>
+<iframe src="https://trinket.io/embed/java/4b11cfc604" width="100%" height="600" frameborder="0" marginwidth="0" marginheight="0" allowfullscreen></iframe>
 
 </details>
 

@@ -24,28 +24,14 @@ Allowed to talk to each other for a limited time. During these discussions, the 
 :::
 
 
-<PistonRunner
-  lang="python"
-  interactive={false}
-  height="520px"
-  code={`# TODO: write your program here
-print("Hello")
-`}
-/>
+<iframe src="https://trinket.io/embed/python/59f1468e67?outputOnly=true&runOption=run&start=result" width="100%" height="600" frameborder="0" marginwidth="0" marginheight="0" allowfullscreen></iframe>
 
 :::tip Fix the following Program
 - The following program doesn't ask for any user input. just prints whatver is inside of the variable <b>your_message</b> and your tag
 - Modify line 4 so that it prompts user for an input and save it isnide of the "your_message" variable
 
 
-<PistonRunner
-  lang="python"
-  interactive={false}
-  height="520px"
-  code={`# TODO: write your program here
-print("Hello")
-`}
-/>
+<iframe src="https://trinket.io/embed/python/d484969ff6" width="100%" height="600" frameborder="0" marginwidth="0" marginheight="0" allowfullscreen></iframe>
 
 
 <details>
@@ -67,14 +53,7 @@ Remember that to prompt an user to write input you write something like:
 
 We are now going to modify the code so that it replicates the following behavior:
 
-<PistonRunner
-  lang="python"
-  interactive={false}
-  height="520px"
-  code={`# TODO: write your program here
-print("Hello")
-`}
-/>
+<iframe src="https://trinket.io/embed/python/dd8d442aa2?outputOnly=true&runOption=run" width="100%" height="600" frameborder="0" marginwidth="0" marginheight="0" allowfullscreen></iframe>
 
 :::tip Add a username now too
 
@@ -85,17 +64,9 @@ print("Hello")
 
 <details>
 <summary>
-✍  You can solve the problem <b>here</b> using Piston below
+✍  You can solve the problem <b>here</b> using Trinket
 </summary>
-
-<PistonRunner
-  lang="python"
-  interactive={false}
-  height="520px"
-  code={`# TODO: write your program here
-print("Hello")
-`}
-/>
+<iframe src="https://trinket.io/embed/python/99a9396c92" width="100%" height="600" frameborder="0" marginwidth="0" marginheight="0" allowfullscreen></iframe>
 
 </details>
 :::

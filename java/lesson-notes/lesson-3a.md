@@ -22,24 +22,9 @@ class Main {
 
 <details>
 <summary>
-🧪 Try the code out~!
+🧪 Try the code out~! 
 </summary>
-
-<PistonRunner
-  lang="java"
-  interactive={false}
-  height="520px"
-  code={`import java.util.*;
-class Main {
-    public static void main(String arg[]) {
-      System.out.print("Enter Your Name : ");  // user prompt
-      Scanner sc = new Scanner(System.in);     // take user input
-      String name = sc.nextLine();             // store the user input in the name variable
-      System.out.println("Name : "+ name);     // output the value stored in name
-    }
-}
-`}
-/>
+<iframe src="https://trinket.io/embed/java/5b1603aee0" width="100%" height="600" frameborder="0" marginwidth="0" marginheight="0" allowfullscreen></iframe>
 
 </details>
 
@@ -114,24 +99,9 @@ class Main {
 
 <details>
 <summary>
-🧪 Try the code out!
+🧪 Try the code out! 
 </summary>
-
-<PistonRunner
-  lang="java"
-  interactive={false}
-  height="520px"
-  code={`import java.util.*;
-class Main {
-    public static void main(String arg[]) {
-      System.out.print("Enter Your Name : ");  // user prompt
-      Scanner sc = new Scanner(System.in);     // take user input
-      String name = sc.nextLine();             // store the user input in the name variable
-      System.out.println("Name : "+ name);     // output the value stored in name
-    }
-}
-`}
-/>
+<iframe src="https://trinket.io/embed/java/7646d28f5c" width="100%" height="600" frameborder="0" marginwidth="0" marginheight="0" allowfullscreen></iframe>
 
 </details>
 
@@ -236,19 +206,7 @@ System.out.println(sc.nextLine());
 
 **Sample Program**
 
-<PistonRunner
-  lang="java"
-  interactive={false}
-  height="400px"
-  code={`public class Main {
-  public static void main(String[] args) {
-    System.out.println("Enter Your Name");
-    Scanner sc=new Scanner(System.in);
-    System.out.println(sc.nextLine());
-  }
-}
-`}
-/>
+<iframe src="https://trinket.io/embed/java/81d66c8055?outputOnly=true&start=result" width="100%" height="400" frameborder="0" marginwidth="0" marginheight="0" allowfullscreen></iframe>
 
 <details>
 <summary>
@@ -260,7 +218,7 @@ System.out.println(sc.nextLine());
 
 <details>
 <summary>
-✍  You can solve the problem <b>here</b> using Piston below
+✍  You can solve the problem <b>here</b> using Trinket
 </summary>
 
 
@@ -270,19 +228,7 @@ System.out.println(sc.nextLine());
 3. [ ] Complete the code so that it also ask the **verb**. Feel free to uncomment **line 14**
 4. [ ] Scan and print the **adjective**. Feel free to uncomment **line 15**
 
-<PistonRunner
-  lang="java"
-  interactive={false}
-  height="520px"
-  code={`public class Main {
-  public static void main(String[] args) {
-    System.out.println("Enter Your Name");
-    Scanner sc=new Scanner(System.in);
-    System.out.println(sc.nextLine());
-  }
-}
-`}
-/>
+<iframe src="https://trinket.io/embed/java/e12496b61e" width="100%" height="600" frameborder="0" marginwidth="0" marginheight="0" allowfullscreen></iframe>
 
 </details>
 
@@ -338,24 +284,9 @@ class Main {
 
 <details>
 <summary>
-✍  You can solve the problem <b>here</b> using Piston below
+✍  You can solve the problem <b>here</b> using Trinket
 </summary>
-
-<PistonRunner
-  lang="java"
-  interactive={false}
-  height="520px"
-  code={`import java.util.*;
-class Main {
-    public static void main(String arg[]) {
-      System.out.print("Enter Your Name : ");  // user prompt
-      Scanner sc = new Scanner(System.in);     // take user input
-      String name = sc.nextLine();             // store the user input in the name variable
-      System.out.println("Name : "+ name);     // output the value stored in name
-    }
-}
-`}
-/>
+<iframe src="https://trinket.io/embed/java/fb7a26acfd" width="100%" height="600" frameborder="0" marginwidth="0" marginheight="0" allowfullscreen></iframe>
 
 </details>
 
