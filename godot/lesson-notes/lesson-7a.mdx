@@ -1,0 +1,329 @@
+---
+sidebar_position: 8
+title: Chapter 7a - Areas and layers
+---
+
+## Area2D vs bodies
+
+| Node | Collides / blocks? | Typical use |
+|---|---|---|
+| `CharacterBody2D` / `RigidBody2D` | Solid (in real physics) | Walking, falling crates |
+| `Area2D` | Detection only | Pickups, hurtboxes, triggers |
+
+In the kit, `Area2DMock` (`Kit.make_area`) checks **circle overlap**. Detection is **one-way** like Godot: the area’s `collision_mask` must include the body’s `collision_layer` (the body does not need to “see” the area).
+
+```python
+var Kit = preload("res://game_kit.gd")
+var hero = Kit.make_character(Vector2(0, 0))
+var coin = Kit.make_area(Vector2(10, 0), 8.0)
+print(coin.overlaps_body(hero))
+```
+
+<details>
+<summary>🧪 Overlap demo</summary>
+
+<PistonRunner
+  lang="godot"
+  filename="main.gd"
+  height="340px"
+  code={[
+    'extends SceneTree',
+    '',
+    'func _init():',
+    '    var Kit = preload("res://game_kit.gd")',
+    '    var hero = Kit.make_character(Vector2(0, 0))',
+    '    hero.radius = 8',
+    '    var coin = Kit.make_area(Vector2(10, 0), 8.0)',
+    '    # default: area mask includes layer 1 (character)',
+    '    print(coin.overlaps_body(hero))',
+    '    var far = Kit.make_area(Vector2(100, 0), 8.0)',
+    '    print(far.overlaps_body(hero))',
+    '    quit()',
+    '',
+  ].join('\n')}
+/>
+
+</details>
+
+## Collision layers and masks
+
+Godot uses **bitmasks**:
+
+- `collision_layer` — which layers this object **lives on**
+- `collision_mask` — which layers it **looks for**
+
+A **solid** body pair interacts only if both see each other:
+
+```text
+(A.mask & B.layer) != 0  AND  (B.mask & A.layer) != 0
+```
+
+An **Area2D** detecting a body only needs:
+
+```text
+(area.mask & body.layer) != 0
+```
+
+Kit helpers: `area.overlaps_body(body)`, `body.can_collide_with(other)`, `Kit.bodies_overlap(a, b)`.
+
+<details>
+<summary>🧪 Layer mismatch</summary>
+
+<PistonRunner
+  lang="godot"
+  filename="main.gd"
+  height="360px"
+  code={[
+    'extends SceneTree',
+    '',
+    'func _init():',
+    '    var Kit = preload("res://game_kit.gd")',
+    '    var hero = Kit.make_character(Vector2(0, 0))',
+    '    hero.collision_layer = 1',
+    '    hero.collision_mask = 1',
+    '    hero.radius = 8',
+    '    var ghost = Kit.make_area(Vector2(5, 0), 8.0)',
+    '    ghost.collision_layer = 4',
+    '    ghost.collision_mask = 4  # only sees layer 4',
+    '    print(ghost.overlaps_body(hero))',
+    '    ghost.collision_mask = 1  # now sees the player layer',
+    '    print(ghost.overlaps_body(hero))',
+    '    quit()',
+    '',
+  ].join('\n')}
+/>
+
+</details>
+
+## Mini quiz — areas
+
+<MultipleChoice
+  id="gd-7a-areas"
+  title="Areas and layers"
+  questions={[
+    {
+      prompt: 'Area2D is best for',
+      choices: [
+        'Replacing TileMap',
+        'Detecting enter/exit without solid blocking',
+        'Baking lightmaps',
+        'Compiling shaders',
+      ],
+      answer: 1,
+      why: 'Areas detect overlaps; they are not solid walls.',
+    },
+    {
+      prompt: 'If A.mask & B.layer is 0, they',
+      choices: [
+        'Always bounce',
+        'Never interact (for collision purposes)',
+        'Merge into one node',
+        'Swap positions',
+      ],
+      answer: 1,
+      why: 'Both mask↔layer checks must pass.',
+    },
+    {
+      prompt: 'Hurtboxes and pickups are often',
+      choices: ['StaticBody2D only', 'Area2D nodes', 'AudioStreamPlayer', 'WorldEnvironment'],
+      answer: 1,
+      why: 'Detection volumes are usually Area2D.',
+    },
+  ]}
+/>
+
+## Challenge: claim the coin
+
+Hero at `(0,0)` with `radius = 8`. Coin area at `(12, 0)` with radius `8`. Print `true` if the coin overlaps the hero.
+
+```
+true
+```
+
+<CodeExercise
+  title="claim the coin"
+  heading="Challenge: claim the coin"
+  lang="godot"
+  filename="main.gd"
+  prompt="Print whether the coin area overlaps the hero."
+  sampleLog={`true`}
+  starter={[
+    'extends SceneTree',
+    '',
+    'func _init():',
+    '    var Kit = preload("res://game_kit.gd")',
+    '    var hero = Kit.make_character(Vector2(0, 0))',
+    '    hero.radius = 8',
+    '    var coin = Kit.make_area(Vector2(12, 0), 8.0)',
+    '    # TODO: print coin.overlaps_body(hero)',
+    '    print(false)',
+    '    quit()',
+    '',
+  ].join('\n')}
+  sourceChecks={[
+    {
+      name: 'Uses overlaps_body or bodies_overlap',
+      pattern: '(overlaps_body|bodies_overlap)',
+      must: true,
+      hint: 'coin.overlaps_body(hero)',
+    },
+  ]}
+  tests={[
+    { name: 'overlaps', equals: 'true' },
+  ]}
+/>
+
+## Exercises
+
+<ExerciseSet>
+<Exercise title="Too far" anchor="exercise-too-far">
+
+:::tip Activity: Too far
+Hero at origin (`radius` 8). Area at `(100, 0)` radius `8`. Print whether they overlap (`false`).
+
+```
+false
+```
+
+<CodeExercise
+  title="Too far"
+  heading="exercise-too-far"
+  lang="godot"
+  filename="main.gd"
+  prompt="Far area should not overlap; print false."
+  sampleLog={`false`}
+  starter={[
+    'extends SceneTree',
+    '',
+    'func _init():',
+    '    var Kit = preload("res://game_kit.gd")',
+    '    var hero = Kit.make_character(Vector2(0, 0))',
+    '    hero.radius = 8',
+    '    var zone = Kit.make_area(Vector2(100, 0), 8.0)',
+    '    print(true)',
+    '    quit()',
+    '',
+  ].join('\n')}
+  sourceChecks={[
+    {
+      name: 'Uses overlap API',
+      pattern: '(overlaps_body|bodies_overlap)',
+      must: true,
+      hint: 'zone.overlaps_body(hero)',
+    },
+  ]}
+  tests={[
+    { name: 'no overlap', equals: 'false' },
+  ]}
+/>
+
+:::
+
+</Exercise>
+
+<Exercise title="Mask blocks" anchor="exercise-mask-blocks">
+
+:::tip Activity: Mask blocks
+Hero layer `1`, mask `1`. Area at `(5,0)` radius `8`, layer `2`, mask `2` only. Print `overlaps_body` — should be `false` because masks do not see each other.
+
+```
+false
+```
+
+<CodeExercise
+  title="Mask blocks"
+  heading="exercise-mask-blocks"
+  lang="godot"
+  filename="main.gd"
+  prompt="Mismatching layers/masks → no overlap."
+  sampleLog={`false`}
+  starter={[
+    'extends SceneTree',
+    '',
+    'func _init():',
+    '    var Kit = preload("res://game_kit.gd")',
+    '    var hero = Kit.make_character(Vector2(0, 0))',
+    '    hero.radius = 8',
+    '    hero.collision_layer = 1',
+    '    hero.collision_mask = 1',
+    '    var zone = Kit.make_area(Vector2(5, 0), 8.0)',
+    '    zone.collision_layer = 2',
+    '    zone.collision_mask = 2',
+    '    # TODO: print overlap result',
+    '    print(true)',
+    '    quit()',
+    '',
+  ].join('\n')}
+  sourceChecks={[
+    {
+      name: 'Uses overlap API',
+      pattern: '(overlaps_body|bodies_overlap)',
+      must: true,
+      hint: 'zone.overlaps_body(hero)',
+    },
+  ]}
+  tests={[
+    { name: 'masked out', equals: 'false' },
+  ]}
+/>
+
+:::
+
+</Exercise>
+
+<Exercise title="Fix the mask" anchor="exercise-fix-mask">
+
+:::tip Activity: Fix the mask
+Same setup as above, but set the area's `collision_mask` so it **can** see layer `1`, then print `true`.
+
+```
+true
+```
+
+<CodeExercise
+  title="Fix the mask"
+  heading="exercise-fix-mask"
+  lang="godot"
+  filename="main.gd"
+  prompt="Set area.collision_mask to include layer 1, then print overlap."
+  sampleLog={`true`}
+  starter={[
+    'extends SceneTree',
+    '',
+    'func _init():',
+    '    var Kit = preload("res://game_kit.gd")',
+    '    var hero = Kit.make_character(Vector2(0, 0))',
+    '    hero.radius = 8',
+    '    hero.collision_layer = 1',
+    '    hero.collision_mask = 1',
+    '    var zone = Kit.make_area(Vector2(5, 0), 8.0)',
+    '    zone.collision_layer = 2',
+    '    zone.collision_mask = 2',
+    '    # TODO: fix zone.collision_mask, then print overlap',
+    '    print(false)',
+    '    quit()',
+    '',
+  ].join('\n')}
+  sourceChecks={[
+    {
+      name: 'Touches collision_mask',
+      pattern: 'collision_mask',
+      must: true,
+      hint: 'zone.collision_mask = 1 (or 1|2)',
+    },
+    {
+      name: 'Uses overlap API',
+      pattern: '(overlaps_body|bodies_overlap)',
+      must: true,
+      hint: 'zone.overlaps_body(hero)',
+    },
+  ]}
+  tests={[
+    { name: 'now overlaps', equals: 'true' },
+  ]}
+/>
+
+:::
+
+</Exercise>
+</ExerciseSet>

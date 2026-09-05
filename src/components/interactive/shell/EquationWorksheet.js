@@ -25,7 +25,7 @@ function WorksheetItem({ index, problem }) {
       }}
     >
       <Stack direction="row" spacing={1} alignItems="flex-start" justifyContent="space-between" flexWrap="wrap" useFlexGap>
-        <Typography sx={{ fontFamily: 'monospace', fontSize: '1.02em' }}>
+        <Typography sx={{ fontFamily: 'monospace', fontSize: '1.02em', whiteSpace: 'pre-line' }}>
           <Box component="span" sx={{ color: 'text.secondary', mr: 1 }}>
             ({index + 1})
           </Box>

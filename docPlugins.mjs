@@ -18,9 +18,9 @@ const DOC_INSTANCES = [
   ['javascript', {path: 'javascript', routeBasePath: 'javascript'}],
   ['ios', {path: 'ios', routeBasePath: 'ios'}],
   ['game-dev', {path: 'game-dev', routeBasePath: 'game-dev'}],
-  ['math', {path: 'math', routeBasePath: 'math'}],
-  ['math-1', {path: 'classes/math-1', routeBasePath: 'classes/math-1'}],
-  ['math-2', {path: 'classes/math-2', routeBasePath: 'classes/math-2'}],
+  ['math', {path: 'math', routeBasePath: 'math', remarkPlugins: [remarkMath], rehypePlugins: [rehypeKatex]}],
+  ['math-1', {path: 'classes/math-1', routeBasePath: 'classes/math-1', remarkPlugins: [remarkMath], rehypePlugins: [rehypeKatex]}],
+  ['math-2', {path: 'classes/math-2', routeBasePath: 'classes/math-2', remarkPlugins: [remarkMath], rehypePlugins: [rehypeKatex]}],
   ['biancheng', {path: 'classes/programming', routeBasePath: 'classes/programming'}],
 ];
 

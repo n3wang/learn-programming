@@ -1,0 +1,334 @@
+---
+sidebar_position: 7
+title: Chapter 6a - Bodies (mocked)
+---
+
+## Body types in Godot 2D
+
+In a real project you pick a **physics body** for how something should move:
+
+| Godot class | Role | Kit mock |
+|---|---|---|
+| `CharacterBody2D` | Player / NPCs you move in code | `Kit.CharacterBody` / `make_character` |
+| `StaticBody2D` | Walls, floors — never pushed | `Kit.StaticBody` / `make_static` |
+| `RigidBody2D` | Boxes, barrels — engine integrates forces | `Kit.RigidBody` / `make_rigid` |
+
+This sandbox has **no physics server**. The kit mocks share the same *ideas* (velocity, gravity, `move_and_slide`) so you can practice the APIs.
+
+```python
+var Kit = preload("res://game_kit.gd")
+var hero = Kit.make_character(Vector2(0, 0), 0.0)  # floor at y=0
+hero.velocity = Vector2(50, 0)
+hero.move_and_slide(1.0)
+print(hero.position, hero.is_on_floor())
+```
+
+<details>
+<summary>🧪 Character walk on a floor</summary>
+
+<PistonRunner
+  lang="godot"
+  filename="main.gd"
+  height="340px"
+  code={[
+    'extends SceneTree',
+    '',
+    'func _init():',
+    '    var Kit = preload("res://game_kit.gd")',
+    '    var hero = Kit.make_character(Vector2(0, 0), 0.0)',
+    '    print(hero.is_on_floor())',
+    '    hero.velocity = Vector2(40, 0)',
+    '    hero.move_and_slide(1.0)',
+    '    print(int(hero.position.x))',
+    '    print(hero.is_on_floor())',
+    '    quit()',
+    '',
+  ].join('\n')}
+/>
+
+</details>
+
+## CharacterBody: velocity then slide
+
+Pattern (same as Godot tutorials):
+
+1. Set `velocity` (from input, AI, knockback)
+2. Optionally `apply_gravity(delta)`
+3. Call `move_and_slide(delta)`
+
+Jump only works when `is_on_floor()` is true.
+
+<details>
+<summary>🧪 Jump then fall</summary>
+
+<PistonRunner
+  lang="godot"
+  filename="main.gd"
+  height="360px"
+  code={[
+    'extends SceneTree',
+    '',
+    'func _init():',
+    '    var Kit = preload("res://game_kit.gd")',
+    '    var hero = Kit.make_character(Vector2(0, 0), 0.0)',
+    '    hero.jump(200)',
+    '    print(hero.is_on_floor())',
+    '    hero.apply_gravity(0.5)',
+    '    hero.move_and_slide(0.5)',
+    '    print(hero.position.y < 0)',
+    '    # settle for a few steps',
+    '    for i in range(6):',
+    '        hero.apply_gravity(0.5)',
+    '        hero.move_and_slide(0.5)',
+    '    print(hero.is_on_floor())',
+    '    print(int(hero.position.y))',
+    '    quit()',
+    '',
+  ].join('\n')}
+/>
+
+</details>
+
+## Mini quiz — bodies
+
+<MultipleChoice
+  id="gd-6a-bodies"
+  title="Body types"
+  questions={[
+    {
+      prompt: 'Which body do you usually code movement for each frame?',
+      choices: ['StaticBody2D', 'CharacterBody2D', 'OccluderPolygon2D', 'TileMap'],
+      answer: 1,
+      why: 'CharacterBody2D is for scripted movement via move_and_slide.',
+    },
+    {
+      prompt: 'A wall that never moves should be a',
+      choices: ['RigidBody2D', 'CharacterBody2D', 'StaticBody2D', 'CPUParticles2D'],
+      answer: 2,
+      why: 'StaticBody2D is for immovable colliders.',
+    },
+    {
+      prompt: 'In the kit, move_and_slide does what?',
+      choices: [
+        'Opens the editor',
+        'Adds velocity * delta to position (and snaps to floor)',
+        'Deletes the node',
+        'Only changes hp',
+      ],
+      answer: 1,
+      why: 'Toy integration: position += velocity * delta, then floor snap.',
+    },
+  ]}
+/>
+
+## StaticBody vs RigidBody
+
+**Static** ignores velocity — good for platforms.
+
+**Rigid** integrates gravity each `integrate(delta)` and can take `apply_impulse`.
+
+<details>
+<summary>🧪 Drop a rigid box</summary>
+
+<PistonRunner
+  lang="godot"
+  filename="main.gd"
+  height="320px"
+  code={[
+    'extends SceneTree',
+    '',
+    'func _init():',
+    '    var Kit = preload("res://game_kit.gd")',
+    '    var box = Kit.make_rigid(Vector2(0, -10), 1.0)',
+    '    box.gravity = 10',
+    '    box.integrate(1.0)',
+    '    print(box.position.y > -10)',
+    '    print(box.velocity.y > 0)',
+    '    var wall = Kit.make_static(Vector2(0, 0))',
+    '    wall.velocity = Vector2(999, 999)',
+    '    wall.move_and_slide(1.0)',
+    '    print(wall.position)',
+    '    quit()',
+    '',
+  ].join('\n')}
+/>
+
+</details>
+
+## Challenge: one second walk
+
+Make a character on floor `y=0`, set `velocity = Vector2(25, 0)`, call `move_and_slide(1)`, print `int(position.x)`.
+
+Expected: `25`.
+
+<CodeExercise
+  title="one second walk"
+  heading="Challenge: one second walk"
+  lang="godot"
+  filename="main.gd"
+  prompt="Character velocity 25 on x for 1s; print int(x)."
+  sampleLog={`25`}
+  starter={[
+    'extends SceneTree',
+    '',
+    'func _init():',
+    '    var Kit = preload("res://game_kit.gd")',
+    '    var hero = Kit.make_character(Vector2(0, 0), 0.0)',
+    '    # TODO: set velocity, move_and_slide(1), print int(x)',
+    '    print(0)',
+    '    quit()',
+    '',
+  ].join('\n')}
+  sourceChecks={[
+    {
+      name: 'Uses move_and_slide',
+      pattern: 'move_and_slide',
+      must: true,
+      hint: 'hero.move_and_slide(1)',
+    },
+  ]}
+  tests={[
+    { name: 'x is 25', equals: '25' },
+  ]}
+/>
+
+## Exercises
+
+<ExerciseSet>
+<Exercise title="Still on floor" anchor="exercise-still-on-floor">
+
+:::tip Activity: Still on floor
+`make_character(Vector2(0, 0), 0.0)` starts on the floor. Print `true` if `is_on_floor()` without moving.
+
+```
+true
+```
+
+<CodeExercise
+  title="Still on floor"
+  heading="exercise-still-on-floor"
+  lang="godot"
+  filename="main.gd"
+  prompt="Print is_on_floor() for a character spawned on the floor."
+  sampleLog={`true`}
+  starter={[
+    'extends SceneTree',
+    '',
+    'func _init():',
+    '    var Kit = preload("res://game_kit.gd")',
+    '    var hero = Kit.make_character(Vector2(0, 0), 0.0)',
+    '    print(false)',
+    '    quit()',
+    '',
+  ].join('\n')}
+  sourceChecks={[
+    {
+      name: 'Checks floor',
+      pattern: 'is_on_floor',
+      must: true,
+      hint: 'print(hero.is_on_floor())',
+    },
+  ]}
+  tests={[
+    { name: 'on floor', equals: 'true' },
+  ]}
+/>
+
+:::
+
+</Exercise>
+
+<Exercise title="Static stays put" anchor="exercise-static-stays">
+
+:::tip Activity: Static stays put
+Create a static body at `(5, 7)`. Assign a huge velocity and call `move_and_slide(1)`. Print `int(position.x)` then `int(position.y)` on two lines — both should still be the original coords.
+
+```
+5
+7
+```
+
+<CodeExercise
+  title="Static stays put"
+  heading="exercise-static-stays"
+  lang="godot"
+  filename="main.gd"
+  prompt="StaticBody ignores velocity; print x and y."
+  sampleLog={`5
+7`}
+  starter={[
+    'extends SceneTree',
+    '',
+    'func _init():',
+    '    var Kit = preload("res://game_kit.gd")',
+    '    var wall = Kit.make_static(Vector2(5, 7))',
+    '    wall.velocity = Vector2(1000, 1000)',
+    '    # TODO: move_and_slide then print int x and y',
+    '    print(0)',
+    '    print(0)',
+    '    quit()',
+    '',
+  ].join('\n')}
+  sourceChecks={[
+    {
+      name: 'Uses make_static or StaticBody',
+      pattern: '(make_static|StaticBody)',
+      must: true,
+      hint: 'Kit.make_static(...)',
+    },
+  ]}
+  tests={[
+    { name: 'unchanged', equals: '5\n7' },
+  ]}
+/>
+
+:::
+
+</Exercise>
+
+<Exercise title="Impulse launch" anchor="exercise-impulse-launch">
+
+:::tip Activity: Impulse launch
+`make_rigid(Vector2(0, 0), 2.0)` — mass `2`. `apply_impulse(Vector2(20, 0))` then print `int(velocity.x)`.
+
+(Impulse / mass → velocity.x should be `10`.)
+
+```
+10
+```
+
+<CodeExercise
+  title="Impulse launch"
+  heading="exercise-impulse-launch"
+  lang="godot"
+  filename="main.gd"
+  prompt="Rigid body mass 2, impulse (20,0); print int(velocity.x)."
+  sampleLog={`10`}
+  starter={[
+    'extends SceneTree',
+    '',
+    'func _init():',
+    '    var Kit = preload("res://game_kit.gd")',
+    '    var box = Kit.make_rigid(Vector2(0, 0), 2.0)',
+    '    # TODO: apply_impulse, print int(box.velocity.x)',
+    '    print(0)',
+    '    quit()',
+    '',
+  ].join('\n')}
+  sourceChecks={[
+    {
+      name: 'Uses apply_impulse',
+      pattern: 'apply_impulse',
+      must: true,
+      hint: 'box.apply_impulse(Vector2(20, 0))',
+    },
+  ]}
+  tests={[
+    { name: 'vx is 10', equals: '10' },
+  ]}
+/>
+
+:::
+
+</Exercise>
+</ExerciseSet>
