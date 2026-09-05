@@ -1,4 +1,5 @@
 import React, {useEffect, useMemo, useState} from 'react';
+import TranslatableParagraph from '@site/src/components/Translate/TranslatableParagraph';
 import styles from './styles.module.css';
 import MathText from './MathText';
 
@@ -147,10 +148,14 @@ function ConceptPane({
         <span className={styles.badge}>{title || `Problem ${index + 1}`}</span>
         {company ? <span className={styles.company}>{company}</span> : null}
       </div>
-      {lead ? <p className={styles.keywordLead}>{lead}, explain:</p> : null}
-      <p className={styles.prompt}>
+      {lead ? (
+        <TranslatableParagraph className={styles.keywordLead}>
+          {`${lead}, explain:`}
+        </TranslatableParagraph>
+      ) : null}
+      <TranslatableParagraph className={styles.prompt} translateKey={prompt}>
         <MathText text={prompt} />
-      </p>
+      </TranslatableParagraph>
       {(needWords > 0 || kwList.length > 0) && !done ? (
         <p className={styles.hint}>
           {needWords > 0 ? `Minimum ${needWords} words. ` : ''}
@@ -186,7 +191,9 @@ function ConceptPane({
           </span>
         ) : null}
       </div>
-      {feedback ? <p className={styles.why}>{feedback}</p> : null}
+      {feedback ? (
+        <TranslatableParagraph className={styles.why}>{feedback}</TranslatableParagraph>
+      ) : null}
       {!done ? (
         <div className={styles.row}>
           {hasRequirements && !checked ? (
@@ -306,9 +313,9 @@ function ProblemPane({
         <span className={styles.badge}>{title || `Problem ${index + 1}`}</span>
         {company ? <span className={styles.company}>{company}</span> : null}
       </div>
-      <p className={styles.prompt}>
+      <TranslatableParagraph className={styles.prompt} translateKey={prompt}>
         <MathText text={prompt} />
-      </p>
+      </TranslatableParagraph>
       <p className={styles.hint}>
         Enter a number (at most {decimals} decimal place{decimals === 1 ? '' : 's'}
         {decimals === 0 ? ' — integer' : ''}).
@@ -341,38 +348,37 @@ function ProblemPane({
           </button>
         ) : null}
       </div>
-      {status === 'invalid' ? <p className={styles.why}>Enter a valid number.</p> : null}
+      {status === 'invalid' ? (
+        <TranslatableParagraph className={styles.why}>Enter a valid number.</TranslatableParagraph>
+      ) : null}
       {status === 'wrong' ? (
-        <p className={styles.why}>
-          Not quite — try again ({MAX_ATTEMPTS - attempts} attempt
-          {MAX_ATTEMPTS - attempts === 1 ? '' : 's'} left before the answer is revealed).
-        </p>
+        <TranslatableParagraph className={styles.why}>
+          {`Not quite — try again (${MAX_ATTEMPTS - attempts} attempt${
+            MAX_ATTEMPTS - attempts === 1 ? '' : 's'
+          } left before the answer is revealed).`}
+        </TranslatableParagraph>
       ) : null}
       {status === 'revealed' ? (
-        <p className={styles.why}>
+        <TranslatableParagraph className={styles.why}>
           Official answer: <strong>{roundAtMost(Number(answer), decimals)}</strong>.
           {why ? (
             <>
               {' '}
               <MathText text={why} />
             </>
-          ) : (
-            ''
-          )}
-        </p>
+          ) : null}
+        </TranslatableParagraph>
       ) : null}
       {status === 'right' ? (
-        <p className={styles.whyOk}>
+        <TranslatableParagraph className={styles.whyOk}>
           Correct ({roundAtMost(Number(answer), decimals)}).
           {why ? (
             <>
               {' '}
               <MathText text={why} />
             </>
-          ) : (
-            ''
-          )}
-        </p>
+          ) : null}
+        </TranslatableParagraph>
       ) : null}
     </div>
   );

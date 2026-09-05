@@ -99,6 +99,11 @@ export default function PistonRunner({
 
     const runRest = useCallback(async () => {
         const exec = executeUrl(api, siteConfig);
+        const langKey = String(lang).toLowerCase();
+        const source =
+            langKey === 'godot' || langKey === 'gdscript' || langKey === 'gd'
+                ? String(code).replace(/^\t+/gm, (tabs) => '    '.repeat(tabs.length))
+                : code;
         const res = await fetch(exec, {
             method: 'POST',
             headers: {'Content-Type': 'application/json'},
@@ -106,7 +111,7 @@ export default function PistonRunner({
                 language: lang,
                 version,
                 stdin,
-                files: [{name: fileName, content: code}],
+                files: [{name: fileName, content: source}],
                 run_timeout: runTimeout,
                 run_cpu_time: runCpuTime,
                 compile_timeout: 10000,
@@ -129,11 +134,23 @@ export default function PistonRunner({
         if (compile.stderr) text += compile.stderr;
         if (compile.stdout) text += (text ? '\n' : '') + compile.stdout;
         if (runResult.stdout) text += (text ? '\n' : '') + runResult.stdout;
-        if (runResult.stderr) text += (text ? '\n' : '') + runResult.stderr;
+        if (runResult.stderr) {
+            const err = String(runResult.stderr)
+                .split('\n')
+                .filter((line) => !/libfontconfig\.so/.test(line))
+                .join('\n')
+                .trim();
+            if (err) text += (text ? '\n' : '') + err;
+        }
 
         const compileFailed = compile.code != null && compile.code !== 0;
+        const cleanStderr = String(runResult.stderr || '')
+            .split('\n')
+            .filter((line) => !/libfontconfig\.so/.test(line))
+            .join('\n')
+            .trim();
         setExitCode(compileFailed ? compile.code : runResult.code ?? null);
-        setIsError(compileFailed || (!!runResult.stderr && !runResult.stdout));
+        setIsError(compileFailed || (!!cleanStderr && !runResult.stdout));
         setOutput(text.trimEnd() || '(no output)');
         finish(compileFailed ? compile.code : runResult.code ?? 0, compileFailed);
     }, [api, siteConfig, lang, version, stdin, fileName, code, finish, runTimeout, runCpuTime]);
@@ -179,13 +196,18 @@ export default function PistonRunner({
         wsRef.current = ws;
 
         ws.onopen = () => {
+            const langKey = String(lang).toLowerCase();
+            const source =
+                langKey === 'godot' || langKey === 'gdscript' || langKey === 'gd'
+                    ? String(code).replace(/^\t+/gm, (tabs) => '    '.repeat(tabs.length))
+                    : code;
             ws.send(
                 JSON.stringify({
                     type: 'init',
                     language: lang,
                     version,
                     stdin: '',
-                    files: [{name: fileName, content: code, encoding: 'utf8'}],
+                    files: [{name: fileName, content: source, encoding: 'utf8'}],
                     run_timeout: runTimeout,
                     run_cpu_time: runCpuTime,
                     compile_timeout: 10000,

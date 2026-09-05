@@ -2,16 +2,21 @@ import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { targetLocaleFor, translateParagraph } from './translateClient';
 
 /**
- * Drop-in replacement for the MDX `p` element. Hover a paragraph and press
- * Ctrl (or Cmd on Mac) to translate it in place — Chinese paragraphs get an
- * English translation and vice versa. Press again (or hit the ×) to hide it.
+ * Hover text and press Ctrl (or Cmd on Mac) to translate in place —
+ * Chinese ↔ English. Press again (or hit ×) to hide.
  *
- * Only wired up for plain markdown paragraphs (via MDXComponents' `p:`
- * mapping) — interactive components render their own text with MUI
- * Typography, which never goes through this override, so quiz/simulator
- * text is untouched.
+ * Used as the MDX `p` override and for quiz/exercise feedback that otherwise
+ * bypasses that mapping.
+ *
+ * @param {object} props
+ * @param {'p'|'div'|'span'} [props.as='p'] Element type for the source text.
  */
-export default function TranslatableParagraph(props) {
+export default function TranslatableParagraph({
+  as: Tag = 'p',
+  style,
+  translateKey,
+  ...props
+}) {
   const paragraphRef = useRef(null);
   const [hovered, setHovered] = useState(false);
   const [status, setStatus] = useState('idle'); // idle | loading | shown | error
@@ -39,6 +44,7 @@ export default function TranslatableParagraph(props) {
     if (!hovered) return undefined;
     function onKeyDown(e) {
       if (e.key === 'Control' || e.key === 'Meta') {
+        e.preventDefault();
         toggle();
       }
     }
@@ -46,27 +52,42 @@ export default function TranslatableParagraph(props) {
     return () => document.removeEventListener('keydown', onKeyDown);
   }, [hovered, toggle]);
 
+  // Reset translation when the source text changes (e.g. next quiz question).
+  const sourceKey =
+    translateKey != null
+      ? String(translateKey)
+      : typeof props.children === 'string' || typeof props.children === 'number'
+        ? String(props.children)
+        : null;
+  useEffect(() => {
+    setStatus('idle');
+    setTranslated('');
+  }, [sourceKey]);
+
   return (
     <>
-      <p
+      <Tag
         {...props}
         ref={paragraphRef}
         onMouseEnter={() => setHovered(true)}
         onMouseLeave={() => setHovered(false)}
         title={hovered && status === 'idle' ? 'Hold Ctrl / Cmd to translate' : undefined}
         style={{
+          ...style,
           outline: hovered ? '2px dashed var(--ifm-color-primary-light)' : '2px dashed transparent',
           outlineOffset: '3px',
           borderRadius: 4,
           transition: 'outline-color 0.15s ease',
+          userSelect: 'text',
         }}
       />
       {status !== 'idle' && (
         <div
           role="note"
+          lang={detectLangHint(translated)}
           style={{
             position: 'relative',
-            margin: '-0.5rem 0 1rem',
+            margin: Tag === 'p' ? '-0.5rem 0 1rem' : '0.35rem 0 0.75rem',
             padding: '0.6rem 2rem 0.6rem 0.85rem',
             border: '1px solid var(--ifm-color-emphasis-300)',
             borderLeft: '3px solid var(--ifm-color-primary)',
@@ -74,6 +95,7 @@ export default function TranslatableParagraph(props) {
             background: 'var(--ifm-background-surface-color)',
             fontSize: '0.92em',
             color: 'var(--ifm-color-emphasis-800)',
+            userSelect: 'text',
           }}
         >
           <button
@@ -101,4 +123,9 @@ export default function TranslatableParagraph(props) {
       )}
     </>
   );
+}
+
+function detectLangHint(text) {
+  if (!text) return undefined;
+  return /[一-鿿]/.test(text) ? 'zh-CN' : 'en';
 }

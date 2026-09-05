@@ -1,6 +1,7 @@
 import React, {useEffect, useMemo, useRef, useState} from 'react';
 import {Highlight, themes} from 'prism-react-renderer';
 import useHtmlColorMode from '@site/src/components/codeWorkspace/useHtmlColorMode';
+import TranslatableParagraph from '@site/src/components/Translate/TranslatableParagraph';
 import styles from './styles.module.css';
 
 function storageKey(id) {
@@ -73,10 +74,17 @@ function parsePrompt(q) {
 function Prompt({q}) {
   const {lead, code, lang} = parsePrompt(q);
   const colorMode = useHtmlColorMode();
-  const prismLang = lang === 'c++' || lang === 'cpp' ? 'cpp' : lang || 'text';
+  const prismLang =
+    lang === 'c++' || lang === 'cpp'
+      ? 'cpp'
+      : lang === 'godot' || lang === 'gdscript' || lang === 'gd'
+        ? 'python'
+        : lang || 'text';
   return (
     <div className={styles.promptBlock}>
-      {lead ? <p className={styles.prompt}>{lead}</p> : null}
+      {lead ? (
+        <TranslatableParagraph className={styles.prompt}>{lead}</TranslatableParagraph>
+      ) : null}
       {code ? (
         <div className={styles.snippet}>
           <Highlight
@@ -640,16 +648,18 @@ export default function MultipleChoice({
         ) : null}
 
         {state.status === 'right' ? (
-          <p className={styles.whyOk}>Correct.{q.why ? ` ${q.why}` : ''}</p>
+          <TranslatableParagraph className={styles.whyOk}>
+            {`Correct.${q.why ? ` ${q.why}` : ''}`}
+          </TranslatableParagraph>
         ) : null}
         {state.status === 'wrong' ? (
-          <p className={styles.why}>
+          <TranslatableParagraph className={styles.why}>
             {kind === 'multi'
               ? 'Not quite — adjust your selections and try again.'
               : kind === 'order'
                 ? 'Not quite — reorder and try again.'
                 : 'Not quite. Try a different option.'}
-          </p>
+          </TranslatableParagraph>
         ) : null}
       </div>
       <div className={styles.actions}>

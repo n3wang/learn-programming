@@ -1,4 +1,5 @@
 import React, {useCallback, useEffect, useState} from 'react';
+import TranslatableParagraph from '@site/src/components/Translate/TranslatableParagraph';
 import styles from './styles.module.css';
 import {COMPUTE_BANKS, drawFromBank} from './probComputeBanks';
 
@@ -202,7 +203,7 @@ export default function NumericQuiz({
         <p className={styles.meta}>
           Story problem — figure out which numbers are the formula inputs, then compute.
         </p>
-        <p className={styles.prompt}>{q.prompt}</p>
+        <TranslatableParagraph className={styles.prompt}>{q.prompt}</TranslatableParagraph>
         <p className={styles.hint}>
           Enter a number (at most {places} decimal place{places === 1 ? '' : 's'}).
           {q.unit ? ` Unit: ${q.unit}.` : ''}
@@ -228,17 +229,21 @@ export default function NumericQuiz({
           ) : null}
         </div>
         {state.status === 'invalid' ? (
-          <p className={styles.why}>Enter a valid number.</p>
+          <TranslatableParagraph className={styles.why}>
+            Enter a valid number.
+          </TranslatableParagraph>
         ) : null}
         {state.status === 'wrong' ? (
-          <p className={styles.why}>Not quite — map the story to the formula and try again.</p>
+          <TranslatableParagraph className={styles.why}>
+            Not quite — map the story to the formula and try again.
+          </TranslatableParagraph>
         ) : null}
         {state.status === 'right' ? (
-          <p className={styles.whyOk}>
-            Correct ({roundAtMost(Number(q.answer), places)}
-            {q.unit ? ` ${q.unit}` : ''}).
-            {q.why ? ` ${q.why}` : ''}
-          </p>
+          <TranslatableParagraph className={styles.whyOk}>
+            {`Correct (${roundAtMost(Number(q.answer), places)}${q.unit ? ` ${q.unit}` : ''}).${
+              q.why ? ` ${q.why}` : ''
+            }`}
+          </TranslatableParagraph>
         ) : null}
       </div>
       <div className={styles.actions}>

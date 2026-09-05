@@ -85,10 +85,16 @@ function passesTest(output, test) {
  * `class Runner { public static void main... }`, which compiles but never runs.
  * Lift Runner's main into Main instead.
  */
+function normalizeGodotIndent(src) {
+    // CodeMirror uses spaces; MDX/starters may use tabs. GDScript forbids mixing.
+    return String(src).replace(/^\t+/gm, (tabs) => '    '.repeat(tabs.length));
+}
+
 function buildProgram(lang, code, wrapPrefix, wrapSuffix) {
     const prefix = wrapPrefix || '';
     const suffix = wrapSuffix || '';
-    const isJava = String(lang).toLowerCase() === 'java';
+    const langKey = String(lang).toLowerCase();
+    const isJava = langKey === 'java';
     if (isJava && /class\s+Runner\b/.test(suffix)) {
         const m = suffix.match(/class\s+Runner\s*\{([\s\S]*)\}\s*$/);
         if (m) {
@@ -99,7 +105,11 @@ function buildProgram(lang, code, wrapPrefix, wrapSuffix) {
             }
         }
     }
-    return prefix + code + suffix;
+    const program = prefix + code + suffix;
+    if (langKey === 'godot' || langKey === 'gdscript' || langKey === 'gd') {
+        return normalizeGodotIndent(program);
+    }
+    return program;
 }
 
 /** Interactive practice exercise with hidden tests (and optional hint/solution). */

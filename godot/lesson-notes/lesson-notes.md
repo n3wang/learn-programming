@@ -20,23 +20,19 @@ These lessons teach GDScript basics for programmers. You run scripts in the brow
 
 ## How scripts run here
 
-On this site, every runnable file must:
+GDScript uses **4 spaces** for indentation in these lessons (the editor Tab key inserts spaces). Mixing tabs and spaces causes a parse error. If a starter looks flat, click **Reset**.
 
 1. `extends SceneTree`
 2. Start work in `_init()`
 3. Call `quit()` when finished (or the sandbox will hang until timeout)
 
-```gdscript
+```python
 extends SceneTree
 
 func _init():
-	print("Hello Godot")
-	quit()
+    print("Hello Godot")
+    quit()
 ```
-
-:::tip Indentation
-GDScript uses **tabs** (like Python uses spaces). The editor inserts tabs for you in these exercises.
-:::
 
 ## Class rhythm
 

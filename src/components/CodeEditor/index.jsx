@@ -16,6 +16,10 @@ const LANG_LOADERS = {
   java: () => import('@codemirror/lang-java').then((m) => m.java()),
   python: () => import('@codemirror/lang-python').then((m) => m.python()),
   py: () => import('@codemirror/lang-python').then((m) => m.python()),
+  // GDScript is close enough to Python for highlighting.
+  godot: () => import('@codemirror/lang-python').then((m) => m.python()),
+  gdscript: () => import('@codemirror/lang-python').then((m) => m.python()),
+  gd: () => import('@codemirror/lang-python').then((m) => m.python()),
   javascript: () => import('@codemirror/lang-javascript').then((m) => m.javascript()),
   js: () => import('@codemirror/lang-javascript').then((m) => m.javascript()),
   yaml: () => import('@codemirror/lang-yaml').then((m) => m.yaml()),
