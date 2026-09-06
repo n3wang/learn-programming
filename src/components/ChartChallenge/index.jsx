@@ -6,6 +6,7 @@ import EditorToolbar from '@site/src/components/codeWorkspace/EditorToolbar';
 import useCodeDraft from '@site/src/components/codeWorkspace/useCodeDraft';
 import {makeDraftId, markPracticeComplete} from '@site/src/components/codeWorkspace/drafts';
 import defaultSourceFilename from '@site/src/components/codeWorkspace/defaultSourceFilename';
+import {noTranslateClass} from '@site/src/components/codeWorkspace/noTranslate';
 import chrome from '@site/src/components/codeWorkspace/chrome.module.css';
 import {buildHarness, buildTargetOnlyHarness} from './pyHarness';
 import styles from '@site/src/components/GraphChallenge/styles.module.css';
@@ -209,7 +210,12 @@ export default function ChartChallenge({
       </div>
 
       {result?.error && (
-        <pre className={`${chrome.output} ${chrome.outputError} ${styles.plotError}`}>{result.error}</pre>
+        <pre
+          className={noTranslateClass(chrome.output, chrome.outputError, styles.plotError)}
+          translate="no"
+        >
+          {result.error}
+        </pre>
       )}
 
       <EditorToolbar

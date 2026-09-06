@@ -7,6 +7,7 @@ import {disablePasteExtensions} from '@site/src/components/codeWorkspace/disable
 import {githubLight} from '@uiw/codemirror-theme-github';
 import {oneDark} from '@codemirror/theme-one-dark';
 import useHtmlColorMode from '@site/src/components/codeWorkspace/useHtmlColorMode';
+import {noTranslateClass} from '@site/src/components/codeWorkspace/noTranslate';
 import styles from './styles.module.css';
 
 const LANG_LOADERS = {
@@ -209,13 +210,18 @@ export default function CodeEditor({
   disablePaste = false,
 }) {
   return (
-    <div className={styles.fill} style={{minHeight: height}}>
+    <div
+      className={noTranslateClass(styles.fill)}
+      translate="no"
+      style={{minHeight: height}}
+    >
       <BrowserOnly
         fallback={
           <textarea
             value={value}
             readOnly={readOnly}
-            className={styles.fallback}
+            className={noTranslateClass(styles.fallback)}
+            translate="no"
             style={{minHeight: height}}
             onPaste={disablePaste ? (e) => e.preventDefault() : undefined}
             onDrop={disablePaste ? (e) => e.preventDefault() : undefined}

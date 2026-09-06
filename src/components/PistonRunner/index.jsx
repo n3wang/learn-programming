@@ -8,6 +8,7 @@ import {makeDraftId} from '@site/src/components/codeWorkspace/drafts';
 import defaultSourceFilename from '@site/src/components/codeWorkspace/defaultSourceFilename';
 import splitChartOutput from '@site/src/components/codeWorkspace/splitChartOutput';
 import SplitPanes from '@site/src/components/codeWorkspace/SplitPanes';
+import {noTranslateClass} from '@site/src/components/codeWorkspace/noTranslate';
 import chrome from '@site/src/components/codeWorkspace/chrome.module.css';
 
 function executeUrl(api, siteConfig) {
@@ -310,11 +311,12 @@ export default function PistonRunner({
                         <div className={chrome.sideHead}>Output</div>
                         <pre
                             ref={outputRef}
-                            className={[
+                            translate="no"
+                            className={noTranslateClass(
                                 chrome.output,
                                 isError ? chrome.outputError : '',
                                 !output && !running ? chrome.outputEmpty : '',
-                            ].join(' ')}
+                            )}
                         >
                             {chart.text ||
                                 (interactive

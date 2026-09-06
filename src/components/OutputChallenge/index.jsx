@@ -6,6 +6,7 @@ import EditorToolbar from '@site/src/components/codeWorkspace/EditorToolbar';
 import useCodeDraft from '@site/src/components/codeWorkspace/useCodeDraft';
 import {makeDraftId, markPracticeComplete} from '@site/src/components/codeWorkspace/drafts';
 import defaultSourceFilename from '@site/src/components/codeWorkspace/defaultSourceFilename';
+import {noTranslateClass} from '@site/src/components/codeWorkspace/noTranslate';
 import chrome from '@site/src/components/codeWorkspace/chrome.module.css';
 import styles from './styles.module.css';
 
@@ -168,12 +169,22 @@ export default function OutputChallenge({
       <div className={styles.outputRow}>
         <div className={styles.outputCell}>
           <span className={styles.outputLabel}>{t.target}</span>
-          <pre className={styles.outputBox}>{target}</pre>
+          <pre className={noTranslateClass(styles.outputBox)} translate="no">
+            {target}
+          </pre>
         </div>
         <div className={styles.outputCell}>
           <span className={styles.outputLabel}>{t.yours}</span>
           {result?.output != null ? (
-            <pre className={`${styles.outputBox} ${cleared ? styles.outputPass : styles.outputFail}`}>{result.output}</pre>
+            <pre
+              className={noTranslateClass(
+                styles.outputBox,
+                cleared ? styles.outputPass : styles.outputFail,
+              )}
+              translate="no"
+            >
+              {result.output}
+            </pre>
           ) : (
             <div className={styles.outputPlaceholder}>{running ? '…' : t.wait}</div>
           )}
@@ -181,7 +192,12 @@ export default function OutputChallenge({
       </div>
 
       {result?.error && (
-        <pre className={`${chrome.output} ${chrome.outputError} ${styles.outputError}`}>{result.error}</pre>
+        <pre
+          className={noTranslateClass(chrome.output, chrome.outputError, styles.outputError)}
+          translate="no"
+        >
+          {result.error}
+        </pre>
       )}
 
       <EditorToolbar

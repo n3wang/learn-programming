@@ -116,7 +116,10 @@ const config = {
       },
     },
   },
-  clientModules: [require.resolve('./src/client/googleTranslateDomPatch.js')],
+  clientModules: [
+    require.resolve('./src/client/googleTranslateDomPatch.js'),
+    require.resolve('./src/client/googleTranslateNoTranslateCode.js'),
+  ],
   presets: [
     [
       'classic',

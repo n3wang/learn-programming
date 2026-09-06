@@ -12,6 +12,7 @@ import {
 import defaultSourceFilename from '@site/src/components/codeWorkspace/defaultSourceFilename';
 import SplitPanes from '@site/src/components/codeWorkspace/SplitPanes';
 import HelpModal from '@site/src/components/codeWorkspace/HelpModal';
+import {noTranslateClass} from '@site/src/components/codeWorkspace/noTranslate';
 import chrome from '@site/src/components/codeWorkspace/chrome.module.css';
 
 function executeUrl(api, siteConfig) {
@@ -317,7 +318,11 @@ export default function CodeExercise({
                     )}
                 </div>
                 {prompt && <p className={chrome.prompt}>{prompt}</p>}
-                {sampleLog ? <pre className={chrome.sample}>{sampleLog}</pre> : null}
+                {sampleLog ? (
+                    <pre className={noTranslateClass(chrome.sample)} translate="no">
+                        {sampleLog}
+                    </pre>
+                ) : null}
             </div>
 
             <EditorToolbar
@@ -359,13 +364,20 @@ export default function CodeExercise({
                                             <strong>
                                                 {r.pass ? 'Pass' : 'Fail'} — {r.name}
                                             </strong>
-                                            {!r.pass && <pre>{r.detail}</pre>}
+                                            {!r.pass && (
+                                                <pre className="notranslate" translate="no">
+                                                    {r.detail}
+                                                </pre>
+                                            )}
                                         </li>
                                     ))}
                                 </ul>
                             </>
                         ) : (
-                            <pre className={`${chrome.output} ${chrome.outputEmpty}`}>
+                            <pre
+                                className={noTranslateClass(chrome.output, chrome.outputEmpty)}
+                                translate="no"
+                            >
                                 Running hidden tests…
                             </pre>
                         )}

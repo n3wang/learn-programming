@@ -12,6 +12,7 @@ import {
 import defaultSourceFilename from '@site/src/components/codeWorkspace/defaultSourceFilename';
 import SplitPanes from '@site/src/components/codeWorkspace/SplitPanes';
 import HelpModal from '@site/src/components/codeWorkspace/HelpModal';
+import {noTranslateClass} from '@site/src/components/codeWorkspace/noTranslate';
 import chrome from '@site/src/components/codeWorkspace/chrome.module.css';
 import {REDDIT_SEED, REDDIT_TABLES, buildPythonSqlRunner} from './redditSeed';
 import styles from './sqlExercise.module.css';
@@ -359,7 +360,11 @@ export default function SqlExercise({
                     )}
                 </div>
                 {prompt && <p className={chrome.prompt}>{prompt}</p>}
-                {sampleLog ? <pre className={chrome.sample}>{sampleLog}</pre> : null}
+                {sampleLog ? (
+                    <pre className={noTranslateClass(chrome.sample)} translate="no">
+                        {sampleLog}
+                    </pre>
+                ) : null}
             </div>
 
             <EditorToolbar
@@ -429,7 +434,11 @@ export default function SqlExercise({
                                             <strong>
                                                 {r.pass ? 'Pass' : 'Fail'} — {r.name}
                                             </strong>
-                                            {!r.pass && <pre>{r.detail}</pre>}
+                                            {!r.pass && (
+                                                <pre className="notranslate" translate="no">
+                                                    {r.detail}
+                                                </pre>
+                                            )}
                                         </li>
                                     ))}
                                 </ul>
