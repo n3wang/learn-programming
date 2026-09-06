@@ -104,8 +104,8 @@ function SettingsPanel({pageUrl, showQr, setShowQr, qrDataUrl, qrError}) {
         <div
           style={{
             display: 'flex',
-            alignItems: 'center',
-            gap: '0.35rem',
+            alignItems: 'flex-start',
+            gap: '0.75rem',
             flexWrap: 'wrap',
           }}
         >
@@ -114,7 +114,6 @@ function SettingsPanel({pageUrl, showQr, setShowQr, qrDataUrl, qrError}) {
             onChange={setColorMode}
             respectPrefersColorScheme={respectPrefersColorScheme}
           />
-          <SiteLanguageToggle />
           <button
             type="button"
             className="button button--sm button--secondary"
@@ -125,6 +124,9 @@ function SettingsPanel({pageUrl, showQr, setShowQr, qrDataUrl, qrError}) {
           >
             {showQr ? 'Hide QR' : 'Show QR'}
           </button>
+        </div>
+        <div style={{marginTop: '0.85rem'}}>
+          <SiteLanguageToggle />
         </div>
       </div>
 

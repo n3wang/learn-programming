@@ -1,4 +1,4 @@
-import React, {useEffect, useState} from 'react';
+import React, {useEffect, useMemo, useState} from 'react';
 import {useLocation} from '@docusaurus/router';
 import {
   UI_LANG_CHANGE_EVENT,
@@ -20,21 +20,27 @@ function toggleButtonStyle(active) {
   };
 }
 
-const OPTIONS = [
+const PAGE_OPTIONS = [
+  {id: 'en', label: 'EN', title: 'Show original English page'},
+  {id: 'zh-CN', label: '中文', title: 'Translate this whole page to 中文'},
+  {id: 'es', label: 'ES', title: 'Translate this whole page to Spanish'},
+];
+
+const HOVER_OPTIONS = [
   {
     id: 'en',
     label: 'EN',
-    title: 'Show original English page',
+    title: 'Hover + Ctrl/Cmd: Chinese ↔ English',
   },
   {
     id: 'zh-CN',
     label: '中文',
-    title: 'Translate this page to 中文 (Google Translate)',
+    title: 'Hover + Ctrl/Cmd: translate into 中文',
   },
   {
     id: 'es',
     label: 'ES',
-    title: 'Translate this page to Spanish (Google Translate)',
+    title: 'Hover + Ctrl/Cmd: translate into Spanish',
   },
 ];
 
@@ -60,7 +66,6 @@ function getOriginalPageUrl(location) {
     return `${window.location.protocol}//${originalHost}${path}`;
   }
 
-  // Nested on translate.google.com?u=…
   if (host.includes('translate.google.')) {
     try {
       const u = new URLSearchParams(window.location.search).get('u');
@@ -83,29 +88,82 @@ function getGoogleTranslateUrl(pageUrl, tl) {
   );
 }
 
-/**
- * EN restores the original page.
- * 中文 / ES open Google Translate for the whole page (code panes stay
- * untranslated via notranslate / translate="no").
- * Also stores the preference for hover + Ctrl/Cmd paragraph translation.
- */
-export default function SiteLanguageToggle({compact = false}) {
-  const [uiLang, setUiLang] = useState(() => readUiLang());
+/** Detect which whole-page language is active from the current URL. */
+export function detectPageTranslateLang() {
+  if (typeof window === 'undefined') return 'en';
+  const host = window.location.hostname;
+
+  if (host.endsWith('.translate.goog') || host.includes('translate.google.')) {
+    try {
+      const params = new URLSearchParams(window.location.search);
+      const tl = params.get('_x_tr_tl') || params.get('tl');
+      if (tl === 'es') return 'es';
+      if (tl === 'zh-CN' || tl === 'zh-Hans' || tl === 'zh') return 'zh-CN';
+    } catch {
+      // ignore
+    }
+    // Default when on a translate host without a clear tl param
+    return 'zh-CN';
+  }
+
+  return 'en';
+}
+
+function LangButtonRow({label, ariaLabel, options, activeId, onSelect}) {
+  return (
+    <div style={{display: 'grid', gap: '0.35rem'}}>
+      <div
+        style={{
+          fontSize: '0.7rem',
+          fontWeight: 700,
+          letterSpacing: '0.04em',
+          textTransform: 'uppercase',
+          color: 'var(--ifm-color-emphasis-600)',
+        }}
+      >
+        {label}
+      </div>
+      <div
+        role="group"
+        aria-label={ariaLabel}
+        className="notranslate"
+        translate="no"
+        style={{
+          display: 'inline-flex',
+          alignItems: 'center',
+          gap: '0.35rem',
+          flexWrap: 'wrap',
+        }}
+      >
+        {options.map((opt) => (
+          <button
+            key={opt.id}
+            type="button"
+            onClick={() => onSelect(opt.id)}
+            aria-pressed={activeId === opt.id}
+            title={opt.title}
+            style={toggleButtonStyle(activeId === opt.id)}
+          >
+            {opt.label}
+          </button>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+/** Whole-page Google Translate: EN = original, 中文 / ES = translate.google.com */
+export function PageTranslateToggle() {
   const location = useLocation();
+  const [pageLang, setPageLang] = useState(() => detectPageTranslateLang());
 
   useEffect(() => {
-    const sync = (event) => {
-      setUiLang(event?.detail?.lang || readUiLang());
-    };
-    window.addEventListener(UI_LANG_CHANGE_EVENT, sync);
-    return () => window.removeEventListener(UI_LANG_CHANGE_EVENT, sync);
-  }, []);
+    setPageLang(detectPageTranslateLang());
+  }, [location.pathname, location.search]);
 
-  const applyLanguage = (lang) => {
-    writeUiLang(lang);
-    setUiLang(lang);
-
+  const applyPageLang = (lang) => {
     const originalUrl = getOriginalPageUrl(location);
+    setPageLang(lang);
 
     if (lang === 'en') {
       if (window.location.href !== originalUrl) {
@@ -119,30 +177,58 @@ export default function SiteLanguageToggle({compact = false}) {
   };
 
   return (
+    <LangButtonRow
+      label="Page translate"
+      ariaLabel="Whole page language"
+      options={PAGE_OPTIONS}
+      activeId={pageLang}
+      onSelect={applyPageLang}
+    />
+  );
+}
+
+/** Hover + Ctrl/Cmd paragraph translation target only (no page redirect). */
+export function HoverTranslateToggle({compact = false}) {
+  const [uiLang, setUiLang] = useState(() => readUiLang());
+
+  useEffect(() => {
+    const sync = (event) => {
+      setUiLang(event?.detail?.lang || readUiLang());
+    };
+    window.addEventListener(UI_LANG_CHANGE_EVENT, sync);
+    return () => window.removeEventListener(UI_LANG_CHANGE_EVENT, sync);
+  }, []);
+
+  return (
+    <div style={{marginBottom: compact ? '0.75rem' : 0}}>
+      <LangButtonRow
+        label="Hover translate"
+        ariaLabel="Hover translate language"
+        options={HOVER_OPTIONS}
+        activeId={uiLang}
+        onSelect={(lang) => {
+          writeUiLang(lang);
+          setUiLang(lang);
+        }}
+      />
+    </div>
+  );
+}
+
+/**
+ * Settings panel block: page translate + hover translate as two rows.
+ */
+export default function SiteLanguageToggle({compact = false}) {
+  const gap = useMemo(() => (compact ? '0.85rem' : '0.75rem'), [compact]);
+
+  return (
     <div
-      role="group"
-      aria-label="Site language"
       className="notranslate"
       translate="no"
-      style={{
-        display: 'inline-flex',
-        alignItems: 'center',
-        gap: '0.35rem',
-        marginBottom: compact ? '0.75rem' : 0,
-      }}
+      style={{display: 'grid', gap, width: '100%'}}
     >
-      {OPTIONS.map((opt) => (
-        <button
-          key={opt.id}
-          type="button"
-          onClick={() => applyLanguage(opt.id)}
-          aria-pressed={uiLang === opt.id}
-          title={opt.title}
-          style={toggleButtonStyle(uiLang === opt.id)}
-        >
-          {opt.label}
-        </button>
-      ))}
+      <PageTranslateToggle />
+      <HoverTranslateToggle />
     </div>
   );
 }
