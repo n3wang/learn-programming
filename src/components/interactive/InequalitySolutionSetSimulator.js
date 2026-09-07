@@ -88,8 +88,15 @@ export default function InequalitySolutionSetSimulator() {
       <svg viewBox="0 0 280 72" width="100%" height="78">
         <line x1="20" y1="36" x2="258" y2="36" stroke="#455a64" strokeWidth="1.4" />
         <polygon points="258,36 248,31 248,41" fill="#455a64" />
-        <line x1={xOf(cut)} y1="28" x2={xOf(cut) + 86} y2="36" stroke="#e91e63" strokeWidth="2.2" />
-        <polygon points={`${xOf(cut) + 86},36 ${xOf(cut) + 76},31 ${xOf(cut) + 76},41`} fill="#e91e63" />
+        <line
+          x1={xOf(cut) + 6}
+          y1="36"
+          x2="232"
+          y2="36"
+          stroke="#e91e63"
+          strokeWidth="2.4"
+        />
+        <polygon points="232,36 222,31 222,41" fill="#e91e63" />
         <circle cx={xOf(cut)} cy="36" r="5" fill="none" stroke="#e91e63" strokeWidth="1.8" />
         <text x={xOf(cut) - 10} y="58" fontSize="12">{cut}</text>
         <text x="248" y="28" fontSize="12">x</text>

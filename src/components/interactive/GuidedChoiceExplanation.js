@@ -89,12 +89,11 @@ export default function GuidedChoiceExplanation({ preset }) {
 
   return (
     <section className={styles.root} aria-label={data.title}>
-      <h3 className={styles.title}>{data.title}</h3>
-      <p className={styles.lead}>{data.lead}</p>
-      {data.note ? <p className={styles.note}>{data.note}</p> : null}
-      <div className={styles.toolbar}>
+      
+      <p className={styles.lead}>
+      <b>{data.title} </b>
         {mode === 'complete' ? (
-          <Button size="small" variant="outlined" onClick={startGuided}>
+          <Button size="small" variant="text" onClick={startGuided}>
             开始引导
           </Button>
         ) : (
@@ -102,12 +101,22 @@ export default function GuidedChoiceExplanation({ preset }) {
             看完整解答
           </Button>
         )}
+        
         {mode === 'guided' ? (
           <Button size="small" variant="text" onClick={startGuided}>
             重来
           </Button>
         ) : null}
+      <div >
+      <MathText text={data.lead} />
+      
       </div>
+      </p>
+      {data.note ? (
+        <p className={styles.note}>
+          <MathText text={data.note} />
+        </p>
+      ) : null}
 
       <div
         ref={stageRef}
@@ -152,9 +161,6 @@ export default function GuidedChoiceExplanation({ preset }) {
           </div>
         ) : null}
 
-        {mode === 'guided' && shown >= steps.length ? (
-          <p className={styles.done}>引导完成。可以再看一遍完整解答，或重来。</p>
-        ) : null}
       </div>
     </section>
   );
