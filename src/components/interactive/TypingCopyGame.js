@@ -1,8 +1,9 @@
 import React, {useCallback, useEffect, useMemo, useRef, useState} from 'react';
+import {pinyin} from 'pinyin-pro';
 import Box from '@site/src/components/ui/Box';
 import Button from '@site/src/components/ui/Button';
 import Typography from '@site/src/components/ui/Typography';
-import {pickParagraph, wordsFromEn} from './typingCopy/corpus';
+import {pickParagraph, sentenceUnits, wordsFromEn} from './typingCopy/corpus';
 
 const LEVELS = [
   {
@@ -72,35 +73,97 @@ function loadTimedParagraph(prevIndex = -1) {
   };
 }
 
+function fillSentenceCursor(cursorRef) {
+  const row = pickParagraph(cursorRef.current?.paraIndex ?? -1);
+  cursorRef.current = {
+    paraIndex: row.index,
+    visit: (cursorRef.current?.visit || 0) + 1,
+    units: sentenceUnits(row.en),
+    unitIndex: 0,
+    wordInUnit: 0,
+  };
+}
+
+function rememberParagraph(promptSentences, seen, cursor) {
+  if (!cursor?.units?.length) return;
+  const key = `v-${cursor.visit}`;
+  if (seen.has(key)) return;
+  seen.add(key);
+  cursor.units.forEach((unit, unitIndex) => {
+    promptSentences.push({
+      zh: unit.zh,
+      zhWords: unit.zhWords,
+      en: unit.en,
+      visit: cursor.visit,
+      unitIndex,
+      wordStart: null,
+      wordEnd: null,
+    });
+  });
+}
+
 /** Pull the next batch of English words, renewing paragraphs as needed. */
 function takeBatch(batchSize, cursorRef) {
   const words = [];
-  const zhSeen = [];
+  /** Consecutive words that share one English/Chinese sentence. */
+  const segments = [];
+  /** Full Chinese of every paragraph touched, including sentences not in this batch. */
+  const promptSentences = [];
+  const seen = new Set();
+  if (cursorRef.current) rememberParagraph(promptSentences, seen, cursorRef.current);
+
   while (words.length < batchSize) {
-    if (!cursorRef.current || cursorRef.current.wordIndex >= cursorRef.current.words.length) {
-      const row = pickParagraph(cursorRef.current?.paraIndex ?? -1);
-      cursorRef.current = {
-        paraIndex: row.index,
-        words: wordsFromEn(row.en),
-        zh: row.zh,
-        en: row.en,
-        wordIndex: 0,
-      };
-    }
     const cur = cursorRef.current;
-    if (cur.zh && (zhSeen.length === 0 || zhSeen[zhSeen.length - 1] !== cur.zh)) {
-      zhSeen.push(cur.zh);
+    if (!cur || cur.unitIndex >= cur.units.length) {
+      fillSentenceCursor(cursorRef);
+      rememberParagraph(promptSentences, seen, cursorRef.current);
     }
-    while (words.length < batchSize && cur.wordIndex < cur.words.length) {
-      words.push(cur.words[cur.wordIndex]);
-      cur.wordIndex += 1;
+    const live = cursorRef.current;
+    const unit = live.units[live.unitIndex];
+    if (!unit || !unit.words.length) {
+      live.unitIndex += 1;
+      live.wordInUnit = 0;
+      continue;
+    }
+    const last = segments[segments.length - 1];
+    if (!last || last.zh !== unit.zh || last.en !== unit.en) {
+      segments.push({
+        zh: unit.zh,
+        en: unit.en,
+        start: words.length,
+        length: 0,
+        sentWordStart: live.wordInUnit,
+      });
+    }
+    const wordPos = words.length;
+    words.push(unit.words[live.wordInUnit]);
+    segments[segments.length - 1].length += 1;
+    const prompt = promptSentences.find(
+      (s) => s.visit === live.visit && s.unitIndex === live.unitIndex,
+    );
+    if (prompt) {
+      if (prompt.wordStart == null) prompt.wordStart = wordPos;
+      prompt.wordEnd = wordPos + 1;
+    }
+    live.wordInUnit += 1;
+    if (live.wordInUnit >= unit.words.length) {
+      live.unitIndex += 1;
+      live.wordInUnit = 0;
     }
   }
   return {
     words,
-    zh: zhSeen.join(' '),
+    segments,
+    promptSentences,
+    zh: promptSentences.map((s) => s.zh).join(''),
     en: words.join(' '),
   };
+}
+
+function segmentAt(segments, wordIndex) {
+  return (
+    segments.find((s) => wordIndex >= s.start && wordIndex < s.start + s.length) || null
+  );
 }
 
 function WordLane({words, wordIndex, doneFlags, showEnglish}) {
@@ -162,6 +225,148 @@ function WordLane({words, wordIndex, doneFlags, showEnglish}) {
   );
 }
 
+function activeSentenceWordIndex(segment, wordIndex) {
+  if (!segment) return -1;
+  return segment.sentWordStart + (wordIndex - segment.start);
+}
+
+function EnglishSentenceReveal({en, activeWordIndex}) {
+  const parts = wordsFromEn(en);
+  return (
+    <Box
+      sx={{
+        p: 2,
+        borderRadius: 2,
+        border: '1px solid',
+        borderColor: 'divider',
+        backgroundColor: 'action.hover',
+        lineHeight: 1.85,
+        fontSize: '1.05rem',
+        minHeight: 88,
+        maxWidth: 420,
+        whiteSpace: 'normal',
+        overflowWrap: 'break-word',
+        userSelect: 'none',
+      }}
+    >
+      {parts.map((w, i) => (
+        <span
+          key={`${i}-${w}`}
+          style={{
+            color: i === activeWordIndex ? 'var(--ifm-color-primary)' : 'inherit',
+            fontWeight: i === activeWordIndex ? 700 : 400,
+            marginRight: '0.45em',
+          }}
+        >
+          {w}
+        </span>
+      ))}
+    </Box>
+  );
+}
+
+function annotateZh(text) {
+  const source = String(text || '');
+  try {
+    const rows = pinyin(source, {toneType: 'symbol', type: 'all'});
+    if (Array.isArray(rows) && rows.length) {
+      return rows.map((row) => ({
+        ch: row.origin,
+        py: row.isZh ? row.pinyin : '',
+      }));
+    }
+  } catch {
+    // Fall through and show the characters without readings.
+  }
+  return Array.from(source).map((ch) => ({ch, py: ''}));
+}
+
+function PinyinCells({text, isActive, isCurrentWord}) {
+  const color = isCurrentWord ? '#9a3412' : isActive ? 'var(--ifm-color-primary)' : 'inherit';
+  const backgroundColor = isCurrentWord
+    ? 'color-mix(in srgb, #ea580c 28%, transparent)'
+    : isActive
+      ? 'color-mix(in srgb, var(--ifm-color-primary) 16%, transparent)'
+      : 'transparent';
+  const pyColor = isCurrentWord
+    ? '#9a3412'
+    : isActive
+      ? 'var(--ifm-color-primary)'
+      : 'var(--ifm-color-emphasis-600)';
+  return annotateZh(text).map((cell, ci) => (
+    <span
+      key={`${ci}-${cell.ch}`}
+      style={{
+        display: 'inline-flex',
+        flexDirection: 'column',
+        alignItems: 'center',
+        justifyContent: 'flex-end',
+        margin: '0 1px',
+        minWidth: cell.py ? '1.45em' : '0.45em',
+        padding: '1px 1px',
+        borderRadius: 4,
+        color,
+        backgroundColor,
+        fontWeight: isActive ? 700 : 400,
+      }}
+    >
+      <span
+        style={{
+          fontSize: '0.62rem',
+          lineHeight: 1.05,
+          fontWeight: 500,
+          minHeight: '0.85em',
+          whiteSpace: 'nowrap',
+          color: cell.py ? pyColor : 'transparent',
+          userSelect: 'none',
+        }}
+      >
+        {cell.py || '\u00a0'}
+      </span>
+      <span style={{fontSize: '1.05rem', lineHeight: 1.25}}>{cell.ch}</span>
+    </span>
+  ));
+}
+
+function ChinesePrompt({sentences, wordIndex, activeEnWordIndex}) {
+  return (
+    <Box
+      sx={{
+        m: 0,
+        display: 'flex',
+        flexWrap: 'wrap',
+        alignItems: 'flex-end',
+        rowGap: '0.35rem',
+      }}
+    >
+      {sentences.map((seg, i) => {
+        const isActive =
+          seg.wordStart != null && wordIndex >= seg.wordStart && wordIndex < seg.wordEnd;
+        const prev = sentences[i - 1];
+        const newParagraph = prev && prev.visit !== seg.visit;
+        const glosses = Array.isArray(seg.zhWords) && seg.zhWords.length ? seg.zhWords : [seg.zh];
+        return (
+          <React.Fragment key={`${seg.visit}-${seg.unitIndex}`}>
+            {newParagraph ? <span style={{width: '0.6em'}} /> : null}
+            {glosses.map((gloss, gi) => (
+              <span
+                key={`${seg.visit}-${seg.unitIndex}-${gi}`}
+                style={{display: 'inline-flex', alignItems: 'flex-end', marginRight: '0.2em'}}
+              >
+                <PinyinCells
+                  text={gloss}
+                  isActive={isActive}
+                  isCurrentWord={isActive && gi === activeEnWordIndex}
+                />
+              </span>
+            ))}
+          </React.Fragment>
+        );
+      })}
+    </Box>
+  );
+}
+
 export default function TypingCopyGame() {
   const [levelId, setLevelId] = useState(null);
   const level = LEVELS.find((l) => l.id === levelId) || null;
@@ -173,14 +378,16 @@ export default function TypingCopyGame() {
   const [skippedCount, setSkippedCount] = useState(0);
 
   const [words, setWords] = useState([]);
-  const [zhPrompt, setZhPrompt] = useState('');
-  const [enParagraph, setEnParagraph] = useState('');
+  const [segments, setSegments] = useState([]);
+  const [promptSentences, setPromptSentences] = useState([]);
   const [wordIndex, setWordIndex] = useState(0);
   const [doneFlags, setDoneFlags] = useState([]);
   const [buffer, setBuffer] = useState('');
   const [paraIndex, setParaIndex] = useState(-1);
   /** Levels 3–5: show English until the first typed letter of a batch. */
   const [memoryPreview, setMemoryPreview] = useState(true);
+  /** After a wrong key, show the current English sentence until typing resumes. */
+  const [mistakeReveal, setMistakeReveal] = useState(false);
 
   const inputRef = useRef(null);
   const memoryCursor = useRef(null);
@@ -192,8 +399,6 @@ export default function TypingCopyGame() {
   const renewTimedParagraph = useCallback(() => {
     const next = loadTimedParagraph(paraIndex);
     setParaIndex(next.paraIndex);
-    setEnParagraph(next.en);
-    setZhPrompt(next.zh);
     setWords(next.words);
     setWordIndex(0);
     setDoneFlags(Array(next.words.length).fill(null));
@@ -203,11 +408,12 @@ export default function TypingCopyGame() {
   const loadMemoryBatch = useCallback((batchSize, withPreview) => {
     const batch = takeBatch(batchSize, memoryCursor);
     setWords(batch.words);
-    setZhPrompt(batch.zh);
-    setEnParagraph(batch.en);
+    setSegments(batch.segments);
+    setPromptSentences(batch.promptSentences);
     setWordIndex(0);
     setDoneFlags(Array(batch.words.length).fill(null));
     setBuffer('');
+    setMistakeReveal(false);
     setMemoryPreview(Boolean(withPreview));
   }, []);
 
@@ -220,6 +426,7 @@ export default function TypingCopyGame() {
     setCorrectCount(0);
     setSkippedCount(0);
     setBuffer('');
+    setMistakeReveal(false);
     startedAt.current = Date.now();
     memoryCursor.current = null;
 
@@ -228,8 +435,6 @@ export default function TypingCopyGame() {
       setMemoryPreview(false);
       const next = loadTimedParagraph(-1);
       setParaIndex(next.paraIndex);
-      setEnParagraph(next.en);
-      setZhPrompt(next.zh);
       setWords(next.words);
       setWordIndex(0);
       setDoneFlags(Array(next.words.length).fill(null));
@@ -276,40 +481,33 @@ export default function TypingCopyGame() {
 
       const finishBatch = nextIndex >= words.length;
 
-      if (okDelta) {
-        setCorrectCount((c) => {
-          const next = c + okDelta;
-          if (finishBatch && level?.mode === 'memory' && next < (level.goal || 0)) {
-            queueMicrotask(() => loadMemoryBatch(level.batchSize, level.previewBeforeType));
-          }
-          return next;
-        });
-      } else if (finishBatch && level?.mode === 'memory') {
-        setCorrectCount((c) => {
-          if (c < (level.goal || 0)) {
-            queueMicrotask(() => loadMemoryBatch(level.batchSize, level.previewBeforeType));
-          }
-          return c;
-        });
-      }
+      if (okDelta) setCorrectCount((c) => c + okDelta);
 
       if (finishBatch) {
         if (level?.mode === 'timed') {
           renewTimedParagraph();
+        } else if (level?.mode === 'memory') {
+          const nextCorrect = correctCount + (okDelta || 0);
+          if (nextCorrect < (level.goal || 0)) {
+            loadMemoryBatch(level.batchSize, level.previewBeforeType);
+          }
         }
         return;
       }
       setWordIndex(nextIndex);
       setBuffer('');
+      setMistakeReveal(false);
     },
-    [words.length, level, renewTimedParagraph, loadMemoryBatch],
+    [words.length, level, correctCount, renewTimedParagraph, loadMemoryBatch],
   );
 
   const onKeyDown = (e) => {
     if (!running || finished) return;
     if (e.key === 'Tab') {
       e.preventDefault();
-      if (useMemoryPreview && memoryPreview) setMemoryPreview(false);
+      const finishesBatch = wordIndex + 1 >= words.length;
+      if (useMemoryPreview && memoryPreview && !finishesBatch) setMemoryPreview(false);
+      setMistakeReveal(false);
       const flags = [...doneFlags];
       flags[wordIndex] = 'skip';
       advanceAfterWord(flags, wordIndex + 1, 0, 1);
@@ -322,36 +520,45 @@ export default function TypingCopyGame() {
     }
     if (e.key === ' ') {
       e.preventDefault();
-      if (useMemoryPreview && memoryPreview && buffer.length > 0) {
-        setMemoryPreview(false);
-      }
       const target = words[wordIndex] || '';
+      const finishesBatch = wordIndex + 1 >= words.length;
       if (buffer === target) {
-        if (useMemoryPreview && memoryPreview) setMemoryPreview(false);
+        if (useMemoryPreview && memoryPreview && !finishesBatch) setMemoryPreview(false);
+        setMistakeReveal(false);
         const flags = [...doneFlags];
         flags[wordIndex] = 'ok';
         advanceAfterWord(flags, wordIndex + 1, 1, 0);
       } else if (buffer.length === 0) {
-        if (useMemoryPreview && memoryPreview) setMemoryPreview(false);
+        if (useMemoryPreview && memoryPreview && !finishesBatch) setMemoryPreview(false);
+        setMistakeReveal(false);
         const flags = [...doneFlags];
         flags[wordIndex] = 'skip';
         advanceAfterWord(flags, wordIndex + 1, 0, 1);
       } else {
         setBuffer('');
+        if (useMemoryPreview) {
+          setMemoryPreview(false);
+          setMistakeReveal(true);
+        }
       }
       return;
     }
     if (e.key.length !== 1 || !isAllowedChar(e.key) || e.key === ' ') return;
     e.preventDefault();
-    if (useMemoryPreview && memoryPreview) {
-      setMemoryPreview(false);
-    }
     const target = words[wordIndex] || '';
     const next = buffer + e.key;
     if (target.startsWith(next)) {
+      if (useMemoryPreview) {
+        setMemoryPreview(false);
+        setMistakeReveal(false);
+      }
       setBuffer(next);
     } else {
       setBuffer('');
+      if (useMemoryPreview) {
+        setMemoryPreview(false);
+        setMistakeReveal(true);
+      }
     }
   };
 
@@ -477,6 +684,28 @@ export default function TypingCopyGame() {
               />
             </Box>
           ) : null}
+          {useMemoryPreview && mistakeReveal && !memoryPreview ? (
+            <Box
+              sx={{
+                p: 1.5,
+                borderRadius: 2,
+                border: '1px solid',
+                borderColor: 'divider',
+                maxWidth: 420,
+                whiteSpace: 'normal',
+                lineHeight: 1.75,
+                fontSize: '1.05rem',
+              }}
+            >
+              <Typography variant="caption" color="text.secondary" sx={{display: 'block', mb: 0.5}}>
+                Wrong key — English sentence shown again. It hides when you type.
+              </Typography>
+              <EnglishSentenceReveal
+                en={segmentAt(segments, wordIndex)?.en || words[wordIndex] || ''}
+                activeWordIndex={activeSentenceWordIndex(segmentAt(segments, wordIndex), wordIndex)}
+              />
+            </Box>
+          ) : null}
           <Box
             sx={{
               p: 1.5,
@@ -487,14 +716,13 @@ export default function TypingCopyGame() {
               maxWidth: 420,
             }}
           >
-            <Typography variant="caption" color="text.secondary" sx={{display: 'block', mb: 0.5}}>
-              {memoryPreview
-                ? 'Chinese meaning'
-                : 'Chinese only — type the English from memory'}
-            </Typography>
-            <Typography sx={{m: 0, fontSize: '1.05rem', lineHeight: 1.6}}>{zhPrompt}</Typography>
+            <ChinesePrompt
+              sentences={promptSentences}
+              wordIndex={wordIndex}
+              activeEnWordIndex={activeSentenceWordIndex(segmentAt(segments, wordIndex), wordIndex)}
+            />
           </Box>
-          {!memoryPreview ? (
+          {!memoryPreview && !mistakeReveal ? (
             <WordLane words={words} wordIndex={wordIndex} doneFlags={doneFlags} showEnglish={false} />
           ) : null}
         </Box>
@@ -577,7 +805,7 @@ export default function TypingCopyGame() {
           disabled={!running || finished}
         />
         <Typography variant="caption" color="text.secondary" sx={{display: 'block', mt: 0.75}}>
-          Wrong key resets the word. Space confirms a correct word. Empty Space or Tab skips.
+          Wrong key resets the word and shows the English sentence again. Space confirms a correct word. Empty Space or Tab skips.
           {level.mode === 'timed' ? ` Target shown: ${words[wordIndex] || '—'}` : ''}
         </Typography>
       </Box>

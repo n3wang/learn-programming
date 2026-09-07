@@ -1,7 +1,10 @@
+import {glossWords} from './wordGloss';
+
 /**
  * Documentation-style English text for the typing copy game.
  * Characters allowed in EN: letters, digits, spaces, period, comma only.
- * Each item has en (words) and zh (memory prompt for levels 3–5).
+ * Each item has en (words) and zh (natural Chinese, unused for display).
+ * Levels 3–5 show a word-by-word gloss in English order so the current word highlights the same slot.
  * Target: >= 2000 English words of coherent sentences.
  */
 
@@ -2355,6 +2358,32 @@ export function wordsFromEn(en) {
     .split(' ')
     .map((w) => w.trim())
     .filter(Boolean);
+}
+
+function splitEnSentences(en) {
+  return sanitizeEn(en)
+    .split(/(?<=\.)\s+/)
+    .map((s) => s.trim())
+    .filter(Boolean);
+}
+
+/**
+ * Pair English sentences with a word-by-word Chinese gloss in English order.
+ * Natural `zh` is unused for display so the current English word highlights the same slot.
+ */
+export function sentenceUnits(en) {
+  const enSents = splitEnSentences(en);
+  const source = enSents.length ? enSents : [sanitizeEn(en)].filter(Boolean);
+  return source.map((enSent) => {
+    const words = wordsFromEn(enSent);
+    const zhWords = glossWords(words);
+    return {
+      en: enSent,
+      zh: zhWords.join(''),
+      zhWords,
+      words,
+    };
+  });
 }
 
 export function pickParagraph(excludeIndex = -1) {
