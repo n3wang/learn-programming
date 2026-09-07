@@ -11,6 +11,8 @@ Interview-focused preparation for data science roles — behavioral screens, tec
 
 ### Interview prep
 - [Behavioral interview](./lesson-1-behavioral-interview) — STAR stories, culture fit, and a practice randomizer
+- [Product Sense](./lesson-35-product-sense) — metrics, diagnosis, funnel KPIs, A/B pitfalls + labs
+- [Product sense problems](./lesson-36-product-sense-problems) — 18 Ch.10 questions: metrics, diagnosis, A/B design, pricing, brainstorms
 - [Probability](./lesson-2-probability) — Bayes, counting, distributions, Markov chains + quizzes
 - [Probability problems (Easy)](./lesson-3-probability-problems) — 18 classic compute questions
 - [Probability problems (Medium)](./lesson-4-probability-problems-medium) — 10 more compute questions
@@ -44,10 +46,9 @@ Interview-focused preparation for data science roles — behavioral screens, tec
 - [Coding problems (Easy)](./lesson-18-coding-problems-easy) — Ch.9.1–9.6 (≥12 tests each)
 - [Coding problems (Medium)](./lesson-19-coding-problems-medium) — Ch.9.7–9.24
 - [Coding problems (Hard)](./lesson-20-coding-problems-hard) — Ch.9.25–9.30
-- Product sense and case-style questions (coming soon)
 
 ### Core skills (planned)
-- Product sense and case-style ML interviews (deeper)
+- Deeper case-style product / business loops
 ---
 
 *More lessons coming soon.*

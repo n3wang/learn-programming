@@ -1261,6 +1261,72 @@ function wfTrainTestCount() {
   };
 }
 
+function psKFactor() {
+  const i = pick([1, 2, 3, 5]);
+  const c = pick([0.2, 0.25, 0.3, 0.4]);
+  const ans = round2(i * c);
+  return {
+    prompt: `Viral k-factor = (invites/user)×(conversion). i=${i}, c=${c}. What is k? Round to 2 decimals.`,
+    answer: ans,
+    why: `${i}·${c}=${ans}. k>1 suggests viral growth.`,
+  };
+}
+
+function psRetentionRate() {
+  const start = pick([1000, 500, 200]);
+  const end = pick([400, 250, 100, 50]);
+  const ans = round2(end / start);
+  return {
+    prompt: `Cohort started with ${start} users; ${end} still active. Retention = end/start. Round to 2 decimals.`,
+    answer: ans,
+    why: `${end}/${start}=${ans}.`,
+  };
+}
+
+function psChurnRate() {
+  const start = pick([1000, 800, 500]);
+  const lost = pick([50, 80, 100, 200]);
+  const ans = round2(lost / start);
+  return {
+    prompt: `Of ${start} users at the start of the month, ${lost} churned. Churn rate = lost/start. Round to 2 decimals.`,
+    answer: ans,
+    why: `${lost}/${start}=${ans}.`,
+  };
+}
+
+function psLtvCac() {
+  const ltv = pick([120, 90, 200, 60]);
+  const cac = pick([40, 30, 50, 20]);
+  const ans = round2(ltv / cac);
+  return {
+    prompt: `LTV=$${ltv}, CAC=$${cac}. What is LTV/CAC? Round to 2 decimals.`,
+    answer: ans,
+    why: `${ltv}/${cac}=${ans}.`,
+  };
+}
+
+function psStickiness() {
+  const dau = pick([20, 50, 100, 200]);
+  const mau = pick([100, 200, 400, 500]);
+  const ans = round2(dau / mau);
+  return {
+    prompt: `DAU=${dau}, MAU=${mau}. Stickiness ≈ DAU/MAU. Round to 2 decimals.`,
+    answer: ans,
+    why: `${dau}/${mau}=${ans}.`,
+  };
+}
+
+function psPctChange() {
+  const oldV = pick([100, 50, 200, 80]);
+  const newV = pick([90, 55, 220, 100]);
+  const ans = round2((newV - oldV) / oldV);
+  return {
+    prompt: `Metric moved from ${oldV} to ${newV}. Relative change = (new−old)/old. Round to 2 decimals.`,
+    answer: ans,
+    why: `(${newV}−${oldV})/${oldV}=${ans}.`,
+  };
+}
+
 /** Named banks for <NumericQuiz bank="…" /> */
 export const COMPUTE_BANKS = {
   dsBayes: [bayesDisease, bayesSpam, bayesFraud],
@@ -1300,6 +1366,7 @@ export const COMPUTE_BANKS = {
   dsNnTrain: [nnMomentumStep, nnVanishProd, nnDropoutKeep],
   dsRlCore: [rlDiscountReturn, rlQUpdate, rlBellman],
   dsWfFeat: [wfZScore, wfMinMax, wfTrainTestCount],
+  dsPsMetrics: [psKFactor, psRetentionRate, psChurnRate, psLtvCac, psStickiness, psPctChange],
 };
 
 export function drawFromBank(bankId) {

@@ -2304,6 +2304,285 @@ export const ML_PRESETS = {
       };
     },
   },
+
+  // —— Product sense / metrics ——
+  psKFactor: {
+    id: 'psKFactor',
+    title: 'Viral k-factor',
+    subtitle: 'k = (invites per user) × (referral conversion) — slide both; k>1 → exponential growth',
+    formula: 'k = i · c',
+    params: [
+      {
+        key: 'invites',
+        label: 'invites / user (i)',
+        meaning: 'Average referral invites sent per user.',
+        min: 0,
+        max: 8,
+        step: 0.25,
+        default: 2,
+      },
+      {
+        key: 'conv',
+        label: 'referral conversion c',
+        meaning: 'Fraction of invites that become new users.',
+        min: 0.05,
+        max: 1,
+        step: 0.05,
+        default: 0.3,
+      },
+    ],
+    example(v) {
+      const k = v.invites * v.conv;
+      return `Sample: each user sends ${fmt(v.invites, 2)} invites; ${fmt(100 * v.conv, 0)}% convert → k=${fmt(k, 2)}${k > 1 ? ' (viral)' : ''}.`;
+    },
+    compute(v) {
+      const series = [];
+      for (let i = 0; i <= 40; i++) {
+        const inv = (8 * i) / 40;
+        series.push({x: inv, y: inv * v.conv});
+      }
+      const k = v.invites * v.conv;
+      return {
+        chartType: 'line',
+        yLabel: 'k-factor',
+        series,
+        refLineX: v.invites,
+        stats: [
+          {label: 'i', value: fmt(v.invites, 2)},
+          {label: 'c', value: fmt(v.conv, 2)},
+          {label: 'k', value: fmt(k, 2)},
+          {label: 'viral?', value: k > 1 ? 'yes' : 'no'},
+        ],
+        note: 'Blue = k vs invites at fixed conversion. Orange = your i. Referral usually comes after activation / engagement.',
+      };
+    },
+  },
+
+  psRetention: {
+    id: 'psRetention',
+    title: 'Retention curve',
+    subtitle: 'Slide month-1 retention and decay — watch cohort size remaining over time',
+    formula: 'retained_t ≈ N · r₁ · d^{t−1}',
+    params: [
+      {
+        key: 'r1',
+        label: 'M1 retention',
+        meaning: 'Fraction still active after month 1.',
+        min: 0.1,
+        max: 0.9,
+        step: 0.05,
+        default: 0.4,
+      },
+      {
+        key: 'decay',
+        label: 'month-over-month keep',
+        meaning: 'Fraction of prior month’s retained users who stay next month.',
+        min: 0.5,
+        max: 0.95,
+        step: 0.05,
+        default: 0.85,
+      },
+    ],
+    example(v) {
+      return `Sample: acquire 1000 users; M1 retention ${fmt(100 * v.r1, 0)}%, then keep ${fmt(100 * v.decay, 0)}% each month.`;
+    },
+    compute(v) {
+      const N = 1000;
+      const series = [];
+      let n = N * v.r1;
+      series.push({x: 1, y: n});
+      for (let t = 2; t <= 12; t++) {
+        n *= v.decay;
+        series.push({x: t, y: n});
+      }
+      return {
+        chartType: 'line',
+        yLabel: 'active users (of 1000)',
+        series,
+        refLineX: 1,
+        stats: [
+          {label: 'M1 retained', value: fmt(N * v.r1, 0)},
+          {label: 'M6 ≈', value: fmt(series[5].y, 0)},
+          {label: 'M12 ≈', value: fmt(series[11].y, 0)},
+        ],
+        note: 'Acquiring users is usually costlier than retaining them — churn is the flip side of retention.',
+      };
+    },
+  },
+
+  psLtvCac: {
+    id: 'psLtvCac',
+    title: 'LTV / CAC ratio',
+    subtitle: 'Slide lifetime value and acquisition cost — sustainable growth wants LTV ≫ CAC',
+    formula: 'LTV / CAC',
+    params: [
+      {
+        key: 'ltv',
+        label: 'LTV ($)',
+        meaning: 'Expected revenue from a customer before churn.',
+        min: 20,
+        max: 400,
+        step: 10,
+        default: 120,
+      },
+      {
+        key: 'cac',
+        label: 'CAC ($)',
+        meaning: 'Cost to acquire one customer.',
+        min: 10,
+        max: 200,
+        step: 5,
+        default: 40,
+      },
+    ],
+    example(v) {
+      return `Sample: LTV $${fmt(v.ltv, 0)} / CAC $${fmt(v.cac, 0)} = ${fmt(v.ltv / v.cac, 2)}. Rule of thumb: many teams aim ≥3.`;
+    },
+    compute(v) {
+      const series = [];
+      for (let i = 0; i <= 40; i++) {
+        const ltv = 20 + (380 * i) / 40;
+        series.push({x: ltv, y: ltv / v.cac});
+      }
+      const ratio = v.ltv / v.cac;
+      return {
+        chartType: 'line',
+        yLabel: 'LTV/CAC',
+        series,
+        refLineX: v.ltv,
+        stats: [
+          {label: 'LTV', value: fmt(v.ltv, 0)},
+          {label: 'CAC', value: fmt(v.cac, 0)},
+          {label: 'ratio', value: fmt(ratio, 2)},
+        ],
+        note: 'Orange = your LTV. Monetization can appear anywhere in the funnel — not only after retention.',
+      };
+    },
+  },
+
+  psNoveltyDecay: {
+    id: 'psNoveltyDecay',
+    title: 'Novelty effect decay',
+    subtitle: 'New feature spike then settles — slide hype and long-run lift',
+    formula: 'metric(t) ≈ baseline + lift + hype·e^{−t/τ}',
+    params: [
+      {
+        key: 'hype',
+        label: 'novelty spike',
+        meaning: 'Extra engagement from curiosity / PR in week 0.',
+        min: 0,
+        max: 0.5,
+        step: 0.05,
+        default: 0.25,
+      },
+      {
+        key: 'lift',
+        label: 'true long-run lift',
+        meaning: 'Steady-state improvement after novelty fades.',
+        min: -0.05,
+        max: 0.2,
+        step: 0.01,
+        default: 0.05,
+      },
+      {
+        key: 'tau',
+        label: 'decay weeks τ',
+        meaning: 'How fast the spike fades.',
+        min: 1,
+        max: 8,
+        step: 0.5,
+        default: 2,
+      },
+    ],
+    example(v) {
+      return `Sample: emoji reactions launch — early engagement jumps, then settles near +${fmt(100 * v.lift, 0)}% vs baseline.`;
+    },
+    compute(v) {
+      const base = 1;
+      const series = [];
+      for (let t = 0; t <= 12; t++) {
+        const y = base + v.lift + v.hype * Math.exp(-t / Math.max(v.tau, 0.2));
+        series.push({x: t, y});
+      }
+      return {
+        chartType: 'line',
+        yLabel: 'relative engagement',
+        series,
+        refLineX: 0,
+        stats: [
+          {label: 'week-0', value: fmt(base + v.lift + v.hype, 2)},
+          {label: 'steady', value: fmt(base + v.lift, 2)},
+        ],
+        note: 'Holdouts and “new users only” slices help separate novelty from real lift. Primacy (aversion to change) is the opposite spike.',
+      };
+    },
+  },
+
+  psFunnelBars: {
+    id: 'psFunnelBars',
+    title: 'Acquisition funnel conversion',
+    subtitle: 'Slide stage conversion rates — watch how many users remain (of 10k starts)',
+    formula: 'users_stage = users_{prev} · conversion',
+    params: [
+      {
+        key: 'cAcq',
+        label: 'visit→signup',
+        meaning: 'Acquisition conversion.',
+        min: 0.05,
+        max: 0.8,
+        step: 0.05,
+        default: 0.4,
+      },
+      {
+        key: 'cAct',
+        label: 'signup→aha',
+        meaning: 'Activation (first core value moment).',
+        min: 0.1,
+        max: 0.9,
+        step: 0.05,
+        default: 0.5,
+      },
+      {
+        key: 'cRet',
+        label: 'aha→retained',
+        meaning: 'Still active after a retention window.',
+        min: 0.1,
+        max: 0.9,
+        step: 0.05,
+        default: 0.35,
+      },
+    ],
+    example(v) {
+      const n0 = 10000;
+      const n1 = n0 * v.cAcq;
+      const n2 = n1 * v.cAct;
+      const n3 = n2 * v.cRet;
+      return `Sample: 10k visits → ${fmt(n1, 0)} signups → ${fmt(n2, 0)} activated → ${fmt(n3, 0)} retained.`;
+    },
+    compute(v) {
+      const n0 = 10000;
+      const n1 = n0 * v.cAcq;
+      const n2 = n1 * v.cAct;
+      const n3 = n2 * v.cRet;
+      return {
+        chartType: 'bar',
+        yLabel: 'users',
+        series: [
+          {x: 0, y: n0, label: 'visits'},
+          {x: 1, y: n1, label: 'signups'},
+          {x: 2, y: n2, label: 'activated'},
+          {x: 3, y: n3, label: 'retained', highlight: true},
+        ],
+        stats: [
+          {label: 'acq', value: fmt(v.cAcq, 2)},
+          {label: 'act', value: fmt(v.cAct, 2)},
+          {label: 'ret', value: fmt(v.cRet, 2)},
+          {label: 'end-to-end', value: fmt(n3 / n0, 3)},
+        ],
+        note: 'AARRR: Acquisition → Activation → Retention (+ Referral, Revenue). Engagement sits after activation.',
+      };
+    },
+  },
 };
 
 function binaryEntropy(p) {

@@ -43,67 +43,103 @@ function nameToPinyin(name) {
   }
 }
 
-const ACTION_DOT = {
-  plus: {color: '#2e7d32', label: 'up'},
-  minus: {color: '#f9a825', label: 'bad'},
-  absent: {color: '#c62828', label: 'absent'},
+const ACTION_META = {
+  plus: {mark: '+', color: '#2e7d32', label: '+1'},
+  minus: {mark: '−', color: '#f9a825', label: '−1'},
+  absent: {mark: 'absent', color: '#c62828', label: 'absent'},
 };
 
-function PickHistoryList({items}) {
-  if (!Array.isArray(items) || items.length === 0) {
-    return null;
-  }
+function todayPoints(students, name) {
+  const raw = students && typeof students === 'object' ? students[name] : null;
+  const points = Number(raw?.points);
+  return Number.isFinite(points) ? points : 0;
+}
+
+function PickHistoryList({items, students}) {
+  const rows = Array.isArray(items) ? items.slice(0, 5) : [];
   return (
     <div
-      aria-label="Pick history"
+      aria-label="Recent picks"
       style={{
-        flex: '0 0 auto',
-        minWidth: 88,
-        maxWidth: 110,
-        display: 'grid',
-        gap: '0.3rem',
+        flex: '0 0 148px',
+        width: 148,
+        display: 'flex',
+        flexDirection: 'column',
+        gap: '0.28rem',
         alignContent: 'start',
+        padding: '0.4rem 0.45rem',
+        borderRadius: 10,
+        border: '1px solid var(--ifm-color-emphasis-200)',
+        background: 'var(--ifm-background-surface-color)',
       }}
     >
-      {items.map((item, index) => {
-        const dot = ACTION_DOT[item.action] || ACTION_DOT.minus;
-        return (
-          <div
-            key={`${item.name}-${item.at}-${index}`}
-            title={`${item.name} · ${dot.label}`}
-            style={{
-              display: 'flex',
-              alignItems: 'center',
-              gap: '0.35rem',
-              fontSize: index === 0 ? '0.8rem' : '0.72rem',
-              fontWeight: index === 0 ? 700 : 500,
-              color: 'var(--ifm-font-color-base)',
-              lineHeight: 1.15,
-              opacity: index === 0 ? 1 : 0.85,
-            }}
-          >
-            <span
-              aria-hidden
+      <div
+        style={{
+          fontSize: '0.68rem',
+          fontWeight: 700,
+          letterSpacing: '0.04em',
+          textTransform: 'uppercase',
+          color: 'var(--ifm-color-emphasis-600)',
+        }}
+      >
+        Last 5
+      </div>
+      {rows.length === 0 ? (
+        <div style={{fontSize: '0.72rem', color: 'var(--ifm-color-emphasis-600)'}}>
+          No picks yet today
+        </div>
+      ) : (
+        rows.map((item, index) => {
+          const meta = ACTION_META[item.action] || ACTION_META.minus;
+          const score = todayPoints(students, item.name);
+          return (
+            <div
+              key={`${item.name}-${item.at}-${index}`}
+              title={`${item.name} · ${meta.label} · today ${score}`}
               style={{
-                width: 8,
-                height: 8,
-                borderRadius: '50%',
-                background: dot.color,
-                flexShrink: 0,
-              }}
-            />
-            <span
-              style={{
-                overflow: 'hidden',
-                textOverflow: 'ellipsis',
-                whiteSpace: 'nowrap',
+                display: 'grid',
+                gridTemplateColumns: '1fr auto auto',
+                alignItems: 'center',
+                gap: '0.28rem',
+                fontSize: '0.72rem',
+                fontWeight: index === 0 ? 700 : 500,
+                color: 'var(--ifm-font-color-base)',
+                lineHeight: 1.15,
               }}
             >
-              {item.name}
-            </span>
-          </div>
-        );
-      })}
+              <span
+                style={{
+                  overflow: 'hidden',
+                  textOverflow: 'ellipsis',
+                  whiteSpace: 'nowrap',
+                }}
+              >
+                {item.name}
+              </span>
+              <span
+                style={{
+                  color: meta.color,
+                  fontWeight: 700,
+                  minWidth: item.action === 'absent' ? 42 : 12,
+                  textAlign: 'center',
+                }}
+              >
+                {meta.mark}
+              </span>
+              <span
+                style={{
+                  fontVariantNumeric: 'tabular-nums',
+                  minWidth: 18,
+                  textAlign: 'right',
+                  color: 'var(--ifm-color-emphasis-800)',
+                }}
+              >
+                {score > 0 ? `+${score}` : score}
+              </span>
+            </div>
+          );
+        })
+      )}
     </div>
   );
 }
@@ -189,16 +225,26 @@ export default function NameRandomizer() {
     if (!picked || !awaitingAction || busy) {
       return;
     }
+    const justPicked = picked;
     setBusy(true);
+    setPoolNote('');
     try {
-      const next = await applyStudentBehavior({
+      const nextRecord = await applyStudentBehavior({
         dateKey,
         rosterId,
-        name: picked,
+        name: justPicked,
         action,
       });
-      setBehavior(next);
-      setAwaitingAction(false);
+      setBehavior(nextRecord);
+      const nextName = pickWeightedStudent(roster?.names || [], nextRecord, justPicked);
+      if (!nextName) {
+        setPicked(null);
+        setAwaitingAction(false);
+        setPoolNote('No students left in today’s pool (all marked absent).');
+        return;
+      }
+      setPicked(nextName);
+      setAwaitingAction(true);
     } finally {
       setBusy(false);
     }
@@ -379,7 +425,7 @@ export default function NameRandomizer() {
             </div>
           ) : null}
 
-          <PickHistoryList items={history} />
+          <PickHistoryList items={history} students={behavior?.students} />
         </div>
       ) : null}
     </div>
