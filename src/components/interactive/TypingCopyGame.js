@@ -84,39 +84,43 @@ function fillSentenceCursor(cursorRef) {
   };
 }
 
-function rememberParagraph(promptSentences, seen, cursor) {
-  if (!cursor?.units?.length) return;
-  const key = `v-${cursor.visit}`;
+function rememberSentence(promptSentences, seen, cursor) {
+  const unit = cursor?.units?.[cursor.unitIndex];
+  if (!unit) return;
+  const key = `v-${cursor.visit}-u-${cursor.unitIndex}`;
   if (seen.has(key)) return;
   seen.add(key);
-  cursor.units.forEach((unit, unitIndex) => {
-    promptSentences.push({
-      zh: unit.zh,
-      zhWords: unit.zhWords,
-      en: unit.en,
-      visit: cursor.visit,
-      unitIndex,
-      wordStart: null,
-      wordEnd: null,
-    });
+  promptSentences.push({
+    zh: unit.zh,
+    zhWords: unit.zhWords,
+    en: unit.en,
+    visit: cursor.visit,
+    unitIndex: cursor.unitIndex,
+    wordStart: null,
+    wordEnd: null,
   });
 }
 
-/** Pull the next batch of English words, renewing paragraphs as needed. */
+function wordEndsSentence(word) {
+  return /[.]$/.test(word);
+}
+
+/**
+ * Next set of words to memorize. Stops at batchSize or at the sentence period,
+ * whichever comes first. A shorter set is fine so a batch never crosses `.`.
+ */
 function takeBatch(batchSize, cursorRef) {
   const words = [];
   /** Consecutive words that share one English/Chinese sentence. */
   const segments = [];
-  /** Full Chinese of every paragraph touched, including sentences not in this batch. */
+  /** Only the sentence this batch is drawn from. */
   const promptSentences = [];
   const seen = new Set();
-  if (cursorRef.current) rememberParagraph(promptSentences, seen, cursorRef.current);
 
   while (words.length < batchSize) {
     const cur = cursorRef.current;
     if (!cur || cur.unitIndex >= cur.units.length) {
       fillSentenceCursor(cursorRef);
-      rememberParagraph(promptSentences, seen, cursorRef.current);
     }
     const live = cursorRef.current;
     const unit = live.units[live.unitIndex];
@@ -126,17 +130,24 @@ function takeBatch(batchSize, cursorRef) {
       continue;
     }
     const last = segments[segments.length - 1];
-    if (!last || last.zh !== unit.zh || last.en !== unit.en) {
+    const sameSentence = last && last.visit === live.visit && last.unitIndex === live.unitIndex;
+    if (words.length > 0 && !sameSentence) break;
+
+    rememberSentence(promptSentences, seen, live);
+    if (!last || !sameSentence) {
       segments.push({
         zh: unit.zh,
         en: unit.en,
+        visit: live.visit,
+        unitIndex: live.unitIndex,
         start: words.length,
         length: 0,
         sentWordStart: live.wordInUnit,
       });
     }
+    const taken = unit.words[live.wordInUnit];
     const wordPos = words.length;
-    words.push(unit.words[live.wordInUnit]);
+    words.push(taken);
     segments[segments.length - 1].length += 1;
     const prompt = promptSentences.find(
       (s) => s.visit === live.visit && s.unitIndex === live.unitIndex,
@@ -150,6 +161,13 @@ function takeBatch(batchSize, cursorRef) {
       live.unitIndex += 1;
       live.wordInUnit = 0;
     }
+    if (wordEndsSentence(taken)) break;
+  }
+  const seg = segments[0];
+  const prompt = promptSentences[0];
+  if (seg && prompt && Array.isArray(prompt.zhWords)) {
+    prompt.zhWords = prompt.zhWords.slice(seg.sentWordStart, seg.sentWordStart + seg.length);
+    prompt.zh = prompt.zhWords.join('');
   }
   return {
     words,
@@ -158,12 +176,6 @@ function takeBatch(batchSize, cursorRef) {
     zh: promptSentences.map((s) => s.zh).join(''),
     en: words.join(' '),
   };
-}
-
-function segmentAt(segments, wordIndex) {
-  return (
-    segments.find((s) => wordIndex >= s.start && wordIndex < s.start + s.length) || null
-  );
 }
 
 function WordLane({words, wordIndex, doneFlags, showEnglish}) {
@@ -223,11 +235,6 @@ function WordLane({words, wordIndex, doneFlags, showEnglish}) {
       })}
     </Box>
   );
-}
-
-function activeSentenceWordIndex(segment, wordIndex) {
-  if (!segment) return -1;
-  return segment.sentWordStart + (wordIndex - segment.start);
 }
 
 function EnglishSentenceReveal({en, activeWordIndex}) {
@@ -701,8 +708,8 @@ export default function TypingCopyGame() {
                 Wrong key — English sentence shown again. It hides when you type.
               </Typography>
               <EnglishSentenceReveal
-                en={segmentAt(segments, wordIndex)?.en || words[wordIndex] || ''}
-                activeWordIndex={activeSentenceWordIndex(segmentAt(segments, wordIndex), wordIndex)}
+                en={words.join(' ')}
+                activeWordIndex={wordIndex}
               />
             </Box>
           ) : null}
@@ -719,7 +726,7 @@ export default function TypingCopyGame() {
             <ChinesePrompt
               sentences={promptSentences}
               wordIndex={wordIndex}
-              activeEnWordIndex={activeSentenceWordIndex(segmentAt(segments, wordIndex), wordIndex)}
+              activeEnWordIndex={wordIndex}
             />
           </Box>
           {!memoryPreview && !mistakeReveal ? (
