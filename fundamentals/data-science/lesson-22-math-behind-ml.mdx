@@ -1,0 +1,1491 @@
+---
+sidebar_position: 10.5
+title: The Math Behind Machine Learning
+sidebar_label: 'ML - Math foundations'
+---
+
+> **Source:** Concepts adapted from *Ace the Data Science Interview* — Chapter 7 (“Machine Learning”) by Kevin Huo & Nick Singh. Rewritten in original wording for this course.
+
+Probability and stats show up constantly in DS interviews. Full linear-algebra and multivariable-calculus proofs are rarer — unless you are interviewing for **research scientist** or **quant finance**, where whiteboarding least squares, PCA, or related derivations is fair game. Even then, interviewers sometimes hide the math inside a product story (e.g. “what drives portfolio factor returns?” → PCA).
+
+For everyone else: you still want the **basics**. They unlock why PCA, regression, and neural-net training work the way they do. This lesson covers that foundation — linear algebra, gradient descent, evaluation / selection, bias–variance, overfitting, regularization, interpretability — then **how models are actually trained**: cross-validation, bootstrapping / bagging, hyperparameter search, and learning curves. Concept quizzes, **slider explorers** (same FormulaExplorer pattern as Statistics), numeric drills, labs, and coding after each core topic.
+
+## Linear algebra
+
+The linear-algebra topic that comes up most often is **eigenvalues and eigenvectors**. For an $n \times n$ matrix $A$, a nonzero vector $x$ is an eigenvector with eigenvalue $\lambda$ when:
+
+$$
+Ax = \lambda x
+$$
+
+Geometrically, $A$ is a linear map. On an eigenvector it only **scales** $x$ (same direction, factor $\lambda$).
+
+Writing a square matrix in terms of its eigenvectors is an **eigendecomposition**. Not every matrix is square; non-square matrices use **singular value decomposition (SVD)**:
+
+$$
+A = U \Sigma V^{\top}
+$$
+
+with $U$ ($m \times m$), $\Sigma$ ($m \times n$), and $V$ ($n \times n$).
+
+ML uses this toolkit constantly: matrix multiplies in backprop, eigendecomposition of a covariance matrix in PCA, projections, inverses, determinants, orthonormal bases, and diagonalization. Research / quant loops may ask you to whiteboard follow-ups on PCA or linear regression from these building blocks.
+
+<FormulaExplorer preset="mlEigenScale" />
+
+<MultipleChoice
+  id="ds-ml-linalg"
+  title="Linear algebra for ML"
+  questions={[
+    {
+      prompt: 'x is an eigenvector of A when…',
+      choices: [
+        'Ax = x + λ',
+        'Ax = λx for some scalar λ',
+        'A must be non-square',
+        'det(A) = 0 always',
+      ],
+      answer: 1,
+      why: 'By definition Ax = λx (x ≠ 0).',
+    },
+    {
+      type: 'multi',
+      prompt: 'Which statements are true? (Select all that apply.)',
+      choices: [
+        'Eigenvectors keep their direction under A (up to scaling)',
+        'Every matrix has an eigendecomposition into eigenvectors',
+        'SVD applies to non-square matrices',
+        'PCA can use eigendecomposition of a covariance matrix',
+      ],
+      answers: [0, 2, 3],
+      why: 'Not every matrix is diagonalizable / square; SVD handles rectangular A; PCA often eigen-decomposes Cov.',
+    },
+    {
+      type: 'order',
+      prompt: 'Order SVD factors in A = U Σ Vᵀ (top = leftmost).',
+      items: [
+        'Σ — singular-value (rectangular diagonal) matrix',
+        'U — left singular vectors (m × m)',
+        'Vᵀ — transpose of right singular vectors',
+      ],
+      order: [1, 0, 2],
+      why: 'A = U Σ Vᵀ left to right.',
+    },
+    {
+      prompt: 'For interview depth on PCA / regression math, which roles are most likely to push proofs?',
+      choices: [
+        'Only product-management screens',
+        'Research scientist and quant finance',
+        'Only SQL-only analyst roles',
+        'Never — linear algebra is banned',
+      ],
+      answer: 1,
+      why: 'Those loops often expect first-principles derivations.',
+    },
+    {
+      prompt: 'Applying A to an eigenvector yields…',
+      choices: [
+        'an orthogonal vector of unrelated length',
+        'the same direction, scaled by λ',
+        'always the zero vector',
+        'a non-square matrix',
+      ],
+      answer: 1,
+      why: 'That is exactly Ax = λx.',
+    },
+  ]}
+/>
+
+<NumericQuiz id="ds-ml-eigen-compute" title="Compute: eigenvalues" bank="dsMlEigen" rounds={5} />
+
+
+<ExerciseSet>
+  <CodeExercise
+    title="LA1 · Matrix–vector product"
+    heading="ds-ml-code-la1"
+    lang="python"
+    filename="main.py"
+    prompt="Return A @ x as a list of floats rounded to 2 decimals. A is a list of rows; x is a list."
+    sampleLog={`(input) 0
+[3.0, 7.0]`}
+    starter={`def matvec(A, x):
+    # TODO: compute matrix-vector product
+    return [0.0] * len(A)
+`}
+    wrapSuffix={`
+CASES = {
+    "0": {"A": [[1.0, 2.0], [3.0, 4.0]], "x": [1.0, 1.0]},
+    "1": {"A": [[2.0, 0.0, 1.0], [0.0, 3.0, 0.0]], "x": [1.0, 2.0, 3.0]},
+    "2": {"A": [[1.0, -1.0], [0.0, 2.0], [3.0, 0.0]], "x": [2.0, 4.0]},
+    "3": {"A": [[0.0, 0.0], [0.0, 0.0]], "x": [5.0, -3.0]},
+    "4": {"A": [[-1.0, 2.0], [3.0, -4.0]], "x": [-2.0, 1.0]},
+    "5": {"A": [[1.5, 2.5, 0.0]], "x": [2.0, -1.0, 4.0]},
+    "6": {"A": [[1.0], [2.0], [3.0]], "x": [4.0]},
+    "7": {"A": [[0.5, -0.5], [-0.5, 0.5]], "x": [1.0, 1.0]},
+    "8": {"A": [[2.0, 1.0, 0.0], [0.0, 2.0, 1.0], [1.0, 0.0, 2.0]], "x": [1.0, -1.0, 2.0]},
+    "9": {"A": [[10.0, -10.0]], "x": [0.3, 0.2]},
+}
+c = CASES[input().strip()]
+print(matvec(c["A"], c["x"]))
+`}
+    solution={`def matvec(A, x):
+    return [
+        round(sum(A[i][j] * x[j] for j in range(len(x))), 2)
+        for i in range(len(A))
+    ]
+`}
+    tests={[
+      {name: '2x2', stdin: '0', equals: '[3.0, 7.0]'},
+      {name: '2x3', stdin: '1', equals: '[5.0, 6.0]'},
+      {name: '3x2', stdin: '2', equals: '[-2.0, 8.0, 6.0]'},
+      {name: 'zeros', stdin: '3', equals: '[0.0, 0.0]'},
+      {name: 'negatives', stdin: '4', equals: '[4.0, -10.0]'},
+      {name: '1x3', stdin: '5', equals: '[0.5]'},
+      {name: '3x1', stdin: '6', equals: '[4.0, 8.0, 12.0]'},
+      {name: 'cancel', stdin: '7', equals: '[0.0, 0.0]'},
+      {name: '3x3', stdin: '8', equals: '[1.0, 0.0, 5.0]'},
+      {name: 'scale', stdin: '9', equals: '[1.0]'},
+    ]}
+  />
+
+  <CodeExercise
+    title="LA2 · Eigenvalue from Ax = λx"
+    heading="ds-ml-code-la2"
+    lang="python"
+    filename="main.py"
+    prompt="Given square A and eigenvector x (nonzero), return λ rounded to 2 decimals using Ax = λx (use the first nonzero entry of x)."
+    sampleLog={`(input) 0
+2.0`}
+    starter={`def eigenvalue(A, x):
+    # TODO: compute λ such that A x = λ x
+    return 0.0
+`}
+    wrapSuffix={`
+CASES = {
+    "0": {"A": [[2.0, 0.0], [0.0, 3.0]], "x": [1.0, 0.0]},
+    "1": {"A": [[4.0, 0.0], [0.0, 1.0]], "x": [0.0, 1.0]},
+    "2": {"A": [[5.0, 0.0, 0.0], [0.0, 2.0, 0.0], [0.0, 0.0, 2.0]], "x": [0.0, 1.0, 0.0]},
+    "3": {"A": [[-3.0, 0.0], [0.0, 7.0]], "x": [2.0, 0.0]},
+    "4": {"A": [[1.5, 0.0], [0.0, 1.5]], "x": [0.0, 3.0]},
+    "5": {"A": [[0.0, 0.0], [0.0, 0.0]], "x": [1.0, 0.0]},
+    "6": {"A": [[6.0, 0.0, 0.0], [0.0, 6.0, 0.0], [0.0, 0.0, 1.0]], "x": [1.0, 1.0, 0.0]},
+    "7": {"A": [[9.0, 0.0], [0.0, -2.0]], "x": [0.0, -4.0]},
+    "8": {"A": [[0.25, 0.0], [0.0, 4.0]], "x": [8.0, 0.0]},
+    "9": {"A": [[10.0, 0.0, 0.0], [0.0, 10.0, 0.0], [0.0, 0.0, 10.0]], "x": [0.0, 0.0, 1.0]},
+}
+c = CASES[input().strip()]
+print(eigenvalue(c["A"], c["x"]))
+`}
+    solution={`def eigenvalue(A, x):
+    Ax = [sum(A[i][j] * x[j] for j in range(len(x))) for i in range(len(A))]
+    for i, xi in enumerate(x):
+        if abs(xi) > 1e-12:
+            return round(Ax[i] / xi, 2)
+    return 0.0
+`}
+    tests={[
+      {name: 'λ=2 on e1', stdin: '0', equals: '2.0'},
+      {name: 'λ=1 on e2', stdin: '1', equals: '1.0'},
+      {name: '3d', stdin: '2', equals: '2.0'},
+      {name: 'neg λ', stdin: '3', equals: '-3.0'},
+      {name: 'same λ', stdin: '4', equals: '1.5'},
+      {name: 'zero', stdin: '5', equals: '0.0'},
+      {name: 'shared λ', stdin: '6', equals: '6.0'},
+      {name: 'neg vec', stdin: '7', equals: '-2.0'},
+      {name: 'frac', stdin: '8', equals: '0.25'},
+      {name: 'iso', stdin: '9', equals: '10.0'},
+    ]}
+  />
+
+<CodeExercise
+    title="LA3 · Project y onto x"
+    heading="ds-ml-code-la3"
+    lang="python"
+    filename="main.py"
+    prompt="Return the orthogonal projection of y onto x: ((y·x)/(x·x)) x, as floats rounded to 2 decimals."
+    sampleLog={`(input) 0
+[2.0, 0.0]`}
+    starter={`def project(y, x):
+    # TODO: proj_x(y)
+    raise NotImplementedError
+`}
+    wrapSuffix={`
+CASES = {
+    "0": {"y": [2.0, 2.0], "x": [1.0, 0.0]},
+    "1": {"y": [3.0, 3.0], "x": [1.0, 1.0]},
+    "2": {"y": [4.0, 0.0, 0.0], "x": [2.0, 0.0, 0.0]},
+    "3": {"y": [1.0, 0.0], "x": [0.0, 1.0]},
+    "4": {"y": [-2.0, 4.0], "x": [1.0, -1.0]},
+    "5": {"y": [1.0, 2.0, 3.0], "x": [0.0, 0.0, 2.0]},
+    "6": {"y": [5.0, 0.0], "x": [2.0, 0.0]},
+    "7": {"y": [0.0, 0.0, 0.0], "x": [1.0, 2.0, 3.0]},
+    "8": {"y": [2.0, -2.0], "x": [1.0, 1.0]},
+    "9": {"y": [6.0, 3.0, 0.0], "x": [2.0, 1.0, 0.0]},
+}
+c = CASES[input().strip()]
+print(project(c["y"], c["x"]))
+`}
+    solution={`def project(y, x):
+    dot = sum(a * b for a, b in zip(y, x))
+    n2 = sum(a * a for a in x)
+    scale = dot / n2
+    return [round(scale * xi, 2) for xi in x]
+`}
+    tests={[
+      {name: 'onto e1', stdin: '0', equals: '[2.0, 0.0]'},
+      {name: 'onto diagonal', stdin: '1', equals: '[3.0, 3.0]'},
+      {name: '1d axis', stdin: '2', equals: '[4.0, 0.0, 0.0]'},
+      {name: 'orthogonal', stdin: '3', equals: '[0.0, 0.0]'},
+      {name: 'neg', stdin: '4', equals: '[-3.0, 3.0]'},
+      {name: 'e3', stdin: '5', equals: '[0.0, 0.0, 3.0]'},
+      {name: 'scale', stdin: '6', equals: '[5.0, 0.0]'},
+      {name: 'zero y', stdin: '7', equals: '[0.0, 0.0, 0.0]'},
+      {name: 'cancel', stdin: '8', equals: '[0.0, 0.0]'},
+      {name: 'colinear', stdin: '9', equals: '[6.0, 3.0, 0.0]'},
+    ]}
+  />
+</ExerciseSet>
+
+
+## Gradient descent
+
+Training minimizes an **objective** (loss / cost): how badly the model fits the data. Lower is better. **Optimization** methods search for good parameters.
+
+**Gradient descent** repeatedly steps opposite the gradient — the direction of steepest increase — so each step goes “downhill”:
+
+$$
+x_{t+1} = x_t - \alpha\, \nabla f(x_t)
+$$
+
+Here $\alpha > 0$ is the **learning rate**. For convex losses, iterating until successive $x$ values barely change means **convergence** near a minimum.
+
+Many losses are sums over examples, so the full gradient is a sum of per-example gradients. Computing that every step is expensive, and non-convex landscapes have local minima and saddles. Variants:
+
+| Method | Data per step | Notes |
+| --- | --- | --- |
+| Batch GD | Full training set | Stable gradient; costly |
+| Stochastic GD (SGD) | One example (classic) | Noisy; escapes flats; unbiased gradient estimate |
+| Mini-batch GD | Small fixed batch | Common practical middle ground |
+
+Play with a 1-D bowl (landscape + iteration path) — same FormulaExplorer pattern as in [Statistics](./lesson-6-statistics):
+
+<FormulaExplorer preset="mlGradLandscape" />
+
+<FormulaExplorer preset="mlGradPath" />
+
+Interviews like GD/SGD because almost every modern trainer uses them. Expect “when would you use which?” and occasionally a tiny SGD coding sketch.
+
+<MultipleChoice
+  id="ds-ml-gd"
+  title="Gradient descent"
+  questions={[
+    {
+      prompt: 'The learning rate α in x ← x − α ∇f(x) controls…',
+      choices: [
+        'the train/test split ratio',
+        'how large each downhill step is',
+        'the number of principal components',
+        'L1 vs L2 only',
+      ],
+      answer: 1,
+      why: 'α scales the gradient step.',
+    },
+    {
+      type: 'order',
+      prompt: 'Order one gradient-descent iteration (top = first).',
+      items: [
+        'Update parameters: x ← x − α ∇f(x)',
+        'Evaluate the gradient ∇f at the current x',
+        'Pick (or keep) a learning rate α',
+      ],
+      order: [2, 1, 0],
+      why: 'Need α and ∇f before applying the update.',
+    },
+    {
+      type: 'multi',
+      prompt: 'Which are reasons people use SGD / mini-batch instead of full-batch GD? (Select all that apply.)',
+      choices: [
+        'Full gradients can be expensive on large data',
+        'Noise can help escape bad critical points',
+        'SGD always finds the global minimum of every non-convex loss',
+        'Mini-batches still estimate the true gradient',
+      ],
+      answers: [0, 1, 3],
+      why: 'Cost and escape behavior matter; global optimality is not guaranteed.',
+    },
+    {
+      prompt: 'Classic SGD uses how many examples per parameter update?',
+      choices: ['The entire dataset', 'One example', 'Always exactly √n', 'Only unlabeled rows'],
+      answer: 1,
+      why: 'Stochastic = one (or a tiny random subset) per step.',
+    },
+    {
+      prompt: 'We subtract α ∇f (not add) because…',
+      choices: [
+        'gradients always point downhill already',
+        '∇f points toward increase of f; we want descent',
+        'α must be negative',
+        'SVD requires it',
+      ],
+      answer: 1,
+      why: 'Negative gradient direction is steepest descent.',
+    },
+  ]}
+/>
+
+<NumericQuiz id="ds-ml-grad-compute" title="Compute: GD updates" bank="dsMlGrad" rounds={5} />
+
+
+<ExerciseSet>
+  <CodeExercise
+    title="GD1 · One update step"
+    heading="ds-ml-code-gd1"
+    lang="python"
+    filename="main.py"
+    prompt="Return x − α·g rounded to 2 decimals (one gradient-descent step)."
+    sampleLog={`(input) 0
+4.6`}
+    starter={`def gd_step(x, grad, alpha):
+    # TODO: x <- x - alpha * grad
+    return 0.0
+`}
+    wrapSuffix={`
+CASES = {
+    "0": {"x": 5.0, "g": 4.0, "a": 0.1},
+    "1": {"x": 2.0, "g": -2.0, "a": 0.5},
+    "2": {"x": 10.0, "g": 20.0, "a": 0.05},
+    "3": {"x": 0.0, "g": 0.0, "a": 1.0},
+    "4": {"x": -1.0, "g": 2.0, "a": 0.25},
+    "5": {"x": 100.0, "g": 1.0, "a": 0.01},
+    "6": {"x": 3.5, "g": -1.0, "a": 0.1},
+    "7": {"x": 1.0, "g": 10.0, "a": 0.2},
+    "8": {"x": -5.0, "g": -5.0, "a": 0.5},
+    "9": {"x": 7.0, "g": 3.0, "a": 1.0},
+}
+c = CASES[input().strip()]
+print(gd_step(c["x"], c["g"], c["a"]))
+`}
+    solution={`def gd_step(x, grad, alpha):
+    return round(x - alpha * grad, 2)
+`}
+    tests={[
+      {name: 'downhill', stdin: '0', equals: '4.6'},
+      {name: 'negative grad', stdin: '1', equals: '3.0'},
+      {name: 'small α', stdin: '2', equals: '9.0'},
+      {name: 'zero', stdin: '3', equals: '0.0'},
+      {name: 'neg x', stdin: '4', equals: '-1.5'},
+      {name: 'tiny step', stdin: '5', equals: '99.99'},
+      {name: 'uphill', stdin: '6', equals: '3.6'},
+      {name: 'big grad', stdin: '7', equals: '-1.0'},
+      {name: 'both neg', stdin: '8', equals: '-2.5'},
+      {name: 'α=1', stdin: '9', equals: '4.0'},
+    ]}
+  />
+  <CodeExercise
+    title="GD2 · Minimize ½(x−3)²"
+    heading="ds-ml-code-gd2"
+    lang="python"
+    filename="main.py"
+    prompt="Gradient of f(x)=½(x−3)² is (x−3). Start at x0, take `steps` updates with learning rate alpha. Return final x rounded to 2 decimals."
+    sampleLog={`(input) 0
+2.81`}
+    starter={`def gd_quadratic(x0, alpha, steps):
+    # TODO: run GD; grad = x - 3
+    return 0.0
+`}
+    wrapSuffix={`
+CASES = {
+    "0": {"x0": 0.0, "a": 0.5, "steps": 4},
+    "1": {"x0": 10.0, "a": 0.25, "steps": 3},
+    "2": {"x0": 3.0, "a": 0.1, "steps": 5},
+    "3": {"x0": 0.0, "a": 1.0, "steps": 1},
+    "4": {"x0": 6.0, "a": 0.5, "steps": 2},
+    "5": {"x0": -3.0, "a": 0.2, "steps": 5},
+    "6": {"x0": 3.0, "a": 0.9, "steps": 0},
+    "7": {"x0": 1.0, "a": 0.1, "steps": 10},
+    "8": {"x0": 8.0, "a": 0.05, "steps": 20},
+    "9": {"x0": 2.5, "a": 0.75, "steps": 3},
+}
+c = CASES[input().strip()]
+print(gd_quadratic(c["x0"], c["a"], c["steps"]))
+`}
+    solution={`def gd_quadratic(x0, alpha, steps):
+    x = x0
+    for _ in range(steps):
+        grad = x - 3.0
+        x = x - alpha * grad
+    return round(x, 2)
+`}
+    tests={[
+      {name: 'from 0', stdin: '0', equals: '2.81'},
+      {name: 'from 10', stdin: '1', equals: '5.95'},
+      {name: 'already at min', stdin: '2', equals: '3.0'},
+      {name: 'α=1 one step', stdin: '3', equals: '3.0'},
+      {name: 'from 6', stdin: '4', equals: '3.75'},
+      {name: 'from -3', stdin: '5', equals: '1.03'},
+      {name: '0 steps', stdin: '6', equals: '3.0'},
+      {name: 'slow', stdin: '7', equals: '2.3'},
+      {name: 'many small', stdin: '8', equals: '4.79'},
+      {name: 'fast', stdin: '9', equals: '2.99'},
+    ]}
+  />
+  <CodeExercise
+    title="GD3 · Fit scalar w with batch GD"
+    heading="ds-ml-code-gd3"
+    lang="python"
+    filename="main.py"
+    prompt="Model ŷ=w·x (no intercept). Minimize MSE with batch GD: grad = (2/n)∑(w·xᵢ − yᵢ)·xᵢ. Return w after `steps`, rounded to 2 decimals."
+    sampleLog={`(input) 0
+2.0`}
+    starter={`def gd_scalar_regression(xs, ys, w0, alpha, steps):
+    # TODO: batch GD on MSE for ŷ = w x
+    return 0.0
+`}
+    wrapSuffix={`
+CASES = {
+    "0": {"xs": [1.0, 2.0, 3.0], "ys": [2.0, 4.0, 6.0], "w0": 0.0, "a": 0.1, "steps": 20},
+    "1": {"xs": [1.0, 2.0], "ys": [1.0, 2.0], "w0": 0.0, "a": 0.2, "steps": 15},
+    "2": {"xs": [2.0, 2.0, 2.0], "ys": [4.0, 4.0, 4.0], "w0": 0.0, "a": 0.05, "steps": 30},
+    "3": {"xs": [1.0, 1.0, 1.0], "ys": [0.0, 0.0, 0.0], "w0": 5.0, "a": 0.1, "steps": 25},
+    "4": {"xs": [-1.0, -2.0], "ys": [2.0, 4.0], "w0": 0.0, "a": 0.15, "steps": 25},
+    "5": {"xs": [0.5, 1.0, 1.5], "ys": [1.0, 2.0, 3.0], "w0": 0.0, "a": 0.3, "steps": 20},
+    "6": {"xs": [1.0, 2.0, 3.0, 4.0], "ys": [0.5, 1.0, 1.5, 2.0], "w0": 1.0, "a": 0.05, "steps": 40},
+    "7": {"xs": [3.0], "ys": [9.0], "w0": 0.0, "a": 0.05, "steps": 50},
+    "8": {"xs": [1.0, 2.0], "ys": [-1.0, -2.0], "w0": 0.0, "a": 0.2, "steps": 15},
+    "9": {"xs": [1.0, 3.0, 5.0], "ys": [2.0, 6.0, 10.0], "w0": 0.5, "a": 0.02, "steps": 60},
+}
+c = CASES[input().strip()]
+print(gd_scalar_regression(c["xs"], c["ys"], c["w0"], c["a"], c["steps"]))
+`}
+    solution={`def gd_scalar_regression(xs, ys, w0, alpha, steps):
+    w = w0
+    n = len(xs)
+    for _ in range(steps):
+        grad = (2.0 / n) * sum((w * x - y) * x for x, y in zip(xs, ys))
+        w = w - alpha * grad
+    return round(w, 2)
+`}
+    tests={[
+      {name: 'w→2', stdin: '0', equals: '2.0'},
+      {name: 'w→1', stdin: '1', equals: '1.0'},
+      {name: 'w→2 constant x', stdin: '2', equals: '2.0'},
+      {name: 'w→0', stdin: '3', equals: '0.02'},
+      {name: 'neg x', stdin: '4', equals: '-2.0'},
+      {name: 'w→2 half', stdin: '5', equals: '2.0'},
+      {name: 'w→0.5', stdin: '6', equals: '0.5'},
+      {name: 'single', stdin: '7', equals: '3.0'},
+      {name: 'w→-1', stdin: '8', equals: '-1.0'},
+      {name: 'w→2 odd', stdin: '9', equals: '2.0'},
+    ]}
+  />
+</ExerciseSet>
+
+
+## Model evaluation and selection
+
+**Evaluation:** after fitting on a **train** set, score the model on held-out **test** data. A common split is roughly 80% train / 20% test. Generalization — performance on unseen data — is what matters.
+
+**Selection:** after evaluating candidates, pick the model to ship, under product and business constraints. Tiny metric lifts can be huge in production (e.g. ad CTR), so interview case studies often turn into “compare models and choose.”
+
+When data is scarce, a single 80/20 cut is noisy — that is where **cross-validation** (next section) earns its keep. Until then, treat “held-out performance” as the north star.
+
+<MultipleChoice
+  id="ds-ml-eval"
+  title="Evaluation & selection"
+  questions={[
+    {
+      prompt: 'Why hold out a test set?',
+      choices: [
+        'To make training slower on purpose',
+        'To estimate performance on data the model did not train on',
+        'To guarantee zero training loss',
+        'To replace regularization',
+      ],
+      answer: 1,
+      why: 'Unseen data is the point of generalization.',
+    },
+    {
+      type: 'order',
+      prompt: 'Order a typical train → evaluate → select loop (top = first).',
+      items: [
+        'Select the model that best fits product / metric goals',
+        'Train candidate models on the training split',
+        'Evaluate each candidate on held-out data',
+      ],
+      order: [1, 2, 0],
+      why: 'Fit → score → choose.',
+    },
+    {
+      type: 'multi',
+      prompt: 'Which belong in a solid evaluation story? (Select all that apply.)',
+      choices: [
+        'Separate train and test (or CV folds)',
+        'Judge usefulness by unseen-data performance',
+        'Tune hyperparameters on the final test set repeatedly',
+        'Factor business constraints into selection',
+      ],
+      answers: [0, 1, 3],
+      why: 'Repeated test-set tuning leaks; CV / validation splits exist for a reason.',
+    },
+    {
+      prompt: 'Model selection is…',
+      choices: [
+        'only about picking the learning rate',
+        'choosing which evaluated model to implement',
+        'deleting the test set',
+        'the same as computing SVD',
+      ],
+      answer: 1,
+      why: 'Selection follows evaluation.',
+    },
+  ]}
+/>
+
+<NumericQuiz id="ds-ml-split-compute" title="Compute: train/test sizes" bank="dsMlSplit" rounds={5} />
+
+## Bias–variance trade-off
+
+We try to learn a function $f(x)$ that predicts $y$ from $x$:
+
+$$
+y = f(x) + \varepsilon
+$$
+
+with noise $\varepsilon$ (often modeled as zero-mean Gaussian in regression). Prediction error decomposes into:
+
+1. **Bias** — how far average predictions sit from the true $f$ (lower is better)
+2. **Variance** — how much predictions swing when the training set changes (lower is better)
+3. **Irreducible error** — noise you cannot remove
+
+**High bias / low variance** (e.g. a too-simple linear model): systematically off, but stable.  
+**Low bias / high variance** (e.g. an over-flexible net): can track $f$ closely but thrash with different samples.
+
+Interviews rarely demand the full algebra; they want situational reasoning: more data / regularization for high variance; richer features / more flexible models for high bias — always tied to product needs.
+
+<FormulaExplorer preset="mlBiasVariance" />
+
+<MultipleChoice
+  id="ds-ml-bias-var"
+  title="Bias–variance"
+  questions={[
+    {
+      prompt: 'High bias usually means the model…',
+      choices: [
+        'fits noise and jumps a lot across train sets',
+        'is too simple / underfits the true pattern',
+        'has zero irreducible error',
+        'cannot use a test set',
+      ],
+      answer: 1,
+      why: 'Bias = systematic miss of f(x).',
+    },
+    {
+      type: 'multi',
+      prompt: 'Which moves often help high variance? (Select all that apply.)',
+      choices: [
+        'Collect more training data',
+        'Add regularization / simplify the model',
+        'Always remove the train/test split',
+        'Reduce model complexity',
+      ],
+      answers: [0, 1, 3],
+      why: 'More data and less complexity stabilize predictions.',
+    },
+    {
+      type: 'order',
+      prompt: 'Order error pieces from “fixable by a perfect f” to “cannot remove” (top = first).',
+      items: [
+        'Irreducible noise ε',
+        'Bias and variance of the learned model',
+      ],
+      order: [1, 0],
+      why: 'You can trade bias/variance; irreducible noise remains.',
+    },
+    {
+      prompt: 'A deep net that memorizes tiny train sets but flails on new houses is classic…',
+      choices: ['high bias', 'high variance', 'irreducible error only', 'perfect calibration'],
+      answer: 1,
+      why: 'Sensitive to the particular training sample → variance.',
+    },
+    {
+      prompt: 'For high bias, a sensible interview answer often includes…',
+      choices: [
+        'delete half the features at random only',
+        'increase model capacity / add better features',
+        'always switch to a constant predictor',
+        'ignore the metric',
+      ],
+      answer: 1,
+      why: 'Need a richer hypothesis class or signal.',
+    },
+  ]}
+/>
+
+## Overfitting, underfitting, and complexity
+
+George Box: “All models are wrong, but some are useful.” We want models that **generalize**. Occam’s razor in ML: simpler, more parsimonious models often travel better out of sample.
+
+**Overfitting:** train fit looks great because the model absorbed noise; test performance suffers.  
+**Underfitting:** the model never captured the real structure (often high bias).
+
+Interviewers ask how you **detect** overfitting (train≪test gap, CV scores, **learning curves**) and how you **fight** it — which leads to regularization.
+
+<MultipleChoice
+  id="ds-ml-overfit"
+  title="Overfitting & complexity"
+  questions={[
+    {
+      prompt: 'Overfitting means the model…',
+      choices: [
+        'ignores the training data entirely',
+        'fits training noise and generalizes poorly',
+        'always has higher bias than variance',
+        'cannot use gradient descent',
+      ],
+      answer: 1,
+      why: 'Memorizing noise hurts unseen data.',
+    },
+    {
+      type: 'order',
+      prompt: 'Order models from typically underfit → overfit risk (top = first), all else equal.',
+      items: [
+        'Very deep net trained to near-zero train loss on a tiny set',
+        'Simple linear regression with few features',
+        'Moderately regularized model with enough capacity',
+      ],
+      order: [1, 2, 0],
+      why: 'Too simple → balanced → too flexible on little data.',
+    },
+    {
+      type: 'multi',
+      prompt: 'Signs / antidotes for overfitting? (Select all that apply.)',
+      choices: [
+        'Large gap: great train metric, weak test metric',
+        'Regularization, more data, simpler model',
+        'Always add every available feature with no penalty',
+        'Cross-validation to estimate generalization',
+      ],
+      answers: [0, 1, 3],
+      why: 'Detect with held-out metrics; fix with data / capacity / penalties.',
+    },
+    {
+      prompt: 'Underfitting is closest to…',
+      choices: [
+        'high variance only',
+        'failing to learn enough of the true relationship',
+        'irreducible error being zero',
+        'perfect SHAP plots',
+      ],
+      answer: 1,
+      why: 'Underfit ≈ too little signal captured.',
+    },
+  ]}
+/>
+
+## Regularization
+
+Regularization shrinks effective complexity: usually **lower variance**, slight **higher bias**. Penalties added to the objective are also called **shrinkage** methods.
+
+| Method | Penalty idea | Typical effect |
+| --- | --- | --- |
+| **L1 (lasso)** | $\lambda \sum \|w_i\|$ | Many weights → exactly 0 (sparse / feature selection) |
+| **L2 (ridge)** | $\lambda \sum w_i^2$ | Shrinks weights; rarely exact zeros |
+| **Elastic net** | Mix of L1 + L2 | Sparse + grouped-shrinkage blend |
+
+Use L1 when you want sparsity; L2 when you want smooth shrinkage of correlated features; elastic net when you want both flavors.
+
+<FormulaExplorer preset="mlRidgeShrink" />
+
+<FormulaExplorer preset="mlSoftThreshold" />
+
+<MultipleChoice
+  id="ds-ml-reg"
+  title="Regularization"
+  questions={[
+    {
+      prompt: 'Relative to bias–variance, regularization usually…',
+      choices: [
+        'raises variance a lot and kills bias',
+        'cuts variance while only mildly raising bias',
+        'removes irreducible error',
+        'replaces the need for a test set',
+      ],
+      answer: 1,
+      why: 'Shrinkage trades a little bias for stability.',
+    },
+    {
+      type: 'multi',
+      prompt: 'Which are true? (Select all that apply.)',
+      choices: [
+        'L1 can zero out coefficients (feature selection)',
+        'L2 squares coefficients in the penalty',
+        'Elastic net combines L1 and L2',
+        'L2 always produces sparser models than L1',
+      ],
+      answers: [0, 1, 2],
+      why: 'L1 is the stricter sparsity prior; L2 rarely hits exact zero.',
+    },
+    {
+      type: 'order',
+      prompt: 'Order these from “most aggressive at zeroing weights” to “smoothest shrink” (top = first).',
+      items: [
+        'L2 ridge',
+        'L1 lasso',
+      ],
+      order: [1, 0],
+      why: 'Lasso sparsifies; ridge shrinks smoothly.',
+    },
+    {
+      prompt: 'You need a sparse linear model for interpretability. Strongest default among L1 / L2?',
+      choices: ['L2 only', 'L1 (lasso)', 'Neither ever works', 'Always SVD alone'],
+      answer: 1,
+      why: 'L1 drives many coefficients to zero.',
+    },
+    {
+      prompt: 'Elastic net is…',
+      choices: [
+        'PCA under another name',
+        'a linear mix of L1 and L2 penalties',
+        'only used for k-means',
+        'a type of learning-rate schedule',
+      ],
+      answer: 1,
+      why: 'L1 + L2 in one objective.',
+    },
+  ]}
+/>
+
+<NumericQuiz id="ds-ml-reg-compute" title="Compute: L1 / L2 penalties" bank="dsMlReg" rounds={5} />
+
+### Practice: ridge, lasso, elastic net
+
+Pure Python / NumPy (no sklearn) — easy → hard.
+
+<ExerciseSet>
+  <CodeExercise
+    title="REG1 · L1 and L2 penalties"
+    heading="ds-ml-code-reg1"
+    lang="python"
+    filename="main.py"
+    prompt="Return (L1_penalty, L2_penalty) = (λ∑|wᵢ|, λ∑wᵢ²), each rounded to 2 decimals."
+    sampleLog={`(input) 0
+(2.5, 4.5)`}
+    starter={`def penalties(w, lam):
+    # TODO: return (λ∑|w|, λ∑w²) rounded to 2 decimals
+    return (0.0, 0.0)
+`}
+    wrapSuffix={`
+CASES = {
+    "0": {"w": [1.0, -2.0, 2.0], "lam": 0.5},
+    "1": {"w": [3.0, 0.0, -1.0], "lam": 2.0},
+    "2": {"w": [0.0, 0.0], "lam": 1.0},
+    "3": {"w": [1.0], "lam": 1.0},
+    "4": {"w": [-4.0, 4.0], "lam": 0.25},
+    "5": {"w": [0.5, -0.5, 0.5], "lam": 4.0},
+    "6": {"w": [10.0, -10.0, 0.0], "lam": 0.1},
+    "7": {"w": [1.0, 1.0, 1.0, 1.0], "lam": 0.5},
+    "8": {"w": [-1.5], "lam": 2.0},
+    "9": {"w": [2.0, -3.0, 1.0, 0.0], "lam": 1.0},
+}
+c = CASES[input().strip()]
+print(penalties(c["w"], c["lam"]))
+`}
+    solution={`def penalties(w, lam):
+    l1 = lam * sum(abs(v) for v in w)
+    l2 = lam * sum(v * v for v in w)
+    return (round(l1, 2), round(l2, 2))
+`}
+    tests={[
+      {name: 'mixed signs', stdin: '0', equals: '(2.5, 4.5)'},
+      {name: 'with zero', stdin: '1', equals: '(8.0, 20.0)'},
+      {name: 'all zero', stdin: '2', equals: '(0.0, 0.0)'},
+      {name: 'single', stdin: '3', equals: '(1.0, 1.0)'},
+      {name: 'symmetric', stdin: '4', equals: '(2.0, 8.0)'},
+      {name: 'small w', stdin: '5', equals: '(6.0, 3.0)'},
+      {name: 'large', stdin: '6', equals: '(2.0, 20.0)'},
+      {name: 'four', stdin: '7', equals: '(2.0, 2.0)'},
+      {name: 'neg single', stdin: '8', equals: '(3.0, 4.5)'},
+      {name: 'four mixed', stdin: '9', equals: '(6.0, 14.0)'},
+    ]}
+  />
+  <CodeExercise
+    title="REG2 · Soft-threshold (lasso prox)"
+    heading="ds-ml-code-reg2"
+    lang="python"
+    filename="main.py"
+    prompt="Soft-threshold each entry: sign(v)·max(|v|−t, 0). Return list rounded to 2 decimals (this is the Lasso proximal / ISTA update piece)."
+    sampleLog={`(input) 0
+[0.7, 0.0, -1.5, 0.0]`}
+    starter={`def soft_threshold(w, t):
+    # TODO: elementwise soft-threshold
+    raise NotImplementedError
+`}
+    wrapSuffix={`
+CASES = {
+    "0": {"w": [1.2, -0.3, -2.0, 0.4], "t": 0.5},
+    "1": {"w": [0.2, -0.2, 0.9], "t": 0.25},
+    "2": {"w": [5.0, -5.0], "t": 1.0},
+    "3": {"w": [0.1, -0.1, 0.0], "t": 0.5},
+    "4": {"w": [1.0, -1.0], "t": 1.0},
+    "5": {"w": [3.0, 0.0, -0.4], "t": 0.5},
+    "6": {"w": [-0.8, 0.8], "t": 0.3},
+    "7": {"w": [2.5], "t": 0.0},
+    "8": {"w": [0.0, 0.0, 0.0], "t": 1.0},
+    "9": {"w": [10.0, -0.05, 0.05, -10.0], "t": 0.1},
+}
+c = CASES[input().strip()]
+print(soft_threshold(c["w"], c["t"]))
+`}
+    solution={`def soft_threshold(w, t):
+    out = []
+    for v in w:
+        if v > t:
+            out.append(round(v - t, 2))
+        elif v < -t:
+            out.append(round(v + t, 2))
+        else:
+            out.append(0.0)
+    return out
+`}
+    tests={[
+      {name: 'mixed', stdin: '0', equals: '[0.7, 0.0, -1.5, 0.0]'},
+      {name: 'small t', stdin: '1', equals: '[0.0, 0.0, 0.65]'},
+      {name: 'large', stdin: '2', equals: '[4.0, -4.0]'},
+      {name: 'all zeroed', stdin: '3', equals: '[0.0, 0.0, 0.0]'},
+      {name: 'boundary', stdin: '4', equals: '[0.0, 0.0]'},
+      {name: 'partial', stdin: '5', equals: '[2.5, 0.0, 0.0]'},
+      {name: 'pair', stdin: '6', equals: '[-0.5, 0.5]'},
+      {name: 't=0', stdin: '7', equals: '[2.5]'},
+      {name: 'zeros', stdin: '8', equals: '[0.0, 0.0, 0.0]'},
+      {name: 'asymmetric', stdin: '9', equals: '[9.9, 0.0, 0.0, -9.9]'},
+    ]}
+  />
+  <CodeExercise
+    title="REG3 · Ridge closed form"
+    heading="ds-ml-code-reg3"
+    lang="python"
+    filename="main.py"
+    prompt="No intercept. Return β̂ = (XᵀX + λI)⁻¹ Xᵀy with numpy, as a list of floats rounded to 2 decimals."
+    sampleLog={`(input) 0
+[2.0]`}
+    starter={`import numpy as np
+
+def ridge_beta(X, y, lam):
+    # TODO: solve (XᵀX + λI) β = Xᵀy
+    return [0.0]
+`}
+    wrapSuffix={`
+CASES = {
+    "0": {"X": [[1.0], [2.0], [3.0], [4.0]], "y": [2.0, 4.0, 6.0, 8.0], "lam": 0.0},
+    "1": {"X": [[1.0], [2.0], [3.0], [4.0]], "y": [2.0, 4.0, 6.0, 8.0], "lam": 10.0},
+    "2": {"X": [[1.0, 0.0], [2.0, 1.0], [3.0, 1.0], [4.0, 2.0]], "y": [2.0, 5.0, 6.0, 9.0], "lam": 1.0},
+    "3": {"X": [[1.0], [2.0], [3.0]], "y": [1.0, 2.0, 3.0], "lam": 0.0},
+    "4": {"X": [[1.0], [2.0], [3.0]], "y": [1.0, 2.0, 3.0], "lam": 5.0},
+    "5": {"X": [[1.0, 1.0], [2.0, 0.0], [0.0, 2.0], [1.0, 2.0]], "y": [3.0, 2.0, 4.0, 5.0], "lam": 0.5},
+    "6": {"X": [[-1.0], [0.0], [1.0], [2.0]], "y": [1.0, 0.0, -1.0, -2.0], "lam": 1.0},
+    "7": {"X": [[2.0], [2.0], [2.0], [2.0]], "y": [4.0, 4.0, 4.0, 4.0], "lam": 2.0},
+    "8": {"X": [[1.0, 0.0, 0.0], [0.0, 1.0, 0.0], [0.0, 0.0, 1.0], [1.0, 1.0, 1.0]], "y": [1.0, 2.0, 3.0, 6.0], "lam": 0.1},
+    "9": {"X": [[1.0, 2.0], [2.0, 1.0], [3.0, 3.0], [4.0, 2.0]], "y": [5.0, 4.0, 9.0, 8.0], "lam": 3.0},
+}
+c = CASES[input().strip()]
+print(ridge_beta(c["X"], c["y"], c["lam"]))
+`}
+    solution={`import numpy as np
+
+def ridge_beta(X, y, lam):
+    X = np.asarray(X, dtype=float)
+    y = np.asarray(y, dtype=float)
+    p = X.shape[1]
+    beta = np.linalg.solve(X.T @ X + lam * np.eye(p), X.T @ y)
+    return [round(float(v), 2) for v in beta]
+`}
+    sourceChecks={[
+      {name: 'Uses numpy', pattern: 'numpy|np\\.', must: true, hint: 'import numpy as np'},
+      {name: 'No sklearn', pattern: 'sklearn|Ridge\\(', must: false, hint: 'closed form with numpy'},
+    ]}
+    tests={[
+      {name: 'λ=0 → OLS', stdin: '0', equals: '[2.0]'},
+      {name: 'λ=10 shrinks', stdin: '1', equals: '[1.5]'},
+      {name: '2 features', stdin: '2', equals: '[1.77, 0.85]'},
+      {name: 'unit slope', stdin: '3', equals: '[1.0]'},
+      {name: 'shrink unit', stdin: '4', equals: '[0.74]'},
+      {name: '2f lam0.5', stdin: '5', equals: '[0.97, 1.91]'},
+      {name: 'neg slope', stdin: '6', equals: '[-0.86]'},
+      {name: 'const x', stdin: '7', equals: '[1.78]'},
+      {name: '3f ridge', stdin: '8', equals: '[1.04, 1.95, 2.86]'},
+      {name: '2f lam3', stdin: '9', equals: '[1.25, 1.46]'},
+    ]}
+  />
+  <CodeExercise
+    title="REG4 · Elastic-net penalty"
+    heading="ds-ml-code-reg4"
+    lang="python"
+    filename="main.py"
+    prompt="Return λ(α∑|wᵢ| + ((1−α)/2)∑wᵢ²) rounded to 2 decimals. α=1 is lasso-like; α=0 is ridge-like (½‖w‖²)."
+    sampleLog={`(input) 0
+4.75`}
+    starter={`def elastic_net_penalty(w, lam, alpha):
+    # TODO: λ ( α‖w‖₁ + ((1-α)/2)‖w‖₂² )
+    return 0.0
+`}
+    wrapSuffix={`
+CASES = {
+    "0": {"w": [1.0, -2.0, 2.0], "lam": 1.0, "alpha": 0.5},
+    "1": {"w": [2.0, 0.0, -1.0], "lam": 2.0, "alpha": 0.0},
+    "2": {"w": [2.0, 0.0, -1.0], "lam": 2.0, "alpha": 1.0},
+    "3": {"w": [0.0, 0.0], "lam": 5.0, "alpha": 0.5},
+    "4": {"w": [1.0, 1.0], "lam": 1.0, "alpha": 0.25},
+    "5": {"w": [-3.0], "lam": 0.5, "alpha": 0.8},
+    "6": {"w": [4.0, -1.0, 0.0], "lam": 1.0, "alpha": 0.0},
+    "7": {"w": [1.0, -1.0, 1.0, -1.0], "lam": 2.0, "alpha": 0.5},
+    "8": {"w": [0.5, -0.5], "lam": 4.0, "alpha": 1.0},
+    "9": {"w": [2.0, 2.0, 2.0], "lam": 0.5, "alpha": 0.2},
+}
+c = CASES[input().strip()]
+print(elastic_net_penalty(c["w"], c["lam"], c["alpha"]))
+`}
+    solution={`def elastic_net_penalty(w, lam, alpha):
+    l1 = sum(abs(v) for v in w)
+    l2 = sum(v * v for v in w)
+    return round(lam * (alpha * l1 + (1.0 - alpha) / 2.0 * l2), 2)
+`}
+    tests={[
+      {name: 'mix α=0.5', stdin: '0', equals: '4.75'},
+      {name: 'ridge-like α=0', stdin: '1', equals: '5.0'},
+      {name: 'lasso-like α=1', stdin: '2', equals: '6.0'},
+      {name: 'zeros', stdin: '3', equals: '0.0'},
+      {name: 'α=0.25', stdin: '4', equals: '1.25'},
+      {name: 'single', stdin: '5', equals: '1.65'},
+      {name: 'ridge only', stdin: '6', equals: '8.5'},
+      {name: 'four', stdin: '7', equals: '6.0'},
+      {name: 'lasso small', stdin: '8', equals: '4.0'},
+      {name: 'α=0.2', stdin: '9', equals: '3.0'},
+    ]}
+  />
+</ExerciseSet>
+
+
+## Interpretability and explainability
+
+Kaggle may optimize a single metric. Production often also needs **why** — loan denials, clinical decisions, bias audits, compliance. More complex models can raise accuracy while lowering interpretability.
+
+Built-in hooks:
+
+- **Linear models** — coefficients
+- **Random forests** — feature-importance scores
+
+Model-agnostic tools:
+
+- **SHAP** — Shapley-style average marginal contribution of a feature across coalitions
+- **LIME** — local sparse linear surrogate around one prediction
+
+You rarely derive SHAP in an interview; bringing up the **performance ↔ interpretability** trade-off in case questions is the win.
+
+<MultipleChoice
+  id="ds-ml-interpret"
+  title="Interpretability"
+  questions={[
+    {
+      prompt: 'Why might a bank care about interpretability beyond AUC?',
+      choices: [
+        'Only to make training faster',
+        'Explain decisions, audit bias, meet compliance',
+        'Because SHAP replaces all metrics',
+        'Because test sets are illegal',
+      ],
+      answer: 1,
+      why: 'Stakeholders need reasons and audits.',
+    },
+    {
+      type: 'multi',
+      prompt: 'Which help explain models? (Select all that apply.)',
+      choices: [
+        'Linear coefficients',
+        'Tree feature importances',
+        'SHAP values',
+        'Deleting the validation set',
+      ],
+      answers: [0, 1, 2],
+      why: 'Those are standard explanation surfaces.',
+    },
+    {
+      type: 'order',
+      prompt: 'Order from usually easiest to explain → hardest (top = first), all else equal.',
+      items: [
+        'Large deep ensemble / deep net',
+        'Sparse linear model',
+        'Single shallow decision tree',
+      ],
+      order: [1, 2, 0],
+      why: 'Sparse linear → shallow tree → deep black box.',
+    },
+    {
+      prompt: 'LIME explains a prediction by…',
+      choices: [
+        'retraining the global model from scratch only',
+        'fitting a sparse local linear model near that point',
+        'computing SVD of the test set',
+        'removing the learning rate',
+      ],
+      answer: 1,
+      why: 'Local surrogate around the instance.',
+    },
+    {
+      prompt: 'SHAP values are meant to capture…',
+      choices: [
+        'only the learning rate',
+        'a feature’s average marginal contribution across coalitions',
+        'train/test split sizes',
+        'irreducible error alone',
+      ],
+      answer: 1,
+      why: 'Shapley-style credit assignment.',
+    },
+  ]}
+/>
+
+## Model training
+
+Evaluation tells you *which* model won. **Training** is how you teach candidates in the first place. The 80/20 split is only the start: cross-validation, resampling, hyperparameter search, and learning curves decide whether that win was luck or signal.
+
+### Cross-validation
+
+**Cross-validation (CV)** estimates performance by rotating which slice of the training data is held out. For each subsample you train on most of the data, score on the left-out block, then combine the scores. That avoids “always testing the same lucky 20%” and is especially valuable when more labeled data is expensive.
+
+**$k$-fold CV** (classic interview ask):
+
+1. Shuffle into $k$ equal folds.
+2. For each fold $i$: train on all folds except $i$; validate on fold $i$.
+3. Average the $k$ validation errors → estimate of true error.
+
+**Leave-one-out CV (LOOCV)** is $k$-fold with $k = n$ (one point held out each round). Thorough, but $n$ full retrainings — painful on large $n$.
+
+On **big** datasets, full CV can be too expensive. Prefer a three-way split: **train / validation (dev) / test**, with the val set often ~10–20%. Use val for model / hyperparameter choices; keep test sealed for a final report.
+
+**Time series:** do **not** shuffle into random $k$-folds — that leaks the future into the past. Train only on history up to a cutoff, validate the next window, then slide / expand the cutoff forward.
+
+<MlCrossValidationSimulator />
+
+<MultipleChoice
+  id="ds-ml-cv"
+  title="Cross-validation"
+  questions={[
+    {
+      prompt: 'k-fold CV mainly helps you…',
+      choices: [
+        'avoid ever using a test set',
+        'get a stabler estimate of generalization by rotating held-out blocks',
+        'guarantee a global optimum of every loss',
+        'replace feature engineering',
+      ],
+      answer: 1,
+      why: 'Every point validates once across folds; you average those scores.',
+    },
+    {
+      type: 'order',
+      prompt: 'Order the k-fold procedure (top = first).',
+      items: [
+        'Average the k validation errors',
+        'For each fold i: train on the rest, score on fold i',
+        'Shuffle into k equal folds',
+      ],
+      order: [2, 1, 0],
+      why: 'Partition → rotate train/val → average.',
+    },
+    {
+      type: 'multi',
+      prompt: 'Which are true? (Select all that apply.)',
+      choices: [
+        'LOOCV sets k = n',
+        'Random k-fold is fine for chronological time series',
+        'Large data often uses a fixed train/val/test split instead of full CV',
+        'Time-series CV only trains on past data relative to the validation window',
+      ],
+      answers: [0, 2, 3],
+      why: 'Shuffling time series leaks future information.',
+    },
+    {
+      type: 'order',
+      prompt: 'Order a safe time-series validation mindset (top = first).',
+      items: [
+        'Score on the next (future) window',
+        'Pick a cutoff in time',
+        'Train only on data before the cutoff',
+      ],
+      order: [1, 2, 0],
+      why: 'Cutoff → train on past → validate the future block.',
+    },
+    {
+      prompt: 'A dedicated validation (dev) set is mainly for…',
+      choices: [
+        'final published metrics only',
+        'tuning models / hyperparameters without touching the sealed test set',
+        'replacing the training set',
+        'storing raw labels forever',
+      ],
+      answer: 1,
+      why: 'Val guides choices; test stays honest.',
+    },
+  ]}
+/>
+
+<NumericQuiz id="ds-ml-cv-compute" title="Compute: CV averages & splits" bank="dsMlCv" rounds={5} />
+
+### Bootstrapping and bagging
+
+**Bootstrapping:** sample **with replacement** from your data, estimate a quantity on each draw, then average (or otherwise aggregate) those estimates. Useful when $n$ is small, and for **rare classes** (oversample the minority via bootstrap draws).
+
+**Bagging** (bootstrap aggregation) builds many models on bootstrap samples and averages their predictions — the engine behind **random forests**. Ensembles (RF, AdaBoost, XGBoost) are interview favorites; a classic compare/contrast is “random forest vs XGBoost” (bagged parallel trees vs boosted sequential trees — details in [Random Forests & Boosting](./lesson-26-random-forests-and-boosting)).
+
+<MultipleChoice
+  id="ds-ml-bootstrap"
+  title="Bootstrap & bagging"
+  questions={[
+    {
+      prompt: 'Bootstrapping draws samples…',
+      choices: [
+        'without replacement only',
+        'with replacement from the original data',
+        'only from the test set',
+        'only from future timestamps',
+      ],
+      answer: 1,
+      why: 'With-replacement resampling is the definition.',
+    },
+    {
+      type: 'multi',
+      prompt: 'Bootstrap / bagging shows up when you… (Select all that apply.)',
+      choices: [
+        'Want uncertainty estimates or more signal from small n',
+        'Oversample rare classes',
+        'Build bagged ensembles like random forests',
+        'Must never average multiple models',
+      ],
+      answers: [0, 1, 2],
+      why: 'Resample → fit many → aggregate.',
+    },
+    {
+      type: 'order',
+      prompt: 'Order a bagging recipe (top = first).',
+      items: [
+        'Aggregate predictions (e.g. average / vote)',
+        'Draw a bootstrap sample',
+        'Train one base model on that sample',
+        'Repeat for many samples',
+      ],
+      order: [1, 2, 3, 0],
+      why: 'Sample → fit → repeat → aggregate.',
+    },
+    {
+      prompt: 'Bagging is short for…',
+      choices: [
+        'Bayesian aggregation',
+        'bootstrap aggregation',
+        'batch gradient ascent',
+        'binary attention gating',
+      ],
+      answer: 1,
+      why: 'Bootstrap + aggregate.',
+    },
+  ]}
+/>
+
+### Hyperparameter tuning
+
+**Hyperparameters** (learning rate, tree depth, regularization strength, …) shape training time, cost, and generalization. You set them *outside* the core parameter updates.
+
+| Method | Idea | Trade-off |
+| --- | --- | --- |
+| **Grid search** | Cartesian product of candidate values; try all | Exhaustive but cost grows exponentially in #hparams |
+| **Random search** | Sample each hparam from a distribution | Explores large spaces cheaper; no optimality guarantee |
+| **Bayesian optimization** | Model which regions look promising; sample there | Smarter sequential search (common for NNs / boosting) |
+
+Interview bar: name a few hyperparameters for a model you like and what each does to fit vs generalize. Deep Bayes-opt math is rarer outside research / MLE loops.
+
+<MultipleChoice
+  id="ds-ml-hparams"
+  title="Hyperparameter tuning"
+  questions={[
+    {
+      prompt: 'Grid search’s main downside is…',
+      choices: [
+        'it never tries the corners of the grid',
+        'cost explodes as you add more hyperparameters',
+        'it cannot tune tree depth',
+        'it requires no validation set',
+      ],
+      answer: 1,
+      why: 'Product of list sizes grows fast.',
+    },
+    {
+      type: 'multi',
+      prompt: 'Which statements fit interview answers? (Select all that apply.)',
+      choices: [
+        'Random search samples the joint hparam space',
+        'Tune on validation / CV — not repeatedly on the final test set',
+        'Learning rate and max depth are typical hyperparameters',
+        'Grid search always beats Bayesian optimization on wall-clock time',
+      ],
+      answers: [0, 1, 2],
+      why: 'Search method ≠ automatic speed win; keep test sealed.',
+    },
+    {
+      type: 'order',
+      prompt: 'Order a safe tuning workflow (top = first).',
+      items: [
+        'Report once on the sealed test set',
+        'Choose a search method (grid / random / Bayesian)',
+        'Score candidates on validation or CV',
+      ],
+      order: [1, 2, 0],
+      why: 'Search → validate → final test peek.',
+    },
+    {
+      prompt: 'A hyperparameter differs from a learned weight because it is…',
+      choices: [
+        'updated every SGD step by backprop only',
+        'set externally to control training / capacity',
+        'always equal to the learning rate',
+        'never related to overfitting',
+      ],
+      answer: 1,
+      why: 'Hparams configure the training procedure / model class.',
+    },
+  ]}
+/>
+
+<NumericQuiz id="ds-ml-tune-compute" title="Compute: grid size & bootstrap uniques" bank="dsMlTune" rounds={5} />
+
+<ExerciseSet>
+  <CodeExercise
+    title="HT1 · Grid size"
+    heading="ds-ml-code-ht1"
+    lang="python"
+    filename="main.py"
+    prompt="grids is a list of candidate lists (e.g. learning rates, depths). Return the Cartesian-product size (int)."
+    sampleLog={`(input) 0
+12`}
+    starter={`def grid_size(grids):
+    # TODO: product of lengths
+    return 0
+`}
+    wrapSuffix={`
+CASES = {
+    "0": [[0.1, 0.01], [1, 2, 3], [0.0, 0.5]],
+    "1": [[0.001], [10, 20, 30, 40]],
+    "2": [[1, 2], [3, 4], [5, 6], [7, 8]],
+    "3": [[1, 2, 3]],
+    "4": [[], [1, 2]],
+    "5": [[0.1, 0.2, 0.3, 0.4, 0.5], [True, False]],
+    "6": [[1], [2], [3], [4], [5]],
+    "7": [[10, 20], [0.01, 0.1, 1.0]],
+    "8": [[1, 2, 3, 4], [5, 6, 7], [8, 9]],
+    "9": [[0], [0], [0], [0], [0], [0]],
+}
+print(grid_size(CASES[input().strip()]))
+`}
+    solution={`def grid_size(grids):
+    n = 1
+    for g in grids:
+        n *= len(g)
+    return n
+`}
+    tests={[
+      {name: '3 axes', stdin: '0', equals: '12'},
+      {name: '2 axes', stdin: '1', equals: '4'},
+      {name: '4 axes', stdin: '2', equals: '16'},
+      {name: '1 axis', stdin: '3', equals: '3'},
+      {name: 'empty axis', stdin: '4', equals: '0'},
+      {name: '5x2', stdin: '5', equals: '10'},
+      {name: '5 ones', stdin: '6', equals: '1'},
+      {name: '2x3', stdin: '7', equals: '6'},
+      {name: '4x3x2', stdin: '8', equals: '24'},
+      {name: '6 ones', stdin: '9', equals: '1'},
+    ]}
+  />
+  <CodeExercise
+    title="HT2 · Grid-search a constant"
+    heading="ds-ml-code-ht2"
+    lang="python"
+    filename="main.py"
+    prompt="Candidates are constant predictors c. Score MSE against y. Return (best_c, best_mse) with mse rounded to 2 decimals. Ties → smaller c."
+    sampleLog={`(input) 0
+(2, 0.0)`}
+    starter={`def grid_best_constant(candidates, y):
+    # TODO: pick c in candidates minimizing MSE; tie → smaller c
+    return (0, 0.0)
+`}
+    wrapSuffix={`
+CASES = {
+    "0": {"cands": [1, 2, 3], "y": [2.0, 2.0, 2.0]},
+    "1": {"cands": [0, 5, 10], "y": [4.0, 6.0, 5.0]},
+    "2": {"cands": [3, 1, 2], "y": [1.0, 1.0, 1.0]},
+    "3": {"cands": [0], "y": [0.0, 0.0]},
+    "4": {"cands": [10, -10, 0], "y": [1.0, -1.0, 0.0]},
+    "5": {"cands": [2, 4, 6, 8], "y": [5.0, 5.0, 5.0, 5.0]},
+    "6": {"cands": [7, 3], "y": [3.0, 3.0, 3.0]},
+    "7": {"cands": [1.5, 2.5, 0.5], "y": [2.0, 2.0]},
+    "8": {"cands": [100, 0, 50], "y": [10.0, 20.0, 30.0]},
+    "9": {"cands": [-5, -1, 0, 1], "y": [-2.0, -2.0, -2.0]},
+}
+c = CASES[input().strip()]
+print(grid_best_constant(c["cands"], c["y"]))
+`}
+    solution={`def grid_best_constant(candidates, y):
+    n = len(y)
+    best_c = None
+    best_mse = None
+    for c in sorted(candidates):
+        mse = sum((yi - c) ** 2 for yi in y) / n
+        if best_mse is None or mse < best_mse - 1e-15:
+            best_mse = mse
+            best_c = c
+    return (best_c, round(best_mse, 2))
+`}
+    tests={[
+      {name: 'exact 2', stdin: '0', equals: '(2, 0.0)'},
+      {name: 'near 5', stdin: '1', equals: '(5, 0.67)'},
+      {name: 'tie prefer small', stdin: '2', equals: '(1, 0.0)'},
+      {name: 'only 0', stdin: '3', equals: '(0, 0.0)'},
+      {name: 'near 0', stdin: '4', equals: '(0, 0.67)'},
+      {name: 'near 4/6', stdin: '5', equals: '(4, 1.0)'},
+      {name: 'exact 3', stdin: '6', equals: '(3, 0.0)'},
+      {name: 'float cands', stdin: '7', equals: '(1.5, 0.25)'},
+      {name: 'near 0 large', stdin: '8', equals: '(0, 466.67)'},
+      {name: 'near -1', stdin: '9', equals: '(-1, 1.0)'},
+    ]}
+  />
+  <CodeExercise
+    title="HT3 · Pick best trial"
+    heading="ds-ml-code-ht3"
+    lang="python"
+    filename="main.py"
+    prompt="You already ran a search: alphas[i] has validation MSE mses[i]. Return the alpha with lowest MSE (tie → smaller alpha), and that MSE rounded to 2 decimals, as (alpha, mse)."
+    sampleLog={`(input) 0
+(0.1, 0.2)`}
+    starter={`def best_trial(alphas, mses):
+    # TODO: return (alpha, mse) for the best validation score
+    return (0.0, 0.0)
+`}
+    wrapSuffix={`
+CASES = {
+    "0": {"a": [0.01, 0.1, 1.0], "m": [0.5, 0.2, 0.4]},
+    "1": {"a": [1.0, 0.5, 2.0], "m": [0.3, 0.3, 0.9]},
+    "2": {"a": [0.2, 0.3, 0.1], "m": [1.0, 0.8, 0.8]},
+    "3": {"a": [5.0], "m": [1.25]},
+    "4": {"a": [0.0, 1.0, 2.0], "m": [0.1, 0.1, 0.1]},
+    "5": {"a": [3.0, 1.0, 2.0], "m": [0.9, 0.4, 0.4]},
+    "6": {"a": [0.01, 0.02], "m": [0.0, 0.0]},
+    "7": {"a": [10.0, -1.0, 0.5], "m": [2.0, 0.5, 0.5]},
+    "8": {"a": [0.7, 0.6, 0.8], "m": [0.33, 0.22, 0.44]},
+    "9": {"a": [1.0, 2.0, 3.0, 4.0], "m": [9.0, 8.0, 7.0, 6.0]},
+}
+c = CASES[input().strip()]
+print(best_trial(c["a"], c["m"]))
+`}
+    solution={`def best_trial(alphas, mses):
+    best_a = None
+    best_m = None
+    for a, m in sorted(zip(alphas, mses), key=lambda t: (t[1], t[0])):
+        best_a, best_m = a, m
+        break
+    return (best_a, round(best_m, 2))
+`}
+    tests={[
+      {name: 'clear winner', stdin: '0', equals: '(0.1, 0.2)'},
+      {name: 'tie on mse', stdin: '1', equals: '(0.5, 0.3)'},
+      {name: 'tie prefer small α', stdin: '2', equals: '(0.1, 0.8)'},
+      {name: 'single', stdin: '3', equals: '(5.0, 1.25)'},
+      {name: 'all tie', stdin: '4', equals: '(0.0, 0.1)'},
+      {name: 'tie mid', stdin: '5', equals: '(1.0, 0.4)'},
+      {name: 'zero mse', stdin: '6', equals: '(0.01, 0.0)'},
+      {name: 'neg α', stdin: '7', equals: '(-1.0, 0.5)'},
+      {name: 'clear mid', stdin: '8', equals: '(0.6, 0.22)'},
+      {name: 'monotonic', stdin: '9', equals: '(4.0, 6.0)'},
+    ]}
+  />
+</ExerciseSet>
+
+
+### Training time and learning curves
+
+Training cost scales with **$n$** (rows) and **$d$** (features / parameters). Big-O sketches (coding chapter) help compare algorithms; in production you also weigh wall-clock and infra cost against a tiny metric lift.
+
+**Learning curves** plot a metric (accuracy, loss, …) against experience (iterations or dataset size). Overlay **train** and **validation**:
+
+- Train ↑ while val stalls / worsens → **overfitting** (early stop, regularize, simplify).
+- Both stuck low → **underfitting**.
+- Wide gap that never shrinks → data may be **non-representative** (or leakage / mismatch).
+
+Classic interview prompt: “How do you tell the model is overfitting?” — answer with learning curves + train/val gap, not only vibes.
+
+<MlLearningCurvesSimulator />
+
+<MultipleChoice
+  id="ds-ml-curves"
+  title="Learning curves & training cost"
+  questions={[
+    {
+      prompt: 'Train metric keeps improving but validation gets worse late in training. Likely…',
+      choices: [
+        'healthy convergence only',
+        'overfitting — consider early stopping / regularization',
+        'proof the test set is too large',
+        'LOOCV is impossible',
+      ],
+      answer: 1,
+      why: 'Classic overfit signature on learning curves.',
+    },
+    {
+      type: 'multi',
+      prompt: 'Learning curves can help you spot… (Select all that apply.)',
+      choices: [
+        'Overfitting (diverging train vs val)',
+        'Underfitting (both metrics stuck weak)',
+        'A stubborn train–val gap (representativeness issues)',
+        'The exact SVD of the covariance matrix',
+      ],
+      answers: [0, 1, 2],
+      why: 'Curves diagnose fit quality — not linear-algebra factorizations.',
+    },
+    {
+      type: 'order',
+      prompt: 'Order a pragmatic model-selection check when data is huge (top = first).',
+      items: [
+        'Ask whether the metric lift is worth the extra train time / cost',
+        'Note rough training complexity in n and d',
+        'Compare candidate metrics on validation',
+      ],
+      order: [2, 1, 0],
+      why: 'Quality first, then complexity, then cost trade-off.',
+    },
+    {
+      prompt: 'Why might you reject a slightly better but much slower model?',
+      choices: [
+        'Because validation sets are illegal',
+        'Resource / latency / cost constraints can dominate a tiny lift',
+        'Because bagging forbids slow models',
+        'Because grid search requires it',
+      ],
+      answer: 1,
+      why: 'Production selection is multi-objective.',
+    },
+  ]}
+/>
+
+## Quick synthesis
+
+| Idea | Interview sound bite |
+| --- | --- |
+| Eigen / SVD | Scaling directions of a linear map; PCA / low-rank structure |
+| Gradient descent | Walk opposite ∇f with step α; SGD adds noise / speed |
+| Eval / selection | Hold out data; pick under product constraints |
+| Bias–variance | Simple vs flexible models; fix with data / capacity / regularization |
+| Regularization | L1 sparsifies; L2 shrinks; elastic net mixes |
+| Explainability | Coefficients, importances, SHAP / LIME when the box is dark |
+| Cross-validation | Rotate held-out folds; LOOCV = k=n; no shuffle for time series |
+| Bootstrap / bagging | Resample with replacement; aggregate many models (e.g. RF) |
+| Hparam search | Grid (exhaustive) vs random / Bayesian (scalable exploration) |
+| Learning curves | Train vs val over time — diagnose under/overfit and data gaps |
+| Coding drills | After each topic: lin-alg, GD, ridge/lasso/elastic-net, tuning |
+
+Next: [Linear Regression](./lesson-23-linear-regression) · [Classification fundamentals](./lesson-24-classification-fundamentals). Later model-family lessons can reuse the same Piston `sklearn` stack.

@@ -36,7 +36,7 @@ export const STATS_PRESETS = {
     id: 'meanVarDiscrete',
     title: 'Expectation & variance',
     subtitle: 'Slide probability masses on {1,2,3,4} — watch E[X] and Var(X)',
-    formula: 'E[X]=Σ x f(x)    Var(X)=E[X²]−(E[X])²',
+    formula: '$E[X]=\\sum x\\,f(x)\\qquad \\mathrm{Var}(X)=E[X^2]-(E[X])^2$',
     params: [
       {key: 'p1', label: 'P(X=1)', meaning: 'Probability mass at outcome 1.', min: 0.05, max: 0.7, step: 0.01, default: 0.1},
       {key: 'p2', label: 'P(X=2)', meaning: 'Probability mass at outcome 2.', min: 0.05, max: 0.7, step: 0.01, default: 0.2},
@@ -77,7 +77,7 @@ export const STATS_PRESETS = {
     id: 'corrDemo',
     title: 'Correlation scatter',
     subtitle: 'Slide ρ — points come from a bivariate Normal with that correlation',
-    formula: 'ρ = Cov(X,Y) / (σ_X σ_Y)    ∈ [−1, 1]',
+    formula: '$\\rho = \\dfrac{\\mathrm{Cov}(X,Y)}{\\sigma_X\\sigma_Y}\\quad\\in[-1,1]$',
     params: [
       {key: 'rho', label: 'ρ correlation', meaning: 'Linear association strength (−1 to +1).', min: -0.95, max: 0.95, step: 0.05, default: 0.7},
       {key: 'seed', label: 'sample seed', meaning: 'Resample the cloud with a different deterministic draw.', min: 1, max: 40, step: 1, default: 3},
@@ -107,7 +107,7 @@ export const STATS_PRESETS = {
     id: 'uniformMoments',
     title: 'Uniform mean & variance',
     subtitle: 'Classic interview derivation targets for Uniform(a,b)',
-    formula: 'E[X]=(a+b)/2    Var(X)=(b−a)²/12',
+    formula: '$E[X]=\\dfrac{a+b}{2}\\qquad \\mathrm{Var}(X)=\\dfrac{(b-a)^2}{12}$',
     params: [
       {key: 'a', label: 'a', meaning: 'Left endpoint of the support.', min: 0, max: 8, step: 0.5, default: 2},
       {key: 'b', label: 'b', meaning: 'Right endpoint (must exceed a).', min: 1, max: 12, step: 0.5, default: 8},
@@ -146,7 +146,7 @@ export const STATS_PRESETS = {
     id: 'llnSim',
     title: 'Law of Large Numbers',
     subtitle: 'Running average of coin flips → true p',
-    formula: 'X̄_n → E[X] as n → ∞',
+    formula: '$\\bar{X}_n \\to E[X]\\quad\\text{as }n\\to\\infty$',
     params: [
       {key: 'p', label: 'true P(heads)', meaning: 'Underlying Bernoulli mean the average should approach.', min: 0.2, max: 0.8, step: 0.05, default: 0.5},
       {key: 'n', label: 'n flips shown', meaning: 'How many independent flips to accumulate.', min: 10, max: 500, step: 10, default: 120},
@@ -184,7 +184,7 @@ export const STATS_PRESETS = {
     id: 'cltSim',
     title: 'Central Limit Theorem',
     subtitle: 'Histogram of sample means from an Exponential parent → bell shape',
-    formula: 'X̄ ≈ Normal(μ, σ²/n) for large n',
+    formula: '$\\bar{X} \\approx \\mathrm{Normal}(\\mu,\\sigma^2/n)\\quad\\text{for large }n$',
     params: [
       {key: 'n', label: 'sample size n', meaning: 'Draws per sample mean (larger → tighter, more Normal).', min: 5, max: 80, step: 5, default: 20},
       {key: 'lambda', label: 'Expo λ', meaning: 'Parent Exponential rate (skewed!); μ=1/λ.', min: 0.5, max: 2, step: 0.1, default: 1},
@@ -242,7 +242,7 @@ export const STATS_PRESETS = {
     id: 'zTCompare',
     title: 'Normal vs t tails',
     subtitle: 't has heavier tails — important when σ is estimated from small n',
-    formula: 'Z uses σ    t uses s with df = n−1',
+    formula: '$Z\\text{ uses }\\sigma\\qquad t\\text{ uses }s\\text{ with }\\mathrm{df}=n-1$',
     params: [
       {key: 'df', label: 'df = n−1', meaning: 'Degrees of freedom for the t curve (small → fat tails).', min: 2, max: 40, step: 1, default: 5},
       {key: 'x', label: 'x cutoff', meaning: 'Compare density height / tail thinking at this x.', min: 0, max: 4, step: 0.1, default: 2},
@@ -277,7 +277,7 @@ export const STATS_PRESETS = {
     id: 'chiSqBars',
     title: 'Chi-squared goodness of fit',
     subtitle: 'Observed vs expected counts → Σ (O−E)²/E',
-    formula: 'χ² = Σ (Oᵢ − Eᵢ)² / Eᵢ',
+    formula: '$\\chi^2 = \\sum \\dfrac{(O_i - E_i)^2}{E_i}$',
     params: [
       {key: 'o1', label: 'O₁ observed', meaning: 'Count in category 1.', min: 5, max: 60, step: 1, default: 40},
       {key: 'o2', label: 'O₂ observed', meaning: 'Count in category 2.', min: 5, max: 60, step: 1, default: 35},
@@ -321,7 +321,7 @@ export const STATS_PRESETS = {
     id: 'abProp',
     title: 'A/B proportion z-test',
     subtitle: 'Two conversion rates under H₀: p_A = p_B',
-    formula: 'z = (p̂_B − p̂_A) / √(p̂(1−p̂)(1/n_A+1/n_B))',
+    formula: '$z = \\dfrac{\\hat{p}_B - \\hat{p}_A}{\\sqrt{\\hat{p}(1-\\hat{p})\\left(\\frac{1}{n_A}+\\frac{1}{n_B}\\right)}}$',
     params: [
       {key: 'nA', label: 'n_A control', meaning: 'Users in control.', min: 100, max: 2000, step: 50, default: 800},
       {key: 'cA', label: 'conversions A', meaning: 'Successes in control.', min: 10, max: 800, step: 5, default: 80},
@@ -366,7 +366,7 @@ export const STATS_PRESETS = {
     id: 'ciExplorer',
     title: 'Confidence interval for a mean',
     subtitle: 'x̄ ± z · (σ/√n) — toggle confidence level',
-    formula: 'CI = x̄ ± z_{α/2} · σ/√n',
+    formula: '$\\mathrm{CI} = \\bar{x} \\pm z_{\\alpha/2}\\cdot\\dfrac{\\sigma}{\\sqrt{n}}$',
     params: [
       {key: 'xbar', label: 'x̄ sample mean', meaning: 'Point estimate from the sample.', min: 0, max: 20, step: 0.1, default: 10},
       {key: 'sigma', label: 'σ (known)', meaning: 'Population SD (Z-interval).', min: 0.5, max: 8, step: 0.1, default: 3},
@@ -412,7 +412,7 @@ export const STATS_PRESETS = {
     id: 'errorPower',
     title: 'Type I / II & Bonferroni',
     subtitle: 'α false positive rate; power; multi-test α/m',
-    formula: 'Type I = α    power = 1−β    Bonferroni: α′ = α/m',
+    formula: '$\\text{Type I}=\\alpha\\qquad \\text{power}=1-\\beta\\qquad \\text{Bonferroni: }\\alpha\'=\\alpha/m$',
     params: [
       {key: 'alpha', label: 'α (Type I)', meaning: 'P(reject H₀ | H₀ true) you tolerate.', min: 0.01, max: 0.2, step: 0.01, default: 0.05},
       {key: 'm', label: 'm tests', meaning: 'Number of simultaneous hypothesis tests.', min: 1, max: 100, step: 1, default: 20},
@@ -450,7 +450,7 @@ export const STATS_PRESETS = {
     id: 'mleBernoulli',
     title: 'MLE for Bernoulli p',
     subtitle: 'Log-likelihood peaks at p̂ = successes / n',
-    formula: 'ℓ(p)=k log p+(n−k)log(1−p)    p̂_MLE=k/n',
+    formula: '$\\ell(p)=k\\log p+(n-k)\\log(1-p)\\qquad \\hat{p}_{\\mathrm{MLE}}=k/n$',
     params: [
       {key: 'n', label: 'n trials', meaning: 'Total independent Bernoulli trials.', min: 5, max: 40, step: 1, default: 20},
       {key: 'k', label: 'k successes', meaning: 'Observed successes.', min: 0, max: 40, step: 1, default: 7},

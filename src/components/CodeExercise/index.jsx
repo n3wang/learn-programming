@@ -80,6 +80,22 @@ function passesTest(output, test) {
     return needles.every((n) => hay.includes(test.exact ? n : normalize(n)));
 }
 
+function expectedDisplay(test) {
+    if (test.equals != null && test.equals !== '') {
+        return String(test.equals);
+    }
+    if (Array.isArray(test.includes) && test.includes.length) {
+        return test.includes.map(String).join('\n');
+    }
+    return '(any output)';
+}
+
+function receivedDisplay(output) {
+    const raw = output?.stdout !== undefined ? output.stdout : output?.text;
+    const text = String(raw ?? '').replace(/\r\n/g, '\n').replace(/\n$/, '');
+    return text || '(no output)';
+}
+
 /**
  * Piston runs `java Main.java` (source-file mode): main must live on the public
  * class that matches the file name. Lessons historically appended a separate
@@ -195,7 +211,7 @@ export default function CodeExercise({
             let failed = false;
             for (const rule of sourceChecks) {
                 const row = sourceCheck(code, rule);
-                next.push(row);
+                next.push({...row, kind: 'source'});
                 if (!row.pass) {
                     failed = true;
                     break;
@@ -222,9 +238,12 @@ export default function CodeExercise({
                         next.push({
                             name: test.name || 'Test',
                             pass: false,
+                            kind: 'runtime',
+                            expected: expectedDisplay(test),
+                            received: '',
                             detail: 'API error: ' + (err.message || res.statusText),
                         });
-                        break;
+                        continue;
                     }
 
                     const data = await res.json();
@@ -233,22 +252,25 @@ export default function CodeExercise({
                         next.push({
                             name: test.name || 'Test',
                             pass: false,
+                            kind: 'runtime',
+                            expected: expectedDisplay(test),
+                            received: receivedDisplay(output),
                             detail: 'Did not compile:\n' + output.text,
                         });
-                        break;
+                        continue;
                     }
 
                     const ok = passesTest(output, test);
                     next.push({
                         name: test.name || 'Test',
                         pass: ok,
+                        kind: 'runtime',
+                        expected: expectedDisplay(test),
+                        received: receivedDisplay(output),
                         detail: ok
-                            ? 'Output matched.\n' + output.text
-                            : 'Output did not match.\nGot:\n' + (output.text || '(no output)'),
+                            ? 'Output matched.'
+                            : 'Output did not match expected value.',
                     });
-                    if (!ok) {
-                        break;
-                    }
                 }
             }
         } catch (e) {
@@ -280,7 +302,8 @@ export default function CodeExercise({
     const passed = results?.filter((r) => r.pass).length ?? 0;
     const ran = results?.length ?? 0;
     const allPass = results && plannedTotal > 0 && passed === plannedTotal;
-    const stoppedEarly = results && !allPass && ran < plannedTotal;
+    const runtimeRows = (results || []).filter((r) => r.kind === 'runtime');
+    const sourceRows = (results || []).filter((r) => r.kind !== 'runtime');
 
     const handleReset = () => {
         reset();
@@ -352,33 +375,75 @@ export default function CodeExercise({
                             <>
                                 <div className={`${chrome.score} ${allPass ? chrome.scorePass : chrome.scoreFail}`}>
                                     {passed}/{plannedTotal} passed
-                                    {allPass
-                                        ? ' — all tests passed'
-                                        : stoppedEarly
-                                          ? ' — stopped at first failure'
-                                          : ''}
+                                    {allPass ? ' — all tests passed' : ''}
                                 </div>
-                                <ul className={chrome.results}>
-                                    {results.map((r, i) => (
-                                        <li key={i} className={r.pass ? chrome.pass : chrome.fail}>
-                                            <strong>
-                                                {r.pass ? 'Pass' : 'Fail'} — {r.name}
-                                            </strong>
-                                            {!r.pass && (
-                                                <pre className="notranslate" translate="no">
-                                                    {r.detail}
-                                                </pre>
-                                            )}
-                                        </li>
-                                    ))}
-                                </ul>
+                                {sourceRows.length ? (
+                                    <ul className={chrome.results}>
+                                        {sourceRows.map((r, i) => (
+                                            <li key={`src-${i}`} className={r.pass ? chrome.pass : chrome.fail}>
+                                                <strong>
+                                                    {r.pass ? 'Pass' : 'Fail'} — {r.name}
+                                                </strong>
+                                                {!r.pass && r.detail ? (
+                                                    <pre className="notranslate" translate="no">
+                                                        {r.detail}
+                                                    </pre>
+                                                ) : null}
+                                            </li>
+                                        ))}
+                                    </ul>
+                                ) : null}
+                                {runtimeRows.length ? (
+                                    <div className={chrome.compareTableWrap}>
+                                        <table className={chrome.compareTable}>
+                                            <thead>
+                                                <tr>
+                                                    <th>Test</th>
+                                                    <th>Expected</th>
+                                                    <th>Received</th>
+                                                    <th>Status</th>
+                                                </tr>
+                                            </thead>
+                                            <tbody>
+                                                {runtimeRows.map((r, i) => (
+                                                    <tr key={`rt-${i}`}>
+                                                        <td>{r.name}</td>
+                                                        <td className={`${chrome.compareCell} notranslate`} translate="no">
+                                                            {r.expected}
+                                                        </td>
+                                                        <td className={`${chrome.compareCell} notranslate`} translate="no">
+                                                            {r.received}
+                                                        </td>
+                                                        <td className={r.pass ? chrome.comparePass : chrome.compareFail}>
+                                                            {r.pass ? 'Pass' : 'Fail'}
+                                                        </td>
+                                                    </tr>
+                                                ))}
+                                            </tbody>
+                                        </table>
+                                    </div>
+                                ) : null}
+                                {runtimeRows.some((r) => !r.pass && r.detail && r.detail.startsWith('Did not compile')) ? (
+                                    <ul className={chrome.results}>
+                                        {runtimeRows
+                                            .filter((r) => !r.pass && r.detail && r.detail.startsWith('Did not compile'))
+                                            .map((r, i) => (
+                                                <li key={`cmp-${i}`} className={chrome.fail}>
+                                                    <strong>Compile error — {r.name}</strong>
+                                                    <pre className="notranslate" translate="no">
+                                                        {r.detail}
+                                                    </pre>
+                                                </li>
+                                            ))}
+                                    </ul>
+                                ) : null}
                             </>
                         ) : (
                             <pre
                                 className={noTranslateClass(chrome.output, chrome.outputEmpty)}
                                 translate="no"
                             >
-                                Running hidden tests…
+                                Running tests…
                             </pre>
                         )}
                     </div>

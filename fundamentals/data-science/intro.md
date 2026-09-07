@@ -19,6 +19,19 @@ Interview-focused preparation for data science roles — behavioral screens, tec
 - [Statistics problems (Easy)](./lesson-7-statistics-problems-easy) — 10 explain-it / compute questions
 - [Statistics problems (Medium)](./lesson-8-statistics-problems-medium) — 15 more, mostly compute
 - [Statistics problems (Hard)](./lesson-9-statistics-problems-hard) — 15 advanced questions
+- [The Math Behind Machine Learning](./lesson-22-math-behind-ml) — lin alg, GD, bias–variance, CV, bagging, hparams + coding drills after topics
+- [Linear Regression](./lesson-23-linear-regression) — OLS, metrics, coding tracks + expected/received test table
+- [Classification Fundamentals](./lesson-24-classification-fundamentals) — generative vs discriminative, confusion matrix, P/R/F1, ROC/AUC
+- [Classification Models](./lesson-25-classification-models) — logistic regression, Naive Bayes, SVMs, decision trees + labs
+- [Random Forests & Boosting](./lesson-26-random-forests-and-boosting) — bagging, mtry, AdaBoost, GBM/XGBoost + coding
+- [Dimensionality Reduction](./lesson-27-dimensionality-reduction) — curse of dimensionality, PCA, t-SNE contrast + labs
+- [Clustering](./lesson-28-clustering) — k-means, hierarchical, DBSCAN, GMM + coding
+- [Neural Networks](./lesson-29-neural-networks) — MLP, activations, backprop, CNN/RNN/LSTM + labs
+- [Reinforcement Learning](./lesson-33-reinforcement-learning) — agent, reward, policy, value, Q-learning + labs
+- [End-to-End ML Workflow](./lesson-34-end-to-end-ml-workflow) — clarify → metrics → data → features → deploy/iterate
+- [ML problems (Easy)](./lesson-30-ml-problems-easy) — 11 explain-it questions on model choice, robustness, ensembles
+- [ML problems (Medium)](./lesson-31-ml-problems-medium) — 15 tiles: system design, bias-variance, regularization, entropy
+- [ML problems (Hard)](./lesson-32-ml-problems-hard) — 10 derivations: kernels, MLE, GMM, PCA, logistic regression
 - [SQL](./lesson-10-sql) — joins, CTEs, windows + wrap-seed practice editor
 - [Schema Diagram Lab](./lesson-11-schema-design) — draggable ER diagrams + a wire-the-foreign-keys exercise
 - [Databases and Systems](./lesson-12-databases-and-systems) — keys, CAP/ACID, scale, NoSQL, MapReduce + quizzes
@@ -34,7 +47,7 @@ Interview-focused preparation for data science roles — behavioral screens, tec
 - Product sense and case-style questions (coming soon)
 
 ### Core skills (planned)
-- ML system design and modeling trade-offs
+- Product sense and case-style ML interviews (deeper)
 ---
 
 *More lessons coming soon.*

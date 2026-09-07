@@ -2,6 +2,7 @@ import React, {useMemo, useState} from 'react';
 import Box from '@site/src/components/ui/Box';
 import Stack from '@site/src/components/ui/Stack';
 import Typography from '@site/src/components/ui/Typography';
+import MathText from '@site/src/components/ProblemSet/MathText';
 import CEBlock from '@site/src/components/interactive/shell/CEBlock';
 import FormulaChart from './formulaExplorer/FormulaChart';
 import {getPreset} from './formulaExplorer/presets';
@@ -15,52 +16,36 @@ function defaultsFrom(preset) {
 }
 
 /**
- * Client-side formula playground.
- * Chart on the left; sliders + result chips on the right.
+ * Formula + chart + sliders for one preset. No outer frame — callers
+ * (FormulaExplorer, FormulaExplorerTabs) supply their own header/wrapper.
  */
-export default function FormulaExplorer({preset: presetId}) {
-  const preset = getPreset(presetId);
-  const [values, setValues] = useState(() => (preset ? defaultsFrom(preset) : {}));
+export function FormulaExplorerBody({preset, refNote}) {
+  const [values, setValues] = useState(() => defaultsFrom(preset));
 
-  const result = useMemo(() => {
-    if (!preset) return null;
-    return preset.compute(values);
-  }, [preset, values]);
-
-  const example = useMemo(() => {
-    if (!preset?.example) return null;
-    return preset.example(values);
-  }, [preset, values]);
-
-  if (!preset) {
-    return (
-      <CEBlock title="Formula explorer" subtitle={`Unknown preset: ${presetId}`}>
-        <Typography>Valid presets are registered in formulaExplorer/presets.js.</Typography>
-      </CEBlock>
-    );
-  }
+  const result = useMemo(() => preset.compute(values), [preset, values]);
+  const example = useMemo(() => (preset.example ? preset.example(values) : null), [preset, values]);
 
   const setParam = (key, raw) => {
     setValues((prev) => ({...prev, [key]: Number(raw)}));
   };
 
   return (
-    <CEBlock title={preset.title} subtitle={preset.subtitle}>
-      <Typography
-        component="code"
+    <>
+      <Box
         sx={{
           display: 'block',
           mb: 1.5,
           px: 1.5,
           py: 1,
-          fontSize: '0.9rem',
+          fontSize: '1.05rem',
           backgroundColor: 'grey.100',
           borderRadius: 1,
           overflowX: 'auto',
+          lineHeight: 1.6,
         }}
       >
-        {preset.formula}
-      </Typography>
+        <MathText text={preset.formula} />
+      </Box>
 
       {example ? (
         <Box
@@ -147,6 +132,30 @@ export default function FormulaExplorer({preset: presetId}) {
           ) : null}
         </div>
       </div>
+
+      {refNote ? <p className={styles.refNote}>{refNote}</p> : null}
+    </>
+  );
+}
+
+/**
+ * Client-side formula playground.
+ * Chart on the left; sliders + result chips on the right.
+ */
+export default function FormulaExplorer({preset: presetId}) {
+  const preset = getPreset(presetId);
+
+  if (!preset) {
+    return (
+      <CEBlock title="Formula explorer" subtitle={`Unknown preset: ${presetId}`}>
+        <Typography>Valid presets are registered in formulaExplorer/presets.js.</Typography>
+      </CEBlock>
+    );
+  }
+
+  return (
+    <CEBlock title={preset.title} subtitle={preset.subtitle}>
+      <FormulaExplorerBody preset={preset} />
     </CEBlock>
   );
 }

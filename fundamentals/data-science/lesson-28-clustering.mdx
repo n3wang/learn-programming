@@ -1,0 +1,664 @@
+---
+sidebar_position: 11.0
+title: Clustering
+sidebar_label: 'ML - Clustering'
+---
+
+> **Source:** Concepts adapted from *Ace the Data Science Interview* — Chapter 7 (“Machine Learning”) by Kevin Huo & Nick Singh. Rewritten in original wording for this course. Coding uses **scikit-learn** on Piston.
+
+**Clustering** is the flagship **unsupervised** interview topic: no labels — only input features $X$. The algorithm looks for structure: customer segments, viz groupings, fraud / outlier islands. Goal: partition points into groups with **high intra-cluster** similarity and **low inter-cluster** similarity.
+
+This lesson covers **k-means**, alternatives (**hierarchical**, **DBSCAN**), and **Gaussian mixture models (GMM)** — with slider explorers, quizzes, and coding after the core blocks.
+
+## Unsupervised setup
+
+Supervised learning predicts a target $y$. Unsupervised learning finds patterns in $X$ alone. Clustering use cases:
+
+- Segment users / products for marketing or personalization
+- Compress structure for visualization (often after [PCA](./lesson-27-dimensionality-reduction))
+- Flag outliers (points that refuse to join dense groups)
+
+Ideal clusters: tight within, separated between — measured with a chosen distance (often Euclidean).
+
+<MultipleChoice
+  id="ds-clust-intro"
+  title="Clustering basics"
+  questions={[
+    {
+      prompt: 'Clustering is unsupervised because…',
+      choices: [
+        'it uses only features X — no labeled y to predict',
+        'it always needs ImageNet labels',
+        'it maximizes AUC on a holdout set',
+        'k must equal the number of classes in y',
+      ],
+      answer: 0,
+      why: 'No prediction target — structure discovery.',
+    },
+    {
+      type: 'multi',
+      prompt: 'Good clusterings tend to have… (Select all that apply.)',
+      choices: [
+        'High similarity within a cluster',
+        'Low similarity across different clusters',
+        'A labeled y for every row before fitting',
+        'Uses only for supervised logistic regression',
+      ],
+      answers: [0, 1],
+      why: 'Intra high, inter low — labels are optional downstream.',
+    },
+    {
+      prompt: 'A practical non-segmentation use of clustering is…',
+      choices: [
+        'outlier / anomaly spotting (e.g. fraud-like points)',
+        'replacing SQL forever',
+        'computing gradients for neural nets only',
+        'guaranteeing causal inference',
+      ],
+      answer: 0,
+      why: 'Density methods especially shine for anomalies.',
+    },
+  ]}
+/>
+
+## k-means
+
+**k-means** is the interview default: simple, interpretable, Euclidean.
+
+1. Choose $k$ (user hyperparameter) and initialize $k$ centroids $\mu_1,\ldots,\mu_k$.
+2. **Assign** each point to the nearest centroid (squared Euclidean).
+3. **Update** each centroid to the mean of its assigned points.
+4. Repeat until assignments / objective stop improving.
+
+It minimizes within-cluster sum of squares (distortion / inertia):
+
+$$
+L = \sum_{j=1}^{k}\sum_{x\in S_j}\|x-\mu_j\|^2
+$$
+
+Notes: Euclidean geometry; $k$ is chosen by you (elbow, silhouette, domain); local minima → try several inits (`n_init` in sklearn).
+
+<FormulaExplorer preset="clustKmeans1d" />
+
+<FormulaExplorer preset="clustKmeansSse" />
+
+<FormulaExplorer preset="clustElbow" />
+
+<MultipleChoice
+  id="ds-clust-kmeans"
+  title="k-means"
+  questions={[
+    {
+      prompt: 'One k-means iteration does…',
+      choices: [
+        'assign points to nearest centroids, then recompute means',
+        'fit a neural net then drop all features',
+        'only merge clusters in a dendrogram',
+        'require labels y for the loss',
+      ],
+      answer: 0,
+      why: 'Assign → update → repeat until convergence.',
+    },
+    {
+      type: 'multi',
+      prompt: 'Which are true of k-means? (Select all that apply.)',
+      choices: [
+        'Minimizes within-cluster SSE / distortion',
+        'Uses Euclidean distance in the classic form',
+        'k is chosen by the algorithm with no user input',
+        'Sensitive to initialization / local minima',
+      ],
+      answers: [0, 1, 3],
+      why: 'You set k; multiple random starts help.',
+    },
+    {
+      type: 'order',
+      prompt: 'Order a k-means step (top = first).',
+      items: [
+        'Update each μⱼ to the mean of points in Sⱼ',
+        'Assign each x to argminⱼ ‖x−μⱼ‖²',
+        'Stop when assignments / L stop improving',
+      ],
+      order: [1, 0, 2],
+      why: 'Assign → update; loop until stable.',
+    },
+    {
+      prompt: 'The elbow method plots…',
+      choices: [
+        'SSE / inertia vs k and looks for diminishing returns',
+        'ROC curves only',
+        'learning rate vs batch size only',
+        'p-values for every feature',
+      ],
+      answer: 0,
+      why: 'SSE falls with k — pick the bend.',
+    },
+  ]}
+/>
+
+<NumericQuiz id="ds-clust-km-compute" title="Compute: assign / SSE / mean" bank="dsClustKmeans" rounds={5} />
+
+### Practice: k-means mechanics & sklearn
+
+<ExerciseSet>
+  <CodeExercise
+    title="KM1 · Nearest centroid"
+    heading="ds-clust-km1"
+    lang="python"
+    filename="main.py"
+    prompt="Centroids mu (list of floats) and point x. Return cluster index of the nearest centroid by squared Euclidean distance (ties → smaller index)."
+    sampleLog={`(input) 0
+0`}
+    starter={`def assign_cluster(x, mu):
+    # TODO
+    raise NotImplementedError
+`}
+    wrapSuffix={`
+CASES = {
+    "0": {"x": 3.0, "mu": [1.0, 9.0]},
+    "1": {"x": 7.0, "mu": [1.0, 9.0]},
+    "2": {"x": 5.0, "mu": [1.0, 9.0]},
+    "3": {"x": 1.0, "mu": [1.0, 9.0]},
+    "4": {"x": 9.0, "mu": [1.0, 9.0]},
+    "5": {"x": 0.0, "mu": [0.0, 5.0, 10.0]},
+    "6": {"x": 6.0, "mu": [0.0, 5.0, 10.0]},
+    "7": {"x": 4.0, "mu": [0.0, 5.0, 10.0]},
+    "8": {"x": 2.5, "mu": [0.0, 5.0]},
+    "9": {"x": -1.0, "mu": [0.0, 10.0]},
+}
+c = CASES[input().strip()]
+print(assign_cluster(c["x"], c["mu"]))
+`}
+    solution={`def assign_cluster(x, mu):
+    best_i = 0
+    best_d = None
+    for i, m in enumerate(mu):
+        d = (x - m) ** 2
+        if best_d is None or d < best_d:
+            best_d = d
+            best_i = i
+    return best_i
+`}
+    tests={[
+      {name: 'near 1', stdin: '0', equals: '0'},
+      {name: 'near 9', stdin: '1', equals: '1'},
+      {name: 'midpoint→0', stdin: '2', equals: '0'},
+      {name: 'exact μ0', stdin: '3', equals: '0'},
+      {name: 'exact μ1', stdin: '4', equals: '1'},
+      {name: '3-centroid left', stdin: '5', equals: '0'},
+      {name: '3-centroid mid', stdin: '6', equals: '1'},
+      {name: '3-centroid→1', stdin: '7', equals: '1'},
+      {name: 'half→0', stdin: '8', equals: '0'},
+      {name: 'left of 0', stdin: '9', equals: '0'},
+    ]}
+  />
+  <CodeExercise
+    title="KM2 · Centroid = mean"
+    heading="ds-clust-km2"
+    lang="python"
+    filename="main.py"
+    prompt="Return the mean of points rounded to 2 decimals (1-D cluster update)."
+    sampleLog={`(input) 0
+1.0`}
+    starter={`def centroid_mean(points):
+    # TODO
+    return 0.0
+`}
+    wrapSuffix={`
+CASES = {
+    "0": [0, 1, 2],
+    "1": [8, 9, 10],
+    "2": [0, 2, 4],
+    "3": [1, 3],
+    "4": [10],
+    "5": [0, 0, 0],
+    "6": [2, 4, 6, 8],
+    "7": [-2, -1, 0, 1, 2],
+    "8": [1.5, 2.5],
+    "9": [100, 200],
+}
+print(centroid_mean(CASES[input().strip()]))
+`}
+    solution={`def centroid_mean(points):
+    return round(sum(points) / len(points), 2)
+`}
+    tests={[
+      {name: 'left clump', stdin: '0', equals: '1.0'},
+      {name: 'right clump', stdin: '1', equals: '9.0'},
+      {name: 'even', stdin: '2', equals: '2.0'},
+      {name: 'pair', stdin: '3', equals: '2.0'},
+      {name: 'singleton', stdin: '4', equals: '10.0'},
+      {name: 'zeros', stdin: '5', equals: '0.0'},
+      {name: 'arith seq', stdin: '6', equals: '5.0'},
+      {name: 'symmetric', stdin: '7', equals: '0.0'},
+      {name: 'halves', stdin: '8', equals: '2.0'},
+      {name: 'large', stdin: '9', equals: '150.0'},
+    ]}
+  />
+  <CodeExercise
+    title="KM3 · Within-cluster SSE"
+    heading="ds-clust-km3"
+    lang="python"
+    filename="main.py"
+    prompt="clusters is a list of point-lists; mus aligned centroids. Return total SSE = Σⱼ Σ(x−μⱼ)² rounded to 2 decimals."
+    sampleLog={`(input) 0
+4.0`}
+    starter={`def total_sse(clusters, mus):
+    # TODO
+    raise NotImplementedError
+`}
+    wrapSuffix={`
+CASES = {
+    "0": {"clusters": [[0, 1, 2], [8, 9, 10]], "mus": [1.0, 9.0]},
+    "1": {"clusters": [[0, 2], [10]], "mus": [1.0, 10.0]},
+    "2": {"clusters": [[5, 5, 5]], "mus": [5.0]},
+    "3": {"clusters": [[0, 1], [2, 3]], "mus": [0.5, 2.5]},
+    "4": {"clusters": [[1], [2], [3]], "mus": [1.0, 2.0, 3.0]},
+    "5": {"clusters": [[0, 4], [10, 12]], "mus": [2.0, 11.0]},
+    "6": {"clusters": [[1, 1, 1], [9]], "mus": [1.0, 9.0]},
+    "7": {"clusters": [[0], [10]], "mus": [0.0, 10.0]},
+    "8": {"clusters": [[2, 4, 6], [0]], "mus": [4.0, 0.0]},
+    "9": {"clusters": [[1, 2, 3, 4], [5]], "mus": [2.5, 5.0]},
+}
+c = CASES[input().strip()]
+print(total_sse(c["clusters"], c["mus"]))
+`}
+    solution={`def total_sse(clusters, mus):
+    sse = 0.0
+    for pts, mu in zip(clusters, mus):
+        for x in pts:
+            sse += (x - mu) ** 2
+    return round(sse, 2)
+`}
+    tests={[
+      {name: 'two clumps', stdin: '0', equals: '4.0'},
+      {name: 'mixed', stdin: '1', equals: '2.0'},
+      {name: 'perfect', stdin: '2', equals: '0.0'},
+      {name: 'tight pairs', stdin: '3', equals: '1.0'},
+      {name: 'singletons', stdin: '4', equals: '0.0'},
+      {name: 'spread', stdin: '5', equals: '10.0'},
+      {name: 'zero SSE', stdin: '6', equals: '0.0'},
+      {name: 'exact centers', stdin: '7', equals: '0.0'},
+      {name: 'one off', stdin: '8', equals: '8.0'},
+      {name: 'four+one', stdin: '9', equals: '5.0'},
+    ]}
+  />
+  <CodeExercise
+    title="KM4 · sklearn KMeans"
+    heading="ds-clust-km4"
+    lang="python"
+    filename="main.py"
+    prompt="Fit KMeans(n_clusters=2, n_init=10, random_state=0). Return predict(X_new) as ints."
+    sampleLog={`(input) 0
+[1, 0]`}
+    starter={`from sklearn.cluster import KMeans
+
+def fit_predict(X, X_new):
+    # TODO
+    return [0] * len(X_new)
+`}
+    wrapSuffix={`
+CASES = {
+    "0": {
+        "X": [[0], [1], [2], [8], [9], [10]],
+        "X_new": [[1], [9]],
+    },
+    "1": {
+        "X": [[0], [1], [2], [8], [9], [10]],
+        "X_new": [[0], [10]],
+    },
+    "2": {
+        "X": [[0], [1], [2], [8], [9], [10]],
+        "X_new": [[2], [8]],
+    },
+    "3": {
+        "X": [[0], [1], [2], [8], [9], [10]],
+        "X_new": [[1.5], [9.5]],
+    },
+    "4": {
+        "X": [[-5], [-4], [-3], [10], [11], [12]],
+        "X_new": [[-4], [11]],
+    },
+    "5": {
+        "X": [[0], [0.5], [1], [20], [21], [22]],
+        "X_new": [[0], [21]],
+    },
+    "6": {
+        "X": [[1], [2], [3], [100], [101], [102]],
+        "X_new": [[2], [101]],
+    },
+    "7": {
+        "X": [[0], [1], [2], [3], [50], [51], [52], [53]],
+        "X_new": [[1], [52]],
+    },
+    "8": {
+        "X": [[-10], [-9], [-8], [0], [1], [2]],
+        "X_new": [[-9], [1]],
+    },
+    "9": {
+        "X": [[0], [1], [2], [3], [4], [20]],
+        "X_new": [[2], [20]],
+    },
+}
+c = CASES[input().strip()]
+print(fit_predict(c["X"], c["X_new"]))
+`}
+    solution={`from sklearn.cluster import KMeans
+
+def fit_predict(X, X_new):
+    model = KMeans(n_clusters=2, n_init=10, random_state=0).fit(X)
+    return [int(v) for v in model.predict(X_new)]
+`}
+    sourceChecks={[
+      {name: 'Uses KMeans', pattern: 'KMeans\\(', must: true, hint: 'KMeans(n_clusters=2, n_init=10, random_state=0)'},
+    ]}
+    tests={[
+      {name: '1 and 9', stdin: '0', equals: '[1, 0]'},
+      {name: '0 and 10', stdin: '1', equals: '[1, 0]'},
+      {name: '2 and 8', stdin: '2', equals: '[1, 0]'},
+      {name: '1.5 and 9.5', stdin: '3', equals: '[1, 0]'},
+      {name: 'neg vs high', stdin: '4', equals: '[1, 0]'},
+      {name: 'tight vs far', stdin: '5', equals: '[1, 0]'},
+      {name: 'small vs 100s', stdin: '6', equals: '[1, 0]'},
+      {name: '0–3 vs 50s', stdin: '7', equals: '[1, 0]'},
+      {name: 'neg tens vs 0s', stdin: '8', equals: '[1, 0]'},
+      {name: 'singleton right', stdin: '9', equals: '[0, 1]'},
+    ]}
+  />
+</ExerciseSet>
+
+## Alternatives: hierarchical & density (DBSCAN)
+
+**Hierarchical clustering** starts with each point in its own cluster and repeatedly **merges** the closest pair of clusters (agglomerative), until one cluster remains. The merge history is a **dendrogram**. Useful when $k$ is unclear or you want a multi-resolution view; distance / linkage choices matter.
+
+**Density clustering** (classic: **DBSCAN**) does **not** take $k$ up front. It grows clusters from dense neighborhoods and marks sparse points as **noise / outliers**. Strengths: arbitrary shapes, anomaly detection. Weaknesses: parameter sensitivity (`eps`, `min_samples`), struggles with wildly varying densities.
+
+| Method | You set $k$? | Shapes | Outliers |
+| --- | --- | --- | --- |
+| k-means | Yes | Spherical-ish (Euclidean) | Forced into a cluster |
+| Hierarchical | Cut the tree later | Depends on linkage | Soft — via cut height |
+| DBSCAN | No (infers) | Arbitrary density blobs | Explicit noise label (−1) |
+
+<MultipleChoice
+  id="ds-clust-alt"
+  title="Hierarchical & DBSCAN"
+  questions={[
+    {
+      prompt: 'Hierarchical agglomerative clustering…',
+      choices: [
+        'merges nearest clusters until one remains (dendrogram)',
+        'always requires a neural encoder',
+        'is identical to OLS',
+        'forbids Euclidean distance',
+      ],
+      answer: 0,
+      why: 'Bottom-up merges + dendrogram story.',
+    },
+    {
+      type: 'multi',
+      prompt: 'DBSCAN is often preferred when… (Select all that apply.)',
+      choices: [
+        'You do not want to pick k in advance',
+        'Clusters may be non-spherical',
+        'Outlier detection matters',
+        'You need a probabilistic soft membership like GMM',
+      ],
+      answers: [0, 1, 2],
+      why: 'GMM is the soft / probabilistic cousin — different tool.',
+    },
+    {
+      prompt: 'In sklearn DBSCAN, label −1 usually means…',
+      choices: [
+        'noise / outlier',
+        'the best cluster',
+        'missing feature columns',
+        'k was too large',
+      ],
+      answer: 0,
+      why: 'Points that never join a dense core.',
+    },
+  ]}
+/>
+
+### Practice: DBSCAN labels
+
+<ExerciseSet>
+  <CodeExercise
+    title="DB1 · sklearn DBSCAN"
+    heading="ds-clust-db1"
+    lang="python"
+    filename="main.py"
+    prompt="Fit DBSCAN(eps=0.5, min_samples=2) on X (all cases use these fixed params). Return labels_ as a list of ints (−1 = noise)."
+    sampleLog={`(input) 0
+[0, 0, 0, 1, 1, 1, -1]`}
+    starter={`from sklearn.cluster import DBSCAN
+
+def cluster_labels(X):
+    # TODO
+    return [0] * len(X)
+`}
+    wrapSuffix={`
+# All clouds: DBSCAN(eps=0.5, min_samples=2)
+CASES = {
+    "0": [  # two blobs + isolated noise
+        [0, 0], [0.1, 0.1], [0.2, 0],
+        [5, 5], [5.1, 5], [5, 5.2],
+        [-2, -2],
+    ],
+    "1": [  # one tight blob
+        [0, 0], [0.1, 0], [0, 0.1], [0.1, 0.1],
+    ],
+    "2": [  # three separate blobs
+        [0, 0], [0.1, 0], [0, 0.1],
+        [3, 3], [3.1, 3], [3, 3.1],
+        [6, 0], [6.1, 0], [6, 0.1],
+    ],
+    "3": [  # all noise (points farther than eps)
+        [0, 0], [2, 2], [4, 4], [6, 6],
+    ],
+    "4": [  # one blob + two noise points
+        [0, 0], [0.2, 0], [0, 0.2], [10, 10], [20, 0],
+    ],
+    "5": [  # density chain (neighbors within eps)
+        [0, 0], [0.3, 0], [0.6, 0], [0.9, 0], [1.2, 0],
+    ],
+    "6": [  # two distant pairs
+        [0, 0], [0.1, 0], [10, 10], [10.1, 10],
+    ],
+    "7": [  # L-shaped dense region + small blob
+        [0, 0], [0.2, 0], [0.4, 0], [0, 0.2], [0, 0.4],
+        [5, 5], [5.2, 5],
+    ],
+    "8": [  # three close + one far noise
+        [1, 1], [1.1, 1], [1, 1.1], [8, 8],
+    ],
+    "9": [  # two blobs, sizes 5 and 3
+        [0, 0], [0.1, 0], [0.2, 0], [0, 0.1], [0.1, 0.1],
+        [8, 8], [8.1, 8], [8, 8.1],
+    ],
+}
+print(cluster_labels(CASES[input().strip()]))
+`}
+    solution={`from sklearn.cluster import DBSCAN
+
+def cluster_labels(X):
+    model = DBSCAN(eps=0.5, min_samples=2).fit(X)
+    return [int(v) for v in model.labels_]
+`}
+    sourceChecks={[
+      {name: 'Uses DBSCAN', pattern: 'DBSCAN\\(', must: true, hint: 'DBSCAN(eps=0.5, min_samples=2)'},
+    ]}
+    tests={[
+      {name: 'two blobs + noise', stdin: '0', equals: '[0, 0, 0, 1, 1, 1, -1]'},
+      {name: 'one tight blob', stdin: '1', equals: '[0, 0, 0, 0]'},
+      {name: 'three blobs', stdin: '2', equals: '[0, 0, 0, 1, 1, 1, 2, 2, 2]'},
+      {name: 'all noise', stdin: '3', equals: '[-1, -1, -1, -1]'},
+      {name: 'blob + 2 noise', stdin: '4', equals: '[0, 0, 0, -1, -1]'},
+      {name: 'density chain', stdin: '5', equals: '[0, 0, 0, 0, 0]'},
+      {name: 'two pairs', stdin: '6', equals: '[0, 0, 1, 1]'},
+      {name: 'L + blob', stdin: '7', equals: '[0, 0, 0, 0, 0, 1, 1]'},
+      {name: '3 + noise', stdin: '8', equals: '[0, 0, 0, -1]'},
+      {name: '5 vs 3', stdin: '9', equals: '[0, 0, 0, 0, 0, 1, 1, 1]'},
+    ]}
+  />
+</ExerciseSet>
+
+## Gaussian mixture models (GMM)
+
+A **GMM** models data as a **mixture** of $k$ Gaussians, each with its own mean and covariance, plus mixture weights $\pi_j$. Fitting (usually EM) learns component parameters; each point gets **soft** responsibilities $\gamma_j(x) = P(\text{component }j \mid x)$.
+
+vs k-means:
+
+- k-means → hard assign; only means (equal spherical clusters in the classic view)
+- GMM → soft assign; means **and** variances/covariances → more flexible shapes
+
+Interview frequency: **k-means ≫ GMM**, but GMM shows up for ML-heavy / research loops (e.g. anomaly scoring when a point has low density under all components — think odd TikTok accounts vs typical activity Gaussians).
+
+<FormulaExplorer preset="clustGmm1d" />
+
+<MultipleChoice
+  id="ds-clust-gmm"
+  title="GMM"
+  questions={[
+    {
+      prompt: 'A GMM assumes data come from…',
+      choices: [
+        'a weighted mix of Gaussian components with different means/variances',
+        'a single deterministic centroid only',
+        'a random forest of depth 1',
+        'labels provided for every row',
+      ],
+      answer: 0,
+      why: 'Mixture of normals + mixing weights.',
+    },
+    {
+      type: 'multi',
+      prompt: 'GMM vs k-means — fair contrasts? (Select all that apply.)',
+      choices: [
+        'GMM uses mean and variance/covariance; k-means focuses on means',
+        'GMM yields soft probabilities; k-means hard labels',
+        'GMM is more flexible for elliptical clusters',
+        'GMM never needs you to choose a number of components',
+      ],
+      answers: [0, 1, 2],
+      why: 'You still pick n_components (or select via criteria) — book’s “learn k” is aspirational / model-selection flavored.',
+    },
+    {
+      prompt: 'Soft assignment γⱼ(x) is…',
+      choices: [
+        'the posterior probability that x came from component j',
+        'always exactly 0 or 1',
+        'the learning rate',
+        'the silhouette score',
+      ],
+      answer: 0,
+      why: 'Responsibility / posterior under the mixture.',
+    },
+  ]}
+/>
+
+### Practice: GMM predict
+
+<ExerciseSet>
+  <CodeExercise
+    title="GMM1 · sklearn GaussianMixture"
+    heading="ds-clust-gmm1"
+    lang="python"
+    filename="main.py"
+    prompt="Fit GaussianMixture(n_components=2, random_state=0). Return predict(X_new) as ints."
+    sampleLog={`(input) 0
+[1, 0]`}
+    starter={`from sklearn.mixture import GaussianMixture
+
+def fit_predict(X, X_new):
+    # TODO
+    return [0] * len(X_new)
+`}
+    wrapSuffix={`
+CASES = {
+    "0": {
+        "X": [[0], [0.5], [1], [8], [9], [10]],
+        "X_new": [[0.2], [9]],
+    },
+    "1": {
+        "X": [[0], [0.5], [1], [8], [9], [10]],
+        "X_new": [[1], [8]],
+    },
+    "2": {
+        "X": [[0], [0.5], [1], [8], [9], [10]],
+        "X_new": [[0], [10]],
+    },
+    "3": {
+        "X": [[0], [0.5], [1], [8], [9], [10]],
+        "X_new": [[0.5], [9.5]],
+    },
+    "4": {
+        "X": [[-5], [-4], [-3], [10], [11], [12]],
+        "X_new": [[-4], [11]],
+    },
+    "5": {
+        "X": [[0], [1], [2], [20], [21], [22]],
+        "X_new": [[1], [21]],
+    },
+    "6": {
+        "X": [[0], [0.2], [0.4], [5], [5.2], [5.4]],
+        "X_new": [[0.1], [5.3]],
+    },
+    "7": {
+        "X": [[1], [2], [3], [50], [51], [52]],
+        "X_new": [[2], [51]],
+    },
+    "8": {
+        "X": [[-10], [-9], [-8], [0], [1], [2]],
+        "X_new": [[-9], [1]],
+    },
+    "9": {
+        "X": [[0], [1], [2], [3], [10], [11], [12], [13]],
+        "X_new": [[1], [12]],
+    },
+}
+c = CASES[input().strip()]
+print(fit_predict(c["X"], c["X_new"]))
+`}
+    solution={`from sklearn.mixture import GaussianMixture
+
+def fit_predict(X, X_new):
+    model = GaussianMixture(n_components=2, random_state=0).fit(X)
+    return [int(v) for v in model.predict(X_new)]
+`}
+    sourceChecks={[
+      {name: 'Uses GaussianMixture', pattern: 'GaussianMixture\\(', must: true, hint: 'GaussianMixture(n_components=2, random_state=0)'},
+    ]}
+    tests={[
+      {name: '0.2 and 9', stdin: '0', equals: '[1, 0]'},
+      {name: '1 and 8', stdin: '1', equals: '[1, 0]'},
+      {name: '0 and 10', stdin: '2', equals: '[1, 0]'},
+      {name: '0.5 and 9.5', stdin: '3', equals: '[1, 0]'},
+      {name: 'neg vs high', stdin: '4', equals: '[1, 0]'},
+      {name: '0s vs 20s', stdin: '5', equals: '[1, 0]'},
+      {name: 'tight pair', stdin: '6', equals: '[1, 0]'},
+      {name: '1–3 vs 50s', stdin: '7', equals: '[1, 0]'},
+      {name: 'neg tens vs 0s', stdin: '8', equals: '[1, 0]'},
+      {name: '0–3 vs 10s', stdin: '9', equals: '[1, 0]'},
+    ]}
+  />
+</ExerciseSet>
+
+## Quick synthesis
+
+| Topic | Sound bite |
+| --- | --- |
+| Goal | High intra- / low inter-cluster similarity (unsupervised) |
+| k-means | Assign ↔ update means; minimize SSE; choose $k$ |
+| Hierarchical | Dendrogram of merges; good when $k$ is fuzzy |
+| DBSCAN | Density + noise labels; arbitrary shapes |
+| GMM | Soft mixture of Gaussians; mean + variance |
+
+| Prefer… | When… |
+| --- | --- |
+| k-means | Fast baseline, spherical clumps, known $k$ |
+| Hierarchical | Interpret multi-level structure |
+| DBSCAN | Odd shapes / outlier detection |
+| GMM | Soft membership, elliptical components, anomaly density |
+
+You now have Ace Ch.7’s unsupervised clustering toolkit alongside [dimensionality reduction](./lesson-27-dimensionality-reduction) and the supervised model lessons. Next: [Neural Networks](./lesson-29-neural-networks) — MLPs, backprop, CNN/RNN/LSTM.

@@ -12,6 +12,7 @@ import {
   uniformPdf,
 } from './probMath';
 import {STATS_PRESETS} from './statsPresets';
+import {ML_PRESETS} from './mlPresets';
 
 /**
  * @typedef {{
@@ -41,7 +42,7 @@ export const PRESETS = {
     id: 'bayes',
     title: 'Bayes’ rule',
     subtitle: 'Slide prior and test accuracy — watch prior vs posterior',
-    formula: 'P(A|B) = P(B|A) P(A) / P(B)',
+    formula: '$P(A\\mid B) = \\dfrac{P(B\\mid A)\\,P(A)}{P(B)}$',
     params: [
       {
         key: 'prior',
@@ -110,7 +111,7 @@ export const PRESETS = {
     id: 'totalProb',
     title: 'Law of total probability',
     subtitle: 'Two segments: overall P(A) = Σ P(A|Bᵢ) P(Bᵢ)',
-    formula: 'P(A) = P(A|B₁)P(B₁) + P(A|B₂)P(B₂)',
+    formula: '$P(A) = P(A\\mid B_1)P(B_1) + P(A\\mid B_2)P(B_2)$',
     params: [
       {
         key: 'pB1',
@@ -176,7 +177,7 @@ export const PRESETS = {
     id: 'counting',
     title: 'Permutations vs combinations',
     subtitle: 'Order matters → P(n,k); order does not → C(n,k)',
-    formula: 'P(n,k) = n!/(n−k)!    C(n,k) = n!/(k!(n−k)!)',
+    formula: '$P(n,k) = \\dfrac{n!}{(n-k)!}\\qquad C(n,k) = \\dfrac{n!}{k!(n-k)!}$',
     params: [
       {
         key: 'n',
@@ -238,7 +239,7 @@ export const PRESETS = {
     id: 'discreteCdf',
     title: 'PMF and CDF (Binomial)',
     subtitle: 'Mass at each k vs cumulative F(x) = P(X ≤ x)',
-    formula: 'f(k) = P(X=k)    F(x) = Σ_{k≤x} f(k)',
+    formula: '$f(k) = P(X=k)\\qquad F(x) = \\sum_{k\\le x} f(k)$',
     params: [
       {
         key: 'n',
@@ -309,7 +310,7 @@ export const PRESETS = {
     id: 'jointDiscrete',
     title: 'Joint → marginal',
     subtitle: '2×2 joint masses; margins are row/column sums',
-    formula: 'f_X(x) = Σ_y f(x,y)',
+    formula: '$f_X(x) = \\sum_{y} f(x,y)$',
     params: [
       {
         key: 'p00',
@@ -392,7 +393,7 @@ export const PRESETS = {
     id: 'binomial',
     title: 'Binomial PMF',
     subtitle: 'k successes in n Bernoulli trials with success p',
-    formula: 'P(X=k) = C(n,k) p^k (1−p)^{n−k}',
+    formula: '$P(X=k) = C(n,k)\\,p^k (1-p)^{n-k}$',
     params: [
       {
         key: 'n',
@@ -457,7 +458,7 @@ export const PRESETS = {
     id: 'poisson',
     title: 'Poisson PMF',
     subtitle: 'Event counts at rate λ over a fixed interval',
-    formula: 'P(X=k) = e^{−λ} λ^k / k!',
+    formula: '$P(X=k) = e^{-\\lambda}\\dfrac{\\lambda^k}{k!}$',
     params: [
       {
         key: 'lambda',
@@ -511,7 +512,7 @@ export const PRESETS = {
     id: 'uniform',
     title: 'Uniform PDF',
     subtitle: 'Constant density on [a, b]',
-    formula: 'f(x) = 1/(b−a) on [a,b]',
+    formula: '$f(x) = \\dfrac{1}{b-a}\\quad\\text{on }[a,b]$',
     params: [
       {
         key: 'a',
@@ -579,7 +580,7 @@ export const PRESETS = {
     id: 'exponential',
     title: 'Exponential PDF',
     subtitle: 'Waiting times; memoryless in s and t',
-    formula: 'f(x) = λ e^{−λx}   (x ≥ 0)',
+    formula: '$f(x) = \\lambda e^{-\\lambda x}\\quad (x \\ge 0)$',
     params: [
       {
         key: 'lambda',
@@ -647,7 +648,7 @@ export const PRESETS = {
     id: 'normal',
     title: 'Normal PDF',
     subtitle: 'Bell curve; shade shows approximate P(X ≤ x)',
-    formula: 'f(x) = (1/√(2π)σ) exp(−(x−μ)²/(2σ²))',
+    formula: '$f(x) = \\dfrac{1}{\\sqrt{2\\pi}\\,\\sigma}\\exp\\!\\left(-\\dfrac{(x-\\mu)^2}{2\\sigma^2}\\right)$',
     params: [
       {
         key: 'mu',
@@ -718,7 +719,7 @@ export const PRESETS = {
     id: 'markov2',
     title: '2-state Markov chain',
     subtitle: 'Long-run π from transition probabilities',
-    formula: 'π = πP   (stationary)',
+    formula: '$\\pi = \\pi P\\quad\\text{(stationary)}$',
     params: [
       {
         key: 'p01',
@@ -803,5 +804,5 @@ function factorialSafeRatio(_n, k) {
 }
 
 export function getPreset(id) {
-  return PRESETS[id] || STATS_PRESETS[id] || null;
+  return PRESETS[id] || STATS_PRESETS[id] || ML_PRESETS[id] || null;
 }

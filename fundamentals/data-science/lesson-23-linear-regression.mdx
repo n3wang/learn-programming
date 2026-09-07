@@ -1,0 +1,905 @@
+---
+sidebar_position: 10.6
+title: Linear Regression
+sidebar_label: 'ML - Linear regression'
+---
+
+> **Source:** Concepts adapted from *Ace the Data Science Interview* — Chapter 7 (“Machine Learning”) by Kevin Huo & Nick Singh. Rewritten in original wording for this course. Coding labs use **scikit-learn** / **NumPy** on Piston.
+
+Linear regression is the workhorse continuous-target model in interviews: clear math, readable coefficients, and a gateway to regularization, GLMs, and “why did this coefficient flip sign?” debugging. This lesson covers the model, OLS, assumptions, metrics, multicollinearity, and regularized cousins — plus quizzes, **slider explorers** (same FormulaExplorer pattern as Statistics / Math Behind ML), and **Python coding drills after each topic** (OLS, metrics, sklearn).
+
+:::info Piston ML stack
+The learn-programming Piston runtime installs `scikit-learn` (import as `sklearn`) via `api/src/learn_runtimes.json`, along with NumPy / SciPy / pandas. That same package covers other classical algos later (logistic regression, trees, k-NN, SVM, clustering, pipelines). Restart / re-ensure the API after pulling so pip libs refresh.
+:::
+
+## The model
+
+We model a continuous response as a linear function of features plus noise:
+
+$$
+y = \beta_0 + \beta_1 x_1 + \cdots + \beta_p x_p + \varepsilon
+$$
+
+In matrix form $y = X\beta + \varepsilon$ (with a column of ones in $X$ for the intercept). **Simple** regression has one $x$; **multiple** regression has many.
+
+**Interpretation:** $\beta_j$ is the change in expected $y$ for a one-unit increase in $x_j$, holding other features fixed (ceteris paribus). That “holding fixed” story breaks down under multicollinearity or omitted-variable bias — interview gold.
+
+<FormulaExplorer preset="lrLine" />
+
+<MultipleChoice
+  id="ds-lr-model"
+  title="Linear model basics"
+  questions={[
+    {
+      prompt: 'In ŷ = β₀ + β₁x, β₁ is…',
+      choices: [
+        'always between 0 and 1',
+        'the predicted change in y per one-unit change in x',
+        'the residual variance',
+        'the learning rate',
+      ],
+      answer: 1,
+      why: 'Slope = marginal effect of x on the fitted mean.',
+    },
+    {
+      type: 'multi',
+      prompt: 'Which are true? (Select all that apply.)',
+      choices: [
+        'Simple regression uses one predictor',
+        'Multiple regression uses several predictors',
+        'β₀ is the intercept (fitted y when all x = 0, if that makes sense)',
+        'ε is usually assumed to have mean zero',
+      ],
+      answers: [0, 1, 2, 3],
+      why: 'All are standard OLS modeling statements.',
+    },
+    {
+      type: 'order',
+      prompt: 'Order pieces of y = Xβ + ε (top = first / left).',
+      items: [
+        'ε — residual / noise term',
+        'y — response vector',
+        'Xβ — linear predictor',
+      ],
+      order: [1, 2, 0],
+      why: 'Response equals linear predictor plus noise.',
+    },
+    {
+      prompt: '“Holding other features fixed” when reading βⱼ assumes…',
+      choices: [
+        'features can vary independently enough for that contrast to be meaningful',
+        'R² must be exactly 1',
+        'you never use an intercept',
+        'SGD is required',
+      ],
+      answer: 0,
+      why: 'Collinearity / confounding muddies partial effects.',
+    },
+  ]}
+/>
+
+<NumericQuiz id="ds-lr-predict-compute" title="Compute: predictions & slopes" bank="dsLrPredict" rounds={5} />
+
+## Ordinary least squares (OLS)
+
+OLS chooses $\beta$ to minimize squared residuals:
+
+$$
+\hat\beta = \arg\min_\beta \| y - X\beta \|_2^2
+$$
+
+When $X^{\top}X$ is invertible, the closed form is:
+
+$$
+\hat\beta = (X^{\top}X)^{-1} X^{\top} y
+$$
+
+(Quant / research loops sometimes ask you to derive this via $\nabla_\beta = 0$.) Numerically, libraries use QR / SVD rather than forming $(X^{\top}X)^{-1}$ naively.
+
+Geometrically, $\hat y = X\hat\beta$ is the **projection** of $y$ onto the column space of $X$. Residuals $e = y - \hat y$ are orthogonal to those columns.
+
+<FormulaExplorer preset="lrMseVsSlope" />
+
+<MlLinearRegressionSimulator />
+
+<MultipleChoice
+  id="ds-lr-ols"
+  title="OLS"
+  questions={[
+    {
+      prompt: 'OLS minimizes…',
+      choices: [
+        '∑|y − ŷ| only',
+        '∑(y − ŷ)²',
+        'the number of features',
+        'train/test split size',
+      ],
+      answer: 1,
+      why: 'Squared residual loss.',
+    },
+    {
+      type: 'order',
+      prompt: 'Order the closed-form OLS recipe (top = first).',
+      items: [
+        'Solve β̂ = (XᵀX)⁻¹ Xᵀy (when invertible)',
+        'Form design matrix X (include intercept column if needed)',
+        'Collect response y',
+      ],
+      order: [2, 1, 0],
+      why: 'Data → design → normal equations.',
+    },
+    {
+      type: 'multi',
+      prompt: 'Which statements fit OLS geometry? (Select all that apply.)',
+      choices: [
+        'ŷ is the projection of y onto col(X)',
+        'Residuals are orthogonal to the columns of X',
+        'OLS always exists uniquely even if X has duplicate columns',
+        'Libraries often use QR/SVD instead of explicit (XᵀX)⁻¹',
+      ],
+      answers: [0, 1, 3],
+      why: 'Rank-deficient X → non-unique / unstable β̂.',
+    },
+    {
+      prompt: 'If two features are perfect copies, XᵀX is…',
+      choices: [
+        'guaranteed orthogonal',
+        'singular (not invertible)',
+        'always diagonal with 1s',
+        'irrelevant to OLS',
+      ],
+      answer: 1,
+      why: 'Linear dependence → singular Gram matrix.',
+    },
+  ]}
+/>
+
+### Practice: OLS
+
+NumPy / pure Python — easy → hard. After **Check**, compare **Expected** vs **Received** in the results table.
+
+<ExerciseSet>
+  <CodeExercise
+    title="OLS1 · Residuals"
+    heading="ds-lr-ols-residuals"
+    lang="python"
+    filename="main.py"
+    prompt="Return residuals e = y − ŷ as a list of floats rounded to 2 decimals."
+    sampleLog={`(input) 0
+[0.0, 1.0, 1.0]`}
+    starter={`def residuals(y, yhat):
+    # TODO: e_i = y_i - yhat_i
+    return [0.0] * len(y)
+`}
+    wrapSuffix={`
+CASES = {
+    "0": {"y": [1.0, 3.0, 5.0], "yhat": [1.0, 2.0, 4.0]},
+    "1": {"y": [2.0, 2.0, 2.0], "yhat": [1.0, 2.0, 3.0]},
+    "2": {"y": [0.0, -1.0, 4.5], "yhat": [0.5, -1.0, 4.0]},
+    "3": {"y": [10.0], "yhat": [7.0]},
+    "4": {"y": [0.0, 0.0], "yhat": [0.0, 0.0]},
+    "5": {"y": [-2.0, -4.0], "yhat": [1.0, -1.0]},
+    "6": {"y": [1.25, 2.5], "yhat": [1.0, 2.0]},
+    "7": {"y": [5.0, 5.0, 5.0, 5.0], "yhat": [4.0, 5.0, 6.0, 5.0]},
+    "8": {"y": [100.0, -100.0], "yhat": [99.5, -99.5]},
+    "9": {"y": [3.0, 0.0, -3.0], "yhat": [0.0, 0.0, 0.0]},
+}
+c = CASES[input().strip()]
+print(residuals(c["y"], c["yhat"]))
+`}
+    solution={`def residuals(y, yhat):
+    return [round(a - b, 2) for a, b in zip(y, yhat)]
+`}
+    tests={[
+      {name: 'basic', stdin: '0', equals: '[0.0, 1.0, 1.0]'},
+      {name: 'signed', stdin: '1', equals: '[1.0, 0.0, -1.0]'},
+      {name: 'decimals', stdin: '2', equals: '[-0.5, 0.0, 0.5]'},
+      {name: 'single', stdin: '3', equals: '[3.0]'},
+      {name: 'zeros', stdin: '4', equals: '[0.0, 0.0]'},
+      {name: 'negatives', stdin: '5', equals: '[-3.0, -3.0]'},
+      {name: 'frac', stdin: '6', equals: '[0.25, 0.5]'},
+      {name: 'four', stdin: '7', equals: '[1.0, 0.0, -1.0, 0.0]'},
+      {name: 'large', stdin: '8', equals: '[0.5, -0.5]'},
+      {name: 'mean zero', stdin: '9', equals: '[3.0, 0.0, -3.0]'},
+    ]}
+  />
+  <CodeExercise
+    title="OLS2 · Predict from β"
+    heading="ds-lr-ols-predict-beta"
+    lang="python"
+    filename="main.py"
+    prompt="beta[0] is the intercept; beta[1:] are slopes. Return ŷ = β₀ + Xβ for each row of X, rounded to 2 decimals."
+    sampleLog={`(input) 0
+[1.0, 3.0, 5.0]`}
+    starter={`def predict_from_beta(beta, X):
+    # TODO: ŷ = β0 + row · β[1:]
+    return [0.0] * len(X)
+`}
+    wrapSuffix={`
+CASES = {
+    "0": {"beta": [1.0, 2.0], "X": [[0.0], [1.0], [2.0]]},
+    "1": {"beta": [1.0, 1.0, 2.0], "X": [[2.0, 1.0], [3.0, 2.0]]},
+    "2": {"beta": [0.0, -1.0, 0.5], "X": [[2.0, 4.0], [0.0, 0.0], [1.0, 2.0]]},
+    "3": {"beta": [5.0], "X": [[], []]},
+    "4": {"beta": [0.0, 1.0], "X": [[-2.0], [3.5]]},
+    "5": {"beta": [-1.0, 0.0, 0.0], "X": [[9.0, 9.0], [1.0, 2.0]]},
+    "6": {"beta": [2.0, 0.5, -0.5, 1.0], "X": [[2.0, 2.0, 1.0]]},
+    "7": {"beta": [10.0, -2.0], "X": [[0.0], [5.0], [10.0]]},
+    "8": {"beta": [0.25, 0.25], "X": [[0.0], [4.0]]},
+    "9": {"beta": [1.0, 2.0, 3.0], "X": [[0.0, 0.0], [1.0, -1.0], [2.0, 2.0]]},
+}
+c = CASES[input().strip()]
+print(predict_from_beta(c["beta"], c["X"]))
+`}
+    solution={`def predict_from_beta(beta, X):
+    b0 = beta[0]
+    slopes = beta[1:]
+    out = []
+    for row in X:
+        s = b0 + sum(b * x for b, x in zip(slopes, row))
+        out.append(round(s, 2))
+    return out
+`}
+    tests={[
+      {name: 'simple 1+2x', stdin: '0', equals: '[1.0, 3.0, 5.0]'},
+      {name: 'two features', stdin: '1', equals: '[5.0, 8.0]'},
+      {name: 'neg slope', stdin: '2', equals: '[0.0, 0.0, 0.0]'},
+      {name: 'intercept only', stdin: '3', equals: '[5.0, 5.0]'},
+      {name: 'neg x', stdin: '4', equals: '[-2.0, 3.5]'},
+      {name: 'zero slopes', stdin: '5', equals: '[-1.0, -1.0]'},
+      {name: '3 features', stdin: '6', equals: '[3.0]'},
+      {name: 'downhill', stdin: '7', equals: '[10.0, 0.0, -10.0]'},
+      {name: 'frac', stdin: '8', equals: '[0.25, 1.25]'},
+      {name: '2f mixed', stdin: '9', equals: '[1.0, 0.0, 11.0]'},
+    ]}
+  />
+  <CodeExercise
+    title="OLS3 · Normal equations (β̂)"
+    heading="ds-lr-ols-normal"
+    lang="python"
+    filename="main.py"
+    prompt="X is n×p without intercept. Add a ones column, solve β̂ via (XᵀX)⁻¹Xᵀy (use numpy.linalg.solve). Return β̂ rounded to 2 decimals (intercept first)."
+    sampleLog={`(input) 0
+[1.0, 2.0]`}
+    starter={`import numpy as np
+
+def ols_beta(X, y):
+    # TODO: add intercept column; solve normal equations
+    return [0.0]
+`}
+    wrapSuffix={`
+CASES = {
+    "0": {"X": [[0.0], [1.0], [2.0], [3.0]], "y": [1.0, 3.0, 5.0, 7.0]},
+    "1": {"X": [[1.0, 0.0], [2.0, 1.0], [3.0, 1.0], [4.0, 2.0]], "y": [2.0, 5.0, 6.0, 9.0]},
+    "2": {"X": [[2.0], [4.0], [6.0], [8.0]], "y": [3.0, 5.0, 7.0, 9.0]},
+    "3": {"X": [[-1.0], [0.0], [1.0]], "y": [1.0, 0.0, -1.0]},
+    "4": {"X": [[1.0], [2.0], [3.0]], "y": [2.0, 2.0, 2.0]},
+    "5": {"X": [[0.0], [1.0], [2.0], [3.0], [4.0]], "y": [0.0, 1.0, 4.0, 9.0, 16.0]},
+    "6": {"X": [[1.0, 1.0], [2.0, 0.0], [3.0, 1.0], [4.0, 0.0]], "y": [3.0, 2.0, 5.0, 4.0]},
+    "7": {"X": [[1.0], [2.0], [3.0], [4.0]], "y": [10.0, 10.0, 10.0, 10.0]},
+    "8": {"X": [[-2.0], [-1.0], [0.0], [1.0], [2.0]], "y": [-4.0, -1.0, 0.0, 1.0, 4.0]},
+    "9": {"X": [[0.0, 0.0], [1.0, 1.0], [2.0, 2.0], [3.0, 1.0]], "y": [1.0, 3.0, 5.0, 4.0]},
+}
+c = CASES[input().strip()]
+print(ols_beta(c["X"], c["y"]))
+`}
+    solution={`import numpy as np
+
+def ols_beta(X, y):
+    X = np.asarray(X, dtype=float)
+    y = np.asarray(y, dtype=float)
+    Xd = np.hstack([np.ones((X.shape[0], 1)), X])
+    beta = np.linalg.solve(Xd.T @ Xd, Xd.T @ y)
+    out = []
+    for v in beta:
+        r = round(float(v), 2)
+        out.append(0.0 if r == 0 else r)
+    return out
+`}
+    sourceChecks={[
+      {name: 'Uses numpy', pattern: 'numpy|np\\.', must: true, hint: 'import numpy as np'},
+      {name: 'No sklearn LinearRegression', pattern: 'LinearRegression', must: false, hint: 'solve normal equations yourself'},
+    ]}
+    tests={[
+      {name: 'y=1+2x', stdin: '0', equals: '[1.0, 2.0]'},
+      {name: 'two features', stdin: '1', equals: '[1.0, 1.0, 2.0]'},
+      {name: 'y=1+x', stdin: '2', equals: '[1.0, 1.0]'},
+      {name: 'neg slope', stdin: '3', equals: '[0.0, -1.0]'},
+      {name: 'flat', stdin: '4', equals: '[2.0, 0.0]'},
+      {name: 'quadratic-looking', stdin: '5', equals: '[-2.0, 4.0]'},
+      {name: '2f alt', stdin: '6', equals: '[0.0, 1.0, 2.0]'},
+      {name: 'flat y', stdin: '7', equals: '[10.0, 0.0]'},
+      {name: 'odd', stdin: '8', equals: '[0.0, 1.8]'},
+      {name: '2f mixed', stdin: '9', equals: '[1.0, 0.5, 1.5]'},
+    ]}
+  />
+  <CodeExercise
+    title="OLS4 · Fit then predict (NumPy OLS)"
+    heading="ds-lr-ols-fit-predict"
+    lang="python"
+    filename="main.py"
+    prompt="Fit OLS with normal equations (intercept included). Return predictions on X_new as floats rounded to 2 decimals. No sklearn."
+    sampleLog={`(input) 0
+[3.0, 5.0]`}
+    starter={`import numpy as np
+
+def ols_fit_predict(X, y, X_new):
+    # TODO: fit OLS on X,y; predict X_new
+    return [0.0] * len(X_new)
+`}
+    wrapSuffix={`
+CASES = {
+    "0": {"X": [[0.0], [1.0], [2.0], [3.0]], "y": [1.0, 3.0, 5.0, 7.0], "X_new": [[1.0], [2.0]]},
+    "1": {"X": [[1.0, 0.0], [2.0, 1.0], [3.0, 1.0], [4.0, 2.0]], "y": [2.0, 5.0, 6.0, 9.0], "X_new": [[2.0, 1.0], [3.0, 2.0]]},
+    "2": {"X": [[1.0], [2.0], [3.0]], "y": [2.0, 2.0, 2.0], "X_new": [[0.0], [10.0]]},
+    "3": {"X": [[-2.0], [-1.0], [0.0], [1.0], [2.0]], "y": [4.0, 1.0, 0.0, 1.0, 4.0], "X_new": [[0.0], [3.0]]},
+    "4": {"X": [[0.0], [1.0], [2.0]], "y": [0.0, -1.0, -2.0], "X_new": [[3.0], [-1.0]]},
+    "5": {"X": [[1.0, 2.0], [2.0, 1.0], [3.0, 3.0], [4.0, 0.0]], "y": [5.0, 4.0, 9.0, 4.0], "X_new": [[2.0, 2.0], [1.0, 1.0]]},
+    "6": {"X": [[2.0], [4.0], [6.0], [8.0]], "y": [3.0, 5.0, 7.0, 9.0], "X_new": [[0.0], [10.0]]},
+    "7": {"X": [[1.0], [2.0], [3.0], [4.0]], "y": [7.0, 7.0, 7.0, 7.0], "X_new": [[0.0], [5.0]]},
+    "8": {"X": [[0.0, 1.0], [1.0, 0.0], [1.0, 1.0], [2.0, 2.0]], "y": [1.0, 1.0, 2.0, 4.0], "X_new": [[3.0, 3.0], [0.0, 0.0]]},
+    "9": {"X": [[-1.0], [0.0], [1.0], [2.0]], "y": [2.0, 1.0, 0.0, -1.0], "X_new": [[3.0], [-2.0]]},
+}
+c = CASES[input().strip()]
+print(ols_fit_predict(c["X"], c["y"], c["X_new"]))
+`}
+    solution={`import numpy as np
+
+def ols_fit_predict(X, y, X_new):
+    X = np.asarray(X, dtype=float)
+    y = np.asarray(y, dtype=float)
+    Xn = np.asarray(X_new, dtype=float)
+    Xd = np.hstack([np.ones((X.shape[0], 1)), X])
+    beta = np.linalg.solve(Xd.T @ Xd, Xd.T @ y)
+    Xnd = np.hstack([np.ones((Xn.shape[0], 1)), Xn])
+    return [round(float(v), 2) for v in Xnd @ beta]
+`}
+    sourceChecks={[
+      {name: 'Uses numpy', pattern: 'numpy|np\\.', must: true, hint: 'import numpy as np'},
+      {name: 'No sklearn', pattern: 'sklearn|LinearRegression', must: false, hint: 'NumPy OLS only'},
+    ]}
+    tests={[
+      {name: 'line 1+2x', stdin: '0', equals: '[3.0, 5.0]'},
+      {name: 'two features', stdin: '1', equals: '[5.0, 8.0]'},
+      {name: 'flat y', stdin: '2', equals: '[2.0, 2.0]'},
+      {name: 'quadratic-looking', stdin: '3', equals: '[2.0, 2.0]'},
+      {name: 'neg line', stdin: '4', equals: '[-3.0, 1.0]'},
+      {name: '2f', stdin: '5', equals: '[6.0, 3.0]'},
+      {name: 'y=1+x', stdin: '6', equals: '[1.0, 11.0]'},
+      {name: 'flat y2', stdin: '7', equals: '[7.0, 7.0]'},
+      {name: '2f ones', stdin: '8', equals: '[6.0, 0.0]'},
+      {name: 'neg slope', stdin: '9', equals: '[-2.0, 3.0]'},
+    ]}
+  />
+</ExerciseSet>
+
+## Assumptions (interview checklist)
+
+Classic “LINE”-style assumptions for inference / BLUE-style stories:
+
+1. **Linearity** — $E[y \mid X]$ is linear in the parameters (or transform features)
+2. **Independence** — errors independent (watch time series / clustered data)
+3. **Homoscedasticity** — constant error variance (else WLS / robust SEs)
+4. **Normality of errors** — mainly for exact $t$/$F$ inference; prediction can still work without it
+5. **No perfect multicollinearity** — full column rank
+6. **Exogeneity** — errors uncorrelated with predictors (causal claims need more)
+
+Interviewers love: name the assumptions, say what breaks, and what you do (plots, transforms, robust methods, different model).
+
+<MultipleChoice
+  id="ds-lr-assumptions"
+  title="Assumptions"
+  questions={[
+    {
+      prompt: 'Homoscedasticity means…',
+      choices: [
+        'errors have constant variance',
+        'features are orthogonal',
+        'R² = 1',
+        'β̂ = 0',
+      ],
+      answer: 0,
+      why: 'Same Var(ε) across x.',
+    },
+    {
+      type: 'multi',
+      prompt: 'Which belong on an OLS assumption checklist? (Select all that apply.)',
+      choices: [
+        'Linearity in parameters',
+        'Independent errors (or known dependence structure)',
+        'No perfect multicollinearity',
+        'The learning rate must be 0.01',
+      ],
+      answers: [0, 1, 2],
+      why: 'Learning rate is an optimizer hparam, not an OLS assumption.',
+    },
+    {
+      type: 'order',
+      prompt: 'Order a practical residual-check workflow (top = first).',
+      items: [
+        'Decide on transform / WLS / different model if patterns appear',
+        'Fit OLS and compute residuals',
+        'Plot residuals vs fitted (and vs key x)',
+      ],
+      order: [1, 2, 0],
+      why: 'Fit → diagnose → remediate.',
+    },
+    {
+      prompt: 'Normality of residuals matters most for…',
+      choices: [
+        'exact classical t/F inference',
+        'whether NumPy can multiply matrices',
+        'the definition of MSE',
+        'forcing R² > 0.9',
+      ],
+      answer: 0,
+      why: 'Point estimates can exist without Normal errors.',
+    },
+  ]}
+/>
+
+## Fit metrics
+
+| Metric | Formula idea | Notes |
+| --- | --- | --- |
+| **MSE** | $\frac{1}{n}\sum e_i^2$ | Same units² as $y$ |
+| **RMSE** | $\sqrt{\mathrm{MSE}}$ | Same units as $y$ |
+| **MAE** | $\frac{1}{n}\sum \|e_i\|$ | More robust to outliers than MSE |
+| **R²** | $1 - \mathrm{SS_{res}}/\mathrm{SS_{tot}}$ | Fraction of variance “explained”; can mislead |
+
+Always compare metrics on **held-out** data (or CV). High train R² + weak test R² → overfit.
+
+<FormulaExplorer preset="lrR2Demo" />
+
+<MultipleChoice
+  id="ds-lr-metrics"
+  title="Regression metrics"
+  questions={[
+    {
+      prompt: 'RMSE relates to MSE by…',
+      choices: ['RMSE = MSE²', 'RMSE = √MSE', 'RMSE = 1 − MSE', 'RMSE = MSE / n'],
+      answer: 1,
+      why: 'Root mean squared error.',
+    },
+    {
+      type: 'multi',
+      prompt: 'Which are true? (Select all that apply.)',
+      choices: [
+        'R² = 1 − SS_res/SS_tot',
+        'MAE uses absolute residuals',
+        'Train R² alone proves good generalization',
+        'RMSE is in the same units as y',
+      ],
+      answers: [0, 1, 3],
+      why: 'Always validate out of sample.',
+    },
+    {
+      type: 'order',
+      prompt: 'Order from “same units as y” metrics first, then unitless R² (top = first).',
+      items: [
+        'R²',
+        'RMSE',
+        'MAE',
+      ],
+      order: [1, 2, 0],
+      why: 'RMSE and MAE share y’s units; R² is scale-free.',
+    },
+    {
+      prompt: 'SS_res is…',
+      choices: [
+        '∑(y − ȳ)²',
+        '∑(y − ŷ)²',
+        '∑ŷ only',
+        'det(XᵀX)',
+      ],
+      answer: 1,
+      why: 'Residual sum of squares.',
+    },
+  ]}
+/>
+
+<NumericQuiz id="ds-lr-metrics-compute" title="Compute: MSE, RMSE, R²" bank="dsLrMetrics" rounds={5} />
+
+### Practice: fit metrics
+
+Implement MAE, MSE/RMSE, R², then the full pack — easy → hard.
+
+<ExerciseSet>
+  <CodeExercise
+    title="MET1 · MAE"
+    heading="ds-lr-met-mae"
+    lang="python"
+    filename="main.py"
+    prompt="Return MAE = (1/n)∑|y − ŷ| rounded to 2 decimals."
+    sampleLog={`(input) 0
+0.0`}
+    starter={`def mae(y_true, y_pred):
+    # TODO
+    raise NotImplementedError
+`}
+    wrapSuffix={`
+CASES = {
+    "0": {"y": [1.0, 2.0, 3.0], "p": [1.0, 2.0, 3.0]},
+    "1": {"y": [1.0, 2.0, 3.0, 4.0], "p": [1.0, 2.0, 2.0, 5.0]},
+    "2": {"y": [1.0, 3.0, 5.0], "p": [2.0, 3.0, 4.0]},
+    "3": {"y": [10.0, 20.0, 30.0], "p": [12.0, 18.0, 33.0]},
+    "4": {"y": [0.0], "p": [0.0]},
+    "5": {"y": [-1.0, -2.0], "p": [1.0, 0.0]},
+    "6": {"y": [5.0, 5.0, 5.0], "p": [5.0, 5.0, 8.0]},
+    "7": {"y": [1.5, 2.5, 3.5], "p": [1.0, 2.0, 3.0]},
+    "8": {"y": [100.0, 0.0], "p": [50.0, 50.0]},
+    "9": {"y": [2.0, 4.0, 6.0, 8.0], "p": [2.0, 4.0, 6.0, 8.0]},
+}
+c = CASES[input().strip()]
+print(mae(c["y"], c["p"]))
+`}
+    solution={`def mae(y_true, y_pred):
+    n = len(y_true)
+    return round(sum(abs(a - b) for a, b in zip(y_true, y_pred)) / n, 2)
+`}
+    tests={[
+      {name: 'perfect', stdin: '0', equals: '0.0'},
+      {name: 'partial', stdin: '1', equals: '0.5'},
+      {name: 'shift', stdin: '2', equals: '0.67'},
+      {name: 'larger', stdin: '3', equals: '2.33'},
+      {name: 'single zero', stdin: '4', equals: '0.0'},
+      {name: 'negatives', stdin: '5', equals: '2.0'},
+      {name: 'one miss', stdin: '6', equals: '1.0'},
+      {name: 'halves', stdin: '7', equals: '0.5'},
+      {name: 'big err', stdin: '8', equals: '50.0'},
+      {name: 'perfect4', stdin: '9', equals: '0.0'},
+    ]}
+  />
+  <CodeExercise
+    title="MET2 · MSE and RMSE"
+    heading="ds-lr-met-mse-rmse"
+    lang="python"
+    filename="main.py"
+    prompt="Return (mse, rmse) each rounded to 2 decimals. RMSE = √MSE."
+    sampleLog={`(input) 0
+(0.0, 0.0)`}
+    starter={`def mse_rmse(y_true, y_pred):
+    # TODO: return (round(mse, 2), round(rmse, 2))
+    raise NotImplementedError
+`}
+    wrapSuffix={`
+CASES = {
+    "0": {"y": [1.0, 2.0, 3.0], "p": [1.0, 2.0, 3.0]},
+    "1": {"y": [1.0, 2.0, 3.0, 4.0], "p": [1.0, 2.0, 2.0, 5.0]},
+    "2": {"y": [1.0, 3.0, 5.0], "p": [2.0, 3.0, 4.0]},
+    "3": {"y": [10.0, 20.0, 30.0], "p": [12.0, 18.0, 33.0]},
+    "4": {"y": [0.0], "p": [0.0]},
+    "5": {"y": [-1.0, -2.0], "p": [1.0, 0.0]},
+    "6": {"y": [5.0, 5.0, 5.0], "p": [5.0, 5.0, 8.0]},
+    "7": {"y": [1.5, 2.5, 3.5], "p": [1.0, 2.0, 3.0]},
+    "8": {"y": [100.0, 0.0], "p": [50.0, 50.0]},
+    "9": {"y": [2.0, 4.0, 6.0, 8.0], "p": [2.0, 4.0, 6.0, 8.0]},
+}
+c = CASES[input().strip()]
+print(mse_rmse(c["y"], c["p"]))
+`}
+    solution={`def mse_rmse(y_true, y_pred):
+    n = len(y_true)
+    mse = sum((a - b) ** 2 for a, b in zip(y_true, y_pred)) / n
+    rmse = mse ** 0.5
+    return (round(mse, 2), round(rmse, 2))
+`}
+    tests={[
+      {name: 'perfect', stdin: '0', equals: '(0.0, 0.0)'},
+      {name: 'partial', stdin: '1', equals: '(0.5, 0.71)'},
+      {name: 'shift', stdin: '2', equals: '(0.67, 0.82)'},
+      {name: 'larger', stdin: '3', equals: '(5.67, 2.38)'},
+      {name: 'single zero', stdin: '4', equals: '(0.0, 0.0)'},
+      {name: 'negatives', stdin: '5', equals: '(4.0, 2.0)'},
+      {name: 'one miss', stdin: '6', equals: '(3.0, 1.73)'},
+      {name: 'halves', stdin: '7', equals: '(0.25, 0.5)'},
+      {name: 'big err', stdin: '8', equals: '(2500.0, 50.0)'},
+      {name: 'perfect4', stdin: '9', equals: '(0.0, 0.0)'},
+    ]}
+  />
+  <CodeExercise
+    title="MET3 · R²"
+    heading="ds-lr-met-r2"
+    lang="python"
+    filename="main.py"
+    prompt="Return R² = 1 − SS_res/SS_tot rounded to 2 decimals. If SS_tot = 0, return 1.0."
+    sampleLog={`(input) 0
+1.0`}
+    starter={`def r2_score(y_true, y_pred):
+    # TODO
+    return 0.0
+`}
+    wrapSuffix={`
+CASES = {
+    "0": {"y": [1.0, 2.0, 3.0], "p": [1.0, 2.0, 3.0]},
+    "1": {"y": [1.0, 2.0, 3.0, 4.0], "p": [1.0, 2.0, 2.0, 5.0]},
+    "2": {"y": [1.0, 3.0, 5.0], "p": [2.0, 3.0, 4.0]},
+    "3": {"y": [10.0, 20.0, 30.0], "p": [12.0, 18.0, 33.0]},
+    "4": {"y": [5.0, 5.0, 5.0], "p": [5.0, 5.0, 5.0]},
+    "5": {"y": [1.0, 2.0, 3.0], "p": [3.0, 2.0, 1.0]},
+    "6": {"y": [0.0, 0.0, 0.0], "p": [1.0, 1.0, 1.0]},
+    "7": {"y": [2.0, 4.0, 6.0], "p": [2.0, 4.0, 8.0]},
+    "8": {"y": [-2.0, 0.0, 2.0], "p": [-1.0, 0.0, 1.0]},
+    "9": {"y": [10.0, 20.0], "p": [0.0, 0.0]},
+}
+c = CASES[input().strip()]
+print(r2_score(c["y"], c["p"]))
+`}
+    solution={`def r2_score(y_true, y_pred):
+    n = len(y_true)
+    ybar = sum(y_true) / n
+    ss_tot = sum((a - ybar) ** 2 for a in y_true)
+    ss_res = sum((a - b) ** 2 for a, b in zip(y_true, y_pred))
+    if ss_tot == 0:
+        return 1.0
+    return round(1 - ss_res / ss_tot, 2)
+`}
+    sourceChecks={[
+      {name: 'No sklearn r2_score', pattern: 'sklearn\\.metrics|from sklearn', must: false, hint: 'implement R² yourself'},
+    ]}
+    tests={[
+      {name: 'perfect', stdin: '0', equals: '1.0'},
+      {name: 'partial', stdin: '1', equals: '0.6'},
+      {name: 'shift', stdin: '2', equals: '0.75'},
+      {name: 'larger', stdin: '3', equals: '0.92'},
+      {name: 'ss_tot0', stdin: '4', equals: '1.0'},
+      {name: 'reversed', stdin: '5', equals: '-3.0'},
+      {name: 'const y bad p', stdin: '6', equals: '1.0'},
+      {name: 'one miss', stdin: '7', equals: '0.5'},
+      {name: 'scaled', stdin: '8', equals: '0.75'},
+      {name: 'mean pred', stdin: '9', equals: '-9.0'},
+    ]}
+  />
+  <CodeExercise
+    title="MET4 · Metrics pack"
+    heading="ds-lr-met-pack"
+    lang="python"
+    filename="main.py"
+    prompt="Return (mae, mse, rmse, r2) each rounded to 2 decimals. Same formulas as MET1–MET3."
+    sampleLog={`(input) 1
+(0.5, 0.5, 0.71, 0.6)`}
+    starter={`def metrics_pack(y_true, y_pred):
+    # TODO: return (mae, mse, rmse, r2) rounded to 2 decimals
+    return (0.0, 0.0, 0.0, 0.0)
+`}
+    wrapSuffix={`
+CASES = {
+    "0": {"y": [1.0, 2.0, 3.0], "p": [1.0, 2.0, 3.0]},
+    "1": {"y": [1.0, 2.0, 3.0, 4.0], "p": [1.0, 2.0, 2.0, 5.0]},
+    "2": {"y": [1.0, 3.0, 5.0], "p": [2.0, 3.0, 4.0]},
+    "3": {"y": [10.0, 20.0, 30.0], "p": [12.0, 18.0, 33.0]},
+    "4": {"y": [5.0, 5.0, 5.0], "p": [5.0, 5.0, 5.0]},
+    "5": {"y": [-1.0, -2.0], "p": [1.0, 0.0]},
+    "6": {"y": [5.0, 5.0, 5.0], "p": [5.0, 5.0, 8.0]},
+    "7": {"y": [1.5, 2.5, 3.5], "p": [1.0, 2.0, 3.0]},
+    "8": {"y": [100.0, 0.0], "p": [50.0, 50.0]},
+    "9": {"y": [2.0, 4.0, 6.0], "p": [2.0, 4.0, 8.0]},
+}
+c = CASES[input().strip()]
+print(metrics_pack(c["y"], c["p"]))
+`}
+    solution={`def metrics_pack(y_true, y_pred):
+    n = len(y_true)
+    mae = sum(abs(a - b) for a, b in zip(y_true, y_pred)) / n
+    mse = sum((a - b) ** 2 for a, b in zip(y_true, y_pred)) / n
+    rmse = mse ** 0.5
+    ybar = sum(y_true) / n
+    ss_tot = sum((a - ybar) ** 2 for a in y_true)
+    ss_res = sum((a - b) ** 2 for a, b in zip(y_true, y_pred))
+    r2 = 1.0 if ss_tot == 0 else 1 - ss_res / ss_tot
+    return (round(mae, 2), round(mse, 2), round(rmse, 2), round(r2, 2))
+`}
+    sourceChecks={[
+      {name: 'No sklearn metrics', pattern: 'sklearn\\.metrics|mean_squared_error|r2_score|mean_absolute_error', must: false, hint: 'implement metrics yourself'},
+    ]}
+    tests={[
+      {name: 'perfect', stdin: '0', equals: '(0.0, 0.0, 0.0, 1.0)'},
+      {name: 'partial', stdin: '1', equals: '(0.5, 0.5, 0.71, 0.6)'},
+      {name: 'shift', stdin: '2', equals: '(0.67, 0.67, 0.82, 0.75)'},
+      {name: 'larger', stdin: '3', equals: '(2.33, 5.67, 2.38, 0.92)'},
+      {name: 'const perfect', stdin: '4', equals: '(0.0, 0.0, 0.0, 1.0)'},
+      {name: 'negatives', stdin: '5', equals: '(2.0, 4.0, 2.0, -15.0)'},
+      {name: 'one miss', stdin: '6', equals: '(1.0, 3.0, 1.73, 1.0)'},
+      {name: 'halves', stdin: '7', equals: '(0.5, 0.25, 0.5, 0.62)'},
+      {name: 'big err', stdin: '8', equals: '(50.0, 2500.0, 50.0, 0.0)'},
+      {name: 'one miss2', stdin: '9', equals: '(0.67, 1.33, 1.15, 0.5)'},
+    ]}
+  />
+</ExerciseSet>
+
+
+## Multicollinearity and regularization
+
+**Multicollinearity:** predictors move together → unstable, hard-to-interpret $\beta$s (large SEs, sign flips). Checks: correlation matrix, VIFs, condition number. Fixes: drop / combine features, domain constraints, **ridge**.
+
+**Ridge (L2)** and **lasso (L1)** add penalties (see [Math Behind ML](./lesson-22-math-behind-ml)): shrink coefficients; lasso can zero some out. Use when $p$ is large, features correlated, or you want sparsity.
+
+<FormulaExplorer preset="mlRidgeShrink" />
+
+<MultipleChoice
+  id="ds-lr-multi-reg"
+  title="Multicollinearity & regularized regression"
+  questions={[
+    {
+      prompt: 'Strong multicollinearity typically…',
+      choices: [
+        'makes coefficients more stable and easier to interpret',
+        'inflates coefficient variance and muddies partial effects',
+        'guarantees R² = 0',
+        'removes the need for a test set',
+      ],
+      answer: 1,
+      why: 'Near-collinear columns → ill-conditioned XᵀX.',
+    },
+    {
+      type: 'multi',
+      prompt: 'Reasonable responses to multicollinearity? (Select all that apply.)',
+      choices: [
+        'Drop or combine redundant features',
+        'Try ridge regularization',
+        'Ignore huge standard errors on β',
+        'Check VIFs / correlations',
+      ],
+      answers: [0, 1, 3],
+      why: 'Diagnose and shrink / reduce redundancy.',
+    },
+    {
+      type: 'order',
+      prompt: 'Order from “no penalty” → “can zero coefficients” (top = first).',
+      items: [
+        'Lasso (L1)',
+        'OLS',
+        'Ridge (L2)',
+      ],
+      order: [1, 2, 0],
+      why: 'OLS → ridge shrinks → lasso sparsifies.',
+    },
+    {
+      prompt: 'sklearn’s LinearRegression fits…',
+      choices: [
+        'unpenalized least squares (OLS)',
+        'only neural nets',
+        'k-means clustering',
+        'PageRank',
+      ],
+      answer: 0,
+      why: 'Use Ridge / Lasso classes for penalties.',
+    },
+  ]}
+/>
+
+### Practice: scikit-learn
+
+Use the Piston `sklearn` stack for fit/predict and a ridge shrink check.
+
+<ExerciseSet>
+  <CodeExercise
+    title="SK1 · LinearRegression fit/predict"
+    heading="ds-lr-sk-fit"
+    lang="python"
+    filename="main.py"
+    prompt="Fit sklearn LinearRegression on X,y. Return predictions for X_new as floats rounded to 2 decimals."
+    sampleLog={`(input) 0
+[3.0, 5.0]`}
+    starter={`from sklearn.linear_model import LinearRegression
+
+def fit_predict(X, y, X_new):
+    # TODO
+    return [0.0] * len(X_new)
+`}
+    wrapSuffix={`
+CASES = {
+    "0": {"X": [[0.0], [1.0], [2.0], [3.0]], "y": [1.0, 3.0, 5.0, 7.0], "X_new": [[1.0], [2.0]]},
+    "1": {"X": [[1.0, 0.0], [2.0, 1.0], [3.0, 1.0], [4.0, 2.0]], "y": [2.0, 5.0, 6.0, 9.0], "X_new": [[2.0, 1.0], [3.0, 2.0]]},
+    "2": {"X": [[1.0], [2.0], [3.0]], "y": [2.0, 2.0, 2.0], "X_new": [[0.0], [5.0]]},
+    "3": {"X": [[0.0], [1.0], [2.0]], "y": [0.0, -1.0, -2.0], "X_new": [[3.0], [-1.0]]},
+    "4": {"X": [[1.0, 1.0], [2.0, 0.0], [3.0, 1.0], [4.0, 0.0]], "y": [3.0, 2.0, 5.0, 4.0], "X_new": [[5.0, 1.0], [0.0, 0.0]]},
+    "5": {"X": [[-2.0], [-1.0], [0.0], [1.0], [2.0]], "y": [4.0, 1.0, 0.0, 1.0, 4.0], "X_new": [[0.0], [3.0]]},
+    "6": {"X": [[2.0], [4.0], [6.0], [8.0]], "y": [3.0, 5.0, 7.0, 9.0], "X_new": [[0.0], [10.0]]},
+    "7": {"X": [[1.0], [2.0], [3.0], [4.0]], "y": [7.0, 7.0, 7.0, 7.0], "X_new": [[0.0], [5.0]]},
+    "8": {"X": [[0.0, 1.0], [1.0, 0.0], [1.0, 1.0], [2.0, 2.0]], "y": [1.0, 1.0, 2.0, 4.0], "X_new": [[3.0, 3.0], [0.0, 0.0]]},
+    "9": {"X": [[-1.0], [0.0], [1.0], [2.0]], "y": [2.0, 1.0, 0.0, -1.0], "X_new": [[3.0], [-2.0]]},
+}
+c = CASES[input().strip()]
+print(fit_predict(c["X"], c["y"], c["X_new"]))
+`}
+    solution={`from sklearn.linear_model import LinearRegression
+
+def fit_predict(X, y, X_new):
+    model = LinearRegression().fit(X, y)
+    return [round(float(v), 2) for v in model.predict(X_new)]
+`}
+    sourceChecks={[
+      {name: 'Uses LinearRegression', pattern: 'LinearRegression\\(', must: true, hint: 'LinearRegression()'},
+      {name: 'Calls fit', pattern: '\\.fit\\(', must: true, hint: 'model.fit(X, y)'},
+    ]}
+    tests={[
+      {name: 'simple line', stdin: '0', equals: '[3.0, 5.0]'},
+      {name: 'two features', stdin: '1', equals: '[5.0, 8.0]'},
+      {name: 'flat', stdin: '2', equals: '[2.0, 2.0]'},
+      {name: 'neg line', stdin: '3', equals: '[-3.0, 1.0]'},
+      {name: '2f', stdin: '4', equals: '[7.0, 0.0]'},
+      {name: 'quad-looking', stdin: '5', equals: '[2.0, 2.0]'},
+      {name: 'y=1+x', stdin: '6', equals: '[1.0, 11.0]'},
+      {name: 'flat y', stdin: '7', equals: '[7.0, 7.0]'},
+      {name: '2f ones', stdin: '8', equals: '[6.0, 0.0]'},
+      {name: 'neg slope', stdin: '9', equals: '[-2.0, 3.0]'},
+    ]}
+  />
+  <CodeExercise
+    title="SK2 · OLS vs Ridge ‖β‖₂"
+    heading="ds-lr-sk-ridge"
+    lang="python"
+    filename="main.py"
+    prompt="Fit LinearRegression and Ridge(alpha=10.0). Return (‖β_ols‖₂, ‖β_ridge‖₂) from coef_ only (no intercept), rounded to 2 decimals."
+    sampleLog={`(input) 0
+(1.74, 1.22)`}
+    starter={`from sklearn.linear_model import LinearRegression, Ridge
+import numpy as np
+
+def coef_norms(X, y):
+    # TODO
+    return (0.0, 0.0)
+`}
+    wrapSuffix={`
+CASES = {
+    "0": {"X": [[1.0, 2.0], [2.0, 1.0], [3.0, 4.0], [4.0, 3.0], [5.0, 6.0], [6.0, 5.0]], "y": [3.0, 4.0, 8.0, 9.0, 12.0, 13.0]},
+    "1": {"X": [[0.0, 1.0], [1.0, 1.0], [2.0, 2.0], [3.0, 2.0], [4.0, 3.0], [5.0, 3.0]], "y": [1.0, 3.0, 5.0, 7.0, 9.0, 11.0]},
+    "2": {"X": [[1.0, 0.0], [2.0, 0.0], [3.0, 0.0], [4.0, 0.0], [5.0, 0.0], [6.0, 0.0]], "y": [2.0, 4.0, 6.0, 8.0, 10.0, 12.0]},
+    "3": {"X": [[1.0, 1.0], [2.0, 2.0], [3.0, 3.0], [4.0, 4.0], [5.0, 5.0], [6.0, 6.0]], "y": [2.0, 4.0, 6.0, 8.0, 10.0, 12.0]},
+    "4": {"X": [[0.0, 0.0], [1.0, 2.0], [2.0, 1.0], [3.0, 4.0], [4.0, 3.0], [5.0, 5.0]], "y": [1.0, 5.0, 4.0, 11.0, 10.0, 15.0]},
+    "5": {"X": [[1.0, -1.0], [2.0, -2.0], [3.0, -1.0], [4.0, -2.0], [5.0, -3.0], [6.0, -2.0]], "y": [0.0, 0.0, 2.0, 2.0, 2.0, 4.0]},
+    "6": {"X": [[10.0, 1.0], [20.0, 2.0], [30.0, 3.0], [40.0, 4.0], [50.0, 5.0], [60.0, 6.0]], "y": [11.0, 22.0, 33.0, 44.0, 55.0, 66.0]},
+    "7": {"X": [[1.0, 2.0, 3.0], [2.0, 1.0, 0.0], [3.0, 3.0, 1.0], [4.0, 0.0, 2.0], [5.0, 2.0, 2.0], [6.0, 1.0, 1.0]], "y": [6.0, 3.0, 7.0, 6.0, 9.0, 8.0]},
+    "8": {"X": [[0.5, 1.5], [1.5, 0.5], [2.5, 2.5], [3.5, 1.5], [4.5, 3.5], [5.5, 2.5]], "y": [2.0, 2.0, 5.0, 5.0, 8.0, 8.0]},
+    "9": {"X": [[1.0, 0.0], [1.0, 1.0], [1.0, 2.0], [1.0, 3.0], [1.0, 4.0], [1.0, 5.0]], "y": [0.0, 1.0, 2.0, 3.0, 4.0, 5.0]},
+}
+c = CASES[input().strip()]
+print(coef_norms(c["X"], c["y"]))
+`}
+    solution={`from sklearn.linear_model import LinearRegression, Ridge
+import numpy as np
+
+def coef_norms(X, y):
+    ols = LinearRegression().fit(X, y)
+    ridge = Ridge(alpha=10.0).fit(X, y)
+    return (
+        round(float(np.linalg.norm(ols.coef_)), 2),
+        round(float(np.linalg.norm(ridge.coef_)), 2),
+    )
+`}
+    sourceChecks={[
+      {name: 'Uses Ridge', pattern: 'Ridge\\(', must: true, hint: 'Ridge(alpha=10.0)'},
+      {name: 'Uses LinearRegression', pattern: 'LinearRegression\\(', must: true, hint: 'LinearRegression()'},
+    ]}
+    tests={[
+      {name: 'correlated features', stdin: '0', equals: '(1.74, 1.22)'},
+      {name: 'second design', stdin: '1', equals: '(2.0, 1.23)'},
+      {name: 'one active', stdin: '2', equals: '(2.0, 1.27)'},
+      {name: 'perfect collinear', stdin: '3', equals: '(1.41, 1.1)'},
+      {name: 'mixed', stdin: '4', equals: '(2.13, 1.55)'},
+      {name: 'neg feature', stdin: '5', equals: '(1.41, 0.48)'},
+      {name: 'scaled', stdin: '6', equals: '(1.09, 1.09)'},
+      {name: '3 features', stdin: '7', equals: '(1.73, 0.7)'},
+      {name: 'half steps', stdin: '8', equals: '(1.41, 0.89)'},
+      {name: 'dummy+x', stdin: '9', equals: '(1.0, 0.64)'},
+    ]}
+  />
+</ExerciseSet>
+
+:::tip Expected vs received
+Click **Check** on any exercise: the results panel lists every test in a table with **Expected** and **Received** side by side so mismatches are obvious.
+:::
+
+## Quick synthesis
+
+| Topic | Sound bite |
+| --- | --- |
+| Model | $y = X\beta + \varepsilon$; read $\beta_j$ as a partial effect |
+| OLS | Minimize $\|y - X\beta\|^2$; $\hat\beta = (X^{\top}X)^{-1}X^{\top}y$ when invertible |
+| Assumptions | LINE + rank + exogeneity for clean inference |
+| Metrics | MAE / MSE / RMSE / R² — always check held-out |
+| Collinearity | Unstable β; ridge / drop features / combine |
+| Code | Drills after OLS, after metrics, and after regularization (sklearn) |
+
+Next model-family lessons: [Classification fundamentals](./lesson-24-classification-fundamentals) and [Classification models](./lesson-25-classification-models). The same Piston `sklearn` stack covers logistic regression, trees, and more.

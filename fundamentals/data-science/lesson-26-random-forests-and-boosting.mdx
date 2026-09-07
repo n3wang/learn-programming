@@ -1,0 +1,578 @@
+---
+sidebar_position: 10.9
+title: Random Forests & Boosting
+sidebar_label: 'ML - Forests & boosting'
+---
+
+> **Source:** Concepts adapted from *Ace the Data Science Interview* — Chapter 7 (“Machine Learning”) by Kevin Huo & Nick Singh. Rewritten in original wording for this course. Coding uses **scikit-learn** on Piston.
+
+A single decision tree can overfit: grow deep enough and every training row can sit in its own leaf. **Ensembles** average (or sequentially correct) many trees so out-of-sample predictions stabilize. This lesson covers **random forests** and **boosting** (AdaBoost → gradient boosting / XGBoost) — the compare/contrast pair interviewers love — with slider explorers, quizzes, and coding after each block.
+
+Prereq: [Classification models](./lesson-25-classification-models) (trees, entropy / IG) and bagging intuition from [Math Behind ML](./lesson-22-math-behind-ml).
+
+## Random forests
+
+A **random forest** fits many decision trees and aggregates their votes (classification) or averages their predictions (regression). Two design choices cut overfitting and tree-to-tree correlation:
+
+1. **Bagging** — each tree trains on a bootstrap sample of rows; predictions are averaged. Averaging uncorrelated trees shrinks variance roughly like $\sigma^2/B$.
+2. **Feature subsample (mtry)** — at each split, only a random subset of features is eligible. Strong features cannot dominate the *top* of every tree, so trees diversify.
+
+Why teams use RF: solid default accuracy, **feature importance**, trees train in **parallel**, and the story is easy to tell. Interview bar: RF vs one tree, and RF vs boosting.
+
+<FormulaExplorer preset="ensBagAvg" />
+
+<FormulaExplorer preset="ensMtry" />
+
+<MultipleChoice
+  id="ds-ens-rf"
+  title="Random forests"
+  questions={[
+    {
+      prompt: 'A single deep tree often overfits because…',
+      choices: [
+        'leaves can memorize individual training rows',
+        'bagging forbids deep trees',
+        'entropy is undefined for trees',
+        'PCA replaces the labels',
+      ],
+      answer: 0,
+      why: 'Enough splits → near-perfect train fit, weak generalization.',
+    },
+    {
+      type: 'multi',
+      prompt: 'Which reduce RF overfitting / tree correlation? (Select all that apply.)',
+      choices: [
+        'Bagging (bootstrap samples + average)',
+        'Random feature subset at each split',
+        'Always using every feature at every split',
+        'Training trees independently so they can run in parallel',
+      ],
+      answers: [0, 1, 3],
+      why: 'Full feature set at every split makes trees more alike (more correlated).',
+    },
+    {
+      type: 'order',
+      prompt: 'Order a random-forest train/predict sketch (top = first).',
+      items: [
+        'Average votes / predictions across trees',
+        'Draw a bootstrap sample of rows',
+        'Grow a tree with random feature candidates at splits',
+      ],
+      order: [1, 2, 0],
+      why: 'Bootstrap → grow (with mtry) → aggregate. Repeat for B trees.',
+    },
+    {
+      prompt: 'Compared with one tree, bagging mainly aims to reduce…',
+      choices: ['bias only', 'variance', 'the learning rate', 'the number of features permanently'],
+      answer: 1,
+      why: 'Average of noisy low-bias trees → lower variance.',
+    },
+  ]}
+/>
+
+<NumericQuiz id="ds-ens-bag-compute" title="Compute: bagging / mtry" bank="dsEnsBag" rounds={5} />
+
+### Practice: bagging & forests
+
+<ExerciseSet>
+  <CodeExercise
+    title="RF1 · Soft-vote average"
+    heading="ds-ens-rf1"
+    lang="python"
+    filename="main.py"
+    prompt="Given a list of tree probabilities for class 1, return the forest soft-vote mean rounded to 2 decimals."
+    sampleLog={`(input) 0
+0.5`}
+    starter={`def soft_vote(probs):
+    # TODO
+    return 0.0
+`}
+    wrapSuffix={`
+CASES = {
+    "0": [0.2, 0.8, 0.6, 0.4],
+    "1": [0.9, 0.7, 0.5],
+    "2": [0.0, 1.0],
+    "3": [0.1, 0.2, 0.3, 0.4, 0.5],
+    "4": [1.0, 1.0, 1.0],
+    "5": [0.0, 0.0, 0.0, 0.0],
+    "6": [0.55],
+    "7": [0.25, 0.75],
+    "8": [0.1, 0.9, 0.2, 0.8, 0.3, 0.7],
+    "9": [0.33, 0.67, 0.5, 0.5, 0.4, 0.6],
+}
+print(soft_vote(CASES[input().strip()]))
+`}
+    solution={`def soft_vote(probs):
+    return round(sum(probs) / len(probs), 2)
+`}
+    tests={[
+      {name: 'four trees', stdin: '0', equals: '0.5'},
+      {name: 'three trees', stdin: '1', equals: '0.7'},
+      {name: 'two extremes', stdin: '2', equals: '0.5'},
+      {name: 'five ramp', stdin: '3', equals: '0.3'},
+      {name: 'all ones', stdin: '4', equals: '1.0'},
+      {name: 'all zeros', stdin: '5', equals: '0.0'},
+      {name: 'single', stdin: '6', equals: '0.55'},
+      {name: 'pair mid', stdin: '7', equals: '0.5'},
+      {name: 'six mix', stdin: '8', equals: '0.5'},
+      {name: 'six mid', stdin: '9', equals: '0.5'},
+    ]}
+  />
+  <CodeExercise
+    title="RF2 · Variance of the average"
+    heading="ds-ens-rf2"
+    lang="python"
+    filename="main.py"
+    prompt="Uncorrelated trees each have variance sigma2. Return Var(mean)=sigma2/B rounded to 2 decimals."
+    sampleLog={`(input) 0
+0.4`}
+    starter={`def var_of_mean(sigma2, B):
+    # TODO
+    return 0.0
+`}
+    wrapSuffix={`
+CASES = {
+    "0": {"s": 4.0, "B": 10},
+    "1": {"s": 9.0, "B": 25},
+    "2": {"s": 1.0, "B": 4},
+    "3": {"s": 16.0, "B": 4},
+    "4": {"s": 2.5, "B": 5},
+    "5": {"s": 0.8, "B": 8},
+    "6": {"s": 100.0, "B": 50},
+    "7": {"s": 3.0, "B": 12},
+    "8": {"s": 7.0, "B": 20},
+    "9": {"s": 0.25, "B": 5},
+}
+c = CASES[input().strip()]
+print(var_of_mean(c["s"], c["B"]))
+`}
+    solution={`def var_of_mean(sigma2, B):
+    return round(sigma2 / B, 2)
+`}
+    tests={[
+      {name: 'σ²=4,B=10', stdin: '0', equals: '0.4'},
+      {name: 'σ²=9,B=25', stdin: '1', equals: '0.36'},
+      {name: 'σ²=1,B=4', stdin: '2', equals: '0.25'},
+      {name: 'σ²=16,B=4', stdin: '3', equals: '4.0'},
+      {name: 'σ²=2.5,B=5', stdin: '4', equals: '0.5'},
+      {name: 'σ²=0.8,B=8', stdin: '5', equals: '0.1'},
+      {name: 'σ²=100,B=50', stdin: '6', equals: '2.0'},
+      {name: 'σ²=3,B=12', stdin: '7', equals: '0.25'},
+      {name: 'σ²=7,B=20', stdin: '8', equals: '0.35'},
+      {name: 'σ²=0.25,B=5', stdin: '9', equals: '0.05'},
+    ]}
+  />
+  <CodeExercise
+    title="RF3 · mtry ≈ √p"
+    heading="ds-ens-rf3"
+    lang="python"
+    filename="main.py"
+    prompt="Return classic classification default mtry = floor(sqrt(p)) as an int."
+    sampleLog={`(input) 0
+4`}
+    starter={`import math
+
+def mtry_default(p):
+    # TODO
+    return 0
+`}
+    wrapSuffix={`
+CASES = {"0": 16, "1": 9, "2": 100, "3": 4, "4": 25, "5": 49, "6": 2, "7": 81, "8": 36, "9": 121}
+print(mtry_default(CASES[input().strip()]))
+`}
+    solution={`import math
+
+def mtry_default(p):
+    return int(math.floor(math.sqrt(p)))
+`}
+    tests={[
+      {name: 'p=16', stdin: '0', equals: '4'},
+      {name: 'p=9', stdin: '1', equals: '3'},
+      {name: 'p=100', stdin: '2', equals: '10'},
+      {name: 'p=4', stdin: '3', equals: '2'},
+      {name: 'p=25', stdin: '4', equals: '5'},
+      {name: 'p=49', stdin: '5', equals: '7'},
+      {name: 'p=2', stdin: '6', equals: '1'},
+      {name: 'p=81', stdin: '7', equals: '9'},
+      {name: 'p=36', stdin: '8', equals: '6'},
+      {name: 'p=121', stdin: '9', equals: '11'},
+    ]}
+  />
+  <CodeExercise
+    title="RF4 · sklearn RandomForestClassifier"
+    heading="ds-ens-rf4"
+    lang="python"
+    filename="main.py"
+    prompt="Fit RandomForestClassifier(n_estimators=10, max_depth=2, random_state=0). Return predictions for X_new as ints."
+    sampleLog={`(input) 0
+[0, 1]`}
+    starter={`from sklearn.ensemble import RandomForestClassifier
+
+def fit_predict(X, y, X_new):
+    # TODO
+    return [0] * len(X_new)
+`}
+    wrapSuffix={`
+CASES = {
+    "0": {
+        "X": [[0], [1], [2], [3], [4], [5], [6], [7]],
+        "y": [0, 0, 0, 0, 1, 1, 1, 1],
+        "X_new": [[1], [6]],
+    },
+    "1": {
+        "X": [[0], [1], [2], [3], [4], [5], [6], [7]],
+        "y": [0, 0, 0, 0, 1, 1, 1, 1],
+        "X_new": [[2], [5]],
+    },
+    "2": {
+        "X": [[0], [1], [2], [3], [4], [5], [6], [7]],
+        "y": [0, 0, 0, 0, 1, 1, 1, 1],
+        "X_new": [[0], [7]],
+    },
+    "3": {
+        "X": [[0], [1], [2], [3], [4], [5], [6], [7]],
+        "y": [0, 0, 0, 0, 1, 1, 1, 1],
+        "X_new": [[3], [4]],
+    },
+    "4": {
+        "X": [[0], [1], [2], [3], [4], [5], [6], [7]],
+        "y": [0, 0, 0, 0, 1, 1, 1, 1],
+        "X_new": [[1], [2], [6]],
+    },
+    "5": {
+        "X": [[0, 0], [0, 1], [1, 0], [1, 1], [2, 0], [2, 1], [3, 0], [3, 1]],
+        "y": [0, 0, 0, 0, 1, 1, 1, 1],
+        "X_new": [[0, 0], [3, 1]],
+    },
+    "6": {
+        "X": [[0], [1], [2], [3], [4], [5], [6], [7], [8], [9]],
+        "y": [0, 0, 0, 0, 0, 1, 1, 1, 1, 1],
+        "X_new": [[1], [8]],
+    },
+    "7": {
+        "X": [[0], [1], [2], [3], [4], [5], [6], [7], [8], [9]],
+        "y": [0, 0, 0, 0, 0, 1, 1, 1, 1, 1],
+        "X_new": [[4], [5]],
+    },
+    "8": {
+        "X": [[0], [1], [2], [3], [10], [11], [12], [13]],
+        "y": [0, 0, 0, 0, 1, 1, 1, 1],
+        "X_new": [[1], [11]],
+    },
+    "9": {
+        "X": [[0, 1], [1, 1], [2, 1], [3, 1], [4, 0], [5, 0], [6, 0], [7, 0]],
+        "y": [0, 0, 0, 0, 1, 1, 1, 1],
+        "X_new": [[1, 1], [6, 0]],
+    },
+}
+c = CASES[input().strip()]
+print(fit_predict(c["X"], c["y"], c["X_new"]))
+`}
+    solution={`from sklearn.ensemble import RandomForestClassifier
+
+def fit_predict(X, y, X_new):
+    model = RandomForestClassifier(n_estimators=10, max_depth=2, random_state=0).fit(X, y)
+    return [int(v) for v in model.predict(X_new)]
+`}
+    sourceChecks={[
+      {name: 'Uses RandomForestClassifier', pattern: 'RandomForestClassifier\\(', must: true, hint: 'RandomForestClassifier(n_estimators=10, max_depth=2, random_state=0)'},
+    ]}
+    tests={[
+      {name: 'ends', stdin: '0', equals: '[0, 1]'},
+      {name: 'near split', stdin: '1', equals: '[0, 1]'},
+      {name: 'far ends', stdin: '2', equals: '[0, 1]'},
+      {name: 'at split', stdin: '3', equals: '[0, 1]'},
+      {name: 'three pts', stdin: '4', equals: '[0, 0, 1]'},
+      {name: '2d grid', stdin: '5', equals: '[0, 1]'},
+      {name: 'n=10 ends', stdin: '6', equals: '[0, 1]'},
+      {name: 'n=10 mid', stdin: '7', equals: '[0, 1]'},
+      {name: 'gap features', stdin: '8', equals: '[0, 1]'},
+      {name: '2d flipped', stdin: '9', equals: '[0, 1]'},
+    ]}
+  />
+</ExerciseSet>
+
+## Boosting
+
+**Boosting** trains a **sequence** of weak models (often shallow trees). Each new model focuses on where the current ensemble is still wrong.
+
+- **AdaBoost:** assign a weight to each training point; misclassified points get higher weight next round. Final prediction is a weighted vote of the weak learners.
+- **Gradient boosting:** identify shortcomings via the **gradient** of the loss (fit the next tree to residuals / pseudo-residuals). Weak learners typically get equal additive weight, scaled by a **shrinkage** $\nu$ (learning rate).
+- **XGBoost** (and similar libraries) is industry-standard gradient boosting: fast, regularized, strong tabular performance.
+
+Noisy labels + aggressive boosting → easy overfit. Prefer small trees, shrinkage, early stopping / CV.
+
+<FormulaExplorer preset="ensBoostWeights" />
+
+<FormulaExplorer preset="ensBoostResidual" />
+
+<MultipleChoice
+  id="ds-ens-boost"
+  title="Boosting"
+  questions={[
+    {
+      prompt: 'Boosting’s core idea is to…',
+      choices: [
+        'train weak learners that sequentially fix remaining errors',
+        'always average independent deep trees in parallel only',
+        'replace labels with principal components',
+        'maximize the margin with one SVM',
+      ],
+      answer: 0,
+      why: 'Sequential residual / reweight focus — not bagged independence.',
+    },
+    {
+      type: 'multi',
+      prompt: 'Which statements fit AdaBoost? (Select all that apply.)',
+      choices: [
+        'Often uses stumps (depth-1 trees) as weak learners',
+        'Upsweights previously misclassified points',
+        'Final vote weights classifiers by how well they did',
+        'Trees are always trained on identical unweighted data with no updates',
+      ],
+      answers: [0, 1, 2],
+      why: 'Reweighting + weighted combination is the AdaBoost signature.',
+    },
+    {
+      type: 'order',
+      prompt: 'Order one gradient-boosting round (top = first).',
+      items: [
+        'Add ν · h into the ensemble prediction F',
+        'Compute residuals / loss gradients given current F',
+        'Fit a weak tree h to those residuals',
+      ],
+      order: [1, 2, 0],
+      why: 'Residuals → fit h → shrink-add into F.',
+    },
+    {
+      prompt: 'Gradient boosting vs AdaBoost — a fair interview contrast is…',
+      choices: [
+        'GBM uses gradients/residuals; AdaBoost reweights hard points (and weights learners)',
+        'GBM forbids trees; AdaBoost only uses neural nets',
+        'They are identical algorithms with different logos',
+        'GBM cannot overfit; AdaBoost always underfits',
+      ],
+      answer: 0,
+      why: 'Same family (additive ensembles), different error-focus mechanism.',
+    },
+  ]}
+/>
+
+<NumericQuiz id="ds-ens-boost-compute" title="Compute: boosting step" bank="dsEnsBoost" rounds={5} />
+
+### Practice: boosting
+
+<ExerciseSet>
+  <CodeExercise
+    title="BOOST1 · Shrinkage update"
+    heading="ds-ens-boost1"
+    lang="python"
+    filename="main.py"
+    prompt="Return new_F = F + nu * h, rounded to 2 decimals."
+    sampleLog={`(input) 0
+0.75`}
+    starter={`def boost_step(F, nu, h):
+    # TODO
+    return 0.0
+`}
+    wrapSuffix={`
+CASES = {
+    "0": {"F": 0.5, "nu": 0.5, "h": 0.5},
+    "1": {"F": 1.0, "nu": 0.1, "h": 2.0},
+    "2": {"F": 0.0, "nu": 1.0, "h": 3.0},
+    "3": {"F": 2.0, "nu": 0.2, "h": 1.5},
+    "4": {"F": -1.0, "nu": 0.5, "h": 2.0},
+    "5": {"F": 0.25, "nu": 0.25, "h": 0.25},
+    "6": {"F": 10.0, "nu": 0.01, "h": 100.0},
+    "7": {"F": 0.0, "nu": 0.3, "h": -2.0},
+    "8": {"F": 1.5, "nu": 0.8, "h": 0.5},
+    "9": {"F": -0.5, "nu": 1.0, "h": -0.5},
+}
+c = CASES[input().strip()]
+print(boost_step(c["F"], c["nu"], c["h"]))
+`}
+    solution={`def boost_step(F, nu, h):
+    return round(F + nu * h, 2)
+`}
+    tests={[
+      {name: 'half step', stdin: '0', equals: '0.75'},
+      {name: 'small ν', stdin: '1', equals: '1.2'},
+      {name: 'ν=1', stdin: '2', equals: '3.0'},
+      {name: 'partial', stdin: '3', equals: '2.3'},
+      {name: 'cancel', stdin: '4', equals: '0.0'},
+      {name: 'tiny', stdin: '5', equals: '0.31'},
+      {name: 'large F', stdin: '6', equals: '11.0'},
+      {name: 'neg h', stdin: '7', equals: '-0.6'},
+      {name: 'ν=0.8', stdin: '8', equals: '1.9'},
+      {name: 'both neg', stdin: '9', equals: '-1.0'},
+    ]}
+  />
+  <CodeExercise
+    title="BOOST2 · AdaBoost reweight (normalize)"
+    heading="ds-ens-boost2"
+    lang="python"
+    filename="main.py"
+    prompt="Start from equal weights 1/n. Multiply wrong points by e^alpha, then renormalize so weights sum to 1. Return weights rounded to 4 decimals."
+    sampleLog={`(input) 0
+[0.1888, 0.3112, 0.1888, 0.3112]`}
+    starter={`import math
+
+def adaboost_reweight(n, wrong_mask, alpha):
+    # wrong_mask[i] is 1 if point i was misclassified else 0
+    # TODO
+    return [0.0] * n
+`}
+    wrapSuffix={`
+CASES = {
+    "0": {"n": 4, "wrong": [0, 1, 0, 1], "alpha": 0.5},
+    "1": {"n": 4, "wrong": [1, 0, 0, 0], "alpha": 1.0},
+    "2": {"n": 3, "wrong": [1, 1, 0], "alpha": 0.5},
+    "3": {"n": 5, "wrong": [0, 0, 0, 0, 1], "alpha": 0.8},
+    "4": {"n": 4, "wrong": [1, 1, 1, 0], "alpha": 0.3},
+    "5": {"n": 2, "wrong": [1, 0], "alpha": 2.0},
+    "6": {"n": 6, "wrong": [0, 1, 0, 1, 0, 1], "alpha": 0.7},
+    "7": {"n": 3, "wrong": [0, 0, 0], "alpha": 1.5},
+    "8": {"n": 4, "wrong": [1, 1, 1, 1], "alpha": 0.5},
+    "9": {"n": 5, "wrong": [1, 0, 1, 0, 1], "alpha": 1.2},
+}
+c = CASES[input().strip()]
+print(adaboost_reweight(c["n"], c["wrong"], c["alpha"]))
+`}
+    solution={`import math
+
+def adaboost_reweight(n, wrong_mask, alpha):
+    w = [1.0 / n] * n
+    w = [wi * math.exp(alpha * wr) for wi, wr in zip(w, wrong_mask)]
+    s = sum(w)
+    return [round(wi / s, 4) for wi in w]
+`}
+    tests={[
+      {name: 'α=0.5 two wrong', stdin: '0', equals: '[0.1888, 0.3112, 0.1888, 0.3112]'},
+      {name: 'α=1 one wrong', stdin: '1', equals: '[0.4754, 0.1749, 0.1749, 0.1749]'},
+      {name: 'n=3 two wrong', stdin: '2', equals: '[0.3837, 0.3837, 0.2327]'},
+      {name: 'n=5 last wrong', stdin: '3', equals: '[0.1606, 0.1606, 0.1606, 0.1606, 0.3575]'},
+      {name: 'three of four', stdin: '4', equals: '[0.2673, 0.2673, 0.2673, 0.198]'},
+      {name: 'α=2 binary', stdin: '5', equals: '[0.8808, 0.1192]'},
+      {name: 'alt mask α=0.7', stdin: '6', equals: '[0.1106, 0.2227, 0.1106, 0.2227, 0.1106, 0.2227]'},
+      {name: 'all correct', stdin: '7', equals: '[0.3333, 0.3333, 0.3333]'},
+      {name: 'all wrong', stdin: '8', equals: '[0.25, 0.25, 0.25, 0.25]'},
+      {name: 'α=1.2 odd wrong', stdin: '9', equals: '[0.2776, 0.0836, 0.2776, 0.0836, 0.2776]'},
+    ]}
+  />
+  <CodeExercise
+    title="BOOST3 · sklearn GradientBoostingClassifier"
+    heading="ds-ens-boost3"
+    lang="python"
+    filename="main.py"
+    prompt="Fit GradientBoostingClassifier(n_estimators=20, max_depth=1, learning_rate=0.5, random_state=0). Return predictions for X_new as ints."
+    sampleLog={`(input) 0
+[0, 1]`}
+    starter={`from sklearn.ensemble import GradientBoostingClassifier
+
+def fit_predict(X, y, X_new):
+    # TODO
+    return [0] * len(X_new)
+`}
+    wrapSuffix={`
+CASES = {
+    "0": {
+        "X": [[0], [1], [2], [3], [4], [5], [6], [7]],
+        "y": [0, 0, 0, 0, 1, 1, 1, 1],
+        "X_new": [[1], [6]],
+    },
+    "1": {
+        "X": [[0], [1], [2], [3], [4], [5], [6], [7]],
+        "y": [0, 0, 0, 0, 1, 1, 1, 1],
+        "X_new": [[0], [7]],
+    },
+    "2": {
+        "X": [[0], [1], [2], [3], [4], [5], [6], [7]],
+        "y": [0, 0, 0, 0, 1, 1, 1, 1],
+        "X_new": [[2], [5]],
+    },
+    "3": {
+        "X": [[0], [1], [2], [3], [4], [5], [6], [7]],
+        "y": [0, 0, 0, 0, 1, 1, 1, 1],
+        "X_new": [[3], [4]],
+    },
+    "4": {
+        "X": [[0], [1], [2], [3], [4], [5], [6], [7]],
+        "y": [0, 0, 0, 0, 1, 1, 1, 1],
+        "X_new": [[1], [2], [6], [7]],
+    },
+    "5": {
+        "X": [[0], [1], [2], [3], [4], [5], [6], [7], [8], [9]],
+        "y": [0, 0, 0, 0, 0, 1, 1, 1, 1, 1],
+        "X_new": [[1], [8]],
+    },
+    "6": {
+        "X": [[0], [1], [2], [3], [4], [5], [6], [7], [8], [9]],
+        "y": [0, 0, 0, 0, 0, 1, 1, 1, 1, 1],
+        "X_new": [[4], [5]],
+    },
+    "7": {
+        "X": [[0, 0], [0, 1], [1, 0], [1, 1], [2, 0], [2, 1], [3, 0], [3, 1]],
+        "y": [0, 0, 0, 0, 1, 1, 1, 1],
+        "X_new": [[0, 1], [3, 0]],
+    },
+    "8": {
+        "X": [[0], [1], [2], [3], [10], [11], [12], [13]],
+        "y": [0, 0, 0, 0, 1, 1, 1, 1],
+        "X_new": [[2], [12]],
+    },
+    "9": {
+        "X": [[0, 1], [1, 1], [2, 1], [3, 1], [4, 0], [5, 0], [6, 0], [7, 0]],
+        "y": [0, 0, 0, 0, 1, 1, 1, 1],
+        "X_new": [[0, 1], [5, 0], [7, 0]],
+    },
+}
+c = CASES[input().strip()]
+print(fit_predict(c["X"], c["y"], c["X_new"]))
+`}
+    solution={`from sklearn.ensemble import GradientBoostingClassifier
+
+def fit_predict(X, y, X_new):
+    model = GradientBoostingClassifier(
+        n_estimators=20, max_depth=1, learning_rate=0.5, random_state=0
+    ).fit(X, y)
+    return [int(v) for v in model.predict(X_new)]
+`}
+    sourceChecks={[
+      {name: 'Uses GradientBoostingClassifier', pattern: 'GradientBoostingClassifier\\(', must: true, hint: 'GradientBoostingClassifier(...)'},
+    ]}
+    tests={[
+      {name: 'midpoints', stdin: '0', equals: '[0, 1]'},
+      {name: 'ends', stdin: '1', equals: '[0, 1]'},
+      {name: 'near split', stdin: '2', equals: '[0, 1]'},
+      {name: 'at split', stdin: '3', equals: '[0, 1]'},
+      {name: 'four pts', stdin: '4', equals: '[0, 0, 1, 1]'},
+      {name: 'n=10 ends', stdin: '5', equals: '[0, 1]'},
+      {name: 'n=10 mid', stdin: '6', equals: '[0, 1]'},
+      {name: '2d grid', stdin: '7', equals: '[0, 1]'},
+      {name: 'gap features', stdin: '8', equals: '[0, 1]'},
+      {name: '2d three pts', stdin: '9', equals: '[0, 1, 1]'},
+    ]}
+  />
+</ExerciseSet>
+
+## RF vs boosting (interview contrast)
+
+| | Random forest | Boosting (e.g. XGBoost) |
+| --- | --- | --- |
+| Tree order | Parallel / independent (bagged) | Sequential (each fixes leftovers) |
+| Error focus | Variance ↓ via averaging | Bias ↓ by chasing residuals / hard points |
+| Typical trees | Deeper OK | Prefer weak / shallow + shrinkage |
+| Overfit risk | Lower if B large + mtry diversifies | Higher if noisy data + too many rounds |
+| Speed story | Embarrassingly parallel | Fast libs (XGBoost) but inherently sequential rounds |
+| Classic Q | “RF vs one tree?” | “XGBoost vs random forest?” |
+
+## Quick synthesis
+
+| Topic | Sound bite |
+| --- | --- |
+| RF | Bagging + random features → average many trees |
+| AdaBoost | Reweight hard points; weighted vote of stumps |
+| GBM / XGBoost | Fit trees to loss gradients; shrink with $\nu$ |
+| Interview | Parallel average vs sequential residual correction |
+
+Next: [Dimensionality reduction](./lesson-27-dimensionality-reduction) — curse of dimensionality and PCA.

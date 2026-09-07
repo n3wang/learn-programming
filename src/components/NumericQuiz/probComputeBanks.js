@@ -541,6 +541,726 @@ function statPower() {
   };
 }
 
+function mlEigenScale() {
+  // A = [[a,0],[0,b]] diagonal → eigenvalues a,b; apply to e1 → λ=a
+  const a = pick([2, 3, 4, 5, -2]);
+  const b = pick([1, 2, 6, -1]);
+  return {
+    prompt:
+      `Let A = [[${a}, 0], [0, ${b}]] and x = [1, 0]. ` +
+      `If Ax = λx, what is the eigenvalue λ for this eigenvector? Round to 2 decimals.`,
+    answer: round2(a),
+    why: `Ax = [${a}, 0] = ${a}·[1, 0], so λ=${a}.`,
+  };
+}
+
+function mlEigen2d() {
+  // A[[2,0],[0,3]] style already covered; use Ax for x=[1,1] on diag
+  const a = pick([2, 3, 4]);
+  const b = pick([2, 3, 5]);
+  // For non-eigen vector on diagonal matrix, ||Ax|| / ||x|| is not λ;
+  // ask for the scaled first component after applying A to [1,0]
+  return {
+    prompt:
+      `Diagonal matrix A = [[${a}, 0], [0, ${b}]] stretches the x-axis by a factor. ` +
+      `What is that stretch factor (the eigenvalue for [1, 0])? Round to 2 decimals.`,
+    answer: round2(a),
+    why: `Eigenpair: A[1,0]^T = ${a}[1,0]^T.`,
+  };
+}
+
+function mlGradStep() {
+  const x = pick([2, 3, 4, 5, 10]);
+  const g = pick([1, 2, 4, 5, -2, -4]);
+  const alpha = pick([0.1, 0.2, 0.5, 0.25]);
+  const next = x - alpha * g;
+  return {
+    prompt:
+      `One gradient-descent update: x ← x − α ∇f(x). ` +
+      `Currently x=${x}, α=${alpha}, and ∇f(x)=${g}. What is the next x? Round to 2 decimals.`,
+    answer: round2(next),
+    why: `x_new = ${x} − ${alpha}·(${g}) = ${round2(next)}.`,
+  };
+}
+
+function mlGradStep2d() {
+  const x = pick([1, 2, 3]);
+  const y = pick([4, 5, 6]);
+  const gx = pick([2, 4, -2]);
+  const gy = pick([1, 3, -1]);
+  const alpha = pick([0.1, 0.5]);
+  const nx = round2(x - alpha * gx);
+  const ny = round2(y - alpha * gy);
+  // Ask for the first coordinate only to keep a single numeric answer
+  return {
+    prompt:
+      `Point (x,y)=(${x},${y}), learning rate α=${alpha}, gradient ∇f=(${gx},${gy}). ` +
+      `After one GD step, what is the new x-coordinate? Round to 2 decimals.`,
+    answer: nx,
+    why: `x ← ${x} − ${alpha}·${gx} = ${nx} (y would become ${ny}).`,
+  };
+}
+
+function mlTrainSplit() {
+  const n = pick([100, 200, 500, 1000]);
+  const pct = pick([0.7, 0.8, 0.9]);
+  const train = Math.round(n * pct);
+  return {
+    prompt:
+      `You have ${n} labeled rows and reserve ${Math.round(pct * 100)}% for training (rest for test). ` +
+      `How many rows go into the training set?`,
+    answer: train,
+    decimals: 0,
+    why: `${Math.round(pct * 100)}% of ${n} is ${train}.`,
+  };
+}
+
+function mlTestSplit() {
+  const n = pick([100, 250, 800]);
+  const trainPct = pick([0.8, 0.75, 0.9]);
+  const test = Math.round(n * (1 - trainPct));
+  return {
+    prompt:
+      `Dataset size n=${n}. You use a ${Math.round(trainPct * 100)}/${Math.round((1 - trainPct) * 100)} train/test split. ` +
+      `How many rows are in the test set?`,
+    answer: test,
+    decimals: 0,
+    why: `Test fraction=${round2(1 - trainPct)} → ${test} rows.`,
+  };
+}
+
+function mlL2Penalty() {
+  const w = pick([
+    [1, 2],
+    [2, 2],
+    [1, -1, 2],
+    [3, 0, 1],
+  ]);
+  const lam = pick([0.1, 0.5, 1, 2]);
+  const sq = w.reduce((s, v) => s + v * v, 0);
+  const pen = round2(lam * sq);
+  return {
+    prompt:
+      `L2 (ridge) penalty is λ∑wᵢ². Weights w=[${w.join(', ')}] and λ=${lam}. ` +
+      `What is the penalty value? Round to 2 decimals.`,
+    answer: pen,
+    why: `∑wᵢ²=${sq}, so λ∑wᵢ²=${lam}·${sq}=${pen}.`,
+  };
+}
+
+function mlL1Penalty() {
+  const w = pick([
+    [1, -2],
+    [3, -1, 0],
+    [2, 2, -1],
+    [4, -2],
+  ]);
+  const lam = pick([0.5, 1, 2]);
+  const abs = w.reduce((s, v) => s + Math.abs(v), 0);
+  const pen = round2(lam * abs);
+  return {
+    prompt:
+      `L1 (lasso) penalty is λ∑|wᵢ|. Weights w=[${w.join(', ')}] and λ=${lam}. ` +
+      `What is the penalty value? Round to 2 decimals.`,
+    answer: pen,
+    why: `∑|wᵢ|=${abs}, so λ∑|wᵢ|=${lam}·${abs}=${pen}.`,
+  };
+}
+
+function mlKFold() {
+  const n = pick([100, 200, 500]);
+  const k = pick([5, 10]);
+  const fold = Math.round(n / k);
+  return {
+    prompt:
+      `You run ${k}-fold cross-validation on ${n} examples (equal folds). ` +
+      `How many examples are in each validation fold?`,
+    answer: fold,
+    decimals: 0,
+    why: `n/k = ${n}/${k} = ${fold}.`,
+  };
+}
+
+function mlLearningRateScale() {
+  const g = pick([10, 20, 50, 100]);
+  const alpha = pick([0.01, 0.05, 0.1]);
+  const step = round2(alpha * g);
+  return {
+    prompt:
+      `Gradient magnitude |∇f|=${g} and learning rate α=${alpha}. ` +
+      `How large is the update step α|∇f|? Round to 2 decimals.`,
+    answer: step,
+    why: `Step size = α|∇f| = ${alpha}·${g} = ${step}.`,
+  };
+}
+
+function mlGridSearch() {
+  const a = pick([2, 3, 4]);
+  const b = pick([3, 4, 5]);
+  const c = pick([2, 3]);
+  const total = a * b * c;
+  return {
+    prompt:
+      `Grid search tries every combo of ${a} learning rates × ${b} depths × ${c} leaf sizes. ` +
+      `How many models do you train?`,
+    answer: total,
+    decimals: 0,
+    why: `Cartesian product = ${a}·${b}·${c} = ${total}.`,
+  };
+}
+
+function mlCvAverage() {
+  const errs = pick([
+    [0.2, 0.3, 0.25, 0.15, 0.2],
+    [0.1, 0.12, 0.14, 0.1],
+    [0.4, 0.35, 0.45],
+  ]);
+  const avg = errs.reduce((s, v) => s + v, 0) / errs.length;
+  return {
+    prompt:
+      `k-fold validation errors are [${errs.join(', ')}]. ` +
+      `What is the mean validation error? Round to 2 decimals.`,
+    answer: round2(avg),
+    why: `Mean = (${errs.join('+')})/${errs.length} = ${round2(avg)}.`,
+  };
+}
+
+function mlLoocvFolds() {
+  const n = pick([50, 80, 100, 120]);
+  return {
+    prompt:
+      `Leave-one-out CV on a dataset of size n=${n}. How many training/evaluation rounds run?`,
+    answer: n,
+    decimals: 0,
+    why: `LOOCV sets k = n, so there are ${n} rounds.`,
+  };
+}
+
+function mlBootstrapUnique() {
+  // Expected unique ≈ n * (1 - (1-1/n)^n) ≈ 0.632 n for large n
+  const n = pick([100, 200, 500, 1000]);
+  const expected = round2(n * (1 - Math.pow(1 - 1 / n, n)));
+  return {
+    prompt:
+      `You draw a bootstrap sample of size ${n} with replacement from ${n} rows. ` +
+      `About how many unique rows do you expect? Use n(1−(1−1/n)ⁿ). Round to 2 decimals.`,
+    answer: expected,
+    why: `E[unique] ≈ ${n}(1−(1−1/${n})^{${n}}) ≈ ${expected} (~63.2% of n).`,
+  };
+}
+
+function mlThreeWaySplit() {
+  const n = pick([1000, 2000, 5000]);
+  const trainPct = pick([0.7, 0.6]);
+  const valPct = pick([0.15, 0.2]);
+  const train = Math.round(n * trainPct);
+  const val = Math.round(n * valPct);
+  // Ask for validation count to keep one number
+  return {
+    prompt:
+      `n=${n} rows with a ${Math.round(trainPct * 100)}/${Math.round(valPct * 100)}/${Math.round(
+        (1 - trainPct - valPct) * 100,
+      )} train/val/test split. How many rows are in the validation (dev) set?`,
+    answer: val,
+    decimals: 0,
+    why: `${Math.round(valPct * 100)}% of ${n} = ${val} (train would be ${train}).`,
+  };
+}
+
+function lrPredict() {
+  const b0 = pick([1, 2, -1, 0]);
+  const b1 = pick([2, 3, 0.5, -2]);
+  const x = pick([2, 4, 5, 10]);
+  const yhat = round2(b0 + b1 * x);
+  return {
+    prompt:
+      `Simple linear model ŷ = ${b0} + ${b1}x. What is ŷ at x=${x}? Round to 2 decimals.`,
+    answer: yhat,
+    why: `ŷ = ${b0} + ${b1}·${x} = ${yhat}.`,
+  };
+}
+
+function lrMse() {
+  const errs = pick([
+    [1, -1, 2, 0],
+    [2, 2, -2, 0],
+    [3, -1, -1, -1],
+  ]);
+  const mse = errs.reduce((s, e) => s + e * e, 0) / errs.length;
+  return {
+    prompt:
+      `Residuals e = [${errs.join(', ')}]. MSE = (1/n)∑eᵢ². What is MSE? Round to 2 decimals.`,
+    answer: round2(mse),
+    why: `∑e²=${errs.reduce((s, e) => s + e * e, 0)}, n=${errs.length} → MSE=${round2(mse)}.`,
+  };
+}
+
+function lrRmse() {
+  const mse = pick([4, 9, 16, 0.25, 1]);
+  const rmse = Math.sqrt(mse);
+  return {
+    prompt: `MSE=${mse}. What is RMSE = √MSE? Round to 2 decimals.`,
+    answer: round2(rmse),
+    why: `√${mse} = ${round2(rmse)}.`,
+  };
+}
+
+function lrR2() {
+  const pair = pick([
+    [10, 50],
+    [20, 80],
+    [25, 100],
+    [40, 200],
+  ]);
+  const ssRes = pair[0];
+  const ssTot = pair[1];
+  const r2 = 1 - ssRes / ssTot;
+  return {
+    prompt:
+      `SS_res=${ssRes}, SS_tot=${ssTot}. R² = 1 − SS_res/SS_tot. What is R²? Round to 2 decimals.`,
+    answer: round2(r2),
+    why: `1 − ${ssRes}/${ssTot} = ${round2(r2)}.`,
+  };
+}
+
+function lrSlopeTwoPoint() {
+  // Exact slope through (x1,y1),(x2,y2) for intuition (not full OLS)
+  const x1 = pick([0, 1]);
+  const y1 = pick([1, 2, 0]);
+  const x2 = x1 + pick([2, 4, 5]);
+  const y2 = y1 + pick([4, 6, 10, -2]);
+  const slope = (y2 - y1) / (x2 - x1);
+  return {
+    prompt:
+      `A line through (${x1}, ${y1}) and (${x2}, ${y2}) has slope (y₂−y₁)/(x₂−x₁). What is the slope? Round to 2 decimals.`,
+    answer: round2(slope),
+    why: `(${y2}−${y1})/(${x2}−${x1}) = ${round2(slope)}.`,
+  };
+}
+
+function clfPrecision() {
+  const tp = pick([8, 10, 15, 20]);
+  const fp = pick([2, 4, 5, 10]);
+  const ans = round2(tp / (tp + fp));
+  return {
+    prompt: `TP=${tp}, FP=${fp}. Precision = TP/(TP+FP). Round to 2 decimals.`,
+    answer: ans,
+    why: `${tp}/(${tp}+${fp}) = ${ans}.`,
+  };
+}
+
+function clfRecall() {
+  const tp = pick([8, 12, 18]);
+  const fn = pick([2, 4, 6]);
+  const ans = round2(tp / (tp + fn));
+  return {
+    prompt: `TP=${tp}, FN=${fn}. Recall = TP/(TP+FN). Round to 2 decimals.`,
+    answer: ans,
+    why: `${tp}/(${tp}+${fn}) = ${ans}.`,
+  };
+}
+
+function clfF1() {
+  const pair = pick([
+    [0.8, 0.8],
+    [0.9, 0.5],
+    [0.6, 0.9],
+    [1.0, 0.5],
+  ]);
+  const [p, r] = pair;
+  const f1 = (2 * p * r) / (p + r);
+  return {
+    prompt: `Precision=${p}, recall=${r}. F1 = 2PR/(P+R). Round to 2 decimals.`,
+    answer: round2(f1),
+    why: `2·${p}·${r}/(${p}+${r}) = ${round2(f1)}.`,
+  };
+}
+
+function clfSpecificity() {
+  const tn = pick([80, 90, 95]);
+  const fp = pick([5, 10, 20]);
+  const ans = round2(tn / (tn + fp));
+  return {
+    prompt: `TN=${tn}, FP=${fp}. Specificity = TN/(TN+FP). Round to 2 decimals.`,
+    answer: ans,
+    why: `${tn}/(${tn}+${fp}) = ${ans}.`,
+  };
+}
+
+function clfAccuracy() {
+  const tp = pick([40, 50]);
+  const tn = pick([40, 45]);
+  const fp = pick([5, 10]);
+  const fn = pick([5, 10]);
+  const n = tp + tn + fp + fn;
+  const ans = round2((tp + tn) / n);
+  return {
+    prompt: `TP=${tp}, TN=${tn}, FP=${fp}, FN=${fn}. Accuracy = (TP+TN)/n. Round to 2 decimals.`,
+    answer: ans,
+    why: `(${tp}+${tn})/${n} = ${ans}.`,
+  };
+}
+
+function clfSigmoid() {
+  const z = pick([0, 1, 2, -1, -2]);
+  const s = 1 / (1 + Math.exp(-z));
+  return {
+    prompt: `Sigmoid σ(z)=1/(1+e^(−z)). What is σ(${z})? Round to 2 decimals.`,
+    answer: round2(s),
+    why: `σ(${z}) = ${round2(s)}.`,
+  };
+}
+
+function clfBinaryEntropy() {
+  const p = pick([0.5, 0.8, 0.2, 1.0, 0.0]);
+  let h = 0;
+  if (p > 0 && p < 1) {
+    h = -(p * Math.log2(p) + (1 - p) * Math.log2(1 - p));
+  }
+  return {
+    prompt:
+      `Binary entropy H(p)=−p log₂ p − (1−p) log₂(1−p) (0 at p∈{0,1}). What is H(${p})? Round to 2 decimals.`,
+    answer: round2(h),
+    why: p === 0 || p === 1 ? 'No uncertainty → H=0.' : `H(${p}) ≈ ${round2(h)}.`,
+  };
+}
+
+function ensBagVar() {
+  const sigma2 = pick([1, 2, 4, 9]);
+  const B = pick([4, 5, 10, 25]);
+  const ans = round2(sigma2 / B);
+  return {
+    prompt:
+      `Bagging average of B uncorrelated trees each with variance σ². σ²=${sigma2}, B=${B}. ` +
+      `What is Var(mean) = σ²/B? Round to 2 decimals.`,
+    answer: ans,
+    why: `${sigma2}/${B} = ${ans}.`,
+  };
+}
+
+function ensMtrySqrt() {
+  const p = pick([9, 16, 25, 36, 100]);
+  const ans = Math.floor(Math.sqrt(p));
+  return {
+    prompt: `Classic RF classification default mtry ≈ ⌊√p⌋. For p=${p} features, what is ⌊√p⌋?`,
+    answer: ans,
+    why: `√${p}=${Math.sqrt(p)} → floor ${ans}.`,
+  };
+}
+
+function ensSoftVote() {
+  const probs = pick([
+    [0.2, 0.8, 0.6],
+    [0.9, 0.7, 0.5],
+    [0.1, 0.3, 0.2],
+  ]);
+  const ans = round2(probs.reduce((s, v) => s + v, 0) / probs.length);
+  return {
+    prompt:
+      `Three trees output P(Y=1)=[${probs.join(', ')}]. Soft-vote forest probability is the mean. Round to 2 decimals.`,
+    answer: ans,
+    why: `(${probs.join('+')})/${probs.length} = ${ans}.`,
+  };
+}
+
+function ensBoostShrink() {
+  const F = pick([0, 1, 2]);
+  const resid = pick([1, 2, 0.5]);
+  const nu = pick([0.1, 0.5, 1]);
+  const ans = round2(F + nu * resid);
+  return {
+    prompt:
+      `Gradient boosting update: F ← F + ν·h. Current F=${F}, weak learner predicts h=${resid} on the residual, ν=${nu}. ` +
+      `What is the new F? Round to 2 decimals.`,
+    answer: ans,
+    why: `${F}+${nu}·${resid}=${ans}.`,
+  };
+}
+
+function ensAdaWeightBump() {
+  const w = pick([0.25, 0.2, 0.5]);
+  const alpha = pick([0.5, 1.0, 0.7]);
+  const ans = round2(w * Math.exp(alpha));
+  return {
+    prompt:
+      `AdaBoost: a misclassified point has weight w=${w}. Multiply by e^α with α=${alpha} (before normalize). ` +
+      `What is the new unnormalized weight? Round to 2 decimals.`,
+    answer: ans,
+    why: `${w}·e^${alpha}=${ans}.`,
+  };
+}
+
+function pcaCumVar() {
+  const evals = pick([
+    [4, 2, 1, 1],
+    [5, 3, 1],
+    [6, 2, 1, 1],
+    [3, 3, 2, 1, 1],
+  ]);
+  const k = pick([1, 2, Math.min(3, evals.length)]);
+  const total = evals.reduce((s, v) => s + v, 0);
+  const kept = evals.slice(0, k).reduce((s, v) => s + v, 0);
+  const ans = round2(kept / total);
+  return {
+    prompt:
+      `Eigenvalues λ=[${evals.join(', ')}]. Cumulative variance of the top k=${k} components is ` +
+      `(λ₁+⋯+λₖ)/Σλ. Round to 2 decimals.`,
+    answer: ans,
+    why: `${kept}/${total}=${ans}.`,
+  };
+}
+
+function pcaPc1Share() {
+  const evals = pick([
+    [4, 1, 1],
+    [3, 1],
+    [5, 2, 1, 1],
+  ]);
+  const total = evals.reduce((s, v) => s + v, 0);
+  const ans = round2(evals[0] / total);
+  return {
+    prompt: `Eigenvalues λ=[${evals.join(', ')}]. What fraction of variance does PC1 explain (λ₁/Σλ)? Round to 2 decimals.`,
+    answer: ans,
+    why: `${evals[0]}/${total}=${ans}.`,
+  };
+}
+
+function clustSse1d() {
+  const pts = pick([
+    [0, 1, 2],
+    [1, 2, 3],
+    [8, 9, 10],
+  ]);
+  const mu = pick([1, 2, 0, 9]);
+  const sse = pts.reduce((s, x) => s + (x - mu) ** 2, 0);
+  return {
+    prompt:
+      `One cluster with points [${pts.join(', ')}] and centroid μ=${mu}. ` +
+      `SSE = Σ(x−μ)². What is SSE? Round to 2 decimals.`,
+    answer: round2(sse),
+    why: `Σ(x−${mu})² = ${round2(sse)}.`,
+  };
+}
+
+function clustAssign1d() {
+  const x = pick([3, 4, 5, 6, 7]);
+  const mu0 = 1;
+  const mu1 = 9;
+  const d0 = (x - mu0) ** 2;
+  const d1 = (x - mu1) ** 2;
+  const ans = d0 <= d1 ? 0 : 1;
+  return {
+    prompt:
+      `k-means assign: centroids μ₀=${mu0}, μ₁=${mu1}. Point x=${x}. ` +
+      `Which cluster label (0 or 1) by nearest centroid (squared Euclidean)?`,
+    answer: ans,
+    why: `d²→μ₀=${d0}, d²→μ₁=${d1} → cluster ${ans}.`,
+  };
+}
+
+function clustCentroidMean() {
+  const pts = pick([
+    [0, 2, 4],
+    [1, 3, 5],
+    [8, 10, 12],
+  ]);
+  const ans = round2(pts.reduce((s, x) => s + x, 0) / pts.length);
+  return {
+    prompt: `k-means centroid update: points [${pts.join(', ')}]. New μ = mean. Round to 2 decimals.`,
+    answer: ans,
+    why: `(${pts.join('+')})/${pts.length}=${ans}.`,
+  };
+}
+
+function nnRelu() {
+  const z = pick([-2, -1, 0, 0.5, 1, 2, 3]);
+  const ans = round2(Math.max(0, z));
+  return {
+    prompt: `ReLU(z)=max(0,z). What is ReLU(${z})? Round to 2 decimals.`,
+    answer: ans,
+    why: `max(0,${z})=${ans}.`,
+  };
+}
+
+function nnSigmoidNn() {
+  const z = pick([0, 1, 2, -1, -2]);
+  const ans = round2(1 / (1 + Math.exp(-z)));
+  return {
+    prompt: `Sigmoid σ(z)=1/(1+e^(−z)). What is σ(${z})? Round to 2 decimals.`,
+    answer: ans,
+    why: `σ(${z})=${ans}.`,
+  };
+}
+
+function nnTanh() {
+  const z = pick([0, 1, 2, -1]);
+  const ans = round2(Math.tanh(z));
+  return {
+    prompt: `What is tanh(${z})? Round to 2 decimals.`,
+    answer: ans,
+    why: `tanh(${z})=${ans}.`,
+  };
+}
+
+function nnSoftplus() {
+  const z = pick([0, 1, 2, -2]);
+  const ans = round2(Math.log(1 + Math.exp(z)));
+  return {
+    prompt: `Softplus(z)=ln(1+e^z). What is softplus(${z})? Round to 2 decimals.`,
+    answer: ans,
+    why: `ln(1+e^${z})=${ans}.`,
+  };
+}
+
+function nnDropoutKeep() {
+  const p = pick([0.5, 0.8, 0.3]);
+  const n = pick([10, 32, 64]);
+  const ans = round2(p * n);
+  return {
+    prompt: `Dropout keep probability p=${p}, layer width n=${n}. Expected active units ≈ p·n. Round to 2 decimals.`,
+    answer: ans,
+    why: `${p}·${n}=${ans}.`,
+  };
+}
+
+function nnBackpropGrad() {
+  const w = pick([0.5, 1, 1.5]);
+  const x = pick([2, 3]);
+  const y = pick([0, 1]);
+  const z = w * x;
+  const g = round2((z - y) * x);
+  return {
+    prompt:
+      `L=½(wx−y)² with w=${w}, x=${x}, y=${y}. What is ∂L/∂w=(wx−y)·x? Round to 2 decimals.`,
+    answer: g,
+    why: `z=${z}, (z−y)·x=${g}.`,
+  };
+}
+
+function nnSgdStep() {
+  const w = pick([0.5, 1]);
+  const g = pick([2, 4, 6]);
+  const alpha = pick([0.1, 0.05]);
+  const ans = round2(w - alpha * g);
+  return {
+    prompt: `SGD: w ← w − α ∂L/∂w. w=${w}, α=${alpha}, ∂L/∂w=${g}. New w? Round to 2 decimals.`,
+    answer: ans,
+    why: `${w}−${alpha}·${g}=${ans}.`,
+  };
+}
+
+function nnMomentumStep() {
+  const beta = pick([0.9, 0.8]);
+  const v = pick([0, 1]);
+  const g = pick([1, 0.5]);
+  const ans = round2(beta * v + g);
+  return {
+    prompt: `Momentum: v ← βv + g. β=${beta}, current v=${v}, g=${g}. New v? Round to 2 decimals.`,
+    answer: ans,
+    why: `${beta}·${v}+${g}=${ans}.`,
+  };
+}
+
+function nnVanishProd() {
+  const slope = pick([0.5, 0.8, 0.9]);
+  const depth = pick([3, 5, 10]);
+  const ans = round2(slope ** depth);
+  return {
+    prompt:
+      `Toy vanishing product: each layer multiplies gradient by ${slope}. After ${depth} layers, what is (${slope})^${depth}? Round to 2 decimals.`,
+    answer: ans,
+    why: `${slope}^${depth}=${ans}.`,
+  };
+}
+
+function rlDiscountReturn() {
+  const rewards = pick([
+    [1, 1, 1],
+    [1, 0, 1],
+    [2, 2, 2],
+    [1, -1, 1],
+    [5],
+    [10, 0, 0],
+    [0, 0, 10],
+  ]);
+  const gamma = pick([0.9, 0.5, 1.0, 0.0]);
+  let G = 0;
+  for (let i = rewards.length - 1; i >= 0; i--) {
+    G = rewards[i] + gamma * G;
+  }
+  return {
+    prompt:
+      `Discounted return G=Σ γ^k r_k for rewards [${rewards.join(', ')}] and γ=${gamma}. ` +
+      `Compute G (process from the end). Round to 2 decimals.`,
+    answer: round2(G),
+    why: `Backward: G ← r + γG → ${round2(G)}.`,
+  };
+}
+
+function rlQUpdate() {
+  const Q = pick([0, 1, 2]);
+  const alpha = pick([0.1, 0.5, 0.2]);
+  const r = pick([1, 0, -1, 2]);
+  const gamma = pick([0.9, 0.5, 0.99]);
+  const maxQp = pick([0, 1, 2, 4]);
+  const ans = round2(Q + alpha * (r + gamma * maxQp - Q));
+  return {
+    prompt:
+      `Q-learning: Q ← Q + α(r + γ maxQ′ − Q). Q=${Q}, α=${alpha}, r=${r}, γ=${gamma}, maxQ′=${maxQp}. ` +
+      `New Q? Round to 2 decimals.`,
+    answer: ans,
+    why: `TD target=${round2(r + gamma * maxQp)}; new Q=${ans}.`,
+  };
+}
+
+function rlBellman() {
+  const r = pick([1, 0, 5, -1]);
+  const gamma = pick([0.9, 0.5, 0.99, 0]);
+  const vp = pick([10, 4, 5, 0, 1]);
+  const ans = round2(r + gamma * vp);
+  return {
+    prompt: `Bellman backup V ≈ r + γ V′. r=${r}, γ=${gamma}, V′=${vp}. Round to 2 decimals.`,
+    answer: ans,
+    why: `${r}+${gamma}·${vp}=${ans}.`,
+  };
+}
+
+function wfZScore() {
+  const x = pick([10, 0, 5, 12]);
+  const mu = pick([5, 0, 8]);
+  const sig = pick([2, 1, 4]);
+  const ans = round2((x - mu) / sig);
+  return {
+    prompt: `Standardize: z=(x−μ)/σ. x=${x}, μ=${mu}, σ=${sig}. Round to 2 decimals.`,
+    answer: ans,
+    why: `(${x}−${mu})/${sig}=${ans}.`,
+  };
+}
+
+function wfMinMax() {
+  const x = pick([5, 0, 10, 2]);
+  const lo = 0;
+  const hi = pick([10, 5, 20]);
+  const ans = round2((x - lo) / (hi - lo));
+  return {
+    prompt: `Min-max scale to [0,1]: (x−min)/(max−min). x=${x}, min=${lo}, max=${hi}. Round to 2 decimals.`,
+    answer: ans,
+    why: `(${x}−${lo})/(${hi}−${lo})=${ans}.`,
+  };
+}
+
+function wfTrainTestCount() {
+  const n = pick([100, 200, 1000, 50]);
+  const testFrac = pick([0.2, 0.1, 0.3]);
+  const nTest = Math.round(n * testFrac);
+  const nTrain = n - nTest;
+  return {
+    prompt: `n=${n} rows, test fraction=${testFrac}. How many train rows if n_test=round(n·frac)?`,
+    answer: nTrain,
+    why: `n_test=${nTest}, n_train=${nTrain}.`,
+  };
+}
+
 /** Named banks for <NumericQuiz bank="…" /> */
 export const COMPUTE_BANKS = {
   dsBayes: [bayesDisease, bayesSpam, bayesFraud],
@@ -560,6 +1280,26 @@ export const COMPUTE_BANKS = {
   dsStatCI: [statCI],
   dsStatErrors: [statBonferroni, statPower],
   dsStatMLE: [statMLE],
+  dsMlEigen: [mlEigenScale, mlEigen2d],
+  dsMlGrad: [mlGradStep, mlGradStep2d, mlLearningRateScale],
+  dsMlSplit: [mlTrainSplit, mlTestSplit, mlKFold],
+  dsMlReg: [mlL2Penalty, mlL1Penalty],
+  dsMlCv: [mlCvAverage, mlLoocvFolds, mlThreeWaySplit],
+  dsMlTune: [mlGridSearch, mlBootstrapUnique],
+  dsLrPredict: [lrPredict, lrSlopeTwoPoint],
+  dsLrMetrics: [lrMse, lrRmse, lrR2],
+  dsClfMetrics: [clfPrecision, clfRecall, clfF1, clfSpecificity, clfAccuracy],
+  dsClfSigmoid: [clfSigmoid],
+  dsClfEntropy: [clfBinaryEntropy],
+  dsEnsBag: [ensBagVar, ensMtrySqrt, ensSoftVote],
+  dsEnsBoost: [ensBoostShrink, ensAdaWeightBump],
+  dsPcaVar: [pcaCumVar, pcaPc1Share],
+  dsClustKmeans: [clustSse1d, clustAssign1d, clustCentroidMean],
+  dsNnAct: [nnRelu, nnSigmoidNn, nnTanh, nnSoftplus],
+  dsNnBackprop: [nnBackpropGrad, nnSgdStep],
+  dsNnTrain: [nnMomentumStep, nnVanishProd, nnDropoutKeep],
+  dsRlCore: [rlDiscountReturn, rlQUpdate, rlBellman],
+  dsWfFeat: [wfZScore, wfMinMax, wfTrainTestCount],
 };
 
 export function drawFromBank(bankId) {

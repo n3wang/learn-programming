@@ -1,0 +1,856 @@
+---
+sidebar_position: 10.8
+title: Classification Models
+sidebar_label: 'ML - Classification models'
+---
+
+> **Source:** Concepts adapted from *Ace the Data Science Interview* — Chapter 7 (“Machine Learning”) by Kevin Huo & Nick Singh. Rewritten in original wording for this course. Coding uses **scikit-learn** on Piston.
+
+With evaluation tools from [Classification fundamentals](./lesson-24-classification-fundamentals), this lesson covers the interview workhorses: **logistic regression**, **Naive Bayes**, **SVMs**, and **decision trees** — when they shine, where they fail, **slider explorers** (sigmoid, logistic 1-D, entropy, NB posteriors), and short coding drills after each.
+
+## Logistic regression
+
+Map a linear score $X\beta$ through the **sigmoid** into a probability:
+
+$$
+P(Y=1\mid X) = \sigma(X\beta) = \frac{1}{1+e^{-X\beta}}
+$$
+
+Default threshold 0.5 → class 1 if $\sigma \ge 0.5$, else 0 (tune the threshold for FP/FN costs). Multi-class uses **softmax** (multinomial logistic).
+
+**Why interviews love it:** fast, probabilistic, highly interpretable coefficients. **Pitfalls:** high bias / low variance — struggles with nonlinear boundaries; correlated features muddy $\beta$ (same remedies as linear regression: drop features, regularize).
+
+Training typically minimizes **log-loss** (cross-entropy).
+
+<FormulaExplorer preset="clfSigmoidCurve" />
+
+<FormulaExplorer preset="clfLogistic1d" />
+
+<MultipleChoice
+  id="ds-clf-logreg"
+  title="Logistic regression"
+  questions={[
+    {
+      prompt: 'The sigmoid’s job is to…',
+      choices: [
+        'output an unbounded real number',
+        'squash a linear score into (0, 1)',
+        'compute SVD',
+        'replace the train set',
+      ],
+      answer: 1,
+      why: 'Probability-like output in (0,1).',
+    },
+    {
+      type: 'multi',
+      prompt: 'Which fit logistic regression? (Select all that apply.)',
+      choices: [
+        'Interpretable probabilities for stakeholders',
+        'Often a strong first classifier baseline',
+        'Always beats nonlinear SVMs on every problem',
+        'Sensitive to multicollinearity like linear models',
+      ],
+      answers: [0, 1, 3],
+      why: 'Simple linear boundary — not universally dominant.',
+    },
+    {
+      type: 'order',
+      prompt: 'Order a logistic prediction step (top = first).',
+      items: [
+        'Apply threshold (e.g. 0.5) to get a class',
+        'Compute linear score Xβ',
+        'Pass through σ to get P(Y=1|X)',
+      ],
+      order: [1, 2, 0],
+      why: 'Score → probability → threshold.',
+    },
+    {
+      prompt: 'Softmax regression is…',
+      choices: [
+        'k-means with soft assignments only',
+        'the multi-class generalization of logistic regression',
+        'always worse than Naive Bayes',
+        'a type of SVD',
+      ],
+      answer: 1,
+      why: 'Multinomial logistic / softmax.',
+    },
+  ]}
+/>
+
+<NumericQuiz id="ds-clf-sigmoid-compute" title="Compute: sigmoid" bank="dsClfSigmoid" rounds={5} />
+
+### Practice: logistic regression
+
+<ExerciseSet>
+  <CodeExercise
+    title="LR1 · Sigmoid"
+    heading="ds-clf-lr1"
+    lang="python"
+    filename="main.py"
+    prompt="Return σ(z)=1/(1+e^(−z)) rounded to 2 decimals. Use math.exp."
+    sampleLog={`(input) 0
+0.5`}
+    starter={`import math
+
+def sigmoid(z):
+    # TODO
+    return 0.0
+`}
+    wrapSuffix={`
+CASES = {
+    "0": 0.0,
+    "1": 2.0,
+    "2": -2.0,
+    "3": 1.0,
+    "4": -1.0,
+    "5": 3.0,
+    "6": -3.0,
+    "7": 0.5,
+    "8": -0.5,
+    "9": 4.0,
+}
+print(sigmoid(CASES[input().strip()]))
+`}
+    solution={`import math
+
+def sigmoid(z):
+    return round(1.0 / (1.0 + math.exp(-z)), 2)
+`}
+    tests={[
+      {name: 'σ(0)', stdin: '0', equals: '0.5'},
+      {name: 'σ(2)', stdin: '1', equals: '0.88'},
+      {name: 'σ(-2)', stdin: '2', equals: '0.12'},
+      {name: 'σ(1)', stdin: '3', equals: '0.73'},
+      {name: 'σ(-1)', stdin: '4', equals: '0.27'},
+      {name: 'σ(3)', stdin: '5', equals: '0.95'},
+      {name: 'σ(-3)', stdin: '6', equals: '0.05'},
+      {name: 'σ(0.5)', stdin: '7', equals: '0.62'},
+      {name: 'σ(-0.5)', stdin: '8', equals: '0.38'},
+      {name: 'σ(4)', stdin: '9', equals: '0.98'},
+    ]}
+  />
+  <CodeExercise
+    title="LR2 · sklearn LogisticRegression"
+    heading="ds-clf-lr2"
+    lang="python"
+    filename="main.py"
+    prompt="Fit LogisticRegression(random_state=0) on X,y. Return predicted labels for X_new as a list of ints."
+    sampleLog={`(input) 0
+[0, 1]`}
+    starter={`from sklearn.linear_model import LogisticRegression
+
+def fit_predict(X, y, X_new):
+    # TODO
+    return [0] * len(X_new)
+`}
+    wrapSuffix={`
+CASES = {
+    "0": {
+        "X": [[0.0], [1.0], [2.0], [3.0], [4.0], [5.0]],
+        "y": [0, 0, 0, 1, 1, 1],
+        "X_new": [[1.5], [3.5]],
+    },
+    "1": {
+        "X": [[0.0], [0.5], [1.0], [4.0], [4.5], [5.0]],
+        "y": [0, 0, 0, 1, 1, 1],
+        "X_new": [[0.2], [4.8]],
+    },
+    "2": {
+        "X": [[-2.0], [-1.0], [0.0], [1.0], [2.0], [3.0]],
+        "y": [0, 0, 0, 1, 1, 1],
+        "X_new": [[-1.5], [2.5]],
+    },
+    "3": {
+        "X": [[0.0, 0.0], [0.0, 1.0], [1.0, 0.0], [5.0, 5.0], [5.0, 6.0], [6.0, 5.0]],
+        "y": [0, 0, 0, 1, 1, 1],
+        "X_new": [[0.5, 0.5], [5.5, 5.5]],
+    },
+    "4": {
+        "X": [[1.0], [2.0], [3.0], [7.0], [8.0], [9.0]],
+        "y": [1, 1, 1, 0, 0, 0],
+        "X_new": [[2.0], [8.0]],
+    },
+    "5": {
+        "X": [[0.0], [1.0], [2.0], [3.0], [4.0], [5.0], [6.0], [7.0]],
+        "y": [0, 0, 0, 0, 1, 1, 1, 1],
+        "X_new": [[2.0], [5.5]],
+    },
+    "6": {
+        "X": [[10.0], [11.0], [12.0], [20.0], [21.0], [22.0]],
+        "y": [0, 0, 0, 1, 1, 1],
+        "X_new": [[11.0], [21.0]],
+    },
+    "7": {
+        "X": [[0.0, 10.0], [1.0, 10.0], [2.0, 10.0], [0.0, 0.0], [1.0, 0.0], [2.0, 0.0]],
+        "y": [1, 1, 1, 0, 0, 0],
+        "X_new": [[1.0, 9.0], [1.0, 1.0]],
+    },
+    "8": {
+        "X": [[-5.0], [-4.0], [-3.0], [3.0], [4.0], [5.0]],
+        "y": [0, 0, 0, 1, 1, 1],
+        "X_new": [[-4.0], [4.0]],
+    },
+    "9": {
+        "X": [[0.0], [0.1], [0.2], [10.0], [10.1], [10.2]],
+        "y": [0, 0, 0, 1, 1, 1],
+        "X_new": [[0.15], [10.05], [5.0]],
+    },
+}
+c = CASES[input().strip()]
+print(fit_predict(c["X"], c["y"], c["X_new"]))
+`}
+    solution={`from sklearn.linear_model import LogisticRegression
+
+def fit_predict(X, y, X_new):
+    model = LogisticRegression(random_state=0).fit(X, y)
+    return [int(v) for v in model.predict(X_new)]
+`}
+    sourceChecks={[
+      {name: 'Uses LogisticRegression', pattern: 'LogisticRegression\\(', must: true, hint: 'LogisticRegression(random_state=0)'},
+    ]}
+    tests={[
+      {name: 'split mid', stdin: '0', equals: '[0, 1]'},
+      {name: 'clear sides', stdin: '1', equals: '[0, 1]'},
+      {name: 'neg then pos', stdin: '2', equals: '[0, 1]'},
+      {name: '2d clusters', stdin: '3', equals: '[0, 1]'},
+      {name: 'flipped labels', stdin: '4', equals: '[1, 0]'},
+      {name: 'wider gap', stdin: '5', equals: '[0, 1]'},
+      {name: 'shifted scale', stdin: '6', equals: '[0, 1]'},
+      {name: 'feature-2 split', stdin: '7', equals: '[1, 0]'},
+      {name: 'symmetric', stdin: '8', equals: '[0, 1]'},
+      {name: 'tight clusters + mid', stdin: '9', equals: '[0, 1, 0]'},
+    ]}
+  />
+</ExerciseSet>
+
+## Naive Bayes
+
+Estimate $P(Y\mid X)$ via Bayes’ rule under strong assumptions:
+
+1. Features are **conditionally independent** given $Y$
+2. Features are treated with **equal weight** in that factorization
+
+$$
+P(X_1,\ldots,X_d\mid Y) = \prod_{j=1}^{d} P(X_j\mid Y)
+$$
+
+$$
+\hat y = \arg\max_y\, P(Y=y)\prod_j P(X_j\mid Y=y)
+$$
+
+**Why it works in practice:** tiny data needs, very fast, strong text baseline (spam / sentiment) even when independence is false. **Caveat:** the independence assumption is almost never literally true — yet linear separation often still helps.
+
+Independence cuts the interaction explosion: instead of needing order $2^d$ samples for all feature interactions, you estimate $d$ one-dimensional conditionals.
+
+<FormulaExplorer preset="clfNbPosteriors" />
+
+<MultipleChoice
+  id="ds-clf-nb"
+  title="Naive Bayes"
+  questions={[
+    {
+      prompt: 'The “naive” part is mainly…',
+      choices: [
+        'ignoring Bayes’ rule',
+        'assuming conditional independence of features given Y',
+        'requiring neural nets',
+        'forbidding priors',
+      ],
+      answer: 1,
+      why: 'Factor the class-conditional density.',
+    },
+    {
+      type: 'multi',
+      prompt: 'Good reasons to try Naive Bayes? (Select all that apply.)',
+      choices: [
+        'Works with little labeled data',
+        'Scales / trains quickly',
+        'Strong default for bag-of-words text',
+        'Always has the most interpretable nonlinear boundary',
+      ],
+      answers: [0, 1, 2],
+      why: 'Speed + text; not a universal nonlinear king.',
+    },
+    {
+      type: 'order',
+      prompt: 'Order the Naive Bayes predict path (top = first).',
+      items: [
+        'Pick argmax over classes',
+        'Multiply prior P(Y) by ∏ P(Xⱼ|Y)',
+        'Estimate class priors and class-conditional feature stats',
+      ],
+      order: [2, 1, 0],
+      why: 'Fit conditionals → score classes → argmax.',
+    },
+    {
+      prompt: 'Despite broken independence, NB often works because…',
+      choices: [
+        'data are frequently roughly linearly separable',
+        'it never uses probabilities',
+        'AUC is always 1',
+        'it deletes the test set',
+      ],
+      answer: 0,
+      why: 'Practical robustness despite assumptions.',
+    },
+  ]}
+/>
+
+### Practice: Naive Bayes
+
+<ExerciseSet>
+  <CodeExercise
+    title="NB1 · sklearn GaussianNB"
+    heading="ds-clf-nb1"
+    lang="python"
+    filename="main.py"
+    prompt="Fit GaussianNB on X,y. Return predicted labels for X_new as a list of ints."
+    sampleLog={`(input) 0
+[0, 1]`}
+    starter={`from sklearn.naive_bayes import GaussianNB
+
+def fit_predict(X, y, X_new):
+    # TODO
+    return [0] * len(X_new)
+`}
+    wrapSuffix={`
+CASES = {
+    "0": {
+        "X": [[0.0], [1.0], [2.0], [3.0], [4.0], [5.0]],
+        "y": [0, 0, 0, 1, 1, 1],
+        "X_new": [[1.0], [4.0]],
+    },
+    "1": {
+        "X": [[0.0, 0.0], [0.0, 1.0], [1.0, 0.0], [5.0, 5.0], [5.0, 6.0], [6.0, 5.0]],
+        "y": [0, 0, 0, 1, 1, 1],
+        "X_new": [[0.2, 0.2], [5.5, 5.5]],
+    },
+    "2": {
+        "X": [[-2.0], [-1.0], [0.0], [5.0], [6.0], [7.0]],
+        "y": [0, 0, 0, 1, 1, 1],
+        "X_new": [[-1.0], [6.0]],
+    },
+    "3": {
+        "X": [[1.0], [2.0], [3.0], [8.0], [9.0], [10.0]],
+        "y": [1, 1, 1, 0, 0, 0],
+        "X_new": [[2.0], [9.0]],
+    },
+    "4": {
+        "X": [[0.0, 0.0], [1.0, 0.0], [0.0, 1.0], [10.0, 10.0], [11.0, 10.0], [10.0, 11.0]],
+        "y": [0, 0, 0, 1, 1, 1],
+        "X_new": [[0.5, 0.5], [10.5, 10.5]],
+    },
+    "5": {
+        "X": [[0.0], [0.5], [1.0], [9.0], [9.5], [10.0]],
+        "y": [0, 0, 0, 1, 1, 1],
+        "X_new": [[0.3], [9.7]],
+    },
+    "6": {
+        "X": [[2.0, 2.0], [2.0, 3.0], [3.0, 2.0], [-2.0, -2.0], [-2.0, -3.0], [-3.0, -2.0]],
+        "y": [1, 1, 1, 0, 0, 0],
+        "X_new": [[2.5, 2.5], [-2.5, -2.5]],
+    },
+    "7": {
+        "X": [[0.0], [1.0], [2.0], [3.0], [4.0], [5.0], [6.0], [7.0]],
+        "y": [0, 0, 0, 0, 1, 1, 1, 1],
+        "X_new": [[1.5], [5.5]],
+    },
+    "8": {
+        "X": [[100.0], [101.0], [102.0], [200.0], [201.0], [202.0]],
+        "y": [0, 0, 0, 1, 1, 1],
+        "X_new": [[101.0], [201.0]],
+    },
+    "9": {
+        "X": [[0.0, 5.0], [1.0, 5.0], [2.0, 5.0], [0.0, 0.0], [1.0, 0.0], [2.0, 0.0]],
+        "y": [1, 1, 1, 0, 0, 0],
+        "X_new": [[1.0, 4.5], [1.0, 0.5]],
+    },
+}
+c = CASES[input().strip()]
+print(fit_predict(c["X"], c["y"], c["X_new"]))
+`}
+    solution={`from sklearn.naive_bayes import GaussianNB
+
+def fit_predict(X, y, X_new):
+    return [int(v) for v in GaussianNB().fit(X, y).predict(X_new)]
+`}
+    sourceChecks={[
+      {name: 'Uses GaussianNB', pattern: 'GaussianNB\\(', must: true, hint: 'GaussianNB()'},
+    ]}
+    tests={[
+      {name: '1d', stdin: '0', equals: '[0, 1]'},
+      {name: '2d clusters', stdin: '1', equals: '[0, 1]'},
+      {name: 'gap 1d', stdin: '2', equals: '[0, 1]'},
+      {name: 'flipped 1d', stdin: '3', equals: '[1, 0]'},
+      {name: 'far 2d', stdin: '4', equals: '[0, 1]'},
+      {name: 'tight 1d', stdin: '5', equals: '[0, 1]'},
+      {name: 'quadrant flip', stdin: '6', equals: '[1, 0]'},
+      {name: '8-point', stdin: '7', equals: '[0, 1]'},
+      {name: 'large scale', stdin: '8', equals: '[0, 1]'},
+      {name: 'feature-2', stdin: '9', equals: '[1, 0]'},
+    ]}
+  />
+</ExerciseSet>
+
+## Support vector machines (SVMs)
+
+Find a **maximum-margin** hyperplane separating classes. Points on the margin boundary are **support vectors**.
+
+When data are not linearly separable in the original space, a **kernel** $K(x,y)=\phi(x)^{\top}\phi(y)$ implicitly maps to a higher-dimensional feature space (the **kernel trick**) so a linear separator there can look nonlinear in input space. Common kernels: **linear**, **RBF / Gaussian**.
+
+| Prefer SVM when… | Prefer simpler linear models when… |
+| --- | --- |
+| Clear margin / nonlinear boundary, moderate $n$, high $d$ | Need probabilities & interpretability, huge $n$ |
+| Kernel can help separation | Classes heavily overlap / compute budget is tight |
+
+SVMs are weaker when datasets are enormous (cost) or when you must explain a probability to a PM.
+
+<MultipleChoice
+  id="ds-clf-svm"
+  title="SVMs"
+  questions={[
+    {
+      prompt: 'SVMs primarily maximize…',
+      choices: [
+        'the number of trees',
+        'the margin around the decision boundary',
+        'train accuracy only via memorization',
+        'the learning rate',
+      ],
+      answer: 1,
+      why: 'Maximum-margin hyperplane.',
+    },
+    {
+      type: 'multi',
+      prompt: 'Which are true? (Select all that apply.)',
+      choices: [
+        'Support vectors are the points nearest the boundary',
+        'Kernels enable nonlinear boundaries via feature maps',
+        'Linear kernels suit roughly linear problems',
+        'SVMs always output well-calibrated probabilities by default',
+      ],
+      answers: [0, 1, 2],
+      why: 'Probability calibration is extra; margin is core.',
+    },
+    {
+      type: 'order',
+      prompt: 'Order a kernelized SVM story (top = first).',
+      items: [
+        'Separate with a max-margin hyperplane in that space',
+        'Map (implicitly) with a kernel',
+        'Start with data not linearly separable in input space',
+      ],
+      order: [2, 1, 0],
+      why: 'Not separable → kernel map → max margin.',
+    },
+    {
+      prompt: 'Compared with logistic regression, SVMs are often worse when you need…',
+      choices: [
+        'a nonlinear boundary',
+        'simple probability narratives for stakeholders',
+        'high-dimensional features',
+        'a margin-based fit',
+      ],
+      answer: 1,
+      why: 'Logistic outputs P(Y=1|X) naturally.',
+    },
+  ]}
+/>
+
+### Practice: SVM
+
+<ExerciseSet>
+  <CodeExercise
+    title="SVM1 · LinearSVC"
+    heading="ds-clf-svm1"
+    lang="python"
+    filename="main.py"
+    prompt="Fit LinearSVC(random_state=0, max_iter=5000) on X,y. Return predicted labels for X_new as ints."
+    sampleLog={`(input) 0
+[0, 1]`}
+    starter={`from sklearn.svm import LinearSVC
+
+def fit_predict(X, y, X_new):
+    # TODO
+    return [0] * len(X_new)
+`}
+    wrapSuffix={`
+CASES = {
+    "0": {
+        "X": [[0.0], [1.0], [2.0], [3.0], [4.0], [5.0]],
+        "y": [0, 0, 0, 1, 1, 1],
+        "X_new": [[1.0], [4.0]],
+    },
+    "1": {
+        "X": [[0.0, 0.0], [1.0, 0.0], [0.0, 1.0], [4.0, 4.0], [5.0, 4.0], [4.0, 5.0]],
+        "y": [0, 0, 0, 1, 1, 1],
+        "X_new": [[0.5, 0.5], [4.5, 4.5]],
+    },
+    "2": {
+        "X": [[-3.0], [-2.0], [-1.0], [1.0], [2.0], [3.0]],
+        "y": [0, 0, 0, 1, 1, 1],
+        "X_new": [[-2.0], [2.0]],
+    },
+    "3": {
+        "X": [[1.0], [2.0], [3.0], [7.0], [8.0], [9.0]],
+        "y": [1, 1, 1, 0, 0, 0],
+        "X_new": [[2.0], [8.0]],
+    },
+    "4": {
+        "X": [[0.0, 0.0], [0.0, 1.0], [1.0, 0.0], [10.0, 10.0], [10.0, 11.0], [11.0, 10.0]],
+        "y": [0, 0, 0, 1, 1, 1],
+        "X_new": [[0.2, 0.2], [10.5, 10.5]],
+    },
+    "5": {
+        "X": [[0.0], [1.0], [2.0], [8.0], [9.0], [10.0]],
+        "y": [0, 0, 0, 1, 1, 1],
+        "X_new": [[1.5], [9.0]],
+    },
+    "6": {
+        "X": [[5.0, 0.0], [6.0, 0.0], [7.0, 0.0], [5.0, 10.0], [6.0, 10.0], [7.0, 10.0]],
+        "y": [0, 0, 0, 1, 1, 1],
+        "X_new": [[6.0, 1.0], [6.0, 9.0]],
+    },
+    "7": {
+        "X": [[-5.0], [-4.0], [-3.0], [3.0], [4.0], [5.0]],
+        "y": [0, 0, 0, 1, 1, 1],
+        "X_new": [[-4.0], [4.0]],
+    },
+    "8": {
+        "X": [[0.0], [0.5], [1.0], [1.5], [2.0], [2.5], [8.0], [8.5], [9.0], [9.5]],
+        "y": [0, 0, 0, 0, 0, 0, 1, 1, 1, 1],
+        "X_new": [[1.0], [9.0]],
+    },
+    "9": {
+        "X": [[2.0, 2.0], [3.0, 2.0], [2.0, 3.0], [-2.0, -2.0], [-3.0, -2.0], [-2.0, -3.0]],
+        "y": [1, 1, 1, 0, 0, 0],
+        "X_new": [[2.5, 2.5], [-2.5, -2.5]],
+    },
+}
+c = CASES[input().strip()]
+print(fit_predict(c["X"], c["y"], c["X_new"]))
+`}
+    solution={`from sklearn.svm import LinearSVC
+
+def fit_predict(X, y, X_new):
+    model = LinearSVC(random_state=0, max_iter=5000).fit(X, y)
+    return [int(v) for v in model.predict(X_new)]
+`}
+    sourceChecks={[
+      {name: 'Uses LinearSVC', pattern: 'LinearSVC\\(', must: true, hint: 'LinearSVC(random_state=0, max_iter=5000)'},
+    ]}
+    tests={[
+      {name: '1d', stdin: '0', equals: '[0, 1]'},
+      {name: '2d', stdin: '1', equals: '[0, 1]'},
+      {name: 'symmetric', stdin: '2', equals: '[0, 1]'},
+      {name: 'flipped', stdin: '3', equals: '[1, 0]'},
+      {name: 'far 2d', stdin: '4', equals: '[0, 1]'},
+      {name: 'wide gap', stdin: '5', equals: '[0, 1]'},
+      {name: 'feature-2', stdin: '6', equals: '[0, 1]'},
+      {name: 'large margin', stdin: '7', equals: '[0, 1]'},
+      {name: '10-point', stdin: '8', equals: '[0, 1]'},
+      {name: 'quadrants', stdin: '9', equals: '[1, 0]'},
+    ]}
+  />
+</ExerciseSet>
+
+## Decision trees (CART)
+
+A tree recursively **splits** the feature space to reduce impurity. Each leaf holds a class prediction (or a regression mean — CART covers both).
+
+Training is **greedy**: at each node, try splits and pick the one with largest **information gain**.
+
+**Entropy** of a discrete label $Y$:
+
+$$
+H(Y) = -\sum_k P(Y=k)\log P(Y=k)
+$$
+
+(Binary: peaks at $p=0.5$, zero at $p\in\{0,1\}$.) Trees often use **Gini** impurity in practice — same “purer leaves are better” idea.
+
+**Information gain** for a split on $X$:
+
+$$
+\mathrm{IG}(Y,X) = H(Y) - H(Y\mid X)
+$$
+
+Choose the feature/threshold maximizing IG; recurse on child nodes.
+
+Interview bar: explain training, entropy / IG, and why single trees overfit (deep trees memorize) — leading to forests later.
+
+<FormulaExplorer preset="clfEntropyCurve" />
+
+<MultipleChoice
+  id="ds-clf-tree"
+  title="Decision trees"
+  questions={[
+    {
+      prompt: 'Information gain measures…',
+      choices: [
+        'how much a split reduces label uncertainty',
+        'the learning rate only',
+        'AUC exclusively',
+        'the number of support vectors',
+      ],
+      answer: 0,
+      why: 'IG = H(Y) − H(Y|X).',
+    },
+    {
+      type: 'multi',
+      prompt: 'Which are true? (Select all that apply.)',
+      choices: [
+        'Trees train greedily with recursive binary splits',
+        'CART covers classification and regression',
+        'Deep unregularized trees often overfit',
+        'Entropy is maximized for a sure (p=0 or 1) Bernoulli',
+      ],
+      answers: [0, 1, 2],
+      why: 'Entropy is maximized near p=0.5, not at the extremes.',
+    },
+    {
+      type: 'order',
+      prompt: 'Order one tree-growing step (top = first).',
+      items: [
+        'Recurse on the child nodes',
+        'Score candidate splits by impurity reduction / IG',
+        'Pick the best split for the current node',
+      ],
+      order: [1, 2, 0],
+      why: 'Score → pick → recurse.',
+    },
+    {
+      prompt: 'Binary entropy H(p) is highest when…',
+      choices: ['p = 0', 'p = 1', 'p = 0.5', 'p = 2'],
+      answer: 2,
+      why: 'Maximum uncertainty at a fair coin.',
+    },
+  ]}
+/>
+
+<NumericQuiz id="ds-clf-entropy-compute" title="Compute: binary entropy" bank="dsClfEntropy" rounds={5} />
+
+### Practice: entropy & trees
+
+<ExerciseSet>
+  <CodeExercise
+    title="TREE1 · Binary entropy"
+    heading="ds-clf-tree1"
+    lang="python"
+    filename="main.py"
+    prompt="Return H(p)=−p log2 p − (1−p) log2(1−p), or 0.0 if p in {0,1}. Round to 2 decimals."
+    sampleLog={`(input) 0
+1.0`}
+    starter={`import math
+
+def binary_entropy(p):
+    # TODO
+    return 0.0
+`}
+    wrapSuffix={`
+CASES = {
+    "0": 0.5,
+    "1": 0.8,
+    "2": 0.0,
+    "3": 1.0,
+    "4": 0.25,
+    "5": 0.1,
+    "6": 0.9,
+    "7": 0.75,
+    "8": 0.01,
+    "9": 0.99,
+}
+print(binary_entropy(CASES[input().strip()]))
+`}
+    solution={`import math
+
+def binary_entropy(p):
+    if p == 0.0 or p == 1.0:
+        return 0.0
+    return round(-(p * math.log2(p) + (1 - p) * math.log2(1 - p)), 2)
+`}
+    tests={[
+      {name: 'p=0.5', stdin: '0', equals: '1.0'},
+      {name: 'p=0.8', stdin: '1', equals: '0.72'},
+      {name: 'p=0', stdin: '2', equals: '0.0'},
+      {name: 'p=1', stdin: '3', equals: '0.0'},
+      {name: 'p=0.25', stdin: '4', equals: '0.81'},
+      {name: 'p=0.1', stdin: '5', equals: '0.47'},
+      {name: 'p=0.9', stdin: '6', equals: '0.47'},
+      {name: 'p=0.75', stdin: '7', equals: '0.81'},
+      {name: 'p=0.01', stdin: '8', equals: '0.08'},
+      {name: 'p=0.99', stdin: '9', equals: '0.08'},
+    ]}
+  />
+  <CodeExercise
+    title="TREE2 · Information gain (equal leaves)"
+    heading="ds-clf-tree2"
+    lang="python"
+    filename="main.py"
+    prompt="Parent positive rate p_parent. After a split, both children have weight 0.5 with rates p_left and p_right. Return IG = H(parent) − 0.5 H(left) − 0.5 H(right) using binary_entropy, rounded to 2 decimals."
+    sampleLog={`(input) 0
+0.19`}
+    starter={`import math
+
+def binary_entropy(p):
+    if p == 0.0 or p == 1.0:
+        return 0.0
+    return -(p * math.log2(p) + (1 - p) * math.log2(1 - p))
+
+def information_gain(p_parent, p_left, p_right):
+    # TODO: equal-weight children
+    return 0.0
+`}
+    wrapSuffix={`
+CASES = {
+    "0": {"pp": 0.5, "pl": 0.75, "pr": 0.25},
+    "1": {"pp": 0.5, "pl": 0.5, "pr": 0.5},
+    "2": {"pp": 0.8, "pl": 1.0, "pr": 0.6},
+    "3": {"pp": 0.5, "pl": 1.0, "pr": 0.0},
+    "4": {"pp": 0.6, "pl": 0.6, "pr": 0.6},
+    "5": {"pp": 0.9, "pl": 1.0, "pr": 0.8},
+    "6": {"pp": 0.4, "pl": 0.0, "pr": 0.8},
+    "7": {"pp": 0.7, "pl": 0.9, "pr": 0.5},
+    "8": {"pp": 0.5, "pl": 0.9, "pr": 0.1},
+    "9": {"pp": 0.3, "pl": 0.0, "pr": 0.6},
+}
+c = CASES[input().strip()]
+print(information_gain(c["pp"], c["pl"], c["pr"]))
+`}
+    solution={`import math
+
+def binary_entropy(p):
+    if p == 0.0 or p == 1.0:
+        return 0.0
+    return -(p * math.log2(p) + (1 - p) * math.log2(1 - p))
+
+def information_gain(p_parent, p_left, p_right):
+    ig = binary_entropy(p_parent) - 0.5 * binary_entropy(p_left) - 0.5 * binary_entropy(p_right)
+    return round(ig, 2)
+`}
+    tests={[
+      {name: 'helpful split', stdin: '0', equals: '0.19'},
+      {name: 'useless split', stdin: '1', equals: '0.0'},
+      {name: 'partial purify', stdin: '2', equals: '0.24'},
+      {name: 'perfect split', stdin: '3', equals: '1.0'},
+      {name: 'useless mid', stdin: '4', equals: '0.0'},
+      {name: 'near pure parent', stdin: '5', equals: '0.11'},
+      {name: 'edge left p=0', stdin: '6', equals: '0.61'},
+      {name: 'mild gain', stdin: '7', equals: '0.15'},
+      {name: 'strong asymmetric', stdin: '8', equals: '0.53'},
+      {name: 'edge left rare', stdin: '9', equals: '0.4'},
+    ]}
+  />
+  <CodeExercise
+    title="TREE3 · sklearn DecisionTreeClassifier"
+    heading="ds-clf-tree3"
+    lang="python"
+    filename="main.py"
+    prompt="Fit DecisionTreeClassifier(max_depth=1, random_state=0). Return predictions for X_new as ints."
+    sampleLog={`(input) 0
+[0, 1]`}
+    starter={`from sklearn.tree import DecisionTreeClassifier
+
+def fit_predict(X, y, X_new):
+    # TODO
+    return [0] * len(X_new)
+`}
+    wrapSuffix={`
+CASES = {
+    "0": {
+        "X": [[0.0], [1.0], [2.0], [3.0], [4.0], [5.0]],
+        "y": [0, 0, 0, 1, 1, 1],
+        "X_new": [[1.0], [4.0]],
+    },
+    "1": {
+        "X": [[0.0], [1.0], [2.0], [8.0], [9.0], [10.0]],
+        "y": [0, 0, 0, 1, 1, 1],
+        "X_new": [[1.5], [9.0]],
+    },
+    "2": {
+        "X": [[1.0], [2.0], [3.0], [7.0], [8.0], [9.0]],
+        "y": [1, 1, 1, 0, 0, 0],
+        "X_new": [[2.0], [8.0]],
+    },
+    "3": {
+        "X": [[-2.0], [-1.0], [0.0], [5.0], [6.0], [7.0]],
+        "y": [0, 0, 0, 1, 1, 1],
+        "X_new": [[-1.0], [6.0]],
+    },
+    "4": {
+        "X": [[0.0, 0.0], [1.0, 0.0], [0.0, 1.0], [5.0, 5.0], [6.0, 5.0], [5.0, 6.0]],
+        "y": [0, 0, 0, 1, 1, 1],
+        "X_new": [[0.5, 0.5], [5.5, 5.5]],
+    },
+    "5": {
+        "X": [[0.0], [1.0], [2.0], [3.0], [4.0], [5.0], [6.0], [7.0]],
+        "y": [0, 0, 0, 0, 1, 1, 1, 1],
+        "X_new": [[1.0], [6.0]],
+    },
+    "6": {
+        "X": [[10.0], [11.0], [12.0], [20.0], [21.0], [22.0]],
+        "y": [0, 0, 0, 1, 1, 1],
+        "X_new": [[11.5], [21.0]],
+    },
+    "7": {
+        "X": [[0.0], [0.5], [1.0], [9.0], [9.5], [10.0]],
+        "y": [1, 1, 1, 0, 0, 0],
+        "X_new": [[0.5], [9.5]],
+    },
+    "8": {
+        "X": [[0.0, 5.0], [1.0, 5.0], [2.0, 5.0], [0.0, 0.0], [1.0, 0.0], [2.0, 0.0]],
+        "y": [1, 1, 1, 0, 0, 0],
+        "X_new": [[1.0, 4.0], [1.0, 1.0]],
+    },
+    "9": {
+        "X": [[-5.0], [-4.0], [-3.0], [3.0], [4.0], [5.0]],
+        "y": [0, 0, 0, 1, 1, 1],
+        "X_new": [[-4.0], [4.0], [0.0]],
+    },
+}
+c = CASES[input().strip()]
+print(fit_predict(c["X"], c["y"], c["X_new"]))
+`}
+    solution={`from sklearn.tree import DecisionTreeClassifier
+
+def fit_predict(X, y, X_new):
+    model = DecisionTreeClassifier(max_depth=1, random_state=0).fit(X, y)
+    return [int(v) for v in model.predict(X_new)]
+`}
+    sourceChecks={[
+      {name: 'Uses DecisionTreeClassifier', pattern: 'DecisionTreeClassifier\\(', must: true, hint: 'DecisionTreeClassifier(max_depth=1, random_state=0)'},
+    ]}
+    tests={[
+      {name: 'stump mid', stdin: '0', equals: '[0, 1]'},
+      {name: 'stump gap', stdin: '1', equals: '[0, 1]'},
+      {name: 'flipped stump', stdin: '2', equals: '[1, 0]'},
+      {name: 'neg then pos', stdin: '3', equals: '[0, 1]'},
+      {name: '2d stump', stdin: '4', equals: '[0, 1]'},
+      {name: '8-point', stdin: '5', equals: '[0, 1]'},
+      {name: 'shifted', stdin: '6', equals: '[0, 1]'},
+      {name: 'flipped gap', stdin: '7', equals: '[1, 0]'},
+      {name: 'feature-2', stdin: '8', equals: '[1, 0]'},
+      {name: 'three queries', stdin: '9', equals: '[0, 1, 0]'},
+    ]}
+  />
+</ExerciseSet>
+
+## Model cheat sheet
+
+| Model | Strength | Watch out |
+| --- | --- | --- |
+| Logistic regression | Probabilities, speed, interpretability | Linear boundary; collinearity |
+| Naive Bayes | Tiny data, text, speed | Independence assumption |
+| SVM (+ kernel) | Margins, nonlinear via kernels | Scale / interpretability |
+| Decision tree | Nonlinear, readable rules | Overfit if deep; unstable splits |
+
+## Quick synthesis
+
+| Topic | Sound bite |
+| --- | --- |
+| Logistic | $\sigma(X\beta)$ → probability; log-loss; softmax for $K>2$ |
+| Naive Bayes | Bayes + conditional independence; great text baseline |
+| SVM | Max margin; kernels for nonlinear; support vectors |
+| Trees | Greedy splits maximizing IG / impurity drop; CART |
+
+Ensembles (random forests, boosting) build on these trees — continue in [Random Forests & Boosting](./lesson-26-random-forests-and-boosting).

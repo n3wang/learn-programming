@@ -394,7 +394,7 @@ function ProblemPane({
  * Distinct from ExerciseSet (layout shell for CodeExercise / SqlExercise).
  *
  * <ProblemSet id="…">
- *   <Problem type="concept" keywords={['CLT']} minWords={40} … />
+ *   <Problem type="concept" keywords={['CLT']} minWords={3} … />
  * </ProblemSet>
  */
 export default function ProblemSet({id, children}) {

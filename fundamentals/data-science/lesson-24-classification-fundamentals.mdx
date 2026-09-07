@@ -1,0 +1,576 @@
+---
+sidebar_position: 10.7
+title: Classification Fundamentals
+sidebar_label: 'ML - Classification eval'
+---
+
+> **Source:** Concepts adapted from *Ace the Data Science Interview* — Chapter 7 (“Machine Learning”) by Kevin Huo & Nick Singh. Rewritten in original wording for this course.
+
+Classification assigns each example to one of $K$ classes (churn / not, click / not, fraud / legit) instead of predicting a continuous number. Interviews love this topic because the business framing — especially **false positives vs false negatives** — is half the answer.
+
+This lesson covers the shared framework and how to **evaluate** classifiers — confusion matrix, precision/recall/F1, ROC — with interactive sims and **slider explorers** for threshold trade-offs. Model families (logistic regression, Naive Bayes, SVMs, trees) are in [Classification models](./lesson-25-classification-models).
+
+## Generative vs discriminative
+
+Two broad approaches both end up maximizing a posterior over classes, but they get there differently:
+
+| Style | Idea | Decision rule (sketch) |
+| --- | --- | --- |
+| **Generative** | Model the joint $P(X,Y)$ (often via $P(X\mid Y)P(Y)$) | Pick class with largest posterior from Bayes |
+| **Discriminative** | Model $P(Y\mid X)$ (or a decision boundary) directly | $\hat y = \arg\max_k P(Y=k\mid X)$ |
+
+Binary ($K=2$) is the interview default; multi-class adapts the same ideas (one-vs-rest, softmax, etc.).
+
+<MultipleChoice
+  id="ds-clf-framework"
+  title="Classification framework"
+  questions={[
+    {
+      prompt: 'Classification differs from regression mainly because it predicts…',
+      choices: [
+        'a continuous real number only',
+        'a class label (or class probabilities)',
+        'only timestamps',
+        'only the learning rate',
+      ],
+      answer: 1,
+      why: 'Discrete categories (possibly with scores).',
+    },
+    {
+      type: 'multi',
+      prompt: 'Which are true? (Select all that apply.)',
+      choices: [
+        'Generative models work with the joint of X and Y',
+        'Discriminative models focus on P(Y|X) / boundaries',
+        'Both ultimately care about a good posterior decision',
+        'Multi-class problems never appear in industry',
+      ],
+      answers: [0, 1, 2],
+      why: 'Multi-class is common; methods adapt.',
+    },
+    {
+      type: 'order',
+      prompt: 'Order a typical classification case answer (top = first).',
+      items: [
+        'Pick metrics that match FP/FN costs',
+        'Name the classes and business decision',
+        'Propose a model family and validation plan',
+      ],
+      order: [1, 0, 2],
+      why: 'Define the decision → costs/metrics → model.',
+    },
+    {
+      prompt: 'ŷ = argmax_k P(Y=k|X) is the core of…',
+      choices: [
+        'k-means clustering only',
+        'discriminative classification',
+        'SVD',
+        'train/test split sizes',
+      ],
+      answer: 1,
+      why: 'Choose the most probable class given X.',
+    },
+  ]}
+/>
+
+## Evaluating classifiers (and the accuracy paradox)
+
+If a disease hits 1 in 10,000 people, always predicting “no disease” is **99.99% accurate** — and useless. That is the **accuracy paradox**: with imbalance, accuracy alone can hide a model that never finds the rare positive class.
+
+You need metrics that account for **false positives (FP)** and **false negatives (FN)**.
+
+### Confusion matrix
+
+For binary classification:
+
+|  | Pred + | Pred − |
+| --- | --- | --- |
+| **Actual +** | TP | FN (type II) |
+| **Actual −** | FP (type I) | TN |
+
+- **False positive:** predict disease when healthy (alarm / costly treatment).
+- **False negative:** miss a real case (false security).
+
+<MlConfusionMatrixSimulator />
+
+<FormulaExplorer preset="clfThresholdMetrics" />
+
+<MultipleChoice
+  id="ds-clf-cm"
+  title="Confusion matrix"
+  questions={[
+    {
+      prompt: 'A false negative means…',
+      choices: [
+        'predicted +, actual −',
+        'predicted −, actual +',
+        'predicted + and actual +',
+        'the model never trained',
+      ],
+      answer: 1,
+      why: 'Missed a true positive case.',
+    },
+    {
+      type: 'multi',
+      prompt: 'Why is accuracy alone risky on rare positives? (Select all that apply.)',
+      choices: [
+        'A constant “all negative” predictor can look great',
+        'It ignores the cost structure of FP vs FN',
+        'It always equals F1',
+        'It can hide zero recall on the rare class',
+      ],
+      answers: [0, 1, 3],
+      why: 'Accuracy paradox + business costs.',
+    },
+    {
+      type: 'order',
+      prompt: 'Order matrix cells reading left→right, top→bottom (Pred+/Pred− × Actual+/Actual−).',
+      items: [
+        'FN',
+        'TP',
+        'TN',
+        'FP',
+      ],
+      order: [1, 0, 3, 2],
+      why: 'TP, FN on the positive row; FP, TN on the negative row.',
+    },
+    {
+      prompt: 'In cancer screening, missing a true case is a…',
+      choices: ['false positive', 'false negative', 'true positive', 'true negative'],
+      answer: 1,
+      why: 'Actual + predicted −.',
+    },
+  ]}
+/>
+
+### Practice: confusion counts → rates
+
+<ExerciseSet>
+  <CodeExercise
+    title="CM1 · Precision & recall"
+    heading="ds-clf-cm1"
+    lang="python"
+    filename="main.py"
+    prompt="Return (precision, recall) = (TP/(TP+FP), TP/(TP+FN)) rounded to 2 decimals. If a denominator is 0, use 0.0 for that metric."
+    sampleLog={`(input) 0
+(0.8, 0.8)`}
+    starter={`def precision_recall(tp, fp, fn, tn):
+    # TODO
+    return (0.0, 0.0)
+`}
+    wrapSuffix={`
+CASES = {
+    "0": {"tp": 8, "fp": 2, "fn": 2, "tn": 88},
+    "1": {"tp": 0, "fp": 5, "fn": 10, "tn": 85},
+    "2": {"tp": 10, "fp": 0, "fn": 0, "tn": 90},
+    "3": {"tp": 5, "fp": 15, "fn": 5, "tn": 75},
+    "4": {"tp": 1, "fp": 0, "fn": 9, "tn": 90},
+    "5": {"tp": 20, "fp": 20, "fn": 0, "tn": 60},
+    "6": {"tp": 0, "fp": 0, "fn": 50, "tn": 50},
+    "7": {"tp": 7, "fp": 3, "fn": 3, "tn": 87},
+    "8": {"tp": 50, "fp": 0, "fn": 50, "tn": 0},
+    "9": {"tp": 4, "fp": 1, "fn": 1, "tn": 94},
+}
+c = CASES[input().strip()]
+print(precision_recall(c["tp"], c["fp"], c["fn"], c["tn"]))
+`}
+    solution={`def precision_recall(tp, fp, fn, tn):
+    prec = 0.0 if tp + fp == 0 else tp / (tp + fp)
+    rec = 0.0 if tp + fn == 0 else tp / (tp + fn)
+    return (round(prec, 2), round(rec, 2))
+`}
+    tests={[
+      {name: 'balanced-ish', stdin: '0', equals: '(0.8, 0.8)'},
+      {name: 'no TP', stdin: '1', equals: '(0.0, 0.0)'},
+      {name: 'perfect positives', stdin: '2', equals: '(1.0, 1.0)'},
+      {name: 'low precision', stdin: '3', equals: '(0.25, 0.5)'},
+      {name: 'high prec low rec', stdin: '4', equals: '(1.0, 0.1)'},
+      {name: 'full recall', stdin: '5', equals: '(0.5, 1.0)'},
+      {name: 'no preds no TP', stdin: '6', equals: '(0.0, 0.0)'},
+      {name: 'mild imbalance', stdin: '7', equals: '(0.7, 0.7)'},
+      {name: 'no TN half miss', stdin: '8', equals: '(1.0, 0.5)'},
+      {name: 'near perfect', stdin: '9', equals: '(0.8, 0.8)'},
+    ]}
+  />
+  <CodeExercise
+    title="CM2 · Specificity & accuracy"
+    heading="ds-clf-cm2"
+    lang="python"
+    filename="main.py"
+    prompt="Return (specificity, accuracy) = (TN/(TN+FP), (TP+TN)/n) rounded to 2 decimals."
+    sampleLog={`(input) 0
+(0.9, 0.9)`}
+    starter={`def spec_acc(tp, fp, fn, tn):
+    # TODO
+    return (0.0, 0.0)
+`}
+    wrapSuffix={`
+CASES = {
+    "0": {"tp": 40, "fp": 10, "fn": 10, "tn": 90},
+    "1": {"tp": 5, "fp": 5, "fn": 45, "tn": 945},
+    "2": {"tp": 0, "fp": 0, "fn": 0, "tn": 100},
+    "3": {"tp": 10, "fp": 40, "fn": 10, "tn": 40},
+    "4": {"tp": 20, "fp": 5, "fn": 5, "tn": 70},
+    "5": {"tp": 80, "fp": 10, "fn": 5, "tn": 5},
+    "6": {"tp": 1, "fp": 0, "fn": 0, "tn": 99},
+    "7": {"tp": 9, "fp": 1, "fn": 1, "tn": 89},
+    "8": {"tp": 0, "fp": 0, "fn": 100, "tn": 0},
+    "9": {"tp": 30, "fp": 5, "fn": 15, "tn": 50},
+}
+c = CASES[input().strip()]
+print(spec_acc(c["tp"], c["fp"], c["fn"], c["tn"]))
+`}
+    solution={`def spec_acc(tp, fp, fn, tn):
+    spec = 0.0 if tn + fp == 0 else tn / (tn + fp)
+    n = tp + fp + fn + tn
+    acc = (tp + tn) / n
+    return (round(spec, 2), round(acc, 2))
+`}
+    tests={[
+      {name: 'basic', stdin: '0', equals: '(0.9, 0.87)'},
+      {name: 'rare paradox', stdin: '1', equals: '(0.99, 0.95)'},
+      {name: 'all TN', stdin: '2', equals: '(1.0, 1.0)'},
+      {name: 'coin flip', stdin: '3', equals: '(0.5, 0.5)'},
+      {name: 'strong neg', stdin: '4', equals: '(0.93, 0.9)'},
+      {name: 'low specificity', stdin: '5', equals: '(0.33, 0.85)'},
+      {name: 'near perfect', stdin: '6', equals: '(1.0, 1.0)'},
+      {name: 'high both', stdin: '7', equals: '(0.99, 0.98)'},
+      {name: 'all FN', stdin: '8', equals: '(0.0, 0.0)'},
+      {name: 'mixed', stdin: '9', equals: '(0.91, 0.8)'},
+    ]}
+  />
+</ExerciseSet>
+
+## Precision, recall, and F1
+
+- **Precision** = $\mathrm{TP}/(\mathrm{TP}+\mathrm{FP})$ — of predicted positives, how many were right?
+- **Recall (sensitivity)** = $\mathrm{TP}/(\mathrm{TP}+\mathrm{FN})$ — of actual positives, how many did you catch?
+- **Specificity** = $\mathrm{TN}/(\mathrm{TN}+\mathrm{FP})$ — of actual negatives, how many correctly cleared?
+- **F1** = $2\cdot\frac{\mathrm{precision}\cdot\mathrm{recall}}{\mathrm{precision}+\mathrm{recall}}$ — harmonic mean when both matter
+
+**Trade-off:** higher recall (catch more cancer) often means more false alarms; higher precision (trust positives) often means more misses. Interview answers must tie FP/FN costs to the product.
+
+The threshold explorer above already shows precision / recall / F1 moving together — re-slide $\tau$ while you read this section.
+
+<MultipleChoice
+  id="ds-clf-pr"
+  title="Precision, recall, F1"
+  questions={[
+    {
+      prompt: 'Precision answers…',
+      choices: [
+        'Of all actual positives, how many did we find?',
+        'Of all predicted positives, how many were truly positive?',
+        'Of all negatives, how many were predicted positive?',
+        'What is the learning rate?',
+      ],
+      answer: 1,
+      why: 'TP / (TP+FP).',
+    },
+    {
+      type: 'multi',
+      prompt: 'When might you prefer high recall? (Select all that apply.)',
+      choices: [
+        'Missing a positive is very costly (fraud, disease)',
+        'False alarms are cheap relative to misses',
+        'You only care about overall accuracy on a 99.9% negative class',
+        'FN cost ≫ FP cost',
+      ],
+      answers: [0, 1, 3],
+      why: 'Optimize for catching positives when misses hurt most.',
+    },
+    {
+      type: 'order',
+      prompt: 'Order from “trust the + prediction” metric → “catch the + cases” metric (top = first).',
+      items: [
+        'Recall',
+        'Precision',
+      ],
+      order: [1, 0],
+      why: 'Precision = trust positives; recall = coverage of positives.',
+    },
+    {
+      prompt: 'F1 is best described as…',
+      choices: [
+        'the arithmetic mean of precision and recall',
+        'the harmonic mean of precision and recall',
+        'always equal to accuracy',
+        'AUC under the ROC',
+      ],
+      answer: 1,
+      why: 'Harmonic mean balances the two.',
+    },
+  ]}
+/>
+
+<NumericQuiz id="ds-clf-metrics-compute" title="Compute: P / R / F1 / specificity" bank="dsClfMetrics" rounds={5} />
+
+### Practice: F1
+
+<ExerciseSet>
+  <CodeExercise
+    title="F1 · From precision & recall"
+    heading="ds-clf-f1"
+    lang="python"
+    filename="main.py"
+    prompt="Return F1 = 2PR/(P+R) rounded to 2 decimals. If P+R=0, return 0.0."
+    sampleLog={`(input) 0
+0.8`}
+    starter={`def f1(precision, recall):
+    # TODO
+    return 0.0
+`}
+    wrapSuffix={`
+CASES = {
+    "0": {"p": 0.8, "r": 0.8},
+    "1": {"p": 0.9, "r": 0.5},
+    "2": {"p": 0.0, "r": 0.0},
+    "3": {"p": 1.0, "r": 0.5},
+    "4": {"p": 0.6, "r": 0.6},
+    "5": {"p": 1.0, "r": 1.0},
+    "6": {"p": 0.25, "r": 1.0},
+    "7": {"p": 0.0, "r": 1.0},
+    "8": {"p": 0.75, "r": 0.25},
+    "9": {"p": 0.4, "r": 0.8},
+}
+c = CASES[input().strip()]
+print(f1(c["p"], c["r"]))
+`}
+    solution={`def f1(precision, recall):
+    if precision + recall == 0:
+        return 0.0
+    return round(2 * precision * recall / (precision + recall), 2)
+`}
+    tests={[
+      {name: 'equal', stdin: '0', equals: '0.8'},
+      {name: 'skewed', stdin: '1', equals: '0.64'},
+      {name: 'zero', stdin: '2', equals: '0.0'},
+      {name: 'half recall', stdin: '3', equals: '0.67'},
+      {name: 'equal mid', stdin: '4', equals: '0.6'},
+      {name: 'perfect', stdin: '5', equals: '1.0'},
+      {name: 'low prec full rec', stdin: '6', equals: '0.4'},
+      {name: 'zero prec', stdin: '7', equals: '0.0'},
+      {name: 'high prec low rec', stdin: '8', equals: '0.38'},
+      {name: 'skewed 0.4/0.8', stdin: '9', equals: '0.53'},
+    ]}
+  />
+  <CodeExercise
+    title="F1 · From confusion counts"
+    heading="ds-clf-f1-cm"
+    lang="python"
+    filename="main.py"
+    prompt="From TP,FP,FN,TN compute F1 (via precision & recall) rounded to 2 decimals."
+    sampleLog={`(input) 0
+0.8`}
+    starter={`def f1_from_counts(tp, fp, fn, tn):
+    # TODO
+    raise NotImplementedError
+`}
+    wrapSuffix={`
+CASES = {
+    "0": {"tp": 8, "fp": 2, "fn": 2, "tn": 88},
+    "1": {"tp": 5, "fp": 15, "fn": 5, "tn": 75},
+    "2": {"tp": 0, "fp": 3, "fn": 7, "tn": 90},
+    "3": {"tp": 10, "fp": 0, "fn": 0, "tn": 90},
+    "4": {"tp": 1, "fp": 9, "fn": 9, "tn": 81},
+    "5": {"tp": 20, "fp": 5, "fn": 5, "tn": 70},
+    "6": {"tp": 0, "fp": 0, "fn": 10, "tn": 90},
+    "7": {"tp": 6, "fp": 2, "fn": 4, "tn": 88},
+    "8": {"tp": 50, "fp": 50, "fn": 0, "tn": 0},
+    "9": {"tp": 3, "fp": 1, "fn": 1, "tn": 95},
+}
+c = CASES[input().strip()]
+print(f1_from_counts(c["tp"], c["fp"], c["fn"], c["tn"]))
+`}
+    solution={`def f1_from_counts(tp, fp, fn, tn):
+    prec = 0.0 if tp + fp == 0 else tp / (tp + fp)
+    rec = 0.0 if tp + fn == 0 else tp / (tp + fn)
+    if prec + rec == 0:
+        return 0.0
+    return round(2 * prec * rec / (prec + rec), 2)
+`}
+    tests={[
+      {name: '0.8/0.8', stdin: '0', equals: '0.8'},
+      {name: 'low prec', stdin: '1', equals: '0.33'},
+      {name: 'no TP', stdin: '2', equals: '0.0'},
+      {name: 'perfect', stdin: '3', equals: '1.0'},
+      {name: 'very low', stdin: '4', equals: '0.1'},
+      {name: 'strong', stdin: '5', equals: '0.8'},
+      {name: 'no preds', stdin: '6', equals: '0.0'},
+      {name: 'mid F1', stdin: '7', equals: '0.67'},
+      {name: 'full recall half prec', stdin: '8', equals: '0.67'},
+      {name: 'near clean', stdin: '9', equals: '0.75'},
+    ]}
+  />
+</ExerciseSet>
+
+## ROC curves and AUC
+
+Sweep the classification threshold and plot **true positive rate** (recall) against **false positive rate** ($\mathrm{FP}/(\mathrm{FP}+\mathrm{TN})$). The **AUC** (area under the ROC) summarizes ranking quality: closer to 1 is better separation; ~0.5 is chance.
+
+A strong curve “hugs” the top-left (high TPR, low FPR).
+
+<MlRocCurveSimulator />
+
+<FormulaExplorer preset="clfRocSweep" />
+
+<MultipleChoice
+  id="ds-clf-roc"
+  title="ROC & AUC"
+  questions={[
+    {
+      prompt: 'ROC plots…',
+      choices: [
+        'precision vs recall only',
+        'true positive rate vs false positive rate',
+        'MSE vs MAE',
+        'train loss vs epoch only',
+      ],
+      answer: 1,
+      why: 'TPR vs FPR across thresholds.',
+    },
+    {
+      type: 'multi',
+      prompt: 'Which are true? (Select all that apply.)',
+      choices: [
+        'AUC near 1 means strong class separation',
+        'AUC near 0.5 is roughly chance',
+        'A curve hugging the top-left is desirable',
+        'AUC replaces the need to think about FP/FN costs',
+      ],
+      answers: [0, 1, 2],
+      why: 'Still choose an operating point for costs.',
+    },
+    {
+      type: 'order',
+      prompt: 'Order building a ROC story (top = first).',
+      items: [
+        'Compute AUC / compare models',
+        'Score examples with continuous scores',
+        'Sweep thresholds; record TPR and FPR',
+      ],
+      order: [1, 2, 0],
+      why: 'Scores → threshold sweep → summarize.',
+    },
+    {
+      prompt: 'False positive rate equals…',
+      choices: ['TP/(TP+FN)', 'FP/(FP+TN)', 'TN/(TN+FP)', 'TP/(TP+FP)'],
+      answer: 1,
+      why: 'FP over all actual negatives.',
+    },
+  ]}
+/>
+
+### Practice: TPR, FPR, AUC
+
+<ExerciseSet>
+  <CodeExercise
+    title="ROC1 · TPR and FPR"
+    heading="ds-clf-roc1"
+    lang="python"
+    filename="main.py"
+    prompt="Return (TPR, FPR) = (TP/(TP+FN), FP/(FP+TN)) each rounded to 2 decimals. Use 0.0 if a denominator is 0."
+    sampleLog={`(input) 0
+(0.8, 0.02)`}
+    starter={`def tpr_fpr(tp, fp, fn, tn):
+    # TODO: return (tpr, fpr)
+    raise NotImplementedError
+`}
+    wrapSuffix={`
+CASES = {
+    "0": {"tp": 8, "fp": 2, "fn": 2, "tn": 88},
+    "1": {"tp": 5, "fp": 5, "fn": 5, "tn": 85},
+    "2": {"tp": 0, "fp": 10, "fn": 10, "tn": 80},
+    "3": {"tp": 10, "fp": 0, "fn": 0, "tn": 90},
+    "4": {"tp": 9, "fp": 1, "fn": 1, "tn": 89},
+    "5": {"tp": 0, "fp": 0, "fn": 5, "tn": 95},
+    "6": {"tp": 20, "fp": 30, "fn": 0, "tn": 50},
+    "7": {"tp": 1, "fp": 0, "fn": 9, "tn": 90},
+    "8": {"tp": 50, "fp": 50, "fn": 50, "tn": 50},
+    "9": {"tp": 7, "fp": 3, "fn": 3, "tn": 87},
+}
+c = CASES[input().strip()]
+print(tpr_fpr(c["tp"], c["fp"], c["fn"], c["tn"]))
+`}
+    solution={`def tpr_fpr(tp, fp, fn, tn):
+    tpr = 0.0 if tp + fn == 0 else tp / (tp + fn)
+    fpr = 0.0 if fp + tn == 0 else fp / (fp + tn)
+    return (round(tpr, 2), round(fpr, 2))
+`}
+    tests={[
+      {name: 'strong', stdin: '0', equals: '(0.8, 0.02)'},
+      {name: 'balanced mid', stdin: '1', equals: '(0.5, 0.06)'},
+      {name: 'no TP', stdin: '2', equals: '(0.0, 0.11)'},
+      {name: 'perfect', stdin: '3', equals: '(1.0, 0.0)'},
+      {name: 'near perfect', stdin: '4', equals: '(0.9, 0.01)'},
+      {name: 'no positives predicted', stdin: '5', equals: '(0.0, 0.0)'},
+      {name: 'full recall', stdin: '6', equals: '(1.0, 0.38)'},
+      {name: 'low recall', stdin: '7', equals: '(0.1, 0.0)'},
+      {name: 'chance-ish', stdin: '8', equals: '(0.5, 0.5)'},
+      {name: 'good', stdin: '9', equals: '(0.7, 0.03)'},
+    ]}
+  />
+  <CodeExercise
+    title="ROC2 · Trapezoid AUC"
+    heading="ds-clf-roc2"
+    lang="python"
+    filename="main.py"
+    prompt="Given FPR list xs and TPR list ys (same length), sort by FPR and return trapezoid AUC rounded to 2 decimals."
+    sampleLog={`(input) 0
+0.8`}
+    starter={`def auc_trap(xs, ys):
+    # TODO
+    raise NotImplementedError
+`}
+    wrapSuffix={`
+CASES = {
+    "0": {"xs": [0, 0.2, 1], "ys": [0, 0.8, 1]},
+    "1": {"xs": [0, 0.5, 1], "ys": [0, 0.5, 1]},
+    "2": {"xs": [0, 0, 1], "ys": [0, 1, 1]},
+    "3": {"xs": [0, 1], "ys": [0, 1]},
+    "4": {"xs": [0, 0.1, 0.4, 1], "ys": [0, 0.6, 0.9, 1]},
+    "5": {"xs": [0, 0.3, 0.7, 1], "ys": [0, 0.4, 0.7, 1]},
+    "6": {"xs": [0, 0.25, 0.5, 0.75, 1], "ys": [0, 0.5, 0.75, 0.9, 1]},
+    "7": {"xs": [0, 0.2, 0.2, 1], "ys": [0, 0.2, 0.9, 1]},
+    "8": {"xs": [0, 0.6, 1], "ys": [0, 0.9, 1]},
+    "9": {"xs": [0, 0.1, 0.9, 1], "ys": [0, 0.2, 0.3, 1]},
+}
+c = CASES[input().strip()]
+print(auc_trap(c["xs"], c["ys"]))
+`}
+    solution={`def auc_trap(xs, ys):
+    pairs = sorted(zip(xs, ys))
+    area = 0.0
+    for i in range(1, len(pairs)):
+        x0, y0 = pairs[i - 1]
+        x1, y1 = pairs[i]
+        area += (x1 - x0) * (y0 + y1) / 2
+    return round(area, 2)
+`}
+    tests={[
+      {name: 'good curve', stdin: '0', equals: '0.8'},
+      {name: 'diagonal', stdin: '1', equals: '0.5'},
+      {name: 'perfect', stdin: '2', equals: '1.0'},
+      {name: 'two-point chance', stdin: '3', equals: '0.5'},
+      {name: 'four pts strong', stdin: '4', equals: '0.82'},
+      {name: 'four pts weak', stdin: '5', equals: '0.54'},
+      {name: 'five pts', stdin: '6', equals: '0.66'},
+      {name: 'vertical jump', stdin: '7', equals: '0.78'},
+      {name: 'three pts', stdin: '8', equals: '0.65'},
+      {name: 'poor ranking', stdin: '9', equals: '0.28'},
+    ]}
+  />
+</ExerciseSet>
+
+## Quick synthesis
+
+| Idea | Sound bite |
+| --- | --- |
+| Goal | Assign classes (or class probabilities), not continuous $y$ |
+| Generative vs discriminative | Joint vs $P(Y\mid X)$ — both → posterior decisions |
+| Accuracy paradox | Imbalance makes accuracy misleading |
+| Confusion matrix | TP / FP / FN / TN organize errors |
+| Precision / recall / F1 | Trust + vs catch +; harmonic mean when both matter |
+| ROC / AUC | Threshold sweep; ranking quality |
+
+Next: [Classification models](./lesson-25-classification-models) — logistic regression, Naive Bayes, SVMs, and decision trees.
