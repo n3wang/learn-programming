@@ -1,4 +1,4 @@
-import React, { useLayoutEffect, useRef, useState } from 'react';
+import React, { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import Button from '@site/src/components/ui/Button';
 import MathText from '@site/src/components/ProblemSet/MathText';
 import { getGuidedChoice } from './guidedChoice/guides';
@@ -20,6 +20,17 @@ function revealThrough(steps, count) {
   return n;
 }
 
+function shuffle(list) {
+  const next = list.slice();
+  for (let i = next.length - 1; i > 0; i -= 1) {
+    const j = Math.floor(Math.random() * (i + 1));
+    const tmp = next[i];
+    next[i] = next[j];
+    next[j] = tmp;
+  }
+  return next;
+}
+
 function Panel({ text }) {
   return (
     <span className={styles.panel}>
@@ -36,11 +47,20 @@ export default function GuidedChoiceExplanation({ preset }) {
   const [picked, setPicked] = useState(null);
   const [wrong, setWrong] = useState(false);
   const [reserved, setReserved] = useState(0);
+  const [choices, setChoices] = useState([]);
 
   const steps = data?.steps || [];
   const visible = mode === 'complete' ? steps.length : shown;
   const next = steps[shown];
   const waiting = mode === 'guided' && shown < steps.length && next?.ask;
+
+  useEffect(() => {
+    if (mode !== 'guided' || !next?.choices) {
+      setChoices([]);
+      return;
+    }
+    setChoices(shuffle(next.choices));
+  }, [mode, shown, preset, next]);
 
   useLayoutEffect(() => {
     if (mode !== 'complete' || !stageRef.current) {
@@ -54,10 +74,12 @@ export default function GuidedChoiceExplanation({ preset }) {
   }
 
   function startGuided() {
+    const first = revealThrough(steps, 1);
     setMode('guided');
-    setShown(revealThrough(steps, 1));
+    setShown(first);
     setPicked(null);
     setWrong(false);
+    setChoices(steps[first]?.choices ? shuffle(steps[first].choices) : []);
   }
 
   function showComplete() {
@@ -70,7 +92,7 @@ export default function GuidedChoiceExplanation({ preset }) {
     if (!waiting || picked != null) {
       return;
     }
-    const choice = next.choices[index];
+    const choice = choices[index];
     if (choice?.ok) {
       setPicked(index);
       setWrong(false);
@@ -142,7 +164,7 @@ export default function GuidedChoiceExplanation({ preset }) {
               <MathText text={next.ask} />
             </p>
             <div className={styles.choices}>
-              {next.choices.map((choice, index) => {
+              {choices.map((choice, index) => {
                 const isPick = picked === index;
                 const mark = isPick && choice.ok ? styles.choiceOk : isPick && wrong ? styles.choiceWrong : '';
                 return (

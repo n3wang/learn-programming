@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import ProblemShell from '@site/src/components/interactive/shell/ProblemShell';
 import { SolutionStep, stepStyles } from '@site/src/components/interactive/shell/SolutionStep';
 import { randInt } from '@site/src/components/interactive/shell/mathRandom';
+import SolutionSetNumberLine from '@site/src/components/interactive/shell/SolutionSetNumberLine';
 
 function gcd(a, b) {
   let x = Math.abs(a);
@@ -133,39 +134,6 @@ function choicesFor(item) {
   return [`x > ${at}`, `x ≥ ${at}`, `x < ${at}`, `x ≤ ${at}`];
 }
 
-function End({ cx, cy, closed }) {
-  return closed ? (
-    <circle cx={cx} cy={cy} r="5" fill="#e91e63" />
-  ) : (
-    <circle cx={cx} cy={cy} r="5" fill="#fff" stroke="#e91e63" strokeWidth="1.8" />
-  );
-}
-
-function NumberRay({ boundLabel, dir, closed }) {
-  const cx = dir === 'right' ? 108 : 188;
-  const axisY = 40;
-  const rayY = 26;
-  return (
-    <svg viewBox="0 0 300 74" width="100%" height="80">
-      <line x1="16" y1={axisY} x2="276" y2={axisY} stroke="#455a64" strokeWidth="1.4" />
-      <polygon points="276,40 266,35 266,45" fill="#455a64" />
-      {dir === 'right' ? (
-        <>
-          <path d={`M ${cx} ${axisY} L ${cx} ${rayY} L 250 ${rayY}`} fill="none" stroke="#e91e63" strokeWidth="2.2" />
-          <polygon points="250,26 240,21 240,31" fill="#e91e63" />
-        </>
-      ) : (
-        <>
-          <path d={`M 36 ${rayY} L ${cx} ${rayY} L ${cx} ${axisY}`} fill="none" stroke="#e91e63" strokeWidth="2.2" />
-          <polygon points="36,26 46,21 46,31" fill="#e91e63" />
-        </>
-      )}
-      <End cx={cx} cy={axisY} closed={closed} />
-      <text x={cx} y="62" textAnchor="middle" fontSize="13">{boundLabel}</text>
-    </svg>
-  );
-}
-
 const chip = {
   border: '1px solid var(--ifm-color-emphasis-300)',
   borderRadius: 5,
@@ -191,6 +159,7 @@ export default function InequalitySolvePracticeSimulator() {
           <div>
             解集 {item.result}。{item.closed ? '实心圆圈，端点包含。' : '空心圆圈，端点不包含。'}
             射线向{item.dir === 'right' ? '右' : '左'}。
+            <SolutionSetNumberLine label={item.boundLabel} dir={item.dir} closed={item.closed} />
           </div>
         </SolutionStep>
       ))}
@@ -237,7 +206,9 @@ export default function InequalitySolvePracticeSimulator() {
                     : '再想一想：这一步方向不变，还要看原来是 > 还是 ≤。'}
               </div>
             ) : null}
-            {ok ? <NumberRay boundLabel={item.boundLabel} dir={item.dir} closed={item.closed} /> : null}
+            {ok ? (
+              <SolutionSetNumberLine label={item.boundLabel} dir={item.dir} closed={item.closed} />
+            ) : null}
           </div>
         );
       })}

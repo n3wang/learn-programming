@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import ProblemShell from '@site/src/components/interactive/shell/ProblemShell';
 import { SolutionStep, stepStyles } from '@site/src/components/interactive/shell/SolutionStep';
 import { randInt } from '@site/src/components/interactive/shell/mathRandom';
+import SolutionSetNumberLine from '@site/src/components/interactive/shell/SolutionSetNumberLine';
 
 function gcd(a, b) {
   let x = Math.abs(a);
@@ -141,31 +142,6 @@ function randomProblem() {
   };
 }
 
-function NumberRay({ boundLabel, dir }) {
-  const cx = dir === 'right' ? 118 : 196;
-  const axisY = 40;
-  const rayY = 26;
-  return (
-    <svg viewBox="0 0 320 78" width="100%" height="86" aria-label={`解集 ${dir === 'right' ? '大于' : '小于'} ${boundLabel}`}>
-      <line x1="16" y1={axisY} x2="292" y2={axisY} stroke="#455a64" strokeWidth="1.4" />
-      <polygon points="292,40 282,35 282,45" fill="#455a64" />
-      {dir === 'right' ? (
-        <>
-          <path d={`M ${cx} ${axisY} L ${cx} ${rayY} L 268 ${rayY}`} fill="none" stroke="#e91e63" strokeWidth="2.2" />
-          <polygon points="268,26 258,21 258,31" fill="#e91e63" />
-        </>
-      ) : (
-        <>
-          <path d={`M 40 ${rayY} L ${cx} ${rayY} L ${cx} ${axisY}`} fill="none" stroke="#e91e63" strokeWidth="2.2" />
-          <polygon points="40,26 50,21 50,31" fill="#e91e63" />
-        </>
-      )}
-      <circle cx={cx} cy={axisY} r="5" fill="#fff" stroke="#e91e63" strokeWidth="1.8" />
-      <text x={cx} y="64" textAnchor="middle" fontSize="13">{boundLabel}</text>
-    </svg>
-  );
-}
-
 const chip = {
   border: '1px solid var(--ifm-color-emphasis-300)',
   borderRadius: 5,
@@ -196,6 +172,7 @@ export default function InequalitySolveExampleSimulator() {
             <div key={line}>{line}</div>
           ))}
           <div>解集 {item.result}。数轴上在 {item.boundLabel} 处画空心圆圈，向{item.dir === 'right' ? '右' : '左'}画射线。</div>
+          <SolutionSetNumberLine label={item.boundLabel} dir={item.dir} />
         </SolutionStep>
       ))}
       <SolutionStep badge="集" badgeClass={stepStyles.badgeAnswer}>
@@ -261,7 +238,9 @@ export default function InequalitySolveExampleSimulator() {
                 ) : null}
               </div>
             ) : null}
-            {showRay ? <NumberRay boundLabel={item.boundLabel} dir={item.drawnInBook ? item.dir : chosen} /> : null}
+            {showRay ? (
+              <SolutionSetNumberLine label={item.boundLabel} dir={item.drawnInBook ? item.dir : chosen} />
+            ) : null}
           </div>
         );
       })}

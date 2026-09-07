@@ -2,6 +2,11 @@ import React, { useMemo, useState } from 'react';
 import ProblemShell from '@site/src/components/interactive/shell/ProblemShell';
 import { SolutionStep, stepStyles } from '@site/src/components/interactive/shell/SolutionStep';
 import { randInt } from '@site/src/components/interactive/shell/mathRandom';
+import SolutionSetNumberLine from '@site/src/components/interactive/shell/SolutionSetNumberLine';
+
+function parseFlag(value) {
+  return value === true || value === 'true' || value === '';
+}
 
 function bookProblem() {
   return { coef: 2, bound: 210 };
@@ -17,7 +22,42 @@ function trials(cut) {
   return [cut - 15, cut - 5, cut, cut + 5, cut + 15];
 }
 
-export default function InequalitySolutionSetSimulator() {
+/**
+ * Inquiry: which numbers satisfy 2x > 210, then the number line.
+ * Demo: `<InequalitySolutionSetSimulator demo dir="right" label="33" />`
+ * also `dir="left"`, `closed`, or `relation=">="`.
+ */
+export default function InequalitySolutionSetSimulator({
+  demo = false,
+  bound,
+  label,
+  dir = 'right',
+  relation,
+  closed = false,
+  variable = 'x',
+  caption,
+}) {
+  if (parseFlag(demo)) {
+    const filled = parseFlag(closed);
+    return (
+      <figure style={{ margin: '0.75rem 0 1.25rem', maxWidth: 420 }}>
+        {caption ? <figcaption style={{ marginBottom: 4 }}>{caption}</figcaption> : null}
+        <SolutionSetNumberLine
+          bound={bound}
+          label={label}
+          dir={dir}
+          relation={relation}
+          closed={filled}
+          variable={variable}
+        />
+      </figure>
+    );
+  }
+
+  return <SolutionSetInquiry />;
+}
+
+function SolutionSetInquiry() {
   const [key, setKey] = useState(0);
   const [p, setP] = useState(bookProblem);
   const [picked, setPicked] = useState(110);
@@ -34,14 +74,11 @@ export default function InequalitySolutionSetSimulator() {
       <SolutionStep badge="集" badgeClass={stepStyles.badgeAnswer}>
         <div className={stepStyles.answer}>
           任意大于 {cut} 的数都是解，这样的解有无数个。解集是 x &gt; {cut}。数轴上在 {cut} 处画空心圆圈，向右画射线，表示不包含这个点。
+          <SolutionSetNumberLine label={String(cut)} dir="right" />
         </div>
       </SolutionStep>
     </div>
   );
-
-  const min = cut - 40;
-  const max = cut + 50;
-  const xOf = (n) => 28 + ((n - min) / (max - min)) * 224;
 
   return (
     <ProblemShell
@@ -85,22 +122,7 @@ export default function InequalitySolutionSetSimulator() {
       <p>
         {p.coef} × {picked} = {product}。{holds ? `${product} > ${p.bound}，所以 ${picked} 是解。` : `${product} 不大于 ${p.bound}，所以 ${picked} 不是解。`}
       </p>
-      <svg viewBox="0 0 280 72" width="100%" height="78">
-        <line x1="20" y1="36" x2="258" y2="36" stroke="#455a64" strokeWidth="1.4" />
-        <polygon points="258,36 248,31 248,41" fill="#455a64" />
-        <line
-          x1={xOf(cut) + 6}
-          y1="36"
-          x2="232"
-          y2="36"
-          stroke="#e91e63"
-          strokeWidth="2.4"
-        />
-        <polygon points="232,36 222,31 222,41" fill="#e91e63" />
-        <circle cx={xOf(cut)} cy="36" r="5" fill="none" stroke="#e91e63" strokeWidth="1.8" />
-        <text x={xOf(cut) - 10} y="58" fontSize="12">{cut}</text>
-        <text x="248" y="28" fontSize="12">x</text>
-      </svg>
+      <SolutionSetNumberLine label={String(cut)} dir="right" />
       <p>空心圆圈表示解集不包含 {cut}。</p>
     </ProblemShell>
   );
