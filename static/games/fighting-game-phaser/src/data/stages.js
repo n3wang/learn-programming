@@ -18,7 +18,7 @@ export const STAGES = [
     name: 'Arena',
     imageSrc: 'img/bg/arena.png',
     shop: false,
-    tracks: [{ y: 330 }, { y: 168 }]
+    tracks: [{ y: 320 }, { y: 280 }]
   }
 ]
 

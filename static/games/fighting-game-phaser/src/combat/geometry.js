@@ -2,7 +2,8 @@
 // clock reads. Every box-shaped argument (a fighter used as a hurtbox, an
 // attack box, or a hitZone) exposes: position {x,y}, hitWidth, hitHeight.
 // Fighters additionally expose: faceRight, attackBox, trackIndex,
-// characterId, currentAttack, isSwinging(). (hitWidth/hitHeight are used
+// isSwinging(). Attacks never reach across tracks — every hit check is
+// gated by sameLane() in ClashResolver. (hitWidth/hitHeight are used
 // instead of the more obvious width/height so Fighter — a real Phaser
 // Sprite — never collides with Phaser's own width/height accessors, which
 // are tied to texture size and scale, not this game's fixed 50x150 hitbox.)
@@ -92,21 +93,4 @@ export function safeClash(a, b) {
 
 export function sameLane(a, b) {
   return (a.trackIndex || 0) === (b.trackIndex || 0)
-}
-
-export function attackReachesX(attacker, defender) {
-  const box = attacker.attackBox
-  return (
-    box.position.x + box.hitWidth >= defender.position.x &&
-    box.position.x <= defender.position.x + defender.hitWidth
-  )
-}
-
-// The samurai's attack2 is a wide slash that can reach across lanes.
-export function crossTrackSlash(attacker, defender) {
-  return (
-    !sameLane(attacker, defender) &&
-    attacker.characterId === 'samurai' &&
-    attacker.currentAttack === 'attack2'
-  )
 }

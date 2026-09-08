@@ -2,7 +2,7 @@ import { Fighter } from '../entities/Fighter.js'
 import { ClashResolver } from '../combat/ClashResolver.js'
 import { InputController } from '../input/InputController.js'
 import { DummyController } from '../input/DummyController.js'
-import { P1_KEYS, P2_KEYS } from '../input/KeyBindings.js'
+import { P1_KEYS, P2_KEYS, LANE_SWAP_CODE } from '../input/KeyBindings.js'
 import { GameState } from '../state/GameState.js'
 import { EventBus } from '../state/EventBus.js'
 import { MatchTimer } from '../utils/timer.js'
@@ -73,12 +73,12 @@ export class FightScene extends Phaser.Scene {
   }
 
   onRawKeyDown(event) {
-    if (event.code === 'ShiftRight') {
+    if (event.code === LANE_SWAP_CODE.p1) {
       event.preventDefault()
       if (!event.repeat && !this.paused && !this.matchOver && !this.matchEndingAt) this.player.swapTrack()
       return
     }
-    if (event.code === 'ShiftLeft') {
+    if (event.code === LANE_SWAP_CODE.p2) {
       event.preventDefault()
       if (!event.repeat && !this.paused && !this.matchOver && !this.matchEndingAt) this.enemy.swapTrack()
       return

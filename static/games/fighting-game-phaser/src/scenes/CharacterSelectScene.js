@@ -7,10 +7,10 @@ import { CANVAS_WIDTH, CANVAS_HEIGHT } from '../config/gameConfig.js'
 
 function specialAttackNames(character) {
   const names = []
-  if (character.skills.airCombo) names.push('Air drop')
+  if (character.skills.airCombo) names.push('Drop')
   if (character.skills.dashCombo) names.push('Dash')
   if (character.skills.mirror) names.push('Mirror')
-  if (character.skills.afterimage) names.push('Afterimage')
+  if (character.skills.afterimage) names.push('Image')
   return names
 }
 
@@ -19,8 +19,7 @@ function attackSpeedLabel(character) {
   return Math.round((60 / frames) * 10) / 10
 }
 
-function statsText(character) {
-  const specials = specialAttackNames(character)
+function headerText(character) {
   return (
     character.name +
     '\n\nbase damage: ' +
@@ -30,10 +29,37 @@ function statsText(character) {
     '\nattack speed: ' +
     attackSpeedLabel(character) +
     '\njump: ' +
-    Math.abs(character.jumpVelocity) +
-    '\nspecials: ' +
-    specials.join(', ')
+    Math.abs(character.jumpVelocity)
   )
+}
+
+const STATS_FONT = {
+  fontFamily: '"Press Start 2P", monospace',
+  fontSize: '10px',
+  color: '#ffffff',
+  lineSpacing: 8
+}
+
+const SPECIALS_MAX_LINES = 2
+
+// Wraps `raw` to fit `maxWidth` using `probe`'s style, capped at `maxLines`
+// lines — the last line gets trimmed down to fit with a trailing "..." if
+// there would have been more content than that.
+function wrapAndClamp(probe, raw, maxWidth, maxLines) {
+  probe.setWordWrapWidth(maxWidth, true)
+  const lines = probe.getWrappedText(raw)
+  if (lines.length <= maxLines) return lines.join('\n')
+
+  const kept = lines.slice(0, maxLines)
+  let last = kept[maxLines - 1]
+  probe.setWordWrapWidth(null)
+  while (last.length > 0) {
+    probe.setText(last + '...')
+    if (probe.width <= maxWidth) break
+    last = last.slice(0, -1).trimEnd()
+  }
+  kept[maxLines - 1] = last + '...'
+  return kept.join('\n')
 }
 
 export class CharacterSelectScene extends Phaser.Scene {
@@ -132,39 +158,29 @@ export class CharacterSelectScene extends Phaser.Scene {
   buildStatsPanels() {
     const panelWidth = 280
     const panelHeight = 150
+    const innerWidth = panelWidth - 24
+    this.statsInnerWidth = innerWidth
+
+    // Off-screen, invisible — used only to measure/wrap text (see wrapAndClamp).
+    this.textProbe = this.add.text(0, 0, '', STATS_FONT).setVisible(false)
+
+    const p1X = 24
+    const p1Y = CANVAS_HEIGHT - 24 - panelHeight
     this.statsP1Bg = this.add
-      .rectangle(24, CANVAS_HEIGHT - 24 - panelHeight, panelWidth, panelHeight, 0x000000, 0.82)
+      .rectangle(p1X, p1Y, panelWidth, panelHeight, 0x000000, 0.82)
       .setOrigin(0, 0)
       .setStrokeStyle(4, 0xef4444)
-    this.statsP1 = this.add.text(24 + 12, CANVAS_HEIGHT - 24 - panelHeight + 10, '', {
-      fontFamily: '"Press Start 2P", monospace',
-      fontSize: '10px',
-      color: '#ffffff',
-      lineSpacing: 8
-    })
+    this.statsP1 = this.add.text(p1X + 12, p1Y + 10, '', STATS_FONT)
+    this.specialsP1 = this.add.text(p1X + 12, p1Y + panelHeight - 24, '', STATS_FONT)
 
+    const p2X = CANVAS_WIDTH - 24 - panelWidth
+    const p2Y = CANVAS_HEIGHT - 24 - panelHeight
     this.statsP2Bg = this.add
-      .rectangle(
-        CANVAS_WIDTH - 24 - panelWidth,
-        CANVAS_HEIGHT - 24 - panelHeight,
-        panelWidth,
-        panelHeight,
-        0x000000,
-        0.82
-      )
+      .rectangle(p2X, p2Y, panelWidth, panelHeight, 0x000000, 0.82)
       .setOrigin(0, 0)
       .setStrokeStyle(4, 0x3b82f6)
-    this.statsP2 = this.add.text(
-      CANVAS_WIDTH - 24 - panelWidth + 12,
-      CANVAS_HEIGHT - 24 - panelHeight + 10,
-      '',
-      {
-        fontFamily: '"Press Start 2P", monospace',
-        fontSize: '10px',
-        color: '#ffffff',
-        lineSpacing: 8
-      }
-    )
+    this.statsP2 = this.add.text(p2X + 12, p2Y + 10, '', STATS_FONT)
+    this.specialsP2 = this.add.text(p2X + 12, p2Y + panelHeight - 34, '', STATS_FONT)
   }
 
   buildButtons() {
@@ -209,7 +225,13 @@ export class CharacterSelectScene extends Phaser.Scene {
   refreshStats() {
     const p1Id = this.hoverStats.p1 || GameState.p1Character
     const p2Id = this.hoverStats.p2 || GameState.p2Character
-    this.statsP1.setText(statsText(CHARACTERS[p1Id]))
-    this.statsP2.setText(statsText(CHARACTERS[p2Id]))
+    this.statsP1.setText(headerText(CHARACTERS[p1Id]))
+    this.statsP2.setText(headerText(CHARACTERS[p2Id]))
+    this.specialsP1.setText(
+      wrapAndClamp(this.textProbe, specialAttackNames(CHARACTERS[p1Id]).join(', '), this.statsInnerWidth, SPECIALS_MAX_LINES)
+    )
+    this.specialsP2.setText(
+      wrapAndClamp(this.textProbe, specialAttackNames(CHARACTERS[p2Id]).join(', '), this.statsInnerWidth, SPECIALS_MAX_LINES)
+    )
   }
 }

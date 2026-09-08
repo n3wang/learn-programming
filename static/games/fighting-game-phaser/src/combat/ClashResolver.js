@@ -11,8 +11,6 @@ import {
   tipOnlyHit,
   facingEachOther,
   hittingFromBehind,
-  crossTrackSlash,
-  attackReachesX,
   boxesOverlap,
   attackRangesClash,
   safeClash
@@ -23,9 +21,11 @@ function clashOpen(fighter, now) {
 }
 
 // Owns the stateful per-frame clash orchestration that the original inlined
-// into animate(): hit-frame detection, tip/cross/landed/safe classification,
-// the split-damage clash (both fighters mid-swing into each other) vs the
-// safe tip-clash ("swoosh", no damage), and damage/knockback/stamina
+// into animate(): hit-frame detection, tip/landed/safe classification (only
+// within the same lane — attacks never reach across tracks), the
+// split-damage clash (both fighters mid-swing into each other, which also
+// freezes both swings on their clank frame instead of playing them through)
+// vs the safe tip-clash ("swoosh", no damage), and damage/knockback/stamina
 // application. Returns a plain result describing what happened so FightScene
 // can react (popups, EventBus, afterimages) without this class touching
 // Phaser or UI at all.
@@ -68,12 +68,8 @@ export class ClashResolver {
       player.isSwinging() &&
       facingEachOther(player, enemy) &&
       !hittingFromBehind(enemy, player)
-    const playerCross = playerHitFrame && crossTrackSlash(player, enemy) && attackReachesX(player, enemy)
-    const enemyCross = enemyHitFrame && crossTrackSlash(enemy, player) && attackReachesX(enemy, player)
-    const playerLanded =
-      playerHitFrame && !playerTip && ((sharedLane && boxesOverlap(player.attackBox, enemy)) || playerCross)
-    const enemyLanded =
-      enemyHitFrame && !enemyTip && ((sharedLane && boxesOverlap(enemy.attackBox, player)) || enemyCross)
+    const playerLanded = playerHitFrame && !playerTip && sharedLane && boxesOverlap(player.attackBox, enemy)
+    const enemyLanded = enemyHitFrame && !enemyTip && sharedLane && boxesOverlap(enemy.attackBox, player)
     const playerSafe = playerTip
     const enemySafe = enemyTip
 
@@ -92,6 +88,8 @@ export class ClashResolver {
         enemy.knockBack(SPLIT_KNOCKBACK)
         if (this.splitArmed.player) player.health.drainStamina(SPLIT_STAMINA_COST)
         if (this.splitArmed.enemy) enemy.health.drainStamina(SPLIT_STAMINA_COST)
+        player.animator.freezeAtClankFrame()
+        enemy.animator.freezeAtClankFrame()
         result.splitClash = true
       }
       playerSplits = this.splitArmed.player
@@ -104,12 +102,12 @@ export class ClashResolver {
     if (playerSafe) {
       player.combat.isAttacking = false
     } else if (playerLanded) {
-      const raw = player.hitDamage() * (playerCross ? player.combat.kit.crossTrackScale : 1)
+      const raw = player.hitDamage()
       const damage = !testMode && enemySplits ? raw * SPLIT_DAMAGE_TAKEN : raw
       const dealt = Math.max(1, Math.round(damage))
       enemy.takeHit(dealt)
       if (testMode) {
-        enemy.health.reset(enemy.combat.kit.maxHealth, enemy.health.maxStamina)
+        enemy.health.reset(enemy.combat.kit.maxHealth, enemy.health.maxStamina, enemy.health.staminaRegenPerSecond)
         enemy.dead = false
         if (enemy.animator.isDying()) enemy.animator.switchSprite('idle')
       }
@@ -125,7 +123,7 @@ export class ClashResolver {
     if (enemySafe) {
       enemy.combat.isAttacking = false
     } else if (enemyLanded) {
-      const raw = enemy.hitDamage() * (enemyCross ? enemy.combat.kit.crossTrackScale : 1)
+      const raw = enemy.hitDamage()
       const damage = playerSplits ? raw * SPLIT_DAMAGE_TAKEN : raw
       const dealt = Math.max(1, Math.round(damage))
       player.takeHit(dealt)

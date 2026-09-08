@@ -8,11 +8,13 @@ export class FighterHealth {
     this.maxStamina = 100
     this.health = 100
     this.stamina = 100
+    this.staminaRegenPerSecond = 50
   }
 
-  reset(maxHealth, maxStamina) {
+  reset(maxHealth, maxStamina, staminaRegenPerSecond = maxStamina / 2) {
     this.maxHealth = maxHealth
     this.maxStamina = maxStamina
+    this.staminaRegenPerSecond = staminaRegenPerSecond
     this.health = maxHealth
     this.stamina = maxStamina
     this.emitHealth()
@@ -29,7 +31,7 @@ export class FighterHealth {
 
   regenStamina(dt) {
     if (this.fighter.dead || this.stamina >= this.maxStamina) return
-    this.stamina = Math.min(this.maxStamina, this.stamina + (this.maxStamina / 2) * dt)
+    this.stamina = Math.min(this.maxStamina, this.stamina + this.staminaRegenPerSecond * dt)
     this.emitStamina()
   }
 

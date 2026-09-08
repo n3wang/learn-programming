@@ -8,14 +8,18 @@ const DEFAULT_CHARACTER = {
   offset: { x: 215, y: 157 },
   maxHealth: 100,
   maxStamina: 100,
+  // Stamina regained per second while not at max — defaults to half of
+  // maxStamina/sec (full regen in 2s), same as the original's fixed rate.
+  staminaRegen: 30,
   moveSpeed: 5,
-  jumpVelocity: -20,
+  // Apex jump height scales with velocity squared, so a 34% height cut
+  // needs jumpVelocity scaled by sqrt(0.66) (~0.812), not by 0.66 directly.
+  jumpVelocity: -16.2,
   jumpCost: 10,
   attackCost: 50,
   comboWindow: 450,
   mirrorWindow: 250,
   mirrorReach: 1.5,
-  crossTrackScale: 1,
   attackDamage: {
     attack1: 20,
     attack2: 35
@@ -63,8 +67,10 @@ function defineCharacter(overrides) {
 
 // Every animation frame in both spritesheet packs is exactly 200x200px, so
 // frameWidth/frameHeight default to that and don't need to be repeated below.
-function sprite(imageSrc, framesMax, hitFrame) {
-  return { imageSrc, framesMax, hitFrame, frameWidth: 200, frameHeight: 200 }
+// clankFrame (0-based) is the frame a full clash freezes this swing on; omit
+// it to fall back to DEFAULT_CLANK_FRAME.
+function sprite(imageSrc, framesMax, hitFrame, clankFrame) {
+  return { imageSrc, framesMax, hitFrame, clankFrame, frameWidth: 200, frameHeight: 200 }
 }
 
 export const CHARACTERS = {
@@ -72,10 +78,9 @@ export const CHARACTERS = {
     name: 'Samurai',
     faces: 'right',
     moveSpeed: 4.5,
-    jumpVelocity: -18,
+    jumpVelocity: -12.6,
     jumpCost: 12,
     attackDamage: { attack1: 22, attack2: 42 },
-    crossTrackScale: 0.5,
     airAttackLift: -120,
     afterimageOpacity: 0.36,
     attackBox: {
@@ -88,8 +93,8 @@ export const CHARACTERS = {
       run: sprite('img/samuraiMack/Run.png', 8),
       jump: sprite('img/samuraiMack/Jump.png', 2),
       fall: sprite('img/samuraiMack/Fall.png', 2),
-      attack1: sprite('img/samuraiMack/Attack1.png', 6, 4),
-      attack2: sprite('img/samuraiMack/Attack2.png', 6, 4),
+      attack1: sprite('img/samuraiMack/Attack1.png', 6, 4, 4),
+      attack2: sprite('img/samuraiMack/Attack2.png', 6, 4, 4),
       takeHit: sprite('img/samuraiMack/Take Hit - white silhouette.png', 4),
       death: sprite('img/samuraiMack/Death.png', 6)
     }
@@ -100,7 +105,7 @@ export const CHARACTERS = {
     faces: 'left',
     offset: { y: 167 },
     moveSpeed: 6,
-    jumpVelocity: -22,
+    jumpVelocity: -15,
     jumpCost: 8,
     attackCost: 40,
     attackDamage: { attack1: 16, attack2: 30 },

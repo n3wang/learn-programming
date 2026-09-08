@@ -1,4 +1,5 @@
-import { animKey } from '../data/animationDefs.js'
+import { animKey, DEFAULT_CLANK_FRAME } from '../data/animationDefs.js'
+import { CLANK_FREEZE_MS } from '../config/gameConfig.js'
 
 // Animations that play once and hold their last frame rather than looping.
 const HOLDING_NAMES = new Set(['attack1', 'attack2', 'takeHit'])
@@ -73,6 +74,30 @@ export class FighterAnimator {
     this.holdDone = false
     this.currentAnim = name
     this.fighter.play(this.key(name))
+  }
+
+  // Full clash ("clank"): force the current swing straight to its clank
+  // frame — even if it hasn't gotten there yet — and hold it briefly before
+  // releasing back to idle/movement, instead of playing the swing through.
+  freezeAtClankFrame() {
+    if (!this.isSwinging()) return
+    const spriteDef = this.fighter.combat.kit.sprites[this.currentAnim]
+    const target = spriteDef.clankFrame ?? DEFAULT_CLANK_FRAME
+    this.freezeAtFrame(target, CLANK_FREEZE_MS)
+  }
+
+  freezeAtFrame(frameIndex, durationMs) {
+    const anim = this.fighter.anims.currentAnim
+    if (!anim) return
+    const clamped = Math.max(0, Math.min(frameIndex, anim.frames.length - 1))
+    this.fighter.anims.setCurrentFrame(anim.frames[clamped])
+    this.fighter.anims.pause()
+    this.frameIndex = clamped
+
+    const frozenAttack = this.currentAnim
+    this.fighter.scene.time.delayedCall(durationMs, () => {
+      if (this.currentAnim === frozenAttack) this.holdDone = true
+    })
   }
 
   playTakeHit() {

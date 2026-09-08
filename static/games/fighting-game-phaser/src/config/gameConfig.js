@@ -18,6 +18,16 @@ export const SAFE_CLASH_COOLDOWN_MS = 280
 export const CLASH_OVERLAP = 3 / 5
 export const CLASH_WINDOW_MS = 120
 
+// How long a full-clash ("clank") freeze-frame holds before the attack is
+// released back to idle/movement.
+export const CLANK_FREEZE_MS = 200
+
+// Lane-swap tween speed scales with a character's jump: swapTrack()'s t
+// advances by LANE_SWAP_BASE_RATE * (abs(jumpVelocity) / LANE_SWAP_REFERENCE_JUMP)
+// per frame, so a bigger jumper also hops lanes faster.
+export const LANE_SWAP_BASE_RATE = 0.045
+export const LANE_SWAP_REFERENCE_JUMP = 20
+
 export const PLAYER_SPAWN_X = 120
 export const ENEMY_SPAWN_X = 860
 export const TEST_PLAYER_X = 180

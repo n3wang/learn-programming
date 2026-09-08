@@ -89,7 +89,7 @@ export class Fighter extends Phaser.GameObjects.Sprite {
     this.offset = { ...character.offset }
     this.combat.setCharacter(character)
     this.animator.setCharacter(character.id)
-    this.health.reset(character.maxHealth, character.maxStamina)
+    this.health.reset(character.maxHealth, character.maxStamina, character.staminaRegen)
     this.dead = false
     this.setVisible(true)
     this.setFacing(faceRight)

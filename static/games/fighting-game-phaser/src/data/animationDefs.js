@@ -14,6 +14,10 @@ export const ANIMATION_POLICY = {
 // Reproduces the original's framesHold = 5 at a 60fps update rate.
 export const FRAME_RATE = 12
 
+// Frame a full clash ("clank") freezes on when a sprite doesn't specify its
+// own clankFrame (0-based — this is the 2nd frame of the swing).
+export const DEFAULT_CLANK_FRAME = 1
+
 export function animKey(characterId, action) {
   return characterId + '_' + action
 }

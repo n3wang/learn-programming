@@ -1,4 +1,4 @@
-import { GRAVITY } from '../config/gameConfig.js'
+import { GRAVITY, LANE_SWAP_BASE_RATE, LANE_SWAP_REFERENCE_JUMP } from '../config/gameConfig.js'
 import { stageTracks } from '../data/stages.js'
 import { clampToStage } from '../combat/geometry.js'
 
@@ -57,6 +57,13 @@ export class FighterMotion {
     return true
   }
 
+  // Bigger jumpers hop lanes faster: rate scales linearly with jump velocity
+  // magnitude, matching LANE_SWAP_BASE_RATE at LANE_SWAP_REFERENCE_JUMP.
+  laneSwapRate() {
+    const jump = Math.abs(this.fighter.combat.kit.jumpVelocity)
+    return LANE_SWAP_BASE_RATE * (jump / LANE_SWAP_REFERENCE_JUMP)
+  }
+
   knockBack(distance) {
     this.position.x -= this.fighter.forwardDir() * distance
     clampToStage(this.fighter)
@@ -76,7 +83,7 @@ export class FighterMotion {
     clampToStage(this.fighter)
 
     if (this.laneSwap) {
-      this.laneSwap.t = Math.min(1, this.laneSwap.t + 0.045)
+      this.laneSwap.t = Math.min(1, this.laneSwap.t + this.laneSwapRate())
       const t = this.laneSwap.t
       const hop = Math.sin(t * Math.PI) * 48
       this.position.y = this.laneSwap.from + (this.laneSwap.to - this.laneSwap.from) * t - hop
