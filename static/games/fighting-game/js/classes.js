@@ -126,9 +126,12 @@ class Fighter extends Sprite {
     this.comboKind = null
     this.queuedAttack = null
     this.kit = getCharacter('samurai')
+    this.trackIndex = 0
+    this.laneSwap = null
     this.skills = { ...this.kit.skills }
     this.afterimages = []
-    this.backTapAt = 0
+    this.lastTapDir = 0
+    this.lastTapAt = 0
     this.framesCurrent = 0
     this.framesElapsed = 0
     this.framesHold = 5
@@ -178,7 +181,6 @@ class Fighter extends Sprite {
   }
 
   update() {
-    this.draw()
     if (!this.dead) this.animateFrames()
     this.releaseQueuedAttack()
     const fade = (this.kit && this.kit.afterimageFade) || 0.012
@@ -200,17 +202,36 @@ class Fighter extends Sprite {
     // )
 
     this.position.x += this.velocity.x
-    this.position.y += this.velocity.y
+    clampToStage(this)
 
-    // gravity function
-    if (this.position.y + this.height + this.velocity.y >= canvas.height - 96) {
+    if (this.laneSwap) {
+      this.laneSwap.t = Math.min(1, this.laneSwap.t + 0.045)
+      const t = this.laneSwap.t
+      const hop = Math.sin(t * Math.PI) * 48
+      this.position.y = this.laneSwap.from + (this.laneSwap.to - this.laneSwap.from) * t - hop
       this.velocity.y = 0
-      this.position.y = 330
-    } else this.velocity.y += gravity
+      if (t >= 1) {
+        this.trackIndex = this.laneSwap.next
+        this.position.y = this.laneSwap.to
+        this.laneSwap = null
+      }
+    } else {
+      this.position.y += this.velocity.y
+      const floor = this.groundY()
+      if (this.position.y >= floor) {
+        this.velocity.y = 0
+        this.position.y = floor
+      } else this.velocity.y += gravity
+    }
+  }
+
+  groundY() {
+    return trackFloor(this)
   }
 
   onGround() {
-    return this.position.y >= 330 && this.velocity.y === 0
+    if (this.laneSwap) return false
+    return this.position.y >= this.groundY() - 1 && this.velocity.y === 0
   }
 
   regenStamina(dt) {
@@ -274,7 +295,8 @@ class Fighter extends Sprite {
     this.attackFinishedAt = 0
     this.isAttacking = false
     this.afterimages = []
-    this.backTapAt = 0
+    this.lastTapDir = 0
+    this.lastTapAt = 0
     this.image = this.sprites.idle.image
     this.framesMax = this.sprites.idle.framesMax
     this.framesCurrent = 0
@@ -329,6 +351,7 @@ class Fighter extends Sprite {
     this.currentAttack = name
     this.hitFrame = this.sprites[name].hitFrame
     this.lastFinishedAttack = null
+    this.clashUntil = performance.now() + clashWindow
   }
 
   queueFollowUp(kind, opponent) {
@@ -348,9 +371,9 @@ class Fighter extends Sprite {
     this.attackLift = 0
 
     if (queued.kind === 'air') {
-      this.teleportForward(this.kit.airStep, queued.opponent)
+      this.teleportForward(this.skillDistance(this.kit.airX, this.kit.airK), queued.opponent)
     } else if (queued.kind === 'dash') {
-      this.teleportForward(this.kit.dashStep, queued.opponent)
+      this.teleportForward(this.skillDistance(this.kit.dashX, this.kit.dashK), queued.opponent)
     }
 
     this.beginAttack('attack2')
@@ -362,7 +385,7 @@ class Fighter extends Sprite {
 
   knockBack(distance) {
     this.position.x -= this.forwardDir() * distance
-    this.position.x = Math.max(40, Math.min(canvas.width - 90, this.position.x))
+    clampToStage(this)
     this.velocity.x = 0
   }
 
@@ -386,45 +409,47 @@ class Fighter extends Sprite {
     return this.kit.attackCost / 2
   }
 
-  inMirrorRange(opponent) {
+  skillDistance(x, k) {
+    return Math.abs(this.kit.jumpVelocity) * x + this.kit.moveSpeed * k
+  }
+
+  enemyInDirection(opponent, dir) {
     const myCenter = this.position.x + this.width / 2
     const theirCenter = opponent.position.x + opponent.width / 2
     const dx = theirCenter - myCenter
-    const inFront = this.faceRight ? dx > 0 : dx < 0
+    const thatWay = dir > 0 ? dx > 0 : dx < 0
     const reach = this.baseAttackBox.width * this.kit.mirrorReach
-    return inFront && Math.abs(dx) <= reach
+    return thatWay && Math.abs(dx) <= reach
   }
 
-  // Back, then forward, inside 1.5x attack range: blink behind them.
-  noteBackForward(dir) {
-    const back = -this.forwardDir()
-    if (dir === back) {
-      this.backTapAt = performance.now()
-      return false
-    }
-    if (dir !== this.forwardDir()) return false
-    if (!this.backTapAt) return false
-    if (performance.now() - this.backTapAt > this.kit.mirrorWindow) return false
-    this.backTapAt = 0
-    return true
+  // Same direction twice, with an enemy that way: blink behind them.
+  noteDoubleTap(dir) {
+    const now = performance.now()
+    const doubled =
+      this.lastTapDir === dir && now - this.lastTapAt <= this.kit.mirrorWindow
+    this.lastTapDir = dir
+    this.lastTapAt = now
+    return doubled
   }
 
-  mirror(opponent) {
+  mirror(opponent, dir) {
     if (this.dead || !opponent || opponent.dead) return false
     if (!this.kit.skills.mirror) return false
     if (this.isSwinging() || this.queuedAttack) return false
-    if (!this.inMirrorRange(opponent)) return false
+    if (!sameLane(this, opponent)) return false
+    if (!this.enemyInDirection(opponent, dir)) return false
     if (!this.spendStamina(this.mirrorCost())) return false
 
     this.leaveAfterimage(true)
     const theirCenter = opponent.position.x + opponent.width / 2
     const landOnRight = theirCenter >= this.position.x + this.width / 2
-    const step = opponent.width / 2 + this.width / 2 + 36
+    const step =
+      opponent.width / 2 + this.width / 2 + this.skillDistance(this.kit.mirrorX, this.kit.mirrorK)
     this.position.x = landOnRight
       ? theirCenter + step - this.width / 2
       : theirCenter - step - this.width / 2
-    this.position.x = Math.max(40, Math.min(canvas.width - 90, this.position.x))
-    this.position.y = 330
+    clampToStage(this)
+    this.position.y = this.groundY()
     this.velocity.x = 0
     this.velocity.y = 0
     setFacing(this, !landOnRight)
@@ -434,16 +459,10 @@ class Fighter extends Sprite {
   teleportForward(distance, opponent) {
     this.leaveAfterimage()
     this.position.x += this.forwardDir() * distance
-    this.position.x = Math.max(40, Math.min(canvas.width - 90, this.position.x))
-    this.position.y = 330
+    clampToStage(this)
+    this.position.y = this.groundY()
     this.velocity.x = 0
     this.velocity.y = 0
-
-    if (!opponent) return
-    const myCenter = this.position.x + this.width / 2
-    const theirCenter = opponent.position.x + opponent.width / 2
-    if (Math.abs(myCenter - theirCenter) < 10) return
-    setFacing(this, myCenter < theirCenter)
   }
 
   attack({ movingForward = false, opponent = null } = {}) {
@@ -501,7 +520,8 @@ class Fighter extends Sprite {
     this.comboKind = null
     this.velocity.x = 0
     this.velocity.y = 0
-    this.position.y = 330
+    this.laneSwap = null
+    this.position.y = this.groundY()
     this.image = this.sprites.death.image
     this.framesMax = this.sprites.death.framesMax
     this.framesCurrent = 0
@@ -509,7 +529,7 @@ class Fighter extends Sprite {
   }
 
   takeHit(damage = 20) {
-    this.health -= damage
+    this.health = Math.max(0, this.health - damage)
 
     if (this.health <= 0) {
       this.fallDown()

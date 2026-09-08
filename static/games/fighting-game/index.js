@@ -13,15 +13,104 @@ const splitDamageTaken = 0.2
 const splitKnockback = 55
 const splitStaminaCost = 15
 let lastSplitPush = 0
+let lastSafeClash = 0
 let splitArmed = { player: false, enemy: false }
+
+const STAGES = [
+  { id: 'classic', name: 'Classic', imageSrc: './img/bg/classic.png', shop: true, tracks: [{ y: 330 }] },
+  { id: 'mountain', name: 'Mountain', imageSrc: './img/bg/mountain.png', shop: false, tracks: [{ y: 330 }] },
+  {
+    id: 'arena',
+    name: 'Arena',
+    imageSrc: './img/bg/arena.png',
+    shop: false,
+    tracks: [
+      { y: 330 },
+      { y: 168 }
+    ]
+  }
+]
 
 const background = new Sprite({
   position: {
     x: 0,
     y: 0
   },
-  imageSrc: './img/background.png'
+  imageSrc: STAGES[0].imageSrc
 })
+
+let currentStage = STAGES[0]
+
+function applyStage(stage) {
+  currentStage = stage
+  background.image.src = stage.imageSrc
+  if (typeof player !== 'undefined') {
+    placeOnTrack(player, 0)
+    placeOnTrack(enemy, 0)
+  }
+}
+
+function spawnBackground() {
+  applyStage(STAGES[Math.floor(Math.random() * STAGES.length)])
+}
+
+function stageTracks(stage = currentStage) {
+  return stage.tracks && stage.tracks.length ? stage.tracks : [{ y: 330 }]
+}
+
+function trackFloor(fighter) {
+  const tracks = stageTracks()
+  const index = Math.max(0, Math.min(fighter.trackIndex || 0, tracks.length - 1))
+  return tracks[index].y
+}
+
+function placeOnTrack(fighter, index = 0) {
+  const tracks = stageTracks()
+  fighter.trackIndex = Math.max(0, Math.min(index, tracks.length - 1))
+  fighter.laneSwap = null
+  fighter.position.y = tracks[fighter.trackIndex].y
+  fighter.velocity.y = 0
+}
+
+function sameLane(a, b) {
+  return (a.trackIndex || 0) === (b.trackIndex || 0)
+}
+
+function attackReachesX(attacker, defender) {
+  const box = attacker.attackBox
+  return (
+    box.position.x + box.width >= defender.position.x &&
+    box.position.x <= defender.position.x + defender.width
+  )
+}
+
+function crossTrackSlash(attacker, defender) {
+  return (
+    !sameLane(attacker, defender) &&
+    attacker.characterId === 'samurai' &&
+    attacker.currentAttack === 'attack2'
+  )
+}
+
+function swapTrack(fighter) {
+  const tracks = stageTracks()
+  if (tracks.length < 2 || fighter.dead || fighter.laneSwap || !fighter.onGround()) return
+  const next = ((fighter.trackIndex || 0) + 1) % tracks.length
+  fighter.laneSwap = {
+    from: fighter.position.y,
+    to: tracks[next].y,
+    next,
+    t: 0
+  }
+}
+
+function drawFighters() {
+  const ordered = [player, enemy].sort((a, b) => a.position.y - b.position.y)
+  ordered.forEach((fighter) => {
+    fighter.draw()
+    drawColorMarker(fighter, fighter === player ? '#ef4444' : '#3b82f6')
+  })
+}
 
 const shop = new Sprite({
   position: {
@@ -81,14 +170,6 @@ function setFacing(fighter, faceRight) {
   fighter.attackBox.offset.y = (fighter.height - box.height) / 2
   fighter.attackBox.width = box.width
   fighter.attackBox.height = box.height
-}
-
-function faceOpponent(fighter, opponent) {
-  const fighterCenter = fighter.position.x + fighter.width / 2
-  const opponentCenter = opponent.position.x + opponent.width / 2
-  const gap = fighterCenter - opponentCenter
-  if (Math.abs(gap) < 10) return
-  setFacing(fighter, gap < 0)
 }
 
 function applyCharacter(fighter, characterId, side) {
@@ -244,6 +325,33 @@ function portraitCard(id, side) {
   return card
 }
 
+function renderMapPicker() {
+  const picker = document.querySelector('#mapPicker')
+  picker.innerHTML = ''
+  STAGES.forEach((stage) => {
+    const card = document.createElement('button')
+    card.type = 'button'
+    card.className = 'map-card'
+    card.style.borderColor = currentStage.id === stage.id ? '#facc15' : 'white'
+
+    const thumb = document.createElement('img')
+    thumb.src = stage.imageSrc
+    thumb.alt = stage.name
+    card.appendChild(thumb)
+
+    const label = document.createElement('div')
+    label.style.fontSize = '8px'
+    label.textContent = stage.name
+    card.appendChild(label)
+
+    card.addEventListener('click', () => {
+      applyStage(stage)
+      renderMapPicker()
+    })
+    picker.appendChild(card)
+  })
+}
+
 function renderRoster() {
   const pickerRow = document.querySelector('#pickerRow')
   const rosterP1 = document.querySelector('#rosterP1')
@@ -261,6 +369,7 @@ function renderRoster() {
   })
 
   renderCharacterStats()
+  renderMapPicker()
 }
 
 function drawColorMarker(fighter, color) {
@@ -333,6 +442,15 @@ function spawnHitPopup(target, text) {
   })
 }
 
+function spawnBetweenPopup(a, b, text) {
+  hitPopups.push({
+    x: (a.position.x + a.width / 2 + b.position.x + b.width / 2) / 2,
+    y: Math.min(a.position.y, b.position.y) + 28,
+    text,
+    life: 50
+  })
+}
+
 function drawHitPopups() {
   for (let i = hitPopups.length - 1; i >= 0; i--) {
     const popup = hitPopups[i]
@@ -372,7 +490,6 @@ function drawTestScene() {
   c.textAlign = 'center'
   c.fillText('edge', edge, preview.position.y - 12)
   c.restore()
-  drawHitPopups()
 }
 
 function syncMenuChrome() {
@@ -380,6 +497,7 @@ function syncMenuChrome() {
   ;[
     '#rosterP1',
     '#rosterP2',
+    '#mapPicker',
     '#chooseTitle',
     '#pickerRow',
     '#randomCharacters',
@@ -390,6 +508,7 @@ function syncMenuChrome() {
   })
   document.querySelector('#rosterP1').style.display = choosing ? 'flex' : 'none'
   document.querySelector('#rosterP2').style.display = choosing ? 'flex' : 'none'
+  document.querySelector('#mapPicker').style.display = choosing ? 'flex' : 'none'
   document.querySelector('#pickerRow').style.display = choosing ? 'flex' : 'none'
   document.querySelector('#startFight').innerHTML = choosing ? 'Start' : 'Resume'
   document.querySelector('#restartFight').style.display = choosing ? 'none' : 'block'
@@ -411,6 +530,7 @@ function setPaused(paused) {
 
 applyCharacter(player, p1Character, 'left')
 applyCharacter(enemy, p2Character, 'right')
+spawnBackground()
 renderRoster()
 syncMenuChrome()
 syncStaminaBars()
@@ -421,6 +541,7 @@ document.querySelector('#randomCharacters').addEventListener('click', () => {
   applyCharacter(player, p1Character, 'left')
   applyCharacter(enemy, p2Character, 'right')
   hoverStats = { p1: null, p2: null }
+  spawnBackground()
   renderRoster()
 })
 
@@ -436,8 +557,8 @@ function resetFighters(spawn) {
 
   player.position.x = spawn.playerX
   enemy.position.x = spawn.enemyX
-  player.position.y = 330
-  enemy.position.y = 330
+  placeOnTrack(player, 0)
+  placeOnTrack(enemy, 0)
   player.velocity.x = 0
   player.velocity.y = 0
   enemy.velocity.x = 0
@@ -462,6 +583,7 @@ function resetFighters(spawn) {
 function returnToSelect() {
   testMode = false
   matchOver = false
+  matchEndingAt = 0
   fightStarted = false
   gamePaused = true
   hoverStats = { p1: null, p2: null }
@@ -470,6 +592,7 @@ function returnToSelect() {
   resetFighters({ playerX: playerSpawnX, enemyX: enemySpawnX })
   document.querySelector('#displayText').style.display = 'none'
   document.querySelector('#pauseMenu').style.display = 'flex'
+  spawnBackground()
   syncTestReadout()
   syncMenuChrome()
   renderRoster()
@@ -491,8 +614,8 @@ function startTestRange() {
 
   player.position.x = 180
   enemy.position.x = 520
-  player.position.y = 330
-  enemy.position.y = 330
+  placeOnTrack(player, 0)
+  placeOnTrack(enemy, 0)
   player.velocity.x = 0
   player.velocity.y = 0
   enemy.velocity.x = 0
@@ -559,19 +682,12 @@ function animate(time) {
   c.fillStyle = 'black'
   c.fillRect(0, 0, canvas.width, canvas.height)
   background.update()
-  shop.update()
+  if (currentStage.shop) shop.update()
   c.fillStyle = 'rgba(255, 255, 255, 0.15)'
   c.fillRect(0, 0, canvas.width, canvas.height)
 
-  if (!matchOver) {
-    faceOpponent(player, enemy)
-    faceOpponent(enemy, player)
-  }
-
   if (gamePaused) {
-    player.draw()
-    enemy.draw()
-    drawPlayerMarkers()
+    drawFighters()
     return
   }
 
@@ -581,17 +697,21 @@ function animate(time) {
 
   player.update()
   enemy.update()
-  drawPlayerMarkers()
+  drawFighters()
 
   player.velocity.x = 0
   enemy.velocity.x = 0
 
   // player movement
 
-  if (keys.a.pressed && player.lastKey === 'a') {
+  if (player.laneSwap) {
+    player.switchSprite('jump')
+  } else if (keys.a.pressed && player.lastKey === 'a') {
+    setFacing(player, false)
     player.velocity.x = -player.kit.moveSpeed
     player.switchSprite('run')
   } else if (keys.d.pressed && player.lastKey === 'd') {
+    setFacing(player, true)
     player.velocity.x = player.kit.moveSpeed
     player.switchSprite('run')
   } else {
@@ -606,13 +726,17 @@ function animate(time) {
   }
 
   // Enemy movement
-  if (testMode) {
+  if (enemy.laneSwap) {
+    enemy.switchSprite('jump')
+  } else if (testMode) {
     enemy.velocity.x = 0
     enemy.switchSprite('idle')
   } else if (keys.ArrowLeft.pressed && enemy.lastKey === 'ArrowLeft') {
+    setFacing(enemy, false)
     enemy.velocity.x = -enemy.kit.moveSpeed
     enemy.switchSprite('run')
   } else if (keys.ArrowRight.pressed && enemy.lastKey === 'ArrowRight') {
+    setFacing(enemy, true)
     enemy.velocity.x = enemy.kit.moveSpeed
     enemy.switchSprite('run')
   } else {
@@ -627,27 +751,50 @@ function animate(time) {
   }
 
   // Resolve both swings before applying hits so a clash doesn't cancel one attack.
+  const playerHitFrame = player.isAttacking && player.framesCurrent === player.hitFrame
+  const enemyHitFrame = enemy.isAttacking && enemy.framesCurrent === enemy.hitFrame
+  if (playerHitFrame) player.clashUntil = now + clashWindow
+  if (enemyHitFrame) enemy.clashUntil = now + clashWindow
+  const sharedLane = sameLane(player, enemy)
+  const playerTip =
+    sharedLane &&
+    playerHitFrame &&
+    tipOnlyHit(player, enemy) &&
+    enemy.isSwinging() &&
+    facingEachOther(player, enemy) &&
+    !hittingFromBehind(player, enemy)
+  const enemyTip =
+    sharedLane &&
+    enemyHitFrame &&
+    tipOnlyHit(enemy, player) &&
+    player.isSwinging() &&
+    facingEachOther(player, enemy) &&
+    !hittingFromBehind(enemy, player)
+  const playerCross =
+    playerHitFrame && crossTrackSlash(player, enemy) && attackReachesX(player, enemy)
+  const enemyCross =
+    enemyHitFrame && crossTrackSlash(enemy, player) && attackReachesX(enemy, player)
   const playerLanded =
-    rectangularCollision({
-      rectangle1: player,
-      rectangle2: enemy
-    }) &&
-    player.isAttacking &&
-    player.framesCurrent === player.hitFrame
-
+    playerHitFrame &&
+    !playerTip &&
+    ((sharedLane && boxesOverlap(player.attackBox, enemy)) || playerCross)
   const enemyLanded =
-    rectangularCollision({
-      rectangle1: enemy,
-      rectangle2: player
-    }) &&
-    enemy.isAttacking &&
-    enemy.framesCurrent === enemy.hitFrame
+    enemyHitFrame &&
+    !enemyTip &&
+    ((sharedLane && boxesOverlap(enemy.attackBox, player)) || enemyCross)
+  const playerSafe = playerTip
+  const enemySafe = enemyTip
 
-  const splitClash = player.isSwinging() && enemy.isSwinging()
+  const splitClash =
+    sharedLane &&
+    clashOpen(player, now) &&
+    clashOpen(enemy, now) &&
+    attackRangesClash(player, enemy)
+  const tippedClash = sharedLane && safeClash(player, enemy, now)
   let playerSplits = false
   let enemySplits = false
 
-  if (splitClash && (playerLanded || enemyLanded)) {
+  if (splitClash) {
     if (now - lastSplitPush > 280) {
       lastSplitPush = now
       splitArmed.player = player.stamina >= splitStaminaCost
@@ -656,14 +803,24 @@ function animate(time) {
       enemy.knockBack(splitKnockback)
       if (splitArmed.player) player.drainStamina(splitStaminaCost)
       if (splitArmed.enemy) enemy.drainStamina(splitStaminaCost)
+      spawnBetweenPopup(player, enemy, 'clank')
       syncStaminaBars()
     }
     playerSplits = splitArmed.player
     enemySplits = splitArmed.enemy
+  } else if ((tippedClash || playerSafe || enemySafe) && now - lastSafeClash > 280) {
+    lastSafeClash = now
+    spawnBetweenPopup(player, enemy, 'swoosh')
+    if (testMode) {
+      lastHitText = 'Last hit: swoosh'
+      syncTestReadout()
+    }
   }
 
-  if (playerLanded) {
-    const raw = player.hitDamage()
+  if (playerSafe) {
+    player.isAttacking = false
+  } else if (playerLanded) {
+    const raw = player.hitDamage() * (playerCross ? player.kit.crossTrackScale : 1)
     const damage = !testMode && enemySplits ? raw * splitDamageTaken : raw
     const dealt = Math.max(1, Math.round(damage))
     enemy.takeHit(dealt)
@@ -683,7 +840,8 @@ function animate(time) {
     player.isAttacking = false
 
     gsap.to('#enemyHealth', {
-      width: enemy.health + '%'
+      width: Math.max(0, enemy.health) + '%',
+      duration: healthBarMs / 1000
     })
   }
 
@@ -692,13 +850,17 @@ function animate(time) {
     player.isAttacking = false
   }
 
-  if (enemyLanded) {
-    const damage = playerSplits ? enemy.hitDamage() * splitDamageTaken : enemy.hitDamage()
+  if (enemySafe) {
+    enemy.isAttacking = false
+  } else if (enemyLanded) {
+    const raw = enemy.hitDamage() * (enemyCross ? enemy.kit.crossTrackScale : 1)
+    const damage = playerSplits ? raw * splitDamageTaken : raw
     player.takeHit(Math.max(1, Math.round(damage)))
     enemy.isAttacking = false
 
     gsap.to('#playerHealth', {
-      width: player.health + '%'
+      width: Math.max(0, player.health) + '%',
+      duration: healthBarMs / 1000
     })
   }
 
@@ -708,10 +870,14 @@ function animate(time) {
   }
 
   if (testMode) drawTestScene()
+  drawHitPopups()
 
   // end game based on health
   if (!testMode && (enemy.health <= 0 || player.health <= 0)) {
-    determineWinner({ player, enemy, timerId })
+    finishMatchLater(now)
+    player.velocity.x = 0
+    enemy.velocity.x = 0
+    if (now >= matchEndingAt) determineWinner({ player, enemy, timerId })
   }
 }
 
@@ -727,6 +893,18 @@ window.addEventListener('keydown', (event) => {
     event.preventDefault()
   }
 
+  if (event.code === 'ShiftRight') {
+    event.preventDefault()
+    if (!event.repeat && !gamePaused && !matchOver && !matchEndingAt) swapTrack(player)
+    return
+  }
+
+  if (event.code === 'ShiftLeft') {
+    event.preventDefault()
+    if (!event.repeat && !gamePaused && !matchOver && !matchEndingAt) swapTrack(enemy)
+    return
+  }
+
   if (event.key === 'Escape') {
     if (fightStarted && timer > 0 && player.health > 0 && enemy.health > 0) {
       setPaused(!gamePaused)
@@ -734,7 +912,7 @@ window.addEventListener('keydown', (event) => {
     return
   }
 
-  if (gamePaused || matchOver || event.repeat) return
+  if (gamePaused || matchOver || matchEndingAt || event.repeat) return
 
   if (testMode && event.key.startsWith('Arrow')) return
 
@@ -743,12 +921,14 @@ window.addEventListener('keydown', (event) => {
       case 'd':
         keys.d.pressed = true
         player.lastKey = 'd'
-        if (player.noteBackForward(1) && player.mirror(enemy)) syncStaminaBars()
+        if (player.noteDoubleTap(1) && player.mirror(enemy, 1)) syncStaminaBars()
+        else setFacing(player, true)
         break
       case 'a':
         keys.a.pressed = true
         player.lastKey = 'a'
-        if (player.noteBackForward(-1) && player.mirror(enemy)) syncStaminaBars()
+        if (player.noteDoubleTap(-1) && player.mirror(enemy, -1)) syncStaminaBars()
+        else setFacing(player, false)
         break
       case 'w':
         player.jump()
@@ -769,12 +949,14 @@ window.addEventListener('keydown', (event) => {
       case 'ArrowRight':
         keys.ArrowRight.pressed = true
         enemy.lastKey = 'ArrowRight'
-        if (enemy.noteBackForward(1) && enemy.mirror(player)) syncStaminaBars()
+        if (enemy.noteDoubleTap(1) && enemy.mirror(player, 1)) syncStaminaBars()
+        else setFacing(enemy, true)
         break
       case 'ArrowLeft':
         keys.ArrowLeft.pressed = true
         enemy.lastKey = 'ArrowLeft'
-        if (enemy.noteBackForward(-1) && enemy.mirror(player)) syncStaminaBars()
+        if (enemy.noteDoubleTap(-1) && enemy.mirror(player, -1)) syncStaminaBars()
+        else setFacing(enemy, false)
         break
       case 'ArrowUp':
         enemy.jump()

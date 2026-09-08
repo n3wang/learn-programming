@@ -26,8 +26,16 @@ class BaseCharacter {
       afterimage: true,
       mirror: true
     }
-    this.airStep = 110
-    this.dashStep = 220
+    // distance = abs(jump) * x + speed * k
+    // Kenji dash: 22 * 5 + 6 * 25 = 260
+    this.dashX = 1
+    this.dashK = 20
+    // Kenji air dash: 22 * 2.5 + 6 * 12.5 = 130
+    this.airX = 2.5
+    this.airK = 12.5
+    // Kenji mirror gap behind the enemy: 22 * 1.5 + 6 * 0.5 = 36
+    this.mirrorX = 0.5
+    this.mirrorK = 1
     this.airAttackLift = -110
     this.afterimageOpacity = 0.42
     this.afterimageFade = 0.012
@@ -74,8 +82,7 @@ class Samurai extends BaseCharacter {
       jumpVelocity: -18,
       jumpCost: 12,
       attackDamage: { attack1: 22, attack2: 42 },
-      airStep: 90,
-      dashStep: 180,
+      crossTrackScale: 0.5,
       airAttackLift: -120,
       afterimageOpacity: 0.36,
       attackBox: {
@@ -112,8 +119,6 @@ class Kenji extends BaseCharacter {
       jumpCost: 8,
       attackCost: 40,
       attackDamage: { attack1: 16, attack2: 30 },
-      airStep: 130,
-      dashStep: 260,
       airAttackLift: -100,
       afterimageOpacity: 0.5,
       attackBox: {
