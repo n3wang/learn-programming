@@ -4,7 +4,16 @@ import Typography from '@site/src/components/ui/Typography';
 import CodeEditor from '@site/src/components/CodeEditor';
 import {UI_LANG_CHANGE_EVENT, readUiLang} from '@site/src/components/Translate/translateClient';
 import {imageForWord} from './wordImageIndex';
-import {docsForLine} from './pythonKeywordDocs';
+import LineDiffPreview from './LineDiffPreview';
+import {docsForLine as pythonDocsForLine} from './pythonKeywordDocs';
+import {docsForLine as javaDocsForLine} from './javaKeywordDocs';
+import {docsForLine as cppDocsForLine} from './cppKeywordDocs';
+
+const CODE_LANG = {
+  python: {label: 'Python', editor: 'python', docs: pythonDocsForLine},
+  java: {label: 'Java', editor: 'java', docs: javaDocsForLine},
+  cpp: {label: 'C++', editor: 'c++', docs: cppDocsForLine},
+};
 
 function linesOf(code) {
   return String(code || '').replace(/\s+$/, '').split('\n');
@@ -14,104 +23,7 @@ function sameLine(typed, expected) {
   return String(typed).replace(/\s+$/, '') === String(expected).replace(/\s+$/, '');
 }
 
-function tokenize(line) {
-  return String(line).replace(/\s+$/, '').match(/\s+|\S+/g) || [];
-}
-
-function diffTokens(expected, typed) {
-  const a = tokenize(expected);
-  const b = tokenize(typed);
-  const n = a.length;
-  const m = b.length;
-  const dp = Array.from({length: n + 1}, () => new Uint16Array(m + 1));
-  for (let i = 1; i <= n; i += 1) {
-    for (let j = 1; j <= m; j += 1) {
-      dp[i][j] = a[i - 1] === b[j - 1] ? dp[i - 1][j - 1] + 1 : Math.max(dp[i - 1][j], dp[i][j - 1]);
-    }
-  }
-  const expParts = [];
-  const typedParts = [];
-  let i = n;
-  let j = m;
-  while (i > 0 || j > 0) {
-    if (i > 0 && j > 0 && a[i - 1] === b[j - 1]) {
-      expParts.push({type: 'eq', text: a[i - 1]});
-      typedParts.push({type: 'eq', text: b[j - 1]});
-      i -= 1;
-      j -= 1;
-    } else if (j > 0 && (i === 0 || dp[i][j - 1] >= dp[i - 1][j])) {
-      typedParts.push({type: 'ins', text: b[j - 1]});
-      j -= 1;
-    } else {
-      expParts.push({type: 'del', text: a[i - 1]});
-      i -= 1;
-    }
-  }
-  expParts.reverse();
-  typedParts.reverse();
-  return {expected: expParts, typed: typedParts};
-}
-
-function LineDiffPreview({expected, typed, zh}) {
-  const diff = useMemo(() => diffTokens(expected, typed), [expected, typed]);
-  return (
-    <Box
-      translate="no"
-      sx={{
-        display: 'grid',
-        gap: 0.5,
-        p: 1,
-        borderRadius: 1,
-        border: '1px solid',
-        borderColor: 'divider',
-        overflowX: 'auto',
-        fontFamily: 'ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace',
-        fontSize: '0.88rem',
-        lineHeight: 1.55,
-      }}
-    >
-      <Typography variant="caption" color="text.secondary" sx={{m: 0}}>
-        {zh ? '红色是你少打的，绿色是你多打的。' : 'Red is missing from your line. Green is extra in yours.'}
-      </Typography>
-      <div style={{display: 'flex', gap: 8, whiteSpace: 'pre'}}>
-        <span style={{color: '#8f1d1d'}}>-</span>
-        <DiffLine parts={diff.expected} kind="del" />
-      </div>
-      <div style={{display: 'flex', gap: 8, whiteSpace: 'pre'}}>
-        <span style={{color: '#145c14'}}>+</span>
-        <DiffLine parts={diff.typed} kind="ins" />
-      </div>
-    </Box>
-  );
-}
-
-function DiffLine({parts, kind}) {
-  const mark = kind === 'del' ? 'del' : 'ins';
-  return (
-    <span style={{whiteSpace: 'pre', minHeight: '1.4em'}}>
-      {parts.length
-        ? parts.map((part, i) => (
-            <span
-              key={i}
-              style={
-                part.type === mark
-                  ? {
-                      background: kind === 'del' ? '#ffd6d6' : '#d8f5d2',
-                      color: kind === 'del' ? '#8f1d1d' : '#145c14',
-                      borderRadius: 3,
-                    }
-                  : undefined
-              }
-            >
-              {part.text}
-            </span>
-          ))
-        : '\u00a0'}
-    </span>
-  );
-}
-
-export default function CodeLineTyping({lines: lineSource, onAdvance, onComplete}) {
+export default function CodeLineTyping({lines: lineSource, lang = 'python', onAdvance, onComplete}) {
   const lines = useMemo(() => (Array.isArray(lineSource) ? lineSource : linesOf(lineSource)), [lineSource]);
   const [index, setIndex] = useState(0);
   const [buffer, setBuffer] = useState('');
@@ -124,8 +36,9 @@ export default function CodeLineTyping({lines: lineSource, onAdvance, onComplete
     return () => window.removeEventListener(UI_LANG_CHANGE_EVENT, sync);
   }, []);
   const docLang = hoverLang === 'zh-CN' ? 'zh' : 'en';
+  const codeLang = CODE_LANG[lang] || CODE_LANG.python;
   const expected = lines[index] ?? '';
-  const docs = docsForLine(expected, docLang);
+  const docs = codeLang.docs(expected, docLang);
   const imageWord = docs.map((item) => item.token).find((token) => imageForWord(token)) || '';
   const image = imageWord ? imageForWord(imageWord) : '';
 
@@ -152,7 +65,7 @@ export default function CodeLineTyping({lines: lineSource, onAdvance, onComplete
     <Box sx={{display: 'flex', gap: 1.5, alignItems: 'flex-start', width: '100%', minWidth: 0}}>
       <Box sx={{display: 'grid', gap: 1, flex: '1 1 320px', minWidth: 0}}>
         <Typography variant="body2" color="text.secondary" sx={{m: 0}}>
-          Python · line {Math.min(index + 1, lines.length)} / {lines.length}. Type the highlighted line, then Enter checks the whole line
+          {codeLang.label} · line {Math.min(index + 1, lines.length)} / {lines.length}. Type the highlighted line, then Enter checks the whole line
           {expected === '' && index < lines.length ? ' (this line is blank).' : '.'}
         </Typography>
         <pre
@@ -185,12 +98,12 @@ export default function CodeLineTyping({lines: lineSource, onAdvance, onComplete
           ))}
         </pre>
         {index < lines.length ? (
-          <CodeEditor value={buffer} onChange={setBuffer} lang="python" height="88px" onEnter={submit} copyAlign />
+          <CodeEditor value={buffer} onChange={setBuffer} lang={codeLang.editor} height="88px" onEnter={submit} copyAlign />
         ) : (
           <Typography sx={{m: 0, fontWeight: 700}}>Snippet complete.</Typography>
         )}
         {wrong ? (
-          <LineDiffPreview expected={expected} typed={buffer} zh={docLang === 'zh'} />
+          <LineDiffPreview expected={expected} typed={buffer} />
         ) : null}
       </Box>
       <Box

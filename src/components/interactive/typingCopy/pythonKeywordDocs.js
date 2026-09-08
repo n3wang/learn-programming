@@ -108,6 +108,48 @@ export const PYTHON_KEYWORD_DOCS = {
   id: {en: 'The identity of an object. Equal ids mean the same object, not just equal values.', zh: '对象的标识。id 相同表示同一个对象，不只是值相等。'},
   callable: {en: 'True if the object can be called, such as a function or a class with `__call__`.', zh: '对象可被调用则为真，例如函数或定义了 `__call__` 的类。'},
   isinstance: {en: 'True if the object is an instance of that type, or of a subclass.', zh: '对象是该类型或其子类的实例则为真。'},
+  math: {en: 'The math module. `import math`, then `math.sqrt`, `math.hypot`, `math.pi`.', zh: 'math 模块。`import math` 之后可用 `math.sqrt`、`math.hypot`、`math.pi`。'},
+  random: {en: 'The random module. `random.shuffle` reorders a list in place.', zh: 'random 模块。`random.shuffle` 就地打乱列表。'},
+  re: {en: 'The regular-expression module. `re.compile` builds a pattern you can reuse.', zh: 're 模块。`re.compile` 生成可反复使用的正则。'},
+  collections: {en: 'The collections module. Specialized containers: `Counter`, `defaultdict`, `namedtuple`.', zh: 'collections 模块。专用容器：`Counter`、`defaultdict`、`namedtuple`。'},
+  Counter: {en: 'From collections. Counts how often each item appears. `most_common(n)` lists the top ones.', zh: '来自 collections。统计每一项出现的次数。`most_common(n)` 列出最常见的几项。'},
+  defaultdict: {en: 'From collections. A dict that creates a missing key with a factory, such as `list`.', zh: '来自 collections。缺少的键会用工厂自动创建，例如 `list`。'},
+  namedtuple: {en: 'From collections. A tiny class with named fields, created like a tuple.', zh: '来自 collections。带字段名的小型类，用法像元组。'},
+  ChainMap: {en: 'From collections. Look up a key in several dicts, front dict first.', zh: '来自 collections。按顺序在多个字典里查找键，前面的字典优先。'},
+  itertools: {en: 'The itertools module. Iterator tools: `chain`, `product`, `accumulate`, `takewhile`.', zh: 'itertools 模块。迭代器工具：`chain`、`product`、`accumulate`、`takewhile`。'},
+  operator: {en: 'The operator module. Functions for operators, such as `mul` and `itemgetter`.', zh: 'operator 模块。运算符对应的函数，例如 `mul` 和 `itemgetter`。'},
+  functools: {en: 'The functools module. `partial` freezes arguments; `wraps` keeps a decorated name.', zh: 'functools 模块。`partial` 固定参数；`wraps` 保留被装饰函数的名字。'},
+  typing: {en: 'The typing module. Hint names such as `Optional`, `Callable`, `ClassVar`.', zh: 'typing 模块。类型提示名字，例如 `Optional`、`Callable`、`ClassVar`。'},
+  dataclasses: {en: 'The dataclasses module. `@dataclass` writes `__init__` and friends for you.', zh: 'dataclasses 模块。`@dataclass` 帮你生成 `__init__` 等。'},
+  dataclass: {en: 'A decorator that generates `__init__`, `__repr__`, and comparison methods from fields.', zh: '根据字段生成 `__init__`、`__repr__` 和比较方法的装饰器。'},
+  datetime: {en: 'A date and time type. `datetime(2020, 1, 1)` builds one; `strftime` formats it.', zh: '日期时间类型。`datetime(2020, 1, 1)` 构造一个；`strftime` 格式化它。'},
+  array: {en: 'From the array module. A compact buffer of numbers, not a list of objects.', zh: '来自 array 模块。紧凑的数字缓冲，不是对象列表。'},
+  reprlib: {en: 'The reprlib module. Abbreviated `repr` for long sequences.', zh: 'reprlib 模块。给很长的序列生成缩写的 `repr`。'},
+  unicodedata: {en: 'The unicodedata module. `normalize` makes equivalent text compare equal.', zh: 'unicodedata 模块。`normalize` 让等价文本比较起来相等。'},
+  weakref: {en: 'The weakref module. A reference that does not keep the object alive by itself.', zh: 'weakref 模块。不会单独让对象活着的引用。'},
+  hypot: {en: 'math.hypot(x, y). The distance from the origin, sqrt(x² + y²).', zh: 'math.hypot(x, y)。到原点的距离，即 sqrt(x² + y²)。'},
+  sqrt: {en: 'math.sqrt(x). The square root.', zh: 'math.sqrt(x)。平方根。'},
+  pi: {en: 'math.pi. The constant π.', zh: 'math.pi。常数 π。'},
+  partial: {en: 'functools.partial. Freeze some arguments of a function and return a new callable.', zh: 'functools.partial。固定函数的一部分参数，返回一个新的可调用对象。'},
+  reduce: {en: 'functools.reduce. Fold a sequence with a two-argument function.', zh: 'functools.reduce。用一个二元函数把序列折叠成一个值。'},
+  wraps: {en: 'functools.wraps. Copy the wrapped function name and docstring onto the wrapper.', zh: 'functools.wraps。把被包装函数的名字和文档复制到包装器上。'},
+  itemgetter: {en: 'operator.itemgetter. A callable that reads one or more indexes or keys.', zh: 'operator.itemgetter。按一个或多个下标或键取值的可调用对象。'},
+  methodcaller: {en: 'operator.methodcaller. A callable that calls a named method.', zh: 'operator.methodcaller。调用某个名字的方法的可调用对象。'},
+  mul: {en: 'operator.mul. Multiplication as a function. `mul(5, 4)` is 20.', zh: 'operator.mul。作为函数的乘法。`mul(5, 4)` 是 20。'},
+  field: {en: 'dataclasses.field. Set a default factory or other options on a dataclass field.', zh: 'dataclasses.field。为 dataclass 字段设置 default_factory 等选项。'},
+  Optional: {en: 'A type hint. `Optional[str]` means str or None.', zh: '类型提示。`Optional[str]` 表示 str 或 None。'},
+  Callable: {en: 'A type hint for a function. `Callable[[int, int], int]` takes two ints and returns int.', zh: '函数的类型提示。`Callable[[int, int], int]` 接收两个 int 并返回 int。'},
+  ClassVar: {en: 'A type hint. The name is a class attribute, not stored on each instance.', zh: '类型提示。这个名字是类属性，不是每个实例各存一份。'},
+  NamedTuple: {en: 'A typing helper. A tuple subclass with named fields and type hints.', zh: '带字段名和类型提示的元组子类。'},
+  Protocol: {en: 'A typing helper. A structural type: any object with the listed methods matches.', zh: '结构化类型：只要有列出的方法就算匹配。'},
+  TypeVar: {en: 'A type variable used in generic functions, often named T.', zh: '泛型函数里用的类型变量，常叫 T。'},
+  Sequence: {en: 'A type hint for a sequence: list, tuple, or anything with indexing and length.', zh: '序列的类型提示：列表、元组，或任何能按下标取值并有长度的对象。'},
+  takewhile: {en: 'itertools.takewhile. Yield items until the predicate becomes false.', zh: 'itertools.takewhile。在谓词变假之前逐个产出。'},
+  accumulate: {en: 'itertools.accumulate. Running totals, or running results of another function.', zh: 'itertools.accumulate。逐步累加，或用别的函数做逐步结果。'},
+  chain: {en: 'itertools.chain. Walk several iterables as one sequence.', zh: 'itertools.chain。把多个可迭代对象当成一个序列来走。'},
+  product: {en: 'itertools.product. Every pairing of the inputs, like nested loops.', zh: 'itertools.product。输入的每一种组合，像嵌套循环。'},
+  filter: {en: 'Keep items that make a function true. `filter(vowel, word)`.', zh: '留下让函数为真的项。`filter(vowel, word)`。'},
+  normalize: {en: 'unicodedata.normalize. Rewrite text into a chosen Unicode form, such as NFC.', zh: 'unicodedata.normalize。把文本改写成选定的 Unicode 形式，例如 NFC。'},
 };
 
 function docText(entry, lang) {
@@ -121,7 +163,19 @@ export function docsForLine(line, lang = 'en') {
   const text = String(line || '');
   const hits = [];
   const seen = new Set();
-  const tokens = text.match(/__\w+__|[A-Za-z_][A-Za-z0-9_]*/g) || [];
+  const imported = [];
+  const importLine = text.match(/^\s*(?:from\s+([\w.]+)\s+import\s+([\w*,\s]+)|import\s+([\w.]+))/);
+  if (importLine) {
+    if (importLine[1]) imported.push(importLine[1].split('.').pop());
+    if (importLine[2]) {
+      for (const name of importLine[2].split(',')) {
+        const token = name.trim().split(/\s+as\s+/i)[0];
+        if (token && token !== '*') imported.push(token);
+      }
+    }
+    if (importLine[3]) imported.push(importLine[3].split('.').pop());
+  }
+  const tokens = [...imported, ...(text.match(/__\w+__|[A-Za-z_][A-Za-z0-9_]*/g) || [])];
   for (const token of tokens) {
     if (seen.has(token) || !PYTHON_KEYWORD_DOCS[token]) continue;
     seen.add(token);

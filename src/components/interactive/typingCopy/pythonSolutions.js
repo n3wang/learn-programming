@@ -1,3 +1,5 @@
+import {drawFromSnippets} from './codeLinePool';
+
 /** Intermediate-lesson Python solutions used as typing corpus. */
 export const PYTHON_SOLUTIONS = [
   {
@@ -250,92 +252,6 @@ export const PYTHON_SOLUTIONS = [
   }
 ];
 
-function shuffle(items) {
-  const next = items.slice();
-  for (let i = next.length - 1; i > 0; i -= 1) {
-    const j = Math.floor(Math.random() * (i + 1));
-    const tmp = next[i];
-    next[i] = next[j];
-    next[j] = tmp;
-  }
-  return next;
-}
-
-function isDecorator(line) {
-  return /^\s*@/.test(line);
-}
-
-/** Drop full-line and trailing comments. `#` inside quotes is kept. */
-function stripComment(line) {
-  let quote = null;
-  for (let i = 0; i < line.length; i += 1) {
-    const ch = line[i];
-    if (quote) {
-      if (ch === '\\') {
-        i += 1;
-        continue;
-      }
-      if (ch === quote) quote = null;
-      continue;
-    }
-    if (ch === '"' || ch === "'") {
-      quote = ch;
-      continue;
-    }
-    if (ch === '#') return line.slice(0, i).replace(/\s+$/, '');
-  }
-  return line.replace(/\s+$/, '');
-}
-
-/** A top-level statement plus the indented lines that belong to it. */
-function blocksFromSnippet(code) {
-  const lines = String(code || '')
-    .split('\n')
-    .map(stripComment)
-    .filter((line) => line.trim());
-  const blocks = [];
-  let i = 0;
-  while (i < lines.length) {
-    if (/^[ \t]/.test(lines[i])) {
-      i += 1;
-      continue;
-    }
-    const block = [lines[i]];
-    i += 1;
-    while (i < lines.length) {
-      const line = lines[i];
-      if (/^[ \t]/.test(line)) {
-        block.push(line);
-        i += 1;
-        continue;
-      }
-      if (block.every(isDecorator) && /^(async\s+def|def|class)\b/.test(line.trim())) {
-        block.push(line);
-        i += 1;
-        continue;
-      }
-      break;
-    }
-    if (!/^[ \t]/.test(block[0])) blocks.push(block);
-  }
-  return blocks;
-}
-
-/**
- * A fresh draw from the mixed snippet pool.
- * Never starts on an indented line, and never splits a block (so `if` keeps its body).
- */
 export function drawCodeLines(count) {
-  const want = Math.max(1, count || 1);
-  const unused = shuffle(PYTHON_SOLUTIONS.flatMap((snippet) => blocksFromSnippet(snippet.code)));
-  if (!unused.length) return [];
-  const drawn = [];
-  while (drawn.length < want && unused.length) {
-    const need = want - drawn.length;
-    let idx = unused.findIndex((block) => block.length <= need);
-    if (idx === -1) idx = 0;
-    drawn.push(...unused[idx]);
-    unused.splice(idx, 1);
-  }
-  return drawn;
+  return drawFromSnippets(PYTHON_SOLUTIONS, count, 'hash');
 }

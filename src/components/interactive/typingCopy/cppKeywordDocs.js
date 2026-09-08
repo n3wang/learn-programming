@@ -1,0 +1,101 @@
+export const CPP_KEYWORD_DOCS = {
+  include: {en: 'A preprocessor directive. `#include <iostream>` pastes that header into this file.', zh: '预处理指令。`#include <iostream>` 把那个头文件贴进本文件。'},
+  using: {en: 'Bring a name into scope. `using namespace std;` lets you write `cout` without `std::`.', zh: '把一个名字引进当前作用域。`using namespace std;` 之后可以写 `cout` 而不必写 `std::`。'},
+  namespace: {en: 'A named scope that groups names. `std` is the standard library namespace.', zh: '给名字分组的作用域。`std` 是标准库的命名空间。'},
+  std: {en: 'The C++ standard library namespace. `std::cout` is the output stream.', zh: 'C++ 标准库命名空间。`std::cout` 是输出流。'},
+  int: {en: 'An integer type. Often the return type of `main`.', zh: '整数类型。常作为 `main` 的返回类型。'},
+  double: {en: 'A double-precision floating-point type.', zh: '双精度浮点类型。'},
+  bool: {en: 'A true or false value.', zh: '真或假。'},
+  char: {en: 'A single character.', zh: '一个字符。'},
+  void: {en: 'The function returns no value.', zh: '这个函数不返回值。'},
+  auto: {en: 'Let the compiler deduce the type from the initializer.', zh: '让编译器根据初始值推断类型。'},
+  const: {en: 'A value that cannot be changed after initialization.', zh: '初始化之后不能再改的值。'},
+  return: {en: 'Leave the function and hand a value back. `return 0;` means success for `main`.', zh: '离开函数并交还一个值。对 `main` 来说 `return 0;` 表示成功。'},
+  if: {en: 'Run the following block only when the condition is true.', zh: '只有条件为真时才运行后面的代码块。'},
+  else: {en: 'Block that runs when the matching if was false.', zh: '配对的 if 为假时运行这个块。'},
+  for: {en: 'Repeat a block. Often an index loop or a range-based `for`.', zh: '重复一个代码块。常是下标循环或范围 `for`。'},
+  while: {en: 'Repeat the block as long as the condition stays true.', zh: '只要条件保持为真就重复这个代码块。'},
+  do: {en: 'A loop that runs the body once, then repeats while the condition is true.', zh: '先执行一次循环体，然后在条件为真时继续重复。'},
+  switch: {en: 'Choose a branch by matching a value against case labels.', zh: '用值与各个 case 匹配，选择一个分支。'},
+  case: {en: 'One label inside switch.', zh: 'switch 中的一个标签。'},
+  break: {en: 'Leave the nearest loop or switch immediately.', zh: '立刻离开最近的循环或 switch。'},
+  continue: {en: 'Skip the rest of this loop iteration and start the next one.', zh: '跳过这一轮循环剩下的代码，开始下一轮。'},
+  class: {en: 'Define a type. Members are private by default.', zh: '定义一个类型。成员默认是私有的。'},
+  struct: {en: 'Like class, but members are public by default.', zh: '类似 class，但成员默认是公有的。'},
+  public: {en: 'The following members can be used from outside the class.', zh: '后面的成员可以在类外使用。'},
+  private: {en: 'The following members can be used only inside the class.', zh: '后面的成员只能在类内使用。'},
+  new: {en: 'Allocate an object on the heap and return a pointer.', zh: '在堆上分配对象并返回指针。'},
+  delete: {en: 'Free an object created with `new`.', zh: '释放用 `new` 创建的对象。'},
+  this: {en: 'Pointer to the current object.', zh: '指向当前对象的指针。'},
+  true: {en: 'The boolean true value.', zh: '布尔真值。'},
+  false: {en: 'The boolean false value.', zh: '布尔假值。'},
+  nullptr: {en: 'A null pointer. Prefer this to `NULL` or `0`.', zh: '空指针。优先用它，而不是 `NULL` 或 `0`。'},
+  cout: {en: 'Standard output. `cout << x` prints x.', zh: '标准输出。`cout << x` 打印 x。'},
+  cin: {en: 'Standard input. `cin >> x` reads into x.', zh: '标准输入。`cin >> x` 读入到 x。'},
+  endl: {en: 'Insert a newline and flush the stream.', zh: '插入换行并刷新流。'},
+  string: {en: 'A text type from the standard library. `#include <string>`.', zh: '标准库的文本类型。需要 `#include <string>`。'},
+  vector: {en: 'A resizable array. `#include <vector>`.', zh: '可变长数组。需要 `#include <vector>`。'},
+  push_back: {en: 'Add one element to the end of a vector.', zh: '把一个元素加到 vector 末尾。'},
+  size: {en: 'Number of elements currently stored.', zh: '当前存放的元素个数。'},
+  begin: {en: 'Iterator to the first element.', zh: '指向第一个元素的迭代器。'},
+  end: {en: 'Iterator just past the last element.', zh: '指向最后一个元素之后的迭代器。'},
+  virtual: {en: 'The method can be overridden and called through a base pointer.', zh: '这个方法可以被重写，并通过基类指针调用。'},
+  override: {en: 'This method replaces a virtual method in the base class.', zh: '这个方法替换基类中的一个虚方法。'},
+  template: {en: 'Write code that works for a type chosen later. `template <typename T>`.', zh: '编写以后再选定类型的代码。`template <typename T>`。'},
+  typename: {en: 'Name a type parameter in a template.', zh: '命名模板中的类型参数。'},
+  main: {en: 'The function the program starts at. Usually `int main()`.', zh: '程序开始执行的函数。通常是 `int main()`。'},
+  algorithm: {en: 'Header `<algorithm>`. Algorithms on ranges: `sort`, `find`, `count`, `max_element`.', zh: '头文件 `<algorithm>`。对范围做算法：`sort`、`find`、`count`、`max_element`。'},
+  queue: {en: 'Header `<queue>`. A FIFO queue: `push` at the back, `front` to peek, `pop` to remove.', zh: '头文件 `<queue>`。先进先出队列：`push` 加到队尾，`front` 看队首，`pop` 删除队首。'},
+  stack: {en: 'Header `<stack>`. A LIFO stack: `push`, `top`, `pop`.', zh: '头文件 `<stack>`。后进先出栈：`push`、`top`、`pop`。'},
+  map: {en: 'Header `<map>`. A sorted dictionary of keys to values.', zh: '头文件 `<map>`。按键排序的字典。'},
+  set: {en: 'Header `<set>`. A sorted set of unique keys.', zh: '头文件 `<set>`。按键排序、元素不重复的集合。'},
+  unordered_map: {en: 'Header `<unordered_map>`. A hash map. Average lookup is constant time.', zh: '头文件 `<unordered_map>`。哈希表。平均查找是常数时间。'},
+  iostream: {en: 'Header `<iostream>`. Input and output streams: `cin`, `cout`, `endl`.', zh: '头文件 `<iostream>`。输入输出流：`cin`、`cout`、`endl`。'},
+  cctype: {en: 'Header `<cctype>`. Character tests and conversions, such as `tolower`.', zh: '头文件 `<cctype>`。字符检测和转换，例如 `tolower`。'},
+  numeric: {en: 'Header `<numeric>`. Numeric algorithms such as `accumulate`.', zh: '头文件 `<numeric>`。数值算法，例如 `accumulate`。'},
+  memory: {en: 'Header `<memory>`. Smart pointers such as `unique_ptr` and `make_unique`.', zh: '头文件 `<memory>`。智能指针，例如 `unique_ptr` 和 `make_unique`。'},
+  sstream: {en: 'Header `<sstream>`. String streams, so you can read and write text like a file.', zh: '头文件 `<sstream>`。字符串流，可以像文件一样读写文本。'},
+  priority_queue: {en: 'A heap. The largest element is at `top` unless you pass a different comparator.', zh: '堆。除非传入别的比较器，否则 `top` 是最大的元素。'},
+  unique_ptr: {en: 'A smart pointer that owns one object and deletes it when the pointer dies.', zh: '拥有一个对象的智能指针，指针结束时会删除那个对象。'},
+  make_unique: {en: 'Create a `unique_ptr` and the object it owns. Prefer this to `new`.', zh: '创建 `unique_ptr` 以及它拥有的对象。优先用它，而不是 `new`。'},
+  sort: {en: 'From `<algorithm>`. Sort a range in place. `sort(v.begin(), v.end())`.', zh: '来自 `<algorithm>`。就地排序一个范围。`sort(v.begin(), v.end())`。'},
+  find: {en: 'From `<algorithm>`. First iterator in the range equal to a value, or `end` if missing.', zh: '来自 `<algorithm>`。范围内第一个等于该值的迭代器，找不到则是 `end`。'},
+  count: {en: 'From `<algorithm>`. How many elements in the range equal a value.', zh: '来自 `<algorithm>`。范围内等于该值的元素个数。'},
+  count_if: {en: 'From `<algorithm>`. How many elements make a predicate true.', zh: '来自 `<algorithm>`。有多少元素让谓词为真。'},
+  max_element: {en: 'From `<algorithm>`. Iterator to the largest element in a range.', zh: '来自 `<algorithm>`。指向范围内最大元素的迭代器。'},
+  min_element: {en: 'From `<algorithm>`. Iterator to the smallest element in a range.', zh: '来自 `<algorithm>`。指向范围内最小元素的迭代器。'},
+  accumulate: {en: 'From `<numeric>`. Add up a range, starting from an initial value.', zh: '来自 `<numeric>`。从初始值开始，把一个范围累加起来。'},
+  clamp: {en: 'From `<algorithm>`. Force a value into a closed range `[lo, hi]`.', zh: '来自 `<algorithm>`。把值限制在闭区间 `[lo, hi]` 内。'},
+  push: {en: 'Add an element. On a queue this is the back; on a stack it is the top.', zh: '加入一个元素。对队列是队尾，对栈是栈顶。'},
+  pop: {en: 'Remove an element. On a queue this is the front; on a stack it is the top. Does not return the value.', zh: '删除一个元素。对队列是队首，对栈是栈顶。不返回那个值。'},
+  front: {en: 'The first element of a queue or deque. Does not remove it.', zh: '队列或双端队列的第一个元素。不会删除它。'},
+  back: {en: 'The last element of a vector, queue, or deque.', zh: 'vector、队列或双端队列的最后一个元素。'},
+  top: {en: 'The next element of a stack or priority_queue. Does not remove it.', zh: '栈或优先队列即将取出的元素。不会删除它。'},
+  empty: {en: 'True if the container has no elements.', zh: '容器没有元素时为真。'},
+  erase: {en: 'Remove an element or a range from a container.', zh: '从容器中删除一个元素或一段范围。'},
+  insert: {en: 'Insert an element. On a set or map, the key decides the position.', zh: '插入一个元素。对 set 或 map，位置由键决定。'},
+  getline: {en: 'Read a whole line, including spaces, from `cin` into a string.', zh: '从 `cin` 读入一整行到字符串，包括空格。'},
+  tolower: {en: 'From `<cctype>`. Lowercase form of one character.', zh: '来自 `<cctype>`。一个字符的小写形式。'},
+  swap: {en: 'Exchange the values of two objects.', zh: '交换两个对象的值。'},
+};
+
+function docText(entry, lang) {
+  if (!entry) return '';
+  if (typeof entry === 'string') return entry;
+  if (lang === 'zh') return entry.zh || entry.en || '';
+  return entry.en || entry.zh || '';
+}
+
+export function docsForLine(line, lang = 'en') {
+  const text = String(line || '');
+  const hits = [];
+  const seen = new Set();
+  const headers = [...text.matchAll(/<([A-Za-z_][A-Za-z0-9_]*)>/g)].map((m) => m[1]);
+  const tokens = [...headers, ...(text.match(/[A-Za-z_][A-Za-z0-9_]*/g) || [])];
+  for (const token of tokens) {
+    if (seen.has(token) || !CPP_KEYWORD_DOCS[token]) continue;
+    seen.add(token);
+    hits.push({token, doc: docText(CPP_KEYWORD_DOCS[token], lang)});
+  }
+  return hits;
+}
