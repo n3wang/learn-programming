@@ -570,6 +570,12 @@ function ChinesePrompt({sentences, wordIndex, activeEnWordIndex}) {
   );
 }
 
+const LEVEL_GROUPS = [
+  {id: 'en', label: 'Type in English', modes: ['timed', 'count', 'memory']},
+  {id: 'zh', label: 'Type in Chinese', modes: ['zh']},
+  {id: 'py', label: 'Python', modes: ['code']},
+];
+
 function LevelBoard({shownId, completedIds, onHover, onPin, onStart, wide}) {
   const shown = LEVELS.find((l) => l.id === shownId) || null;
   const boardWidth = wide ? 600 : 280;
@@ -613,41 +619,52 @@ function LevelBoard({shownId, completedIds, onHover, onPin, onStart, wide}) {
       ) : (
         <Box sx={{height: 168, boxSizing: 'border-box'}} />
       )}
-      <Box sx={{display: 'flex', flexWrap: 'wrap', gap: 1}}>
-        {LEVELS.map((l) => {
-          const active = l.id === shownId;
-          const done = completedIds.includes(l.id);
+      <Box sx={{display: 'grid', gap: 1.5}}>
+        {LEVEL_GROUPS.map((group) => {
+          const levels = LEVELS.filter((l) => group.modes.includes(l.mode));
+          if (!levels.length) return null;
           return (
-            <button
-              key={l.id}
-              type="button"
-              onMouseEnter={() => onHover(l.id)}
-              onMouseLeave={() => onHover(null)}
-              onFocus={() => onHover(l.id)}
-              onBlur={() => onHover(null)}
-              onClick={() => onPin(l.id)}
-              aria-label={l.title}
-              aria-pressed={active}
-              style={{
-                width: 52,
-                height: 52,
-                padding: 0,
-                borderRadius: 6,
-                border: active
-                  ? '2px solid var(--ifm-color-primary)'
-                  : done
-                    ? '1px solid #2e7d32'
-                    : '1px solid var(--ifm-color-emphasis-400)',
-                background: done ? '#c8e6c9' : 'transparent',
-                color: done ? '#1b5e20' : 'inherit',
-                fontWeight: 700,
-                fontSize: '1rem',
-                cursor: 'pointer',
-                boxSizing: 'border-box',
-              }}
-            >
-              {l.id}
-            </button>
+            <Box key={group.id} sx={{display: 'grid', gap: 0.75}}>
+              <Typography sx={{fontWeight: 700, m: 0}}>{group.label}</Typography>
+              <Box sx={{display: 'flex', flexWrap: 'wrap', gap: 1}}>
+                {levels.map((l) => {
+                  const active = l.id === shownId;
+                  const done = completedIds.includes(l.id);
+                  return (
+                    <button
+                      key={l.id}
+                      type="button"
+                      onMouseEnter={() => onHover(l.id)}
+                      onMouseLeave={() => onHover(null)}
+                      onFocus={() => onHover(l.id)}
+                      onBlur={() => onHover(null)}
+                      onClick={() => onPin(l.id)}
+                      aria-label={l.title}
+                      aria-pressed={active}
+                      style={{
+                        width: 52,
+                        height: 52,
+                        padding: 0,
+                        borderRadius: 6,
+                        border: active
+                          ? '2px solid var(--ifm-color-primary)'
+                          : done
+                            ? '1px solid #2e7d32'
+                            : '1px solid var(--ifm-color-emphasis-400)',
+                        background: done ? '#c8e6c9' : 'transparent',
+                        color: done ? '#1b5e20' : 'inherit',
+                        fontWeight: 700,
+                        fontSize: '1rem',
+                        cursor: 'pointer',
+                        boxSizing: 'border-box',
+                      }}
+                    >
+                      {l.id}
+                    </button>
+                  );
+                })}
+              </Box>
+            </Box>
           );
         })}
       </Box>
@@ -688,6 +705,7 @@ export default function TypingCopyGame() {
   const memoryCursor = useRef(null);
   const startedAt = useRef(null);
   const statsRef = useRef({correct: 0, skipped: 0});
+  const codeGoalRef = useRef(0);
   const levelRef = useRef(null);
   levelRef.current = level;
   statsRef.current = {correct: correctCount, skipped: skippedCount};
@@ -739,7 +757,9 @@ export default function TypingCopyGame() {
     if (cfg.mode === 'code') {
       setSecondsLeft(0);
       setMemoryPreview(false);
-      setCodeLines(drawCodeLines(cfg.goal));
+      const lines = drawCodeLines(cfg.goal);
+      codeGoalRef.current = lines.length;
+      setCodeLines(lines);
     } else if (showsEnglishCopy(cfg.mode)) {
       setSecondsLeft(cfg.mode === 'timed' ? cfg.seconds : 0);
       setMemoryPreview(false);
@@ -759,7 +779,11 @@ export default function TypingCopyGame() {
   const endRun = useCallback(() => {
     const cfg = levelRef.current;
     const {correct, skipped} = statsRef.current;
-    const passed = didPassLevel(cfg, correct, skipped);
+    const passed = didPassLevel(
+      cfg?.mode === 'code' ? {...cfg, goal: codeGoalRef.current || cfg.goal} : cfg,
+      correct,
+      skipped,
+    );
     const wpm = cfg?.mode === 'timed' ? wordsPerMinute(correct, cfg.seconds || 0) : 0;
     const attempted = correct + skipped;
     setLastResult({
@@ -977,7 +1001,7 @@ export default function TypingCopyGame() {
       : level.mode === 'count'
         ? `Correct ${correctCount} / ${goal} · Skipped ${skippedCount}`
         : level.mode === 'code'
-          ? `Lines ${correctCount} / ${goal} · Missed ${skippedCount}`
+          ? `Lines ${correctCount} / ${codeLines.length || goal} · Missed ${skippedCount}`
           : level.wholeSentence
           ? `Correct ${correctCount} / ${goal} · Skipped ${skippedCount} · Sentence`
           : `Correct ${correctCount} / ${goal} · Skipped ${skippedCount} · Batch ${level.batchSize}`;
@@ -999,7 +1023,6 @@ export default function TypingCopyGame() {
         sx={{
           display: 'flex',
           alignItems: 'center',
-          justifyContent: 'space-between',
           gap: 1,
           flexWrap: 'wrap',
         }}
@@ -1008,11 +1031,12 @@ export default function TypingCopyGame() {
           {level.title}
           {finished ? (lastResult?.passed ? ' — done' : ' — not passed') : ''}
         </Typography>
-        {finished ? null : (
-          <Button size="small" variant="outlined" onClick={() => startLevel(level.id)}>
-            Restart
-          </Button>
-        )}
+        <Button size="small" variant="text" onClick={() => startLevel(level.id)}>
+          Restart
+        </Button>
+        <Button size="small" variant="text" onClick={() => setLevelId(null)}>
+          Levels
+        </Button>
       </Box>
 
       <Typography variant="body2" color="text.secondary" sx={{m: 0}}>
@@ -1124,8 +1148,8 @@ export default function TypingCopyGame() {
                 {useMemoryPreview && mistakeReveal && !memoryPreview
                   ? 'Wrong key — Chinese shown again. It hides when you type.'
                   : useMemoryPreview
-                    ? 'Read the Chinese, then start typing — Chinese hides after the first character'
-                    : 'Type the Chinese. It stays visible.'}
+                    ? '背诵中文句子'
+                    : '用中文打字'}
               </Typography>
               <ChinesePrompt
                 sentences={promptSentences}
@@ -1273,7 +1297,7 @@ export default function TypingCopyGame() {
             </Typography>
             <Typography variant="body2" sx={{m: 0, mt: 0.5}}>
               {level.mode === 'code' ? 'Correct lines' : 'Correct words'}: {correctCount}
-              {isGoalMode(level.mode) ? ` / ${goal}` : ''} · Skipped: {skippedCount} · Elapsed:{' '}
+              {isGoalMode(level.mode) ? ` / ${level.mode === 'code' ? codeLines.length || goal : goal}` : ''} · Skipped: {skippedCount} · Elapsed:{' '}
               {formatTime(
                 level.mode === 'timed' ? (level.seconds || 0) - secondsLeft : elapsedSec,
               )}
@@ -1282,9 +1306,14 @@ export default function TypingCopyGame() {
                 : ` · ${lastResult ? Math.round(lastResult.accuracy * 100) : 0}% accuracy (need 50%)`}
             </Typography>
           </Box>
-          <Button size="small" variant="contained" onClick={() => startLevel(level.id)}>
-            Restart
-          </Button>
+          <Box sx={{display: 'flex', gap: 1, flexShrink: 0}}>
+            <Button size="small" variant="text" onClick={() => setLevelId(null)}>
+              Levels
+            </Button>
+            <Button size="small" variant="contained" onClick={() => startLevel(level.id)}>
+              Restart
+            </Button>
+          </Box>
         </Box>
       ) : null}
     </Box>

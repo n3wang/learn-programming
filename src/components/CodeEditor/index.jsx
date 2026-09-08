@@ -2,7 +2,9 @@ import React, {useEffect, useMemo, useState} from 'react';
 import BrowserOnly from '@docusaurus/BrowserOnly';
 import CodeMirror from '@uiw/react-codemirror';
 import {autocompletion} from '@codemirror/autocomplete';
-import {EditorView, Prec, keymap} from '@codemirror/view';
+import {Prec} from '@codemirror/state';
+import {indentUnit} from '@codemirror/language';
+import {EditorView, keymap} from '@codemirror/view';
 import {disablePasteExtensions} from '@site/src/components/codeWorkspace/disablePaste';
 import {githubLight} from '@uiw/codemirror-theme-github';
 import {oneDark} from '@codemirror/theme-one-dark';
@@ -144,7 +146,7 @@ function completionsFor(lang) {
   };
 }
 
-function EditorInner({value, onChange, lang, readOnly, disablePaste, onEnter}) {
+function EditorInner({value, onChange, lang, readOnly, disablePaste, onEnter, copyAlign}) {
   const colorMode = useHtmlColorMode();
   const [languageExtension, setLanguageExtension] = useState([]);
 
@@ -163,14 +165,18 @@ function EditorInner({value, onChange, lang, readOnly, disablePaste, onEnter}) {
   const extensions = useMemo(
     () => [
       ...languageExtension,
+      ...(copyAlign ? [indentUnit.of('    ')] : []),
       autocompletion({override: [completionsFor(lang)]}),
       EditorView.theme({
-        '&': {height: '100%', fontSize: '13px'},
+        '&': {height: '100%', fontSize: copyAlign ? '0.92rem' : '13px'},
         '.cm-scroller': {
-          fontFamily: "'Fira Code', 'Cascadia Code', Consolas, monospace",
+          fontFamily: copyAlign
+            ? 'ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace'
+            : "'Fira Code', 'Cascadia Code', Consolas, monospace",
           lineHeight: '1.55',
         },
-        '.cm-gutters': {minWidth: '36px'},
+        '.cm-gutters': copyAlign ? {display: 'none'} : {minWidth: '36px'},
+        '.cm-content': copyAlign ? {padding: '6px 8px 6px 14px'} : {},
       }),
       EditorView.lineWrapping,
       ...(disablePaste ? disablePasteExtensions() : []),
@@ -190,7 +196,7 @@ function EditorInner({value, onChange, lang, readOnly, disablePaste, onEnter}) {
           ]
         : []),
     ],
-    [lang, languageExtension, disablePaste, onEnter]
+    [lang, languageExtension, disablePaste, onEnter, copyAlign]
   );
 
   return (
@@ -201,10 +207,10 @@ function EditorInner({value, onChange, lang, readOnly, disablePaste, onEnter}) {
       extensions={extensions}
       editable={!readOnly}
       basicSetup={{
-        lineNumbers: true,
+        lineNumbers: !copyAlign,
         highlightActiveLine: true,
-        highlightActiveLineGutter: true,
-        foldGutter: true,
+        highlightActiveLineGutter: !copyAlign,
+        foldGutter: !copyAlign,
         autocompletion: true,
         bracketMatching: true,
         closeBrackets: true,
@@ -224,6 +230,7 @@ export default function CodeEditor({
   readOnly = false,
   disablePaste = false,
   onEnter,
+  copyAlign = false,
 }) {
   return (
     <div
@@ -252,6 +259,7 @@ export default function CodeEditor({
             readOnly={readOnly}
             disablePaste={disablePaste}
             onEnter={onEnter}
+            copyAlign={copyAlign}
           />
         )}
       </BrowserOnly>
