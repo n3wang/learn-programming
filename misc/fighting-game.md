@@ -2,21 +2,22 @@
 title: Fighting Game
 ---
 
-A little 2-player fighting game built with plain JS Canvas — samurai vs. ninja, best of one round, keyboard controls only (no touch support).
 
-**Controls**
+[Open in a new tab ↗](pathname:///games/fighting-game/index.html)
 
-| Player | Move | Attack |
-| --- | --- | --- |
-| P1 (Samurai) | A / D | W |
-| P2 (Ninja) | ← / → | ↓ |
+<BlockArrowScroll />
 
-<div style={{maxWidth: 1024, margin: '0 auto'}}>
+<div style={{maxWidth: 1024, margin: '0 '}}>
   <iframe
     src="/games/fighting-game/index.html"
-    style={{width: '100%', aspectRatio: '1024 / 660', border: '4px solid var(--ifm-color-emphasis-300)', borderRadius: 8}}
+    style={{ aspectRatio: '1024 / 660'}}
     title="Fighting Game"
   />
 </div>
 
-[Open in a new tab ↗](pathname:///games/fighting-game/index.html)
+**Controls**
+
+| Player | Move | Jump | Attack |
+| --- | --- | --- | --- |
+| P1 | A / D | W | Space |
+| P2 | ← / → | ↑ | ↓ |

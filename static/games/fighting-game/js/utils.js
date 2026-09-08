@@ -10,21 +10,33 @@ function rectangularCollision({ rectangle1, rectangle2 }) {
   )
 }
 
+let timer = 60
+let timerId
+let gamePaused = true
+let matchOver = false
+
 function determineWinner({ player, enemy, timerId }) {
+  if (matchOver) return
+  matchOver = true
+  player.queuedAttack = null
+  enemy.queuedAttack = null
+  if (player.health < enemy.health || player.health <= 0) player.fallDown()
+  if (enemy.health < player.health || enemy.health <= 0) enemy.fallDown()
   clearTimeout(timerId)
   document.querySelector('#displayText').style.display = 'flex'
+  const result = document.querySelector('#resultText')
   if (player.health === enemy.health) {
-    document.querySelector('#displayText').innerHTML = 'Tie'
+    result.innerHTML = 'Tie'
   } else if (player.health > enemy.health) {
-    document.querySelector('#displayText').innerHTML = 'Player 1 Wins'
+    result.innerHTML = 'Player 1 Wins'
   } else if (player.health < enemy.health) {
-    document.querySelector('#displayText').innerHTML = 'Player 2 Wins'
+    result.innerHTML = 'Player 2 Wins'
   }
 }
 
-let timer = 60
-let timerId
 function decreaseTimer() {
+  if (gamePaused) return
+
   if (timer > 0) {
     timerId = setTimeout(decreaseTimer, 1000)
     timer--
@@ -34,4 +46,14 @@ function decreaseTimer() {
   if (timer === 0) {
     determineWinner({ player, enemy, timerId })
   }
+}
+
+function pauseTimer() {
+  clearTimeout(timerId)
+}
+
+function resumeTimer() {
+  if (gamePaused || timer <= 0) return
+  clearTimeout(timerId)
+  timerId = setTimeout(decreaseTimer, 1000)
 }

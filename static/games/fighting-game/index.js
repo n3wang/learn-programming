@@ -8,6 +8,13 @@ c.fillRect(0, 0, canvas.width, canvas.height)
 
 const gravity = 0.7
 
+// When both fighters are swinging, each only takes this fraction of the hit.
+const splitDamageTaken = 0.2
+const splitKnockback = 55
+const splitStaminaCost = 15
+let lastSplitPush = 0
+let splitArmed = { player: false, enemy: false }
+
 const background = new Sprite({
   position: {
     x: 0,
@@ -26,128 +33,156 @@ const shop = new Sprite({
   framesMax: 6
 })
 
-const player = new Fighter({
-  position: {
-    x: 0,
-    y: 0
-  },
-  velocity: {
-    x: 0,
-    y: 0
-  },
-  offset: {
-    x: 0,
-    y: 0
-  },
-  imageSrc: './img/samuraiMack/Idle.png',
-  framesMax: 8,
-  scale: 2.5,
-  offset: {
-    x: 215,
-    y: 157
-  },
-  sprites: {
-    idle: {
-      imageSrc: './img/samuraiMack/Idle.png',
-      framesMax: 8
-    },
-    run: {
-      imageSrc: './img/samuraiMack/Run.png',
-      framesMax: 8
-    },
-    jump: {
-      imageSrc: './img/samuraiMack/Jump.png',
-      framesMax: 2
-    },
-    fall: {
-      imageSrc: './img/samuraiMack/Fall.png',
-      framesMax: 2
-    },
-    attack1: {
-      imageSrc: './img/samuraiMack/Attack1.png',
-      framesMax: 6
-    },
-    takeHit: {
-      imageSrc: './img/samuraiMack/Take Hit - white silhouette.png',
-      framesMax: 4
-    },
-    death: {
-      imageSrc: './img/samuraiMack/Death.png',
-      framesMax: 6
+function createFighter(position) {
+  const base = getCharacter('samurai')
+  const sprites = {}
+  for (const name in base.sprites) {
+    sprites[name] = {
+      imageSrc: base.sprites[name].imageSrc,
+      framesMax: base.sprites[name].framesMax,
+      hitFrame: base.sprites[name].hitFrame
     }
-  },
-  attackBox: {
-    offset: {
-      x: 100,
-      y: 50
-    },
-    width: 160,
-    height: 50
   }
+  return new Fighter({
+    position,
+    velocity: { x: 0, y: 0 },
+    imageSrc: base.sprites.idle.imageSrc,
+    framesMax: base.sprites.idle.framesMax,
+    scale: base.scale,
+    offset: { ...base.offset },
+    sprites,
+    attackBox: {
+      offset: { ...base.attackBox.offset },
+      width: base.attackBox.width,
+      height: base.attackBox.height
+    }
+  })
+}
+
+const playerSpawnX = 120
+const enemySpawnX = 860
+
+const player = createFighter({ x: playerSpawnX, y: 330 })
+const enemy = createFighter({ x: enemySpawnX, y: 330 })
+
+let p1Character = 'samurai'
+let p2Character = 'kenji'
+let fightStarted = false
+
+function setFacing(fighter, faceRight) {
+  const box = fighter.baseAttackBox
+  const flip = faceRight !== (fighter.naturalFaces === 'right')
+  fighter.faceRight = faceRight
+  fighter.flip = flip
+  fighter.attackBox.offset.x = flip ? -(box.offset.x + box.width) : box.offset.x
+  fighter.attackBox.offset.y = box.offset.y + (fighter.attackLift || 0)
+  fighter.attackBox.width = box.width
+  fighter.attackBox.height = box.height
+}
+
+function faceOpponent(fighter, opponent) {
+  const fighterCenter = fighter.position.x + fighter.width / 2
+  const opponentCenter = opponent.position.x + opponent.width / 2
+  const gap = fighterCenter - opponentCenter
+  if (Math.abs(gap) < 10) return
+  setFacing(fighter, gap < 0)
+}
+
+function applyCharacter(fighter, characterId, side) {
+  fighter.loadCharacter(getCharacter(characterId), side === 'left')
+}
+
+function syncCharacterLabels() {
+  document.querySelector('#p1Choice').innerHTML = 'P1: ' + getCharacter(p1Character).name
+  document.querySelector('#p2Choice').innerHTML = 'P2: ' + getCharacter(p2Character).name
+}
+
+function syncStaminaBars() {
+  document.querySelector('#playerStamina').style.width = player.stamina + '%'
+  document.querySelector('#enemyStamina').style.width = enemy.stamina + '%'
+}
+
+function setPaused(paused) {
+  gamePaused = paused
+  const menu = document.querySelector('#pauseMenu')
+  menu.style.display = paused ? 'flex' : 'none'
+  document.querySelector('#startFight').innerHTML = fightStarted ? 'Resume' : 'Start'
+
+  if (paused) {
+    pauseTimer()
+    return
+  }
+
+  if (fightStarted) resumeTimer()
+}
+
+applyCharacter(player, p1Character, 'left')
+applyCharacter(enemy, p2Character, 'right')
+syncCharacterLabels()
+syncStaminaBars()
+
+document.querySelector('#switchCharacters').addEventListener('click', () => {
+  const nextP1 = p2Character
+  p2Character = p1Character
+  p1Character = nextP1
+  applyCharacter(player, p1Character, 'left')
+  applyCharacter(enemy, p2Character, 'right')
+  syncCharacterLabels()
 })
 
-const enemy = new Fighter({
-  position: {
-    x: 400,
-    y: 100
-  },
-  velocity: {
-    x: 0,
-    y: 0
-  },
-  color: 'blue',
-  offset: {
-    x: -50,
-    y: 0
-  },
-  imageSrc: './img/kenji/Idle.png',
-  framesMax: 4,
-  scale: 2.5,
-  offset: {
-    x: 215,
-    y: 167
-  },
-  sprites: {
-    idle: {
-      imageSrc: './img/kenji/Idle.png',
-      framesMax: 4
-    },
-    run: {
-      imageSrc: './img/kenji/Run.png',
-      framesMax: 8
-    },
-    jump: {
-      imageSrc: './img/kenji/Jump.png',
-      framesMax: 2
-    },
-    fall: {
-      imageSrc: './img/kenji/Fall.png',
-      framesMax: 2
-    },
-    attack1: {
-      imageSrc: './img/kenji/Attack1.png',
-      framesMax: 4
-    },
-    takeHit: {
-      imageSrc: './img/kenji/Take hit.png',
-      framesMax: 3
-    },
-    death: {
-      imageSrc: './img/kenji/Death.png',
-      framesMax: 7
-    }
-  },
-  attackBox: {
-    offset: {
-      x: -170,
-      y: 50
-    },
-    width: 170,
-    height: 50
-  }
-})
+function restartMatch() {
+  pauseTimer()
+  matchOver = false
+  keys.a.pressed = false
+  keys.d.pressed = false
+  keys.ArrowLeft.pressed = false
+  keys.ArrowRight.pressed = false
 
-console.log(player)
+  player.position.x = playerSpawnX
+  enemy.position.x = enemySpawnX
+  player.position.y = 330
+  enemy.position.y = 330
+  player.velocity.x = 0
+  player.velocity.y = 0
+  enemy.velocity.x = 0
+  enemy.velocity.y = 0
+  player.health = 100
+  enemy.health = 100
+  player.stamina = 100
+  enemy.stamina = 100
+  player.dead = false
+  enemy.dead = false
+  player.isAttacking = false
+  enemy.isAttacking = false
+
+  applyCharacter(player, p1Character, 'left')
+  applyCharacter(enemy, p2Character, 'right')
+
+  gsap.set('#playerHealth', { width: '100%' })
+  gsap.set('#enemyHealth', { width: '100%' })
+  syncStaminaBars()
+
+  timer = 60
+  document.querySelector('#timer').innerHTML = timer
+  document.querySelector('#displayText').style.display = 'none'
+  gamePaused = false
+  decreaseTimer()
+}
+
+document.querySelector('#restartMatch').addEventListener('click', restartMatch)
+
+document.querySelector('#startFight').addEventListener('click', () => {
+  if (!fightStarted) {
+    fightStarted = true
+    gamePaused = false
+    document.querySelector('#pauseMenu').style.display = 'none'
+    document.querySelector('#startFight').innerHTML = 'Resume'
+    decreaseTimer()
+    return
+  }
+
+  setPaused(false)
+})
 
 const keys = {
   a: {
@@ -164,16 +199,36 @@ const keys = {
   }
 }
 
-decreaseTimer()
+let lastTimestamp = 0
 
-function animate() {
+function animate(time) {
   window.requestAnimationFrame(animate)
+  const now = time || performance.now()
+  const dt = lastTimestamp ? Math.min((now - lastTimestamp) / 1000, 0.05) : 0
+  lastTimestamp = now
+
   c.fillStyle = 'black'
   c.fillRect(0, 0, canvas.width, canvas.height)
   background.update()
   shop.update()
   c.fillStyle = 'rgba(255, 255, 255, 0.15)'
   c.fillRect(0, 0, canvas.width, canvas.height)
+
+  if (!matchOver) {
+    faceOpponent(player, enemy)
+    faceOpponent(enemy, player)
+  }
+
+  if (gamePaused) {
+    player.draw()
+    enemy.draw()
+    return
+  }
+
+  player.regenStamina(dt)
+  enemy.regenStamina(dt)
+  syncStaminaBars()
+
   player.update()
   enemy.update()
 
@@ -183,10 +238,10 @@ function animate() {
   // player movement
 
   if (keys.a.pressed && player.lastKey === 'a') {
-    player.velocity.x = -5
+    player.velocity.x = -player.kit.moveSpeed
     player.switchSprite('run')
   } else if (keys.d.pressed && player.lastKey === 'd') {
-    player.velocity.x = 5
+    player.velocity.x = player.kit.moveSpeed
     player.switchSprite('run')
   } else {
     player.switchSprite('idle')
@@ -201,10 +256,10 @@ function animate() {
 
   // Enemy movement
   if (keys.ArrowLeft.pressed && enemy.lastKey === 'ArrowLeft') {
-    enemy.velocity.x = -5
+    enemy.velocity.x = -enemy.kit.moveSpeed
     enemy.switchSprite('run')
   } else if (keys.ArrowRight.pressed && enemy.lastKey === 'ArrowRight') {
-    enemy.velocity.x = 5
+    enemy.velocity.x = enemy.kit.moveSpeed
     enemy.switchSprite('run')
   } else {
     enemy.switchSprite('idle')
@@ -217,16 +272,45 @@ function animate() {
     enemy.switchSprite('fall')
   }
 
-  // detect for collision & enemy gets hit
-  if (
+  // Resolve both swings before applying hits so a clash doesn't cancel one attack.
+  const playerLanded =
     rectangularCollision({
       rectangle1: player,
       rectangle2: enemy
     }) &&
     player.isAttacking &&
-    player.framesCurrent === 4
-  ) {
-    enemy.takeHit()
+    player.framesCurrent === player.hitFrame
+
+  const enemyLanded =
+    rectangularCollision({
+      rectangle1: enemy,
+      rectangle2: player
+    }) &&
+    enemy.isAttacking &&
+    enemy.framesCurrent === enemy.hitFrame
+
+  const splitClash = player.isSwinging() && enemy.isSwinging()
+  let playerSplits = false
+  let enemySplits = false
+
+  if (splitClash && (playerLanded || enemyLanded)) {
+    if (now - lastSplitPush > 280) {
+      lastSplitPush = now
+      splitArmed.player = player.stamina >= splitStaminaCost
+      splitArmed.enemy = enemy.stamina >= splitStaminaCost
+      player.knockBack(splitKnockback)
+      enemy.knockBack(splitKnockback)
+      if (splitArmed.player) player.drainStamina(splitStaminaCost)
+      if (splitArmed.enemy) enemy.drainStamina(splitStaminaCost)
+      syncStaminaBars()
+    }
+    playerSplits = splitArmed.player
+    enemySplits = splitArmed.enemy
+  }
+
+  if (playerLanded) {
+    const damage = enemySplits ? player.hitDamage() * splitDamageTaken : player.hitDamage()
+    enemy.takeHit(Math.max(1, Math.round(damage)))
     player.isAttacking = false
 
     gsap.to('#enemyHealth', {
@@ -235,20 +319,13 @@ function animate() {
   }
 
   // if player misses
-  if (player.isAttacking && player.framesCurrent === 4) {
+  if (player.isAttacking && player.framesCurrent === player.hitFrame) {
     player.isAttacking = false
   }
 
-  // this is where our player gets hit
-  if (
-    rectangularCollision({
-      rectangle1: enemy,
-      rectangle2: player
-    }) &&
-    enemy.isAttacking &&
-    enemy.framesCurrent === 2
-  ) {
-    player.takeHit()
+  if (enemyLanded) {
+    const damage = playerSplits ? enemy.hitDamage() * splitDamageTaken : enemy.hitDamage()
+    player.takeHit(Math.max(1, Math.round(damage)))
     enemy.isAttacking = false
 
     gsap.to('#playerHealth', {
@@ -256,8 +333,8 @@ function animate() {
     })
   }
 
-  // if player misses
-  if (enemy.isAttacking && enemy.framesCurrent === 2) {
+  // if enemy misses
+  if (enemy.isAttacking && enemy.framesCurrent === enemy.hitFrame) {
     enemy.isAttacking = false
   }
 
@@ -270,6 +347,24 @@ function animate() {
 animate()
 
 window.addEventListener('keydown', (event) => {
+  if (
+    event.key === 'ArrowUp' ||
+    event.key === 'ArrowDown' ||
+    event.key === 'ArrowLeft' ||
+    event.key === 'ArrowRight'
+  ) {
+    event.preventDefault()
+  }
+
+  if (event.key === 'Escape') {
+    if (fightStarted && timer > 0 && player.health > 0 && enemy.health > 0) {
+      setPaused(!gamePaused)
+    }
+    return
+  }
+
+  if (gamePaused || matchOver || event.repeat) return
+
   if (!player.dead) {
     switch (event.key) {
       case 'd':
@@ -281,10 +376,15 @@ window.addEventListener('keydown', (event) => {
         player.lastKey = 'a'
         break
       case 'w':
-        player.velocity.y = -20
+        player.jump()
+        syncStaminaBars()
         break
       case ' ':
-        player.attack()
+        player.attack({
+          movingForward: player.faceRight ? keys.d.pressed : keys.a.pressed,
+          opponent: enemy
+        })
+        syncStaminaBars()
         break
     }
   }
@@ -300,11 +400,17 @@ window.addEventListener('keydown', (event) => {
         enemy.lastKey = 'ArrowLeft'
         break
       case 'ArrowUp':
-        enemy.velocity.y = -20
+        enemy.jump()
+        syncStaminaBars()
         break
       case 'ArrowDown':
-        enemy.attack()
-
+        enemy.attack({
+          movingForward: enemy.faceRight
+            ? keys.ArrowRight.pressed
+            : keys.ArrowLeft.pressed,
+          opponent: player
+        })
+        syncStaminaBars()
         break
     }
   }

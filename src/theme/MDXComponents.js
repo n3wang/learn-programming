@@ -7,6 +7,7 @@ import NumericQuiz from '@site/src/components/NumericQuiz';
 import ProblemSet, {Problem, NumericProblemSet, NumericProblem} from '@site/src/components/ProblemSet';
 import ExerciseSet, {Exercise} from '@site/src/components/ExerciseSet';
 import TranslatableParagraph from '@site/src/components/Translate/TranslatableParagraph';
+import BlockArrowScroll from '@site/src/components/BlockArrowScroll';
 import {lazyMdxComponent} from '@site/src/components/lazyMdxComponent';
 import {lazySimulators} from '@site/src/components/interactive/lazySimulators';
 
@@ -55,5 +56,6 @@ export default {
     ChartChallenge,
     NodeLab,
     StudentReportsPanel,
+    BlockArrowScroll,
     p: TranslatableParagraph,
 };
