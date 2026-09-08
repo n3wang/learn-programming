@@ -5,56 +5,156 @@ import Button from '@site/src/components/ui/Button';
 import Typography from '@site/src/components/ui/Typography';
 import {pickParagraph, sentenceUnits, wordsFromEn} from './typingCopy/corpus';
 import {imageForWord} from './typingCopy/wordImageIndex';
+import {glossWords} from './typingCopy/wordGloss';
+
+function memoryLevel(id, batchSize, goal) {
+  return {
+    id,
+    title: `Level ${id}`,
+    blurb: `Preview English + Chinese, then Chinese only after first key. Batches of ${batchSize}. Finish ${goal} correct words.`,
+    mode: 'memory',
+    batchSize,
+    goal,
+    previewBeforeType: true,
+  };
+}
+
+function zhLevel(id, title, goal, hideChinese, batchSize) {
+  const batch = hideChinese ? batchSize || Math.min(goal, 3) : 80;
+  return {
+    id,
+    title,
+    blurb: hideChinese
+      ? `Type the Chinese. English stays below. Chinese hides after the first character. Batches of ${batch}. Finish ${goal} correct words.`
+      : `Type the Chinese. English stays below. Chinese stays visible. One sentence at a time, up to the period. Finish ${goal} correct words.`,
+    mode: 'zh',
+    batchSize: batch,
+    goal,
+    previewBeforeType: hideChinese,
+    script: 'zh',
+    wholeSentence: !hideChinese,
+  };
+}
 
 const LEVELS = [
   {
     id: 1,
     title: 'Level 1',
+    blurb: '1 minute. Copy English docs text.',
+    mode: 'timed',
+    seconds: 60,
+  },
+  {
+    id: 2,
+    title: 'Level 2',
     blurb: '3 minutes. Copy English docs text. Letters, digits, spaces, . and , only.',
     mode: 'timed',
     seconds: 3 * 60,
   },
   {
-    id: 2,
-    title: 'Level 2',
-    blurb: '5 minutes. Same rules as Level 1, longer run.',
+    id: 3,
+    title: 'Level 3',
+    blurb: '5 minutes. Same rules as Level 2, longer run.',
     mode: 'timed',
     seconds: 5 * 60,
   },
   {
-    id: 3,
-    title: 'Level 3',
-    blurb:
-      'Preview English + Chinese, then Chinese only after first key. Batches of 5. Finish 40 correct words.',
-    mode: 'memory',
-    batchSize: 5,
-    goal: 40,
-    previewBeforeType: true,
-  },
-  {
     id: 4,
     title: 'Level 4',
-    blurb:
-      'Preview English + Chinese, then Chinese only after first key. Batches of 7. Finish 80 correct words.',
-    mode: 'memory',
-    batchSize: 7,
-    goal: 80,
-    previewBeforeType: true,
+    blurb: '10 minutes. Copy English docs text.',
+    mode: 'timed',
+    seconds: 10 * 60,
   },
   {
     id: 5,
     title: 'Level 5',
-    blurb:
-      'Preview English + Chinese, then Chinese only after first key. Batches of 10. Finish 100 correct words.',
-    mode: 'memory',
-    batchSize: 10,
-    goal: 100,
-    previewBeforeType: true,
+    blurb: 'Type 10 English words.',
+    mode: 'count',
+    goal: 10,
   },
+  {
+    id: 6,
+    title: 'Level 6',
+    blurb: 'Type 20 English words.',
+    mode: 'count',
+    goal: 20,
+  },
+  memoryLevel(7, 2, 10),
+  memoryLevel(8, 3, 20),
+  memoryLevel(9, 3, 30),
+  memoryLevel(10, 3, 40),
+  memoryLevel(11, 4, 20),
+  memoryLevel(12, 4, 40),
+  memoryLevel(13, 5, 30),
+  {
+    id: 14,
+    title: 'Level 14',
+    blurb: 'Type 50 English words.',
+    mode: 'count',
+    goal: 50,
+  },
+  {
+    id: 15,
+    title: 'Level 15',
+    blurb: 'Type 60 English words.',
+    mode: 'count',
+    goal: 60,
+  },
+  memoryLevel(16, 4, 40),
+  memoryLevel(17, 5, 40),
+  zhLevel(18, 'Level 18', 10, false),
+  zhLevel(19, 'Level 19', 20, false),
+  zhLevel(20, 'Level 20', 30, false),
+  memoryLevel(21, 5, 20),
+  zhLevel(22, 'Level 22', 10, true, 2),
+  zhLevel(23, 'Level 23', 20, true, 2),
+  zhLevel(24, 'Level 24', 10, true, 3),
+  zhLevel(25, 'Level 25', 20, true, 3),
+  zhLevel(26, 'Level 26', 10, true, 4),
+  zhLevel(27, 'Level 27', 20, true, 4),
+  zhLevel(28, 'Level 28', 20, true, 5),
+  memoryLevel(29, 5, 50),
 ];
 
 function isAllowedChar(ch) {
   return /^[a-zA-Z0-9., ]$/.test(ch);
+}
+
+function isGoalMode(mode) {
+  return mode === 'memory' || mode === 'count' || mode === 'zh';
+}
+
+function showsEnglishCopy(mode) {
+  return mode === 'timed' || mode === 'count';
+}
+
+const COMPLETED_KEY = 'typing-copy-completed';
+
+function loadCompletedIds() {
+  if (typeof window === 'undefined') return [];
+  try {
+    const raw = JSON.parse(window.localStorage.getItem(COMPLETED_KEY) || '[]');
+    return Array.isArray(raw) ? raw.filter((id) => Number.isInteger(id)) : [];
+  } catch {
+    return [];
+  }
+}
+
+function wordsPerMinute(correct, seconds) {
+  const minutes = seconds / 60;
+  if (minutes <= 0) return 0;
+  return correct / minutes;
+}
+
+/** Word levels: finish the goal at 50%+ accuracy. Timed: survive the clock at 3 WPM. */
+function didPassLevel(cfg, correct, skipped) {
+  if (!cfg) return false;
+  if (cfg.mode === 'timed') {
+    return wordsPerMinute(correct, cfg.seconds || 0) >= 3;
+  }
+  const attempted = correct + skipped;
+  if (correct < (cfg.goal || 0) || attempted === 0) return false;
+  return correct / attempted >= 0.5;
 }
 
 function formatTime(totalSec) {
@@ -170,8 +270,11 @@ function takeBatch(batchSize, cursorRef) {
     prompt.zhWords = prompt.zhWords.slice(seg.sentWordStart, seg.sentWordStart + seg.length);
     prompt.zh = prompt.zhWords.join('');
   }
+  const zhTypeWords =
+    prompt?.zhWords?.length === words.length ? prompt.zhWords : glossWords(words);
   return {
     words,
+    zhTypeWords,
     segments,
     promptSentences,
     zh: promptSentences.map((s) => s.zh).join(''),
@@ -420,13 +523,27 @@ function ChinesePrompt({sentences, wordIndex, activeEnWordIndex}) {
             {glosses.map((gloss, gi) => (
               <span
                 key={`${seg.visit}-${seg.unitIndex}-${gi}`}
-                style={{display: 'inline-flex', alignItems: 'flex-end', marginRight: '0.2em'}}
+                style={{display: 'inline-flex', alignItems: 'flex-end'}}
               >
                 <PinyinCells
                   text={gloss}
                   isActive={isActive}
                   isCurrentWord={isActive && gi === activeEnWordIndex}
                 />
+                <span
+                  aria-hidden
+                  style={{
+                    display: 'inline-flex',
+                    flexDirection: 'column',
+                    alignItems: 'center',
+                    justifyContent: 'flex-end',
+                    minWidth: '0.7em',
+                    margin: '0 1px',
+                  }}
+                >
+                  <span style={{fontSize: '0.62rem', lineHeight: 1.05, minHeight: '0.85em'}}>{'\u00a0'}</span>
+                  <span style={{fontSize: '1.05rem', lineHeight: 1.25}}>{'\u00a0'}</span>
+                </span>
               </span>
             ))}
           </React.Fragment>
@@ -436,9 +553,98 @@ function ChinesePrompt({sentences, wordIndex, activeEnWordIndex}) {
   );
 }
 
+function LevelBoard({shownId, completedIds, onHover, onPin, onStart, wide}) {
+  const shown = LEVELS.find((l) => l.id === shownId) || null;
+  const boardWidth = wide ? 600 : 280;
+  return (
+    <Box
+      sx={{
+        display: 'grid',
+        gap: 1.25,
+        width: boardWidth,
+        maxWidth: '100%',
+        flex: wide ? '1 1 496px' : '0 0 280px',
+        alignContent: 'start',
+      }}
+    >
+      {shown ? (
+        <Box
+          sx={{
+            display: 'flex',
+            alignItems: 'flex-start',
+            justifyContent: 'space-between',
+            gap: 1,
+            p: 1.5,
+            border: '1px solid',
+            borderColor: 'divider',
+            borderRadius: 2,
+            height: 168,
+            overflow: 'hidden',
+            boxSizing: 'border-box',
+          }}
+        >
+          <Box sx={{minWidth: 0, flex: '1 1 100px', overflow: 'hidden', marginBottom: '3rem', paddingBottom: '3rem'}}>
+            <Typography sx={{fontWeight: 700, m: 0}}>{shown.title}</Typography>
+            <Typography variant="body2" color="text.secondary" sx={{m: 0, mt: 0.35}}>
+              {shown.blurb}
+            </Typography>
+          </Box>
+          <Button size="small" variant="contained" onClick={() => onStart(shown.id)}>
+            Start
+          </Button>
+        </Box>
+      ) : (
+        <Box sx={{height: 168, boxSizing: 'border-box'}} />
+      )}
+      <Box sx={{display: 'flex', flexWrap: 'wrap', gap: 1}}>
+        {LEVELS.map((l) => {
+          const active = l.id === shownId;
+          const done = completedIds.includes(l.id);
+          return (
+            <button
+              key={l.id}
+              type="button"
+              onMouseEnter={() => onHover(l.id)}
+              onMouseLeave={() => onHover(null)}
+              onFocus={() => onHover(l.id)}
+              onBlur={() => onHover(null)}
+              onClick={() => onPin(l.id)}
+              aria-label={l.title}
+              aria-pressed={active}
+              style={{
+                width: 52,
+                height: 52,
+                padding: 0,
+                borderRadius: 6,
+                border: active
+                  ? '2px solid var(--ifm-color-primary)'
+                  : done
+                    ? '1px solid #2e7d32'
+                    : '1px solid var(--ifm-color-emphasis-400)',
+                background: done ? '#c8e6c9' : 'transparent',
+                color: done ? '#1b5e20' : 'inherit',
+                fontWeight: 700,
+                fontSize: '1rem',
+                cursor: 'pointer',
+                boxSizing: 'border-box',
+              }}
+            >
+              {l.id}
+            </button>
+          );
+        })}
+      </Box>
+    </Box>
+  );
+}
+
 export default function TypingCopyGame() {
   const [levelId, setLevelId] = useState(null);
   const level = LEVELS.find((l) => l.id === levelId) || null;
+  const [menuPinnedId, setMenuPinnedId] = useState(null);
+  const [menuHoverId, setMenuHoverId] = useState(null);
+  const [completedIds, setCompletedIds] = useState(loadCompletedIds);
+  const [lastResult, setLastResult] = useState(null);
 
   const [running, setRunning] = useState(false);
   const [finished, setFinished] = useState(false);
@@ -447,6 +653,8 @@ export default function TypingCopyGame() {
   const [skippedCount, setSkippedCount] = useState(0);
 
   const [words, setWords] = useState([]);
+  /** English tokens aligned with `words`. Used for the cue line and images. */
+  const [cueWords, setCueWords] = useState([]);
   const [segments, setSegments] = useState([]);
   const [promptSentences, setPromptSentences] = useState([]);
   const [wordIndex, setWordIndex] = useState(0);
@@ -461,26 +669,36 @@ export default function TypingCopyGame() {
   const inputRef = useRef(null);
   const memoryCursor = useRef(null);
   const startedAt = useRef(null);
+  const statsRef = useRef({correct: 0, skipped: 0});
+  const levelRef = useRef(null);
+  levelRef.current = level;
+  statsRef.current = {correct: correctCount, skipped: skippedCount};
+  /** Swallow the Space that commits an IME candidate so it does not skip the next word. */
+  const ignoreSpaceRef = useRef(false);
 
   const goal = level?.goal || 0;
   const useMemoryPreview = Boolean(level?.previewBeforeType);
+  const typingZh = level?.script === 'zh';
 
   const renewTimedParagraph = useCallback(() => {
     const next = loadTimedParagraph(paraIndex);
     setParaIndex(next.paraIndex);
     setWords(next.words);
+    setCueWords(next.words);
     setWordIndex(0);
     setDoneFlags(Array(next.words.length).fill(null));
     setBuffer('');
   }, [paraIndex]);
 
-  const loadMemoryBatch = useCallback((batchSize, withPreview) => {
+  const loadMemoryBatch = useCallback((batchSize, withPreview, script) => {
     const batch = takeBatch(batchSize, memoryCursor);
-    setWords(batch.words);
+    const typed = script === 'zh' ? batch.zhTypeWords : batch.words;
+    setWords(typed);
+    setCueWords(batch.words);
     setSegments(batch.segments);
     setPromptSentences(batch.promptSentences);
     setWordIndex(0);
-    setDoneFlags(Array(batch.words.length).fill(null));
+    setDoneFlags(Array(typed.length).fill(null));
     setBuffer('');
     setMistakeReveal(false);
     setMemoryPreview(Boolean(withPreview));
@@ -491,6 +709,7 @@ export default function TypingCopyGame() {
     if (!cfg) return;
     setLevelId(id);
     setFinished(false);
+    setLastResult(null);
     setRunning(true);
     setCorrectCount(0);
     setSkippedCount(0);
@@ -499,22 +718,51 @@ export default function TypingCopyGame() {
     startedAt.current = Date.now();
     memoryCursor.current = null;
 
-    if (cfg.mode === 'timed') {
-      setSecondsLeft(cfg.seconds);
+    if (showsEnglishCopy(cfg.mode)) {
+      setSecondsLeft(cfg.mode === 'timed' ? cfg.seconds : 0);
       setMemoryPreview(false);
       const next = loadTimedParagraph(-1);
       setParaIndex(next.paraIndex);
       setWords(next.words);
+      setCueWords(next.words);
       setWordIndex(0);
       setDoneFlags(Array(next.words.length).fill(null));
     } else {
       setSecondsLeft(0);
-      loadMemoryBatch(cfg.batchSize, cfg.previewBeforeType);
+      loadMemoryBatch(cfg.batchSize, cfg.previewBeforeType, cfg.script);
     }
     requestAnimationFrame(() => inputRef.current?.focus());
   };
 
   const endRun = useCallback(() => {
+    const cfg = levelRef.current;
+    const {correct, skipped} = statsRef.current;
+    const passed = didPassLevel(cfg, correct, skipped);
+    const wpm = cfg?.mode === 'timed' ? wordsPerMinute(correct, cfg.seconds || 0) : 0;
+    const attempted = correct + skipped;
+    setLastResult({
+      passed,
+      correct,
+      skipped,
+      accuracy: attempted ? correct / attempted : 0,
+      wpm,
+    });
+    if (cfg) {
+      const nextLevel = LEVELS.find((l) => l.id === cfg.id + 1);
+      setMenuPinnedId((nextLevel || cfg).id);
+    }
+    if (passed && cfg) {
+      setCompletedIds((prev) => {
+        if (prev.includes(cfg.id)) return prev;
+        const next = [...prev, cfg.id];
+        try {
+          window.localStorage.setItem(COMPLETED_KEY, JSON.stringify(next));
+        } catch {
+          // Ignore storage failures; the square still turns green this session.
+        }
+        return next;
+      });
+    }
     setRunning(false);
     setFinished(true);
   }, []);
@@ -535,9 +783,9 @@ export default function TypingCopyGame() {
     return () => window.clearInterval(id);
   }, [running, level, endRun]);
 
-  // Win check for memory levels
+  // Win check for word-goal levels
   useEffect(() => {
-    if (!running || !level || level.mode !== 'memory') return;
+    if (!running || !level || !isGoalMode(level.mode)) return;
     if (correctCount >= level.goal) {
       endRun();
     }
@@ -553,12 +801,14 @@ export default function TypingCopyGame() {
       if (okDelta) setCorrectCount((c) => c + okDelta);
 
       if (finishBatch) {
-        if (level?.mode === 'timed') {
-          renewTimedParagraph();
-        } else if (level?.mode === 'memory') {
-          const nextCorrect = correctCount + (okDelta || 0);
+        const nextCorrect = correctCount + (okDelta || 0);
+        if (showsEnglishCopy(level?.mode)) {
+          if (!(level.mode === 'count' && nextCorrect >= (level.goal || 0))) {
+            renewTimedParagraph();
+          }
+        } else if (level?.mode === 'memory' || level?.mode === 'zh') {
           if (nextCorrect < (level.goal || 0)) {
-            loadMemoryBatch(level.batchSize, level.previewBeforeType);
+            loadMemoryBatch(level.batchSize, level.previewBeforeType, level.script);
           }
         }
         return;
@@ -570,8 +820,45 @@ export default function TypingCopyGame() {
     [words.length, level, correctCount, renewTimedParagraph, loadMemoryBatch],
   );
 
+  const acceptZhValue = (value) => {
+    const target = words[wordIndex] || '';
+    if (value && value === target) {
+      ignoreSpaceRef.current = true;
+      const finishesBatch = wordIndex + 1 >= words.length;
+      if (useMemoryPreview && memoryPreview && !finishesBatch) setMemoryPreview(false);
+      setMistakeReveal(false);
+      const flags = [...doneFlags];
+      flags[wordIndex] = 'ok';
+      advanceAfterWord(flags, wordIndex + 1, 1, 0);
+      return;
+    }
+    if (target.startsWith(value)) {
+      if (useMemoryPreview && value) {
+        setMemoryPreview(false);
+        setMistakeReveal(false);
+      }
+      setBuffer(value);
+      return;
+    }
+    setBuffer('');
+    if (useMemoryPreview) {
+      setMemoryPreview(false);
+      setMistakeReveal(true);
+    }
+  };
+
+  const onZhChange = (e) => {
+    if (!running || finished) return;
+    if (e.nativeEvent.isComposing) {
+      setBuffer(e.target.value);
+      return;
+    }
+    acceptZhValue(e.target.value);
+  };
+
   const onKeyDown = (e) => {
     if (!running || finished) return;
+    if (e.nativeEvent.isComposing || e.keyCode === 229) return;
     if (e.key === 'Tab') {
       e.preventDefault();
       const finishesBatch = wordIndex + 1 >= words.length;
@@ -589,6 +876,10 @@ export default function TypingCopyGame() {
     }
     if (e.key === ' ') {
       e.preventDefault();
+      if (ignoreSpaceRef.current) {
+        ignoreSpaceRef.current = false;
+        return;
+      }
       const target = words[wordIndex] || '';
       const finishesBatch = wordIndex + 1 >= words.length;
       if (buffer === target) {
@@ -612,7 +903,7 @@ export default function TypingCopyGame() {
       }
       return;
     }
-    if (e.key.length !== 1 || !isAllowedChar(e.key) || e.key === ' ') return;
+    if (typingZh || e.key.length !== 1 || !isAllowedChar(e.key) || e.key === ' ') return;
     e.preventDefault();
     const target = words[wordIndex] || '';
     const next = buffer + e.key;
@@ -639,44 +930,21 @@ export default function TypingCopyGame() {
     return Math.floor((Date.now() - startedAt.current) / 1000);
   }, [secondsLeft, level, finished, correctCount]);
 
+  const levelBoard = (wide) => (
+    <LevelBoard
+      shownId={menuHoverId ?? menuPinnedId}
+      completedIds={completedIds}
+      onHover={setMenuHoverId}
+      onPin={setMenuPinnedId}
+      onStart={startLevel}
+      wide={wide}
+    />
+  );
+
   if (!level) {
     return (
-      <Box className="notranslate" translate="no" sx={{display: 'grid', gap: 2, maxWidth: 420}}>
-        <Typography variant="h2" sx={{fontSize: '1.35rem', m: 0}}>
-          Typing copy game
-        </Typography>
-        <Typography color="text.secondary" sx={{m: 0}}>
-          Copy documentation-style English. Wrong key resets the current word. Space after a correct
-          word advances. Empty Space or Tab skips a word. Completed words turn green.
-        </Typography>
-        <Box sx={{display: 'grid', gap: 1.25}}>
-          {LEVELS.map((l) => (
-            <Box
-              key={l.id}
-              sx={{
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'space-between',
-                gap: 1,
-                flexWrap: 'wrap',
-                p: 1.5,
-                border: '1px solid',
-                borderColor: 'divider',
-                borderRadius: 2,
-              }}
-            >
-              <Box sx={{minWidth: 0, flex: '1 1 220px'}}>
-                <Typography sx={{fontWeight: 700, m: 0}}>{l.title}</Typography>
-                <Typography variant="body2" color="text.secondary" sx={{m: 0, mt: 0.35}}>
-                  {l.blurb}
-                </Typography>
-              </Box>
-              <Button size="small" variant="contained" onClick={() => startLevel(l.id)}>
-                Start
-              </Button>
-            </Box>
-          ))}
-        </Box>
+      <Box className="notranslate" translate="no" sx={{display: 'grid', gap: 2, maxWidth: 720, width: '100%'}}>
+        {levelBoard(true)}
       </Box>
     );
   }
@@ -684,14 +952,25 @@ export default function TypingCopyGame() {
   const progressLabel =
     level.mode === 'timed'
       ? `Time ${formatTime(secondsLeft)} · Correct ${correctCount} · Skipped ${skippedCount}`
-      : `Correct ${correctCount} / ${goal} · Skipped ${skippedCount} · Batch ${level.batchSize}`;
+      : level.mode === 'count'
+        ? `Correct ${correctCount} / ${goal} · Skipped ${skippedCount}`
+        : level.wholeSentence
+          ? `Correct ${correctCount} / ${goal} · Skipped ${skippedCount} · Sentence`
+          : `Correct ${correctCount} / ${goal} · Skipped ${skippedCount} · Batch ${level.batchSize}`;
 
   return (
     <Box
       className="notranslate"
       translate="no"
-      sx={{display: 'grid', gap: 1.5, maxWidth: 640, width: '100%'}}
+      sx={{
+        display: 'flex',
+        gap: 2,
+        alignItems: 'flex-start',
+        maxWidth: finished ? 980 : 640,
+        width: '100%',
+      }}
     >
+    <Box sx={{display: 'grid', gap: 1.5, flex: '1 1 420px', minWidth: 0}}>
       <Box
         sx={{
           display: 'flex',
@@ -703,24 +982,13 @@ export default function TypingCopyGame() {
       >
         <Typography sx={{fontWeight: 700, m: 0}}>
           {level.title}
-          {finished ? (level.mode === 'memory' && correctCount >= goal ? ' — done' : ' — time up') : ''}
+          {finished ? (lastResult?.passed ? ' — done' : ' — not passed') : ''}
         </Typography>
-        <Box sx={{display: 'flex', gap: 0.75}}>
-          <Button
-            size="small"
-            variant="outlined"
-            onClick={() => {
-              setLevelId(null);
-              setRunning(false);
-              setFinished(false);
-            }}
-          >
-            Levels
-          </Button>
-          <Button size="small" variant="contained" onClick={() => startLevel(level.id)}>
+        {finished ? null : (
+          <Button size="small" variant="outlined" onClick={() => startLevel(level.id)}>
             Restart
           </Button>
-        </Box>
+        )}
       </Box>
 
       <Typography variant="body2" color="text.secondary" sx={{m: 0}}>
@@ -743,9 +1011,6 @@ export default function TypingCopyGame() {
                 fontSize: '1.05rem',
               }}
             >
-              <Typography variant="caption" color="text.secondary" sx={{display: 'block', mb: 0.5}}>
-                Read the English, then start typing — English hides after the first letter
-              </Typography>
               <WordLane
                 words={words}
                 wordIndex={wordIndex}
@@ -796,15 +1061,67 @@ export default function TypingCopyGame() {
             <WordLane words={words} wordIndex={wordIndex} doneFlags={doneFlags} showEnglish={false} />
           ) : null}
         </Box>
-        <WordCueImage word={words[wordIndex]} nextWord={words[wordIndex + 1]} />
+        <WordCueImage word={cueWords[wordIndex] || words[wordIndex]} nextWord={cueWords[wordIndex + 1] || words[wordIndex + 1]} />
         </Box>
-      ) : (
+      ) : null}
+
+      {level.mode === 'zh' ? (
+        <Box sx={{display: 'flex', gap: 1.5, alignItems: 'flex-start', width: '100%', minWidth: 0}}>
+        <Box sx={{display: 'grid', gap: 1, flex: '1 1 280px', minWidth: 0}}>
+          {!useMemoryPreview || memoryPreview || mistakeReveal ? (
+            <Box
+              sx={{
+                p: 1.5,
+                borderRadius: 2,
+                border: '1px solid',
+                borderColor: 'primary.main',
+                backgroundColor: 'background.paper',
+                maxWidth: 420,
+              }}
+            >
+              <Typography variant="caption" color="text.secondary" sx={{display: 'block', mb: 0.5}}>
+                {useMemoryPreview && mistakeReveal && !memoryPreview
+                  ? 'Wrong key — Chinese shown again. It hides when you type.'
+                  : useMemoryPreview
+                    ? 'Read the Chinese, then start typing — Chinese hides after the first character'
+                    : 'Type the Chinese. It stays visible.'}
+              </Typography>
+              <ChinesePrompt
+                sentences={promptSentences}
+                wordIndex={wordIndex}
+                activeEnWordIndex={wordIndex}
+              />
+            </Box>
+          ) : null}
+          <Box
+            sx={{
+              p: 1.5,
+              borderRadius: 2,
+              border: '1px solid',
+              borderColor: 'divider',
+              maxWidth: 420,
+              whiteSpace: 'normal',
+              lineHeight: 1.75,
+              fontSize: '1.05rem',
+            }}
+          >
+            <Typography variant="caption" color="text.secondary" sx={{display: 'block', mb: 0.5}}>
+              English
+            </Typography>
+            <WordLane words={cueWords} wordIndex={wordIndex} doneFlags={doneFlags} showEnglish />
+          </Box>
+        </Box>
+        <WordCueImage word={cueWords[wordIndex]} nextWord={cueWords[wordIndex + 1]} />
+        </Box>
+      ) : null}
+
+      {showsEnglishCopy(level.mode) ? (
         <Typography variant="body2" color="text.secondary" sx={{m: 0}}>
           Full paragraph below. New paragraph loads when you finish these words.
         </Typography>
-      )}
+      ) : null}
 
-      {level.mode === 'timed' ? (
+      {showsEnglishCopy(level.mode) ? (
         <Box sx={{display: 'flex', gap: 1.5, alignItems: 'flex-start', width: '100%', minWidth: 0}}>
         <Box
           sx={{
@@ -843,7 +1160,7 @@ export default function TypingCopyGame() {
             );
           })}
         </Box>
-        <WordCueImage word={words[wordIndex]} nextWord={words[wordIndex + 1]} />
+        <WordCueImage word={cueWords[wordIndex] || words[wordIndex]} nextWord={cueWords[wordIndex + 1] || words[wordIndex + 1]} />
         </Box>
       ) : null}
 
@@ -855,10 +1172,12 @@ export default function TypingCopyGame() {
           component="input"
           ref={inputRef}
           value={buffer}
-          readOnly
+          readOnly={!typingZh}
+          lang={typingZh ? 'zh-CN' : undefined}
+          onChange={typingZh ? onZhChange : undefined}
           onKeyDown={onKeyDown}
           onClick={() => inputRef.current?.focus()}
-          placeholder={running && !finished ? 'Type here…' : 'Finished'}
+          placeholder={running && !finished ? (typingZh ? 'Type the Chinese…' : 'Type here…') : 'Finished'}
           sx={{
             display: 'block',
             width: '100%',
@@ -882,14 +1201,24 @@ export default function TypingCopyGame() {
           disabled={!running || finished}
         />
         <Typography variant="caption" color="text.secondary" sx={{display: 'block', mt: 0.75}}>
-          Wrong key resets the word and shows the English sentence again. Space confirms a correct word. Empty Space or Tab skips.
-          {level.mode === 'timed' ? ` Target shown: ${words[wordIndex] || '—'}` : ''}
+          Wrong key resets the word
+          {typingZh
+            ? useMemoryPreview
+              ? ' and shows the Chinese again.'
+              : '.'
+            : ' and shows the English sentence again.'}{' '}
+          Space confirms a correct word. Empty Space or Tab skips.
+          {showsEnglishCopy(level.mode) ? ` Target shown: ${words[wordIndex] || '—'}` : ''}
         </Typography>
       </Box>
 
       {finished ? (
         <Box
           sx={{
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'space-between',
+            gap: 1,
             p: 1.5,
             borderRadius: 2,
             border: '1px solid',
@@ -897,20 +1226,28 @@ export default function TypingCopyGame() {
             backgroundColor: 'action.hover',
           }}
         >
-          <Typography sx={{fontWeight: 700, m: 0}}>
-            {level.mode === 'memory' && correctCount >= goal
-              ? 'Level complete.'
-              : 'Run finished.'}
-          </Typography>
-          <Typography variant="body2" sx={{m: 0, mt: 0.5}}>
-            Correct words: {correctCount}
-            {level.mode === 'memory' ? ` / ${goal}` : ''} · Skipped: {skippedCount} · Elapsed:{' '}
-            {formatTime(
-              level.mode === 'timed' ? (level.seconds || 0) - secondsLeft : elapsedSec,
-            )}
-          </Typography>
+          <Box sx={{minWidth: 0}}>
+            <Typography sx={{fontWeight: 700, m: 0}}>
+              {lastResult?.passed ? 'Level complete.' : 'Not passed.'}
+            </Typography>
+            <Typography variant="body2" sx={{m: 0, mt: 0.5}}>
+              Correct words: {correctCount}
+              {isGoalMode(level.mode) ? ` / ${goal}` : ''} · Skipped: {skippedCount} · Elapsed:{' '}
+              {formatTime(
+                level.mode === 'timed' ? (level.seconds || 0) - secondsLeft : elapsedSec,
+              )}
+              {level.mode === 'timed'
+                ? ` · ${lastResult ? lastResult.wpm.toFixed(1) : '0.0'} WPM (need 3)`
+                : ` · ${lastResult ? Math.round(lastResult.accuracy * 100) : 0}% accuracy (need 50%)`}
+            </Typography>
+          </Box>
+          <Button size="small" variant="contained" onClick={() => startLevel(level.id)}>
+            Restart
+          </Button>
         </Box>
       ) : null}
+    </Box>
+    {finished ? levelBoard(false) : null}
     </Box>
   );
 }
