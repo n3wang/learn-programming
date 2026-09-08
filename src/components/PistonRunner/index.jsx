@@ -47,15 +47,22 @@ export default function PistonRunner({
     const {siteConfig} = useDocusaurusContext();
     const {pathname} = useLocation();
     const fileName = filename || defaultSourceFilename(lang);
+    const hideUntilSolution =
+        pathname.includes('/python/intermediate-lessons') &&
+        interactive === false &&
+        String(initialCode || '').trim().length > 0;
     const draftId = useMemo(
         () =>
-            storageKey ||
-            makeDraftId('runner', pathname, [lang, fileName, initialCode].join('\0')),
-        [storageKey, pathname, lang, fileName, initialCode]
+            hideUntilSolution
+                ? null
+                : storageKey ||
+                  makeDraftId('runner', pathname, [lang, fileName, initialCode].join('\0')),
+        [hideUntilSolution, storageKey, pathname, lang, fileName, initialCode]
     );
+    const [solutionOpen, setSolutionOpen] = useState(!hideUntilSolution);
     const {code, setCode, stdin, setStdin, saveLabel, reset} = useCodeDraft(
         draftId,
-        initialCode,
+        hideUntilSolution ? '' : initialCode,
         initialStdin
     );
 
@@ -292,18 +299,39 @@ export default function PistonRunner({
                 saveLabel={saveLabel}
                 meta={meta}
                 running={running}
-                onRun={run}
-                onReset={reset}
-            />
+                onRun={solutionOpen ? run : undefined}
+                onReset={() => {
+                    reset();
+                    if (hideUntilSolution) setSolutionOpen(false);
+                }}
+            >
+                {hideUntilSolution ? (
+                    <button
+                        type="button"
+                        className={chrome.resetBtn}
+                        onClick={() => {
+                            if (solutionOpen) {
+                                setSolutionOpen(false);
+                                setCode('');
+                                return;
+                            }
+                            setSolutionOpen(true);
+                            setCode(initialCode);
+                        }}
+                    >
+                        {solutionOpen ? 'Hide solution' : 'Show solution'}
+                    </button>
+                ) : null}
+            </EditorToolbar>
 
             <SplitPanes split={split} minHeight={height}>
                 <div className={chrome.editorPane}>
                     <CodeEditor
-                        value={code}
-                        onChange={(next) => editable && setCode(next)}
+                        value={solutionOpen ? code : ''}
+                        onChange={(next) => editable && solutionOpen && setCode(next)}
                         lang={lang}
                         height={height}
-                        readOnly={!editable}
+                        readOnly={!editable || !solutionOpen}
                     />
                 </div>
                 {split ? (

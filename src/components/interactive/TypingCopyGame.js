@@ -6,6 +6,8 @@ import Typography from '@site/src/components/ui/Typography';
 import {pickParagraph, sentenceUnits, wordsFromEn} from './typingCopy/corpus';
 import {imageForWord} from './typingCopy/wordImageIndex';
 import {glossWords} from './typingCopy/wordGloss';
+import {drawCodeLines} from './typingCopy/pythonSolutions';
+import CodeLineTyping from './typingCopy/CodeLineTyping';
 
 function memoryLevel(id, batchSize, goal) {
   return {
@@ -114,14 +116,29 @@ const LEVELS = [
   zhLevel(27, 'Level 27', 20, true, 4),
   zhLevel(28, 'Level 28', 20, true, 5),
   memoryLevel(29, 5, 50),
+  codeLevel(30, 10),
+  codeLevel(31, 15),
+  codeLevel(32, 20),
+  codeLevel(33, 25),
+  codeLevel(34, 30),
 ];
 
 function isAllowedChar(ch) {
   return /^[a-zA-Z0-9., ]$/.test(ch);
 }
 
+function codeLevel(id, lineCount) {
+  return {
+    id,
+    title: `Level ${id}`,
+    blurb: `Type ${lineCount} Python lines from a mixed pool of lesson snippets. Enter checks each line.`,
+    mode: 'code',
+    goal: lineCount,
+  };
+}
+
 function isGoalMode(mode) {
-  return mode === 'memory' || mode === 'count' || mode === 'zh';
+  return mode === 'memory' || mode === 'count' || mode === 'zh' || mode === 'code';
 }
 
 function showsEnglishCopy(mode) {
@@ -651,6 +668,7 @@ export default function TypingCopyGame() {
   const [secondsLeft, setSecondsLeft] = useState(0);
   const [correctCount, setCorrectCount] = useState(0);
   const [skippedCount, setSkippedCount] = useState(0);
+  const [codeLines, setCodeLines] = useState([]);
 
   const [words, setWords] = useState([]);
   /** English tokens aligned with `words`. Used for the cue line and images. */
@@ -718,7 +736,11 @@ export default function TypingCopyGame() {
     startedAt.current = Date.now();
     memoryCursor.current = null;
 
-    if (showsEnglishCopy(cfg.mode)) {
+    if (cfg.mode === 'code') {
+      setSecondsLeft(0);
+      setMemoryPreview(false);
+      setCodeLines(drawCodeLines(cfg.goal));
+    } else if (showsEnglishCopy(cfg.mode)) {
       setSecondsLeft(cfg.mode === 'timed' ? cfg.seconds : 0);
       setMemoryPreview(false);
       const next = loadTimedParagraph(-1);
@@ -954,7 +976,9 @@ export default function TypingCopyGame() {
       ? `Time ${formatTime(secondsLeft)} · Correct ${correctCount} · Skipped ${skippedCount}`
       : level.mode === 'count'
         ? `Correct ${correctCount} / ${goal} · Skipped ${skippedCount}`
-        : level.wholeSentence
+        : level.mode === 'code'
+          ? `Lines ${correctCount} / ${goal} · Missed ${skippedCount}`
+          : level.wholeSentence
           ? `Correct ${correctCount} / ${goal} · Skipped ${skippedCount} · Sentence`
           : `Correct ${correctCount} / ${goal} · Skipped ${skippedCount} · Batch ${level.batchSize}`;
 
@@ -966,7 +990,7 @@ export default function TypingCopyGame() {
         display: 'flex',
         gap: 2,
         alignItems: 'flex-start',
-        maxWidth: finished ? 980 : 640,
+        maxWidth: finished || level.mode === 'code' ? 980 : 640,
         width: '100%',
       }}
     >
@@ -995,7 +1019,24 @@ export default function TypingCopyGame() {
         {progressLabel}
       </Typography>
 
-      {level.mode === 'memory' ? (
+      {level.mode === 'code' ? (
+        <CodeLineTyping
+          key={`${level.id}:${codeLines.join('\n')}`}
+          lines={codeLines}
+          onAdvance={(ok, skip) => {
+            const next = {
+              correct: statsRef.current.correct + ok,
+              skipped: statsRef.current.skipped + skip,
+            };
+            statsRef.current = next;
+            if (ok) setCorrectCount(next.correct);
+            if (skip) setSkippedCount(next.skipped);
+          }}
+          onComplete={() => endRun()}
+        />
+      ) : null}
+
+      {level.mode !== 'code' && level.mode === 'memory' ? (
         <Box sx={{display: 'flex', gap: 1.5, alignItems: 'flex-start', width: '100%', minWidth: 0}}>
         <Box sx={{display: 'grid', gap: 1, flex: '1 1 280px', minWidth: 0}}>
           {useMemoryPreview && memoryPreview ? (
@@ -1164,7 +1205,7 @@ export default function TypingCopyGame() {
         </Box>
       ) : null}
 
-      <Box>
+      {level.mode === 'code' ? null : <Box>
         <Typography variant="caption" color="text.secondary">
           Current word
         </Typography>
@@ -1210,7 +1251,7 @@ export default function TypingCopyGame() {
           Space confirms a correct word. Empty Space or Tab skips.
           {showsEnglishCopy(level.mode) ? ` Target shown: ${words[wordIndex] || '—'}` : ''}
         </Typography>
-      </Box>
+      </Box>}
 
       {finished ? (
         <Box
@@ -1231,7 +1272,7 @@ export default function TypingCopyGame() {
               {lastResult?.passed ? 'Level complete.' : 'Not passed.'}
             </Typography>
             <Typography variant="body2" sx={{m: 0, mt: 0.5}}>
-              Correct words: {correctCount}
+              {level.mode === 'code' ? 'Correct lines' : 'Correct words'}: {correctCount}
               {isGoalMode(level.mode) ? ` / ${goal}` : ''} · Skipped: {skippedCount} · Elapsed:{' '}
               {formatTime(
                 level.mode === 'timed' ? (level.seconds || 0) - secondsLeft : elapsedSec,

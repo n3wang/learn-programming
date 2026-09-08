@@ -2,7 +2,7 @@ import React, {useEffect, useMemo, useState} from 'react';
 import BrowserOnly from '@docusaurus/BrowserOnly';
 import CodeMirror from '@uiw/react-codemirror';
 import {autocompletion} from '@codemirror/autocomplete';
-import {EditorView} from '@codemirror/view';
+import {EditorView, Prec, keymap} from '@codemirror/view';
 import {disablePasteExtensions} from '@site/src/components/codeWorkspace/disablePaste';
 import {githubLight} from '@uiw/codemirror-theme-github';
 import {oneDark} from '@codemirror/theme-one-dark';
@@ -144,7 +144,7 @@ function completionsFor(lang) {
   };
 }
 
-function EditorInner({value, onChange, lang, readOnly, disablePaste}) {
+function EditorInner({value, onChange, lang, readOnly, disablePaste, onEnter}) {
   const colorMode = useHtmlColorMode();
   const [languageExtension, setLanguageExtension] = useState([]);
 
@@ -174,8 +174,23 @@ function EditorInner({value, onChange, lang, readOnly, disablePaste}) {
       }),
       EditorView.lineWrapping,
       ...(disablePaste ? disablePasteExtensions() : []),
+      ...(onEnter
+        ? [
+            Prec.high(
+              keymap.of([
+                {
+                  key: 'Enter',
+                  run: () => {
+                    onEnter();
+                    return true;
+                  },
+                },
+              ]),
+            ),
+          ]
+        : []),
     ],
-    [lang, languageExtension, disablePaste]
+    [lang, languageExtension, disablePaste, onEnter]
   );
 
   return (
@@ -208,6 +223,7 @@ export default function CodeEditor({
   height = '280px',
   readOnly = false,
   disablePaste = false,
+  onEnter,
 }) {
   return (
     <div
@@ -235,6 +251,7 @@ export default function CodeEditor({
             lang={lang}
             readOnly={readOnly}
             disablePaste={disablePaste}
+            onEnter={onEnter}
           />
         )}
       </BrowserOnly>

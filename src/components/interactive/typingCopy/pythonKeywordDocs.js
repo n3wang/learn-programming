@@ -1,0 +1,96 @@
+/** Short docs for the token under the current Python line. */
+export const PYTHON_KEYWORD_DOCS = {
+  import: {en: 'Load a module so its names can be used. `import math` binds the math module.', zh: '加载模块，以便使用其中的名字。`import math` 会绑定 math 模块。'},
+  from: {en: 'Import specific names from a module. `from math import hypot` binds hypot only.', zh: '从模块中导入指定名字。`from math import hypot` 只绑定 hypot。'},
+  class: {en: 'Define a new type. The suite under `class` becomes the class body.', zh: '定义一个新类型。`class` 下面的缩进代码就是类体。'},
+  def: {en: 'Define a function or method. The indented block is the function body.', zh: '定义函数或方法。缩进的代码块就是函数体。'},
+  return: {en: 'Leave the function and hand a value back to the caller.', zh: '离开函数，并把一个值交还给调用者。'},
+  yield: {en: 'Pause a generator and produce a value. The function resumes on the next next().', zh: '暂停生成器并产出一个值。下次 next() 时函数会从这里继续。'},
+  self: {en: 'The instance the method was called on. Not a keyword, but the usual first parameter.', zh: '方法被调用时所作用的那个实例。不是关键字，但是通常的第一个参数。'},
+  cls: {en: 'The class itself, used as the first parameter of a classmethod.', zh: '类本身，用作 classmethod 的第一个参数。'},
+  if: {en: 'Run the following block only when the condition is true.', zh: '只有条件为真时，才运行后面的代码块。'},
+  elif: {en: 'Another condition checked when earlier if/elif tests were false.', zh: '前面的 if/elif 都不成立时，再检查另一个条件。'},
+  else: {en: 'Block that runs when the matching if/elif (or for/while/try) did not take another branch.', zh: '与之配对的 if/elif（或 for/while/try）没有走其他分支时，运行这个块。'},
+  for: {en: 'Loop over each item of an iterable, binding the name on each turn.', zh: '遍历可迭代对象的每一项，每一轮把名字绑到当前项。'},
+  while: {en: 'Repeat the block as long as the condition stays true.', zh: '只要条件保持为真，就重复执行这个代码块。'},
+  break: {en: 'Leave the nearest loop immediately.', zh: '立刻离开最近的那一层循环。'},
+  continue: {en: 'Skip the rest of this loop iteration and start the next one.', zh: '跳过这一轮循环剩下的代码，开始下一轮。'},
+  pass: {en: 'Do nothing. A placeholder where a statement is required.', zh: '什么都不做。用在语法上必须有一条语句的地方。'},
+  raise: {en: 'Throw an exception, or re-raise the one currently being handled.', zh: '抛出异常，或重新抛出当前正在处理的异常。'},
+  try: {en: 'Run code that might fail, and pair it with except/else/finally.', zh: '运行可能失败的代码，并与 except/else/finally 配对。'},
+  except: {en: 'Handle an exception raised in the matching try.', zh: '处理配对 try 中抛出的异常。'},
+  finally: {en: 'Run this block whether the try succeeded or raised.', zh: '无论 try 成功还是抛出异常，都会运行这个块。'},
+  with: {en: 'Enter a context manager and guarantee its cleanup when the block ends.', zh: '进入上下文管理器，并保证代码块结束时做清理。'},
+  as: {en: 'Bind a name to the imported module, the exception, or the with-expression result.', zh: '给导入的模块、异常，或 with 表达式的结果绑定一个名字。'},
+  lambda: {en: 'A one-expression anonymous function. `lambda x: x + 1`.', zh: '只有一个表达式的匿名函数。`lambda x: x + 1`。'},
+  None: {en: 'The single null object. Functions return None if they do not return another value.', zh: '唯一的空对象。函数没有返回其他值时，就返回 None。'},
+  True: {en: 'The boolean true value.', zh: '布尔真值。'},
+  False: {en: 'The boolean false value.', zh: '布尔假值。'},
+  and: {en: 'True only if both sides are true. Returns the last evaluated operand.', zh: '两边都为真才为真。返回最后求值的那个操作数。'},
+  or: {en: 'True if either side is true. Returns the first truthy operand.', zh: '任一边为真就为真。返回第一个为真的操作数。'},
+  not: {en: 'Negate a boolean test.', zh: '对布尔判断取反。'},
+  in: {en: 'Membership test, or the binder in a for loop.', zh: '成员检测，或 for 循环里用来绑定名字的那个词。'},
+  is: {en: 'True if both names refer to the same object, not merely equal values.', zh: '两个名字指向同一个对象时为真，不只是值相等。'},
+  global: {en: 'Assign to a module-level name from inside a function.', zh: '在函数内部给模块级名字赋值。'},
+  nonlocal: {en: 'Assign to a name in an enclosing function, not the global module.', zh: '给外层函数里的名字赋值，而不是全局模块。'},
+  assert: {en: 'Raise AssertionError if the test is false. Used for internal checks.', zh: '若判断为假就抛出 AssertionError。用于内部检查。'},
+  del: {en: 'Remove a name, or an item from a container.', zh: '删除一个名字，或容器中的一项。'},
+  async: {en: 'Mark a function as a coroutine, or used with for/with for async iteration.', zh: '把函数标成协程，或与 for/with 一起做异步迭代。'},
+  await: {en: 'Pause a coroutine until the awaited awaitable finishes.', zh: '暂停协程，直到所等待的对象完成。'},
+  __init__: {en: 'Constructor-like method. Called after the instance is created to set it up.', zh: '类似构造方法。实例创建后被调用来完成初始化。'},
+  __repr__: {en: 'Official string for developers. Ideally looks like a call that rebuilds the object.', zh: '给开发者看的正式字符串。最好像一句能重建该对象的调用。'},
+  __str__: {en: 'Friendly string used by print() and str(). Falls back to __repr__ if missing.', zh: 'print() 和 str() 使用的友好字符串。若没有，则回退到 __repr__。'},
+  __iter__: {en: 'Return an iterator so the object can be used in for loops and unpacking.', zh: '返回迭代器，使对象能用于 for 循环和解包。'},
+  __next__: {en: 'Return the next value from an iterator, or raise StopIteration.', zh: '返回迭代器的下一个值，否则抛出 StopIteration。'},
+  __getitem__: {en: 'Called for obj[key]. Also used by slices and iteration fallback.', zh: '用于 obj[key]。切片和迭代回退也会调用它。'},
+  __setitem__: {en: 'Called for obj[key] = value.', zh: '用于 obj[key] = value。'},
+  __len__: {en: 'Called by len(obj). Should return a non-negative integer.', zh: '由 len(obj) 调用。应返回非负整数。'},
+  __bool__: {en: 'Called by bool(obj) and by if obj. If missing, Python uses __len__.', zh: '由 bool(obj) 和 if obj 调用。若没有，Python 会用 __len__。'},
+  __abs__: {en: 'Called by abs(obj). For a vector this is often the magnitude.', zh: '由 abs(obj) 调用。对向量来说通常是长度。'},
+  __format__: {en: 'Called by format(obj, spec) and f-strings with a format spec.', zh: '由 format(obj, spec) 以及带格式说明的 f-string 调用。'},
+  __eq__: {en: 'Called by ==. Return True, False, or NotImplemented.', zh: '由 == 调用。返回 True、False 或 NotImplemented。'},
+  __hash__: {en: 'Called by hash(obj). Required if the object should be a dict key or set member.', zh: '由 hash(obj) 调用。对象要当字典键或集合元素时需要它。'},
+  __slots__: {en: 'Tuple of attribute names stored without a per-instance __dict__.', zh: '属性名元组，实例不再各自带一个 __dict__。'},
+  property: {en: 'Turn methods into attribute access: get, set, and delete through a name.', zh: '把方法变成属性访问：通过一个名字来读取、设置和删除。'},
+  staticmethod: {en: 'Method that does not receive the instance or class as the first argument.', zh: '不会把实例或类当作第一个参数的方法。'},
+  classmethod: {en: 'Method that receives the class as cls instead of an instance.', zh: '接收类本身作为 cls，而不是实例的方法。'},
+  print: {en: 'Write values to standard output. By default they are separated by spaces and followed by a newline.', zh: '把值写到标准输出。默认用空格分隔，并以换行结束。'},
+  super: {en: 'Call the next method in the MRO. `super().__init__()` runs the parent initializer.', zh: '调用方法解析顺序中的下一个方法。`super().__init__()` 会运行父类初始化。'},
+  match: {en: 'Structural pattern match. Compare a subject against case patterns.', zh: '结构化模式匹配。把对象与各个 case 模式比较。'},
+  case: {en: 'One pattern inside match. The first matching case runs.', zh: 'match 中的一个模式。第一个匹配的 case 会执行。'},
+  format: {en: 'Apply a format spec to a value. `format(42, "b")` is the binary form.', zh: '按格式说明格式化一个值。`format(42, "b")` 是二进制形式。'},
+  len: {en: 'Return the number of items. Calls `__len__` if the object defines it.', zh: '返回项数。若对象定义了 `__len__` 就会调用它。'},
+  str: {en: 'Turn a value into text, using `__str__` if present.', zh: '把值变成文本。若有 `__str__` 就会用它。'},
+  int: {en: 'Build an integer. `int("3")` is 3; a float argument truncates toward zero.', zh: '构造整数。`int("3")` 是 3；浮点参数会向零截断。'},
+  float: {en: 'Build a floating-point number. Bad text raises ValueError.', zh: '构造浮点数。非法文本会抛出 ValueError。'},
+  bool: {en: 'True or False. `bool(obj)` uses `__bool__`, or `__len__` if that is missing.', zh: '真或假。`bool(obj)` 使用 `__bool__`，若没有则用 `__len__`。'},
+  type: {en: 'The type of an object. `type(self)` is the instance class, not only the name `Vec`.', zh: '对象的类型。`type(self)` 是实例的类，不只是名字 `Vec`。'},
+  tuple: {en: 'An immutable sequence. `tuple(self)` consumes an iterable, such as `__iter__`.', zh: '不可变序列。`tuple(self)` 会消耗一个可迭代对象，例如 `__iter__`。'},
+  list: {en: 'A mutable sequence. `list(it)` consumes an iterable into a list.', zh: '可变序列。`list(it)` 把可迭代对象收成列表。'},
+  dict: {en: 'A mapping from keys to values.', zh: '从键到值的映射。'},
+  range: {en: 'A lazy sequence of integers. Often the iterable in a for loop.', zh: '惰性的整数序列。常作为 for 循环的可迭代对象。'},
+  slice: {en: 'The object Python builds for `obj[start:stop:step]`.', zh: 'Python 为 `obj[start:stop:step]` 生成的对象。'},
+  next: {en: 'Pull the next value from an iterator. `next(g)` resumes a generator.', zh: '从迭代器取出下一个值。`next(g)` 会继续一个生成器。'},
+  hasattr: {en: 'True if the object has that attribute, even if the value is falsy.', zh: '对象有该属性则为真，即使属性值本身为假。'},
+  ord: {en: 'Unicode code point for a one-character string.', zh: '单字符字符串的 Unicode 码点。'},
+};
+
+function docText(entry, lang) {
+  if (!entry) return '';
+  if (typeof entry === 'string') return entry;
+  if (lang === 'zh') return entry.zh || entry.en || '';
+  return entry.en || entry.zh || '';
+}
+
+export function docsForLine(line, lang = 'en') {
+  const text = String(line || '');
+  const hits = [];
+  const seen = new Set();
+  const tokens = text.match(/__\w+__|[A-Za-z_][A-Za-z0-9_]*/g) || [];
+  for (const token of tokens) {
+    if (seen.has(token) || !PYTHON_KEYWORD_DOCS[token]) continue;
+    seen.add(token);
+    hits.push({token, doc: docText(PYTHON_KEYWORD_DOCS[token], lang)});
+  }
+  return hits;
+}
