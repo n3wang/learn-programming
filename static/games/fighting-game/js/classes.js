@@ -128,6 +128,7 @@ class Fighter extends Sprite {
     this.kit = getCharacter('samurai')
     this.skills = { ...this.kit.skills }
     this.afterimages = []
+    this.backTapAt = 0
     this.framesCurrent = 0
     this.framesElapsed = 0
     this.framesHold = 5
@@ -273,6 +274,7 @@ class Fighter extends Sprite {
     this.attackFinishedAt = 0
     this.isAttacking = false
     this.afterimages = []
+    this.backTapAt = 0
     this.image = this.sprites.idle.image
     this.framesMax = this.sprites.idle.framesMax
     this.framesCurrent = 0
@@ -364,8 +366,9 @@ class Fighter extends Sprite {
     this.velocity.x = 0
   }
 
-  leaveAfterimage() {
-    if (!this.kit.skills.afterimage || !this.image) return
+  leaveAfterimage(force = false) {
+    if (!this.image) return
+    if (!force && !this.kit.skills.afterimage) return
     this.afterimages.push({
       image: this.image,
       framesCurrent: this.framesCurrent,
@@ -377,6 +380,55 @@ class Fighter extends Sprite {
       width: this.width,
       opacity: this.kit.afterimageOpacity
     })
+  }
+
+  mirrorCost() {
+    return this.kit.attackCost / 2
+  }
+
+  inMirrorRange(opponent) {
+    const myCenter = this.position.x + this.width / 2
+    const theirCenter = opponent.position.x + opponent.width / 2
+    const dx = theirCenter - myCenter
+    const inFront = this.faceRight ? dx > 0 : dx < 0
+    const reach = this.baseAttackBox.width * this.kit.mirrorReach
+    return inFront && Math.abs(dx) <= reach
+  }
+
+  // Back, then forward, inside 1.5x attack range: blink behind them.
+  noteBackForward(dir) {
+    const back = -this.forwardDir()
+    if (dir === back) {
+      this.backTapAt = performance.now()
+      return false
+    }
+    if (dir !== this.forwardDir()) return false
+    if (!this.backTapAt) return false
+    if (performance.now() - this.backTapAt > this.kit.mirrorWindow) return false
+    this.backTapAt = 0
+    return true
+  }
+
+  mirror(opponent) {
+    if (this.dead || !opponent || opponent.dead) return false
+    if (!this.kit.skills.mirror) return false
+    if (this.isSwinging() || this.queuedAttack) return false
+    if (!this.inMirrorRange(opponent)) return false
+    if (!this.spendStamina(this.mirrorCost())) return false
+
+    this.leaveAfterimage(true)
+    const theirCenter = opponent.position.x + opponent.width / 2
+    const landOnRight = theirCenter >= this.position.x + this.width / 2
+    const step = opponent.width / 2 + this.width / 2 + 36
+    this.position.x = landOnRight
+      ? theirCenter + step - this.width / 2
+      : theirCenter - step - this.width / 2
+    this.position.x = Math.max(40, Math.min(canvas.width - 90, this.position.x))
+    this.position.y = 330
+    this.velocity.x = 0
+    this.velocity.y = 0
+    setFacing(this, !landOnRight)
+    return true
   }
 
   teleportForward(distance, opponent) {
@@ -418,10 +470,7 @@ class Fighter extends Sprite {
     // Air skill: first swing hits upward. The queued follow-up drops and steps forward.
     if (this.kit.skills.airCombo && inAir && !followUp) {
       this.comboKind = 'air'
-      this.attackLift = this.kit.airAttackLift
-      if (this.baseAttackBox) {
-        this.attackBox.offset.y = this.baseAttackBox.offset.y + this.attackLift
-      }
+      this.attackLift = 0
       this.velocity.y = Math.min(this.velocity.y, -6)
       this.beginAttack('attack1')
       return true
