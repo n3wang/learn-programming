@@ -13,6 +13,7 @@ Example:
 from __future__ import annotations
 
 import argparse
+import os
 import csv
 import json
 import sys
@@ -128,6 +129,51 @@ def _fetch_batch(titles: list[str], size: int) -> dict[str, str]:
     return found
 
 
+def unsplash_thumb(word: str, size: int, access_key: str) -> str:
+    """One 200x200 Unsplash photo URL. Empty string if Unsplash has no hit."""
+    query = urllib.parse.urlencode(
+        {
+            "query": word,
+            "per_page": "1",
+            "orientation": "squarish",
+            "content_filter": "high",
+        }
+    )
+    request = urllib.request.Request(
+        f"https://api.unsplash.com/search/photos?{query}",
+        headers={
+            "User-Agent": USER_AGENT,
+            "Accept": "application/json",
+            "Accept-Version": "v1",
+            "Authorization": f"Client-ID {access_key}",
+        },
+    )
+    with urllib.request.urlopen(request, timeout=30) as response:
+        payload = json.load(response)
+    results = payload.get("results") or []
+    if not results:
+        return ""
+    raw = ((results[0].get("urls") or {}).get("raw") or "").strip()
+    if not raw:
+        return ""
+    parsed = urllib.parse.urlparse(raw)
+    kept = [
+        (key, value)
+        for key, value in urllib.parse.parse_qsl(parsed.query, keep_blank_values=True)
+        if key not in {"w", "h", "fit", "crop", "q"}
+    ]
+    kept.extend(
+        [
+            ("w", str(size)),
+            ("h", str(size)),
+            ("fit", "crop"),
+            ("crop", "entropy"),
+            ("q", "80"),
+        ]
+    )
+    return urllib.parse.urlunparse(parsed._replace(query=urllib.parse.urlencode(kept)))
+
+
 def commons_thumb(word: str, size: int) -> str:
     """First small Commons bitmap for this word, preferring a filename that contains it."""
     query = urllib.parse.urlencode(
@@ -216,7 +262,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--size", type=int, default=200)
     parser.add_argument("--batch", type=int, default=10)
     parser.add_argument("--pause", type=float, default=1.2)
-    parser.add_argument("--source", choices=("wikipedia", "commons"), default="wikipedia")
+    parser.add_argument("--source", choices=("ordered", "wikipedia", "commons"), default="ordered")
     args = parser.parse_args(argv)
 
     if not args.words.is_file():
@@ -229,10 +275,45 @@ def main(argv: list[str] | None = None) -> int:
     seen: set[str] = set()
     for word, _zh in rows:
         key = word.lower()
-        if key in STOPWORDS or len(key) < 3 or key in seen or key in lookup:
+        if key in STOPWORDS or len(key) < 3 or key in seen:
+            continue
+        if args.source != "ordered" and key in lookup:
             continue
         seen.add(key)
         pending.append(word)
+
+    access_key = os.environ.get("UNSPLASH_ACCESS_KEY", "").strip()
+    if args.source == "ordered":
+        unsplash_off = not access_key
+        if unsplash_off:
+            print("unsplash skipped: UNSPLASH_ACCESS_KEY is not set", file=sys.stderr)
+        for index, word in enumerate(pending, start=1):
+            thumb = ""
+            if not unsplash_off:
+                try:
+                    thumb = unsplash_thumb(word, args.size, access_key)
+                except urllib.error.HTTPError as error:
+                    print(f"unsplash {word}: {error}", file=sys.stderr)
+                    if error.code in {401, 403}:
+                        unsplash_off = True
+                except Exception as error:
+                    print(f"unsplash {word}: {error}", file=sys.stderr)
+            if thumb:
+                lookup[word.lower()] = thumb
+            elif word.lower() not in lookup:
+                try:
+                    thumb = commons_thumb(word, args.size)
+                except Exception as error:
+                    print(f"commons {word}: {error}", file=sys.stderr)
+                if thumb:
+                    lookup[word.lower()] = thumb
+            if index % 10 == 0 or index == len(pending):
+                hits, misses = write_table(args.out, rows, lookup)
+                print(f"ordered {index}/{len(pending)} hits={hits} misses={misses}", file=sys.stderr)
+            time.sleep(args.pause)
+        hits, misses = write_table(args.out, rows, lookup)
+        print(f"words={len(rows)} hits={hits} misses={misses} out={args.out}")
+        return 0
 
     if args.source == "commons":
         for index, word in enumerate(pending, start=1):

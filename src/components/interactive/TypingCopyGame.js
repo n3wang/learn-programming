@@ -4,6 +4,7 @@ import Box from '@site/src/components/ui/Box';
 import Button from '@site/src/components/ui/Button';
 import Typography from '@site/src/components/ui/Typography';
 import {pickParagraph, sentenceUnits, wordsFromEn} from './typingCopy/corpus';
+import {imageForWord} from './typingCopy/wordImageIndex';
 
 const LEVELS = [
   {
@@ -335,6 +336,67 @@ function PinyinCells({text, isActive, isCurrentWord}) {
   ));
 }
 
+function WordCueImage({word, nextWord}) {
+  const current = imageForWord(word);
+  const next = imageForWord(nextWord);
+
+  useEffect(() => {
+    if (!next || next === current) return undefined;
+    const img = new Image();
+    img.decoding = 'async';
+    img.src = next;
+    return undefined;
+  }, [current, next]);
+
+  if (!current && !next) return null;
+
+  return (
+    <Box
+      aria-hidden={!current}
+      sx={{
+        flex: current ? '0 1 200px' : '0 0 0',
+        width: current ? 'min(200px, 34%)' : 0,
+        maxWidth: current ? '100%' : 0,
+        minWidth: 0,
+        position: 'relative',
+        overflow: 'hidden',
+        alignSelf: 'flex-start',
+      }}
+    >
+      {current ? (
+        <img
+          src={current}
+          alt=""
+          style={{
+            display: 'block',
+            width: '100%',
+            height: 'auto',
+            maxWidth: '100%',
+            aspectRatio: '1 / 1',
+            objectFit: 'contain',
+            borderRadius: 8,
+          }}
+        />
+      ) : null}
+      {next && next !== current ? (
+        <img
+          src={next}
+          alt=""
+          aria-hidden="true"
+          style={{
+            position: 'absolute',
+            width: 1,
+            height: 1,
+            maxWidth: 'none',
+            opacity: 0,
+            pointerEvents: 'none',
+          }}
+        />
+      ) : null}
+    </Box>
+  );
+}
+
 function ChinesePrompt({sentences, wordIndex, activeEnWordIndex}) {
   return (
     <Box
@@ -628,7 +690,7 @@ export default function TypingCopyGame() {
     <Box
       className="notranslate"
       translate="no"
-      sx={{display: 'grid', gap: 1.5, maxWidth: 420, width: '100%'}}
+      sx={{display: 'grid', gap: 1.5, maxWidth: 640, width: '100%'}}
     >
       <Box
         sx={{
@@ -666,7 +728,8 @@ export default function TypingCopyGame() {
       </Typography>
 
       {level.mode === 'memory' ? (
-        <Box sx={{display: 'grid', gap: 1}}>
+        <Box sx={{display: 'flex', gap: 1.5, alignItems: 'flex-start', width: '100%', minWidth: 0}}>
+        <Box sx={{display: 'grid', gap: 1, flex: '1 1 280px', minWidth: 0}}>
           {useMemoryPreview && memoryPreview ? (
             <Box
               sx={{
@@ -733,6 +796,8 @@ export default function TypingCopyGame() {
             <WordLane words={words} wordIndex={wordIndex} doneFlags={doneFlags} showEnglish={false} />
           ) : null}
         </Box>
+        <WordCueImage word={words[wordIndex]} nextWord={words[wordIndex + 1]} />
+        </Box>
       ) : (
         <Typography variant="body2" color="text.secondary" sx={{m: 0}}>
           Full paragraph below. New paragraph loads when you finish these words.
@@ -740,6 +805,7 @@ export default function TypingCopyGame() {
       )}
 
       {level.mode === 'timed' ? (
+        <Box sx={{display: 'flex', gap: 1.5, alignItems: 'flex-start', width: '100%', minWidth: 0}}>
         <Box
           sx={{
             p: 1.5,
@@ -749,6 +815,8 @@ export default function TypingCopyGame() {
             fontSize: '1.05rem',
             lineHeight: 1.75,
             maxWidth: 420,
+            flex: '1 1 280px',
+            minWidth: 0,
             whiteSpace: 'normal',
             overflowWrap: 'break-word',
             wordBreak: 'normal',
@@ -774,6 +842,8 @@ export default function TypingCopyGame() {
               </span>
             );
           })}
+        </Box>
+        <WordCueImage word={words[wordIndex]} nextWord={words[wordIndex + 1]} />
         </Box>
       ) : null}
 
