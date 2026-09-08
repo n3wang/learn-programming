@@ -4,6 +4,7 @@ import Box from '@site/src/components/ui/Box';
 import Typography from '@site/src/components/ui/Typography';
 import {UI_LANG_CHANGE_EVENT, readUiLang} from '@site/src/components/Translate/translateClient';
 import {docsForTex, sameTex} from './katexFormulas';
+import LineDiffPreview from './LineDiffPreview';
 
 function renderTex(tex, displayMode) {
   try {
@@ -18,6 +19,7 @@ export default function KatexLineTyping({formulas, view = 'script', onAdvance, o
   const [index, setIndex] = useState(0);
   const [buffer, setBuffer] = useState('');
   const [wrong, setWrong] = useState(false);
+  const [solutionHidden, setSolutionHidden] = useState(false);
   const busy = useRef(false);
   const inputRef = useRef(null);
   const [hoverLang, setHoverLang] = useState(() => readUiLang());
@@ -46,6 +48,7 @@ export default function KatexLineTyping({formulas, view = 'script', onAdvance, o
       const next = index + 1;
       setWrong(false);
       setBuffer('');
+      setSolutionHidden(false);
       setIndex(next);
       onAdvance?.(1, 0);
       if (next >= items.length) onComplete?.();
@@ -59,7 +62,11 @@ export default function KatexLineTyping({formulas, view = 'script', onAdvance, o
     <Box sx={{display: 'flex', gap: 1.5, alignItems: 'flex-start', width: '100%', minWidth: 0}}>
       <Box sx={{display: 'grid', gap: 1, flex: '1 1 320px', minWidth: 0}}>
         <Typography variant="body2" color="text.secondary" sx={{m: 0}}>
-          {view === 'render'
+          {view === 'half'
+            ? zh
+              ? `看渲染和脚本。一开始写，脚本就藏起来。${Math.min(index + 1, items.length)} / ${items.length}。回车检查整条。`
+              : `See the render and the script. The script hides when you start typing. ${Math.min(index + 1, items.length)} / ${items.length}. Enter checks the whole formula.`
+            : view === 'render'
             ? zh
               ? `看渲染出的公式，打出 KaTeX。${Math.min(index + 1, items.length)} / ${items.length}。回车检查整条。`
               : `Look at the rendered formula and type the KaTeX. ${Math.min(index + 1, items.length)} / ${items.length}. Enter checks the whole formula.`
@@ -68,7 +75,20 @@ export default function KatexLineTyping({formulas, view = 'script', onAdvance, o
               : `Type the formula script. ${Math.min(index + 1, items.length)} / ${items.length}. Enter checks the whole formula.`}
         </Typography>
 
-        {view === 'script' ? (
+        {view === 'render' || view === 'half' ? (
+          <Box
+            sx={{
+              p: 2,
+              minHeight: 72,
+              borderRadius: 2,
+              border: '1px solid',
+              borderColor: 'divider',
+              overflowX: 'auto',
+            }}
+            dangerouslySetInnerHTML={{__html: rendered}}
+          />
+        ) : null}
+        {view === 'script' || (view === 'half' && !solutionHidden) ? (
           <pre
             translate="no"
             style={{
@@ -83,25 +103,17 @@ export default function KatexLineTyping({formulas, view = 'script', onAdvance, o
           >
             {expected}
           </pre>
-        ) : (
-          <Box
-            sx={{
-              p: 2,
-              minHeight: 72,
-              borderRadius: 2,
-              border: '1px solid',
-              borderColor: 'divider',
-              overflowX: 'auto',
-            }}
-            dangerouslySetInnerHTML={{__html: rendered}}
-          />
-        )}
+        ) : null}
 
         <Box
           component="input"
           ref={inputRef}
           value={buffer}
-          onChange={(e) => setBuffer(e.target.value)}
+          onChange={(e) => {
+            const next = e.target.value;
+            setBuffer(next);
+            if (view === 'half' && next.length > 0) setSolutionHidden(true);
+          }}
           onKeyDown={(e) => {
             if (e.key === 'Enter') {
               e.preventDefault();
@@ -138,12 +150,7 @@ export default function KatexLineTyping({formulas, view = 'script', onAdvance, o
         ) : null}
 
         {wrong ? (
-          <Typography variant="caption" color="text.secondary" sx={{m: 0}}>
-            {zh ? '还不匹配。空格不算，斜杠和花括号要一致。' : 'Not a match. Spaces are ignored; backslashes and braces must match.'}{' '}
-            <span translate="no" style={{fontFamily: 'ui-monospace, monospace'}}>
-              {expected}
-            </span>
-          </Typography>
+          <LineDiffPreview expected={expected} typed={buffer} byChar />
         ) : null}
       </Box>
       <Box
@@ -156,7 +163,11 @@ export default function KatexLineTyping({formulas, view = 'script', onAdvance, o
         }}
       >
         <Typography sx={{fontWeight: 700, m: 0}}>{zh ? '命令' : 'Command'}</Typography>
-        {docs.length ? (
+        {view === 'half' && solutionHidden ? (
+          <Typography variant="body2" color="text.secondary" sx={{m: 0}}>
+            {zh ? '脚本已藏起。对照渲染打完这一条。' : 'Script hidden. Finish this one from the render.'}
+          </Typography>
+        ) : docs.length ? (
           docs.slice(0, 4).map((item) => (
             <Box key={item.token}>
               <Typography sx={{fontWeight: 700, m: 0, fontFamily: 'ui-monospace, monospace'}}>

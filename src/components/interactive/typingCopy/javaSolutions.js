@@ -303,5 +303,82 @@ export const JAVA_SOLUTIONS = [
   {
     "title": "project-2d",
     "code": "import java.util.*;\n\nclass Main {\n public static void main(String[] args) {\n   \n  System.out.print(\"Enter a Character : \");  \n  Scanner sc = new Scanner(System.in);\n  char character = sc.nextLine().charAt(0);\n  int offset=4;\n  \n  int originalAlphabetPosition = character - 'a';\n  int newAlphabetPosition = (originalAlphabetPosition + offset) % 26;\n  char newCharacter = (char) ('a' + newAlphabetPosition);\n  System.out.println(newCharacter);\n\n }\n}"
+  },
+  {
+    "title": "pool-arraylist",
+    "code": "import java.util.ArrayList;\n\nclass Main {\n    public static void main(String[] args) {\n        ArrayList<String> names = new ArrayList<>();\n        names.add(\"Ada\");\n        names.add(\"Lin\");\n        System.out.println(names.size());\n        System.out.println(names.get(0));\n        names.remove(\"Lin\");\n        System.out.println(names.contains(\"Ada\"));\n    }\n}"
+  },
+  {
+    "title": "pool-hashmap",
+    "code": "import java.util.HashMap;\n\nclass Main {\n    public static void main(String[] args) {\n        HashMap<String, Integer> age = new HashMap<>();\n        age.put(\"Ada\", 36);\n        age.put(\"Lin\", 19);\n        System.out.println(age.get(\"Ada\"));\n        System.out.println(age.getOrDefault(\"nope\", 0));\n        System.out.println(age.containsKey(\"Lin\"));\n        for (String key : age.keySet()) {\n            System.out.println(key);\n        }\n    }\n}"
+  },
+  {
+    "title": "pool-hashset",
+    "code": "import java.util.HashSet;\n\nclass Main {\n    public static void main(String[] args) {\n        HashSet<Integer> seen = new HashSet<>();\n        seen.add(3);\n        seen.add(3);\n        seen.add(1);\n        System.out.println(seen.size());\n        System.out.println(seen.contains(1));\n    }\n}"
+  },
+  {
+    "title": "pool-math",
+    "code": "class Main {\n    public static void main(String[] args) {\n        System.out.println(Math.abs(-4));\n        System.out.println(Math.sqrt(9));\n        System.out.println(Math.pow(2, 3));\n        System.out.println(Math.max(3, 7));\n        System.out.println(Math.min(3, 7));\n    }\n}"
+  },
+  {
+    "title": "pool-string",
+    "code": "class Main {\n    public static void main(String[] args) {\n        String s = \"Hello\";\n        System.out.println(s.length());\n        System.out.println(s.charAt(0));\n        System.out.println(s.substring(1, 4));\n        System.out.println(s.toLowerCase());\n        System.out.println(s.indexOf(\"ll\"));\n        System.out.println(s.startsWith(\"He\"));\n    }\n}"
+  },
+  {
+    "title": "pool-integer",
+    "code": "class Main {\n    public static void main(String[] args) {\n        int n = Integer.parseInt(\"42\");\n        String text = Integer.toString(n);\n        System.out.println(n);\n        System.out.println(text);\n    }\n}"
+  },
+  {
+    "title": "pool-collections",
+    "code": "import java.util.ArrayList;\nimport java.util.Collections;\n\nclass Main {\n    public static void main(String[] args) {\n        ArrayList<Integer> xs = new ArrayList<>();\n        xs.add(3);\n        xs.add(1);\n        xs.add(2);\n        Collections.sort(xs);\n        Collections.reverse(xs);\n        System.out.println(xs.get(0));\n    }\n}"
+  },
+  {
+    "title": "pool-stringbuilder",
+    "code": "class Main {\n    public static void main(String[] args) {\n        StringBuilder sb = new StringBuilder();\n        sb.append(\"a\");\n        sb.append(1);\n        System.out.println(sb.toString());\n        System.out.println(sb.length());\n    }\n}"
+  },
+  {
+    "title": "pool-scanner",
+    "code": "import java.util.Scanner;\n\nclass Main {\n    public static void main(String[] args) {\n        Scanner sc = new Scanner(\"7 hello\");\n        int n = sc.nextInt();\n        String word = sc.next();\n        System.out.println(n);\n        System.out.println(word);\n    }\n}"
+  },
+  {
+    "title": "pool-arrays",
+    "code": "import java.util.Arrays;\nimport java.util.List;\n\nclass Main {\n    public static void main(String[] args) {\n        int[] xs = {3, 1, 2};\n        Arrays.sort(xs);\n        System.out.println(Arrays.toString(xs));\n        List<String> names = Arrays.asList(\"a\", \"b\");\n        System.out.println(names.size());\n    }\n}"
+  },
+
+  {
+    "title": "pool-queue",
+    "code": "import java.util.ArrayDeque;\nimport java.util.Queue;\n\nclass Main {\n    public static void main(String[] args) {\n        Queue<String> q = new ArrayDeque<>();\n        q.offer(\"a\");\n        q.offer(\"b\");\n        System.out.println(q.peek());\n        System.out.println(q.poll());\n        System.out.println(q.peek());\n    }\n}"
+  },
+  {
+    "title": "pool-priority",
+    "code": "import java.util.PriorityQueue;\n\nclass Main {\n    public static void main(String[] args) {\n        PriorityQueue<Integer> heap = new PriorityQueue<>();\n        heap.offer(3);\n        heap.offer(1);\n        heap.offer(9);\n        System.out.println(heap.peek());\n        System.out.println(heap.poll());\n        System.out.println(heap.peek());\n    }\n}"
+  },
+  {
+    "title": "pool-treemap",
+    "code": "import java.util.Map;\nimport java.util.TreeMap;\n\nclass Main {\n    public static void main(String[] args) {\n        TreeMap<String, Integer> age = new TreeMap<>();\n        age.put(\"lin\", 19);\n        age.put(\"ada\", 36);\n        for (Map.Entry<String, Integer> e : age.entrySet()) {\n            System.out.println(e.getKey());\n            System.out.println(e.getValue());\n        }\n    }\n}"
+  },
+  {
+    "title": "pool-treeset",
+    "code": "import java.util.TreeSet;\n\nclass Main {\n    public static void main(String[] args) {\n        TreeSet<Integer> xs = new TreeSet<>();\n        xs.add(3);\n        xs.add(1);\n        xs.add(3);\n        System.out.println(xs.size());\n        System.out.println(xs.first());\n        System.out.println(xs.last());\n    }\n}"
+  },
+  {
+    "title": "pool-optional",
+    "code": "import java.util.Optional;\n\nclass Main {\n    public static void main(String[] args) {\n        Optional<String> name = Optional.of(\"Ada\");\n        Optional<String> missing = Optional.ofNullable(null);\n        System.out.println(name.isPresent());\n        System.out.println(name.orElse(\"none\"));\n        System.out.println(missing.orElse(\"none\"));\n    }\n}"
+  },
+  {
+    "title": "pool-string-more",
+    "code": "class Main {\n    public static void main(String[] args) {\n        String s = \"  Hello  \";\n        String t = s.trim();\n        System.out.println(t.replace(\"l\", \"L\"));\n        System.out.println(t.toLowerCase());\n        String[] parts = \"a,b,c\".split(\",\");\n        System.out.println(parts.length);\n        System.out.println(t.endsWith(\"lo\"));\n    }\n}"
+  },
+  {
+    "title": "pool-bigdecimal",
+    "code": "import java.math.BigDecimal;\nimport java.math.RoundingMode;\n\nclass Main {\n    public static void main(String[] args) {\n        BigDecimal price = new BigDecimal(\"1.239\");\n        BigDecimal rounded = price.setScale(2, RoundingMode.HALF_UP);\n        System.out.println(rounded);\n    }\n}"
+  },
+  {
+    "title": "pool-random",
+    "code": "import java.util.Random;\n\nclass Main {\n    public static void main(String[] args) {\n        Random rng = new Random(1);\n        int n = rng.nextInt(10);\n        System.out.println(n);\n        System.out.println(Math.abs(-3));\n    }\n}"
+  },
+  {
+    "title": "pool-arrays-more",
+    "code": "import java.util.Arrays;\n\nclass Main {\n    public static void main(String[] args) {\n        int[] xs = {1, 3, 5, 7};\n        int i = Arrays.binarySearch(xs, 5);\n        int[] copy = Arrays.copyOf(xs, 6);\n        Arrays.fill(copy, 4, 6, 0);\n        System.out.println(i);\n        System.out.println(Arrays.toString(copy));\n    }\n}"
   }
 ];

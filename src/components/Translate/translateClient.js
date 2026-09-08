@@ -7,16 +7,16 @@ export function detectSourceLocale(text) {
   return CJK_REGEX.test(text) ? 'zh' : 'en';
 }
 
-/** Preferred UI / hover-translate target: 'en' | 'zh-CN' | 'es'. */
+/** Preferred UI / hover-translate target: 'en' | 'zh-CN' | 'es'. First visit defaults to 中文. */
 export function readUiLang() {
-  if (typeof window === 'undefined') return 'en';
+  if (typeof window === 'undefined') return 'zh-CN';
   try {
     const v = window.localStorage.getItem(UI_LANG_KEY);
     if (v === 'zh-CN' || v === 'es' || v === 'en') return v;
   } catch {
     // ignore
   }
-  return 'en';
+  return 'zh-CN';
 }
 
 export function writeUiLang(lang) {

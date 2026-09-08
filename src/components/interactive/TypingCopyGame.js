@@ -141,9 +141,15 @@ const LEVELS = [
   mathLevel(45, 6, 'script'),
   mathLevel(46, 10, 'script'),
   mathLevel(47, 14, 'script'),
-  mathLevel(48, 5, 'render'),
-  mathLevel(49, 8, 'render'),
-  mathLevel(50, 12, 'render'),
+  mathLevel(48, 6, 'half', 'easy'),
+  mathLevel(49, 12, 'half', 'easy'),
+  mathLevel(50, 6, 'half', 'medium'),
+  mathLevel(51, 12, 'half', 'medium'),
+  mathLevel(52, 6, 'half', 'hard'),
+  mathLevel(53, 12, 'half', 'hard'),
+  mathLevel(54, 5, 'render'),
+  mathLevel(55, 8, 'render'),
+  mathLevel(56, 12, 'render'),
 ];
 
 function isAllowedChar(ch) {
@@ -167,16 +173,20 @@ function drawLangLines(lang, count) {
   return drawCodeLines(count);
 }
 
-function mathLevel(id, count, view) {
-  const fromRender = view === 'render';
+function mathLevel(id, count, view, difficulty) {
+  const blurb =
+    view === 'render'
+      ? `Type ${count} KaTeX formulas from the rendered math. Enter checks each formula.`
+      : view === 'half'
+        ? `Half. See the render and the script for ${count} ${difficulty} formulas. The script hides when you start typing.`
+        : `Type ${count} KaTeX formula scripts. Enter checks each formula.`;
   return {
     id,
     title: `Level ${id}`,
-    blurb: fromRender
-      ? `Type ${count} KaTeX formulas from the rendered math. Enter checks each formula.`
-      : `Type ${count} KaTeX formula scripts. Enter checks each formula.`,
+    blurb,
     mode: 'math',
     mathView: view,
+    mathDifficulty: difficulty,
     goal: count,
   };
 }
@@ -683,6 +693,33 @@ const LEVEL_GROUPS = [
   {id: 'katex', label: 'katex', modes: ['math']},
 ];
 
+function FocusCaret({show, text, pad = 12, fontSize = '1.25rem'}) {
+  if (!show) return null;
+  return (
+    <span
+      aria-hidden
+      style={{
+        position: 'absolute',
+        left: pad,
+        top: '50%',
+        transform: 'translateY(-54%)',
+        display: 'inline-flex',
+        alignItems: 'center',
+        pointerEvents: 'none',
+        fontSize,
+        fontFamily: 'ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace',
+        color: 'var(--ifm-font-color-base, #1c1e21)',
+        lineHeight: 1,
+        whiteSpace: 'pre',
+      }}
+    >
+      <style>{'@keyframes typingCaretBlink{50%{opacity:0}}'}</style>
+      <span style={{visibility: 'hidden'}}>{text}</span>
+      <span style={{animation: 'typingCaretBlink 1s step-end infinite'}}>|</span>
+    </span>
+  );
+}
+
 function LevelBoard({shownId, completedIds, onHover, onPin, onStart, wide}) {
   const shown = LEVELS.find((l) => l.id === shownId) || null;
   const boardWidth = wide ? 600 : 280;
@@ -815,6 +852,7 @@ export default function TypingCopyGame() {
   const [wordDiff, setWordDiff] = useState(null);
 
   const inputRef = useRef(null);
+  const [inputFocused, setInputFocused] = useState(false);
   const memoryCursor = useRef(null);
   const startedAt = useRef(null);
   const statsRef = useRef({correct: 0, skipped: 0});
@@ -873,7 +911,10 @@ export default function TypingCopyGame() {
       setMemoryPreview(false);
       const lines =
         cfg.mode === 'math'
-          ? drawMathFormulas(cfg.goal, {commands: cfg.mathView === 'render'})
+          ? drawMathFormulas(cfg.goal, {
+              commands: cfg.mathView === 'render' || cfg.mathView === 'half',
+              difficulty: cfg.mathDifficulty,
+            })
           : drawLangLines(cfg.lang, cfg.goal);
       codeGoalRef.current = lines.length;
       setCodeLines(lines);
@@ -1391,6 +1432,7 @@ export default function TypingCopyGame() {
         <Typography variant="caption" color="text.secondary">
           Current word
         </Typography>
+        <Box sx={{position: 'relative', mt: 0.5}}>
         <Box
           component="input"
           ref={inputRef}
@@ -1399,12 +1441,13 @@ export default function TypingCopyGame() {
           lang={typingZh ? 'zh-CN' : undefined}
           onChange={typingZh ? onZhChange : undefined}
           onKeyDown={onKeyDown}
+          onFocus={() => setInputFocused(true)}
+          onBlur={() => setInputFocused(false)}
           onClick={() => inputRef.current?.focus()}
           placeholder={running && !finished ? (typingZh ? 'Type the Chinese…' : 'Type here…') : 'Finished'}
           sx={{
             display: 'block',
             width: '100%',
-            mt: 0.5,
             p: 1.25,
             fontSize: '1.25rem',
             fontFamily: 'ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace',
@@ -1415,6 +1458,7 @@ export default function TypingCopyGame() {
             color: 'text.primary',
             outline: 'none',
             boxSizing: 'border-box',
+            caretColor: 'transparent',
           }}
           aria-label="Typing input"
           autoFocus
@@ -1424,6 +1468,8 @@ export default function TypingCopyGame() {
           spellCheck={false}
           disabled={!running || finished}
         />
+        <FocusCaret show={inputFocused && running && !finished} text={buffer} />
+        </Box>
         {wordDiff ? (
           <LineDiffPreview expected={wordDiff.expected} typed={wordDiff.typed} byChar />
         ) : null}

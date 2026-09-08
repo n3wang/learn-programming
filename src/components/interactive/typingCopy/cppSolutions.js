@@ -223,5 +223,79 @@ export const CPP_SOLUTIONS = [
   {
     "title": "lesson-6a",
     "code": "#include <iostream>\n#include <vector>\n#include <algorithm>\n#include <string>\nusing namespace std;\n\nstruct Student {\n    string name;\n    double gpa;\n};\n\nint main() {\n    vector<Student> students = {\n        {\"Alice\", 3.8},\n        {\"Bob\",   3.2},\n        {\"Carol\", 3.9},\n        {\"Dave\",  3.5},\n    };\n\n    sort(students.begin(), students.end(),\n         [](const Student& a, const Student& b) {\n             return a.gpa > b.gpa;\n         });\n\n    int rank = 1;\n    for (auto& s : students) {\n        cout << rank++ << \". \" << s.name << \" — \" << s.gpa << endl;\n    }\n    return 0;\n}"
+  },
+
+  {
+    "title": "pool-vector",
+    "code": "#include <iostream>\n#include <vector>\nusing namespace std;\n\nint main() {\n    vector<int> xs;\n    xs.push_back(3);\n    xs.push_back(1);\n    xs.push_back(4);\n    cout << xs.size() << endl;\n    cout << xs.back() << endl;\n    xs.pop_back();\n    cout << xs.empty() << endl;\n    return 0;\n}"
+  },
+  {
+    "title": "pool-queue",
+    "code": "#include <iostream>\n#include <queue>\nusing namespace std;\n\nint main() {\n    queue<string> q;\n    q.push(\"a\");\n    q.push(\"b\");\n    cout << q.front() << endl;\n    q.pop();\n    cout << q.front() << endl;\n    cout << q.empty() << endl;\n    return 0;\n}"
+  },
+  {
+    "title": "pool-stack",
+    "code": "#include <iostream>\n#include <stack>\nusing namespace std;\n\nint main() {\n    stack<int> st;\n    st.push(2);\n    st.push(5);\n    cout << st.top() << endl;\n    st.pop();\n    cout << st.top() << endl;\n    return 0;\n}"
+  },
+  {
+    "title": "pool-algorithm",
+    "code": "#include <algorithm>\n#include <iostream>\n#include <vector>\nusing namespace std;\n\nint main() {\n    vector<int> xs = {4, 1, 4, 2};\n    sort(xs.begin(), xs.end());\n    xs.erase(unique(xs.begin(), xs.end()), xs.end());\n    auto it = find(xs.begin(), xs.end(), 2);\n    cout << (it != xs.end()) << endl;\n    cout << *max_element(xs.begin(), xs.end()) << endl;\n    return 0;\n}"
+  },
+  {
+    "title": "pool-map",
+    "code": "#include <iostream>\n#include <map>\n#include <string>\nusing namespace std;\n\nint main() {\n    map<string, int> age;\n    age[\"ada\"] = 36;\n    age.insert({\"lin\", 19});\n    cout << age[\"ada\"] << endl;\n    cout << age.count(\"lin\") << endl;\n    for (auto& p : age) {\n        cout << p.first << \" \" << p.second << endl;\n    }\n    return 0;\n}"
+  },
+  {
+    "title": "pool-unordered",
+    "code": "#include <iostream>\n#include <string>\n#include <unordered_map>\nusing namespace std;\n\nint main() {\n    unordered_map<string, int> score;\n    score[\"a\"] = 10;\n    score[\"b\"] = 7;\n    if (score.find(\"a\") != score.end()) {\n        cout << score[\"a\"] << endl;\n    }\n    score.erase(\"b\");\n    cout << score.size() << endl;\n    return 0;\n}"
+  },
+  {
+    "title": "pool-string",
+    "code": "#include <iostream>\n#include <string>\nusing namespace std;\n\nint main() {\n    string s = \"hello\";\n    s += \"!\";\n    cout << s.length() << endl;\n    cout << s.substr(0, 2) << endl;\n    cout << s.find(\"ll\") << endl;\n    return 0;\n}"
+  },
+  {
+    "title": "pool-numeric",
+    "code": "#include <iostream>\n#include <numeric>\n#include <vector>\nusing namespace std;\n\nint main() {\n    vector<int> xs = {1, 2, 3, 4};\n    int total = accumulate(xs.begin(), xs.end(), 0);\n    cout << total << endl;\n    return 0;\n}"
+  },
+  {
+    "title": "pool-pair",
+    "code": "#include <iostream>\n#include <utility>\nusing namespace std;\n\nint main() {\n    pair<int, string> p = {3, \"ok\"};\n    cout << p.first << endl;\n    cout << p.second << endl;\n    return 0;\n}"
+  },
+  {
+    "title": "pool-cmath",
+    "code": "#include <cmath>\n#include <iostream>\nusing namespace std;\n\nint main() {\n    cout << abs(-4) << endl;\n    cout << sqrt(9) << endl;\n    cout << pow(2, 3) << endl;\n    return 0;\n}"
+  },
+
+  {
+    "title": "pool-set",
+    "code": "#include <iostream>\n#include <set>\nusing namespace std;\n\nint main() {\n    set<int> xs;\n    xs.insert(3);\n    xs.insert(1);\n    xs.insert(3);\n    cout << xs.size() << endl;\n    cout << xs.count(1) << endl;\n    xs.erase(1);\n    cout << xs.empty() << endl;\n    return 0;\n}"
+  },
+  {
+    "title": "pool-priority",
+    "code": "#include <iostream>\n#include <queue>\nusing namespace std;\n\nint main() {\n    priority_queue<int> heap;\n    heap.push(3);\n    heap.push(9);\n    heap.push(1);\n    cout << heap.top() << endl;\n    heap.pop();\n    cout << heap.top() << endl;\n    return 0;\n}"
+  },
+  {
+    "title": "pool-deque",
+    "code": "#include <deque>\n#include <iostream>\nusing namespace std;\n\nint main() {\n    deque<int> xs;\n    xs.push_back(2);\n    xs.push_front(1);\n    cout << xs.front() << endl;\n    cout << xs.back() << endl;\n    xs.pop_front();\n    cout << xs.front() << endl;\n    return 0;\n}"
+  },
+  {
+    "title": "pool-string-parse",
+    "code": "#include <iostream>\n#include <string>\nusing namespace std;\n\nint main() {\n    string s = \"42\";\n    int n = stoi(s);\n    double x = stod(\"3.5\");\n    string text = to_string(n);\n    s.replace(0, 1, \"9\");\n    cout << n << endl;\n    cout << text << endl;\n    cout << s << endl;\n    cout << x << endl;\n    return 0;\n}"
+  },
+  {
+    "title": "pool-optional",
+    "code": "#include <iostream>\n#include <optional>\n#include <string>\nusing namespace std;\n\nint main() {\n    optional<string> name = \"Ada\";\n    optional<string> missing;\n    cout << name.has_value() << endl;\n    cout << name.value_or(\"none\") << endl;\n    cout << missing.value_or(\"none\") << endl;\n    return 0;\n}"
+  },
+  {
+    "title": "pool-unordered-set",
+    "code": "#include <iostream>\n#include <string>\n#include <unordered_set>\nusing namespace std;\n\nint main() {\n    unordered_set<string> seen;\n    seen.insert(\"a\");\n    seen.insert(\"a\");\n    seen.insert(\"b\");\n    cout << seen.size() << endl;\n    cout << seen.count(\"b\") << endl;\n    return 0;\n}"
+  },
+  {
+    "title": "pool-algorithm-more",
+    "code": "#include <algorithm>\n#include <iostream>\n#include <numeric>\n#include <vector>\nusing namespace std;\n\nint main() {\n    vector<int> xs(4);\n    iota(xs.begin(), xs.end(), 1);\n    reverse(xs.begin(), xs.end());\n    int big = *max_element(xs.begin(), xs.end());\n    cout << big << endl;\n    cout << xs.front() << endl;\n    return 0;\n}"
+  },
+  {
+    "title": "pool-unique-ptr",
+    "code": "#include <iostream>\n#include <memory>\nusing namespace std;\n\nint main() {\n    auto ptr = make_unique<int>(7);\n    cout << *ptr << endl;\n    return 0;\n}"
   }
 ];

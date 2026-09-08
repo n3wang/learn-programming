@@ -110,6 +110,54 @@ export const KATEX_FORMULAS = [
   '\\emptyset',
   '\\therefore a=b',
   '\\because a=b',
+  '\\sin(a+b)=\\sin a\\cos b+\\cos a\\sin b',
+  '\\cos(a+b)=\\cos a\\cos b-\\sin a\\sin b',
+  'a_{n}=ar^{n-1}',
+  'S_{n}=\\frac{a(1-r^{n})}{1-r}',
+  '\\left|\\vec{a}\\right|',
+  '\\det(A)=ad-bc',
+  '\\exp(x)=e^{x}',
+  '\\arcsin x',
+  '\\arccos x',
+  '\\arctan x',
+  '\\sec\\theta=\\frac{1}{\\cos\\theta}',
+  '\\csc\\theta',
+  '\\cot\\theta',
+  'a\\sim b',
+  'a\\cong b',
+  'l\\perp m',
+  'A\\subset B',
+  'A\\supset B',
+  'P\\implies Q',
+  'p\\land q',
+  'p\\lor q',
+  '\\neg p',
+  '\\mathbf{F}=m\\mathbf{a}',
+  '\\mathrm{d}x',
+  '\\frac{\\partial^{2}f}{\\partial x^{2}}',
+  '\\nabla\\cdot\\vec{F}',
+  '\\oint_{C} f\\,ds',
+  '\\int_{-\\infty}^{\\infty}e^{-x^{2}}\\,dx=\\sqrt{\\pi}',
+  '\\log_{2}8=3',
+  '\\sqrt[n]{x}',
+  '\\frac{a}{b}\\cdot\\frac{c}{d}=\\frac{ac}{bd}',
+  '\\left\\{x\\mid x>0\\right\\}',
+  '\\boxed{x=2}',
+  '\\overbrace{a+b+c}^{3}',
+  '\\underbrace{1+2+\\cdots+n}_{n}',
+  '\\cfrac{1}{1+\\cfrac{1}{1+x}}',
+  '\\begin{matrix} 1 & 0 \\\\ 0 & 1 \\end{matrix}',
+  '\\binom{n}{0}=1',
+  'x_{1},x_{2},\\ldots,x_{n}',
+  '\\sum_{i=1}^{n}(x_{i}-\\bar{x})^{2}',
+  'P(A\\cup B)=P(A)+P(B)-P(A\\cap B)',
+  '\\vec{a}\\times\\vec{b}',
+  'a\\bmod n',
+  '\\mp\\sqrt{2}',
+  '30^{\\circ}',
+  '\\ge 0',
+  '\\le 1',
+  'x\\not\\in S',
 ];
 
 function shuffle(items) {
@@ -123,15 +171,28 @@ function shuffle(items) {
   return next;
 }
 
-export function drawMathFormulas(count, {commands = false} = {}) {
+function texBand(tex) {
+  const cmds = (String(tex).match(/\\[a-zA-Z]+/g) || []).length;
+  const braces = (String(tex).match(/[{}]/g) || []).length;
+  const score = cmds * 3 + braces + Math.floor(String(tex).length / 8);
+  if (score <= 6) return 'easy';
+  if (score <= 16) return 'medium';
+  return 'hard';
+}
+
+export function drawMathFormulas(count, {commands = false, difficulty} = {}) {
   const want = Math.max(1, count || 1);
-  const source = commands ? KATEX_FORMULAS.filter((tex) => tex.includes('\\')) : KATEX_FORMULAS;
+  let source = commands || difficulty ? KATEX_FORMULAS.filter((tex) => tex.includes('\\')) : KATEX_FORMULAS;
+  if (difficulty) {
+    const band = source.filter((tex) => texBand(tex) === difficulty);
+    if (band.length) source = band;
+  }
   const pool = shuffle(source.length ? source : KATEX_FORMULAS);
   const drawn = [];
   while (drawn.length < want) {
     const need = want - drawn.length;
     drawn.push(...pool.slice(0, need));
-    if (drawn.length < want) pool.push(...shuffle(source.length ? source : KATEX_FORMULAS));
+    if (drawn.length < want) pool.push(...shuffle(source));
     else break;
   }
   return drawn.slice(0, want);
@@ -165,7 +226,7 @@ export const KATEX_COMMAND_DOCS = {
   geq: {en: 'Greater than or equal.', zh: '大于或等于。'},
   neq: {en: 'Not equal.', zh: '不等于。'},
   pm: {en: 'Plus or minus.', zh: '正负号。'},
-  times: {en: 'A multiplication sign.', zh: '乘号。'},
+  times: {en: 'A multiplication sign, or a cross product. \\times.', zh: '乘号，或叉积。\\times。'},
   cdot: {en: 'A centered dot, used as multiplication.', zh: '居中的点，用作乘法。'},
   vec: {en: 'An arrow over a letter. \\vec{v} is a vector.', zh: '字母上方的箭头。\\vec{v} 是向量。'},
   overline: {en: 'A bar over letters. \\overline{AB} is a segment.', zh: '字母上方的横线。\\overline{AB} 是线段。'},
@@ -183,12 +244,11 @@ export const KATEX_COMMAND_DOCS = {
   max: {en: 'The larger of the values.', zh: '这些值中较大的那个。'},
   text: {en: 'Upright words inside math. \\text{area}.', zh: '数学里的正体文字。\\text{area}。'},
   circ: {en: 'A degree mark. 30^{\\circ}.', zh: '度数符号。30^{\\circ}。'},
-  mid: {en: 'A vertical bar, often “given that”. P(A\\mid B).', zh: '竖线，常表示“在…条件下”。P(A\\mid B)。'},
+  mid: {en: 'A vertical bar. “Given that” in probability, or the separator in a set builder.', zh: '竖线。表示概率里的“在…条件下”，或集合构造式里的分隔符。'},
   pmod: {en: 'A parenthesized modulus. a\\equiv b\\pmod{n}.', zh: '带括号的模。a\\equiv b\\pmod{n}。'},
   equiv: {en: 'Congruent or equivalent. a\\equiv b.', zh: '全等或等价。a\\equiv b。'},
   approx: {en: 'Approximately equal.', zh: '约等于。'},
   propto: {en: 'Proportional to.', zh: '正比于。'},
-  cdot: {en: 'A centered dot, used as multiplication or a vector dot product.', zh: '居中的点，用作乘法或向量点积。'},
   cup: {en: 'Union of sets. A\\cup B.', zh: '集合的并。A\\cup B。'},
   cap: {en: 'Intersection of sets. A\\cap B.', zh: '集合的交。A\\cap B。'},
   subseteq: {en: 'Subset or equal. A\\subseteq B.', zh: '子集或相等。A\\subseteq B。'},
@@ -219,6 +279,37 @@ export const KATEX_COMMAND_DOCS = {
   phi: {en: 'The Greek letter φ.', zh: '希腊字母 φ。'},
   omega: {en: 'The Greek letter ω.', zh: '希腊字母 ω。'},
   prime: {en: 'A prime mark, used for a derivative. f\' is also written f^{\\prime}.', zh: '撇号，用于导数。f\' 也可以写成 f^{\\prime}。'},
+  mp: {en: 'Minus or plus. The opposite order of \\pm.', zh: '负正号。和 \\pm 的顺序相反。'},
+  sim: {en: 'Similar, or asymptotically similar.', zh: '相似，或渐近相似。'},
+  cong: {en: 'Congruent.', zh: '全等。'},
+  perp: {en: 'Perpendicular.', zh: '垂直。'},
+  subset: {en: 'A proper subset. A\\subset B.', zh: '真子集。A\\subset B。'},
+  supset: {en: 'A proper superset.', zh: '真超集。'},
+  implies: {en: 'Implies. P\\implies Q.', zh: '蕴含。P\\implies Q。'},
+  land: {en: 'Logical and.', zh: '逻辑与。'},
+  lor: {en: 'Logical or.', zh: '逻辑或。'},
+  neg: {en: 'Logical not.', zh: '逻辑非。'},
+  mathbf: {en: 'Bold math letters. \\mathbf{F} is a bold F.', zh: '粗体数学字母。\\mathbf{F} 是粗体 F。'},
+  mathrm: {en: 'Upright roman letters. \\mathrm{d}x is an upright d.', zh: '正体罗马字母。\\mathrm{d}x 是正体的 d。'},
+  exp: {en: 'The exponential function. \\exp(x) is e^x.', zh: '指数函数。\\exp(x) 就是 e^x。'},
+  arcsin: {en: 'Inverse sine.', zh: '反正弦。'},
+  arccos: {en: 'Inverse cosine.', zh: '反余弦。'},
+  arctan: {en: 'Inverse tangent.', zh: '反正切。'},
+  sec: {en: 'Secant. 1 / cosine.', zh: '正割。余弦的倒数。'},
+  csc: {en: 'Cosecant. 1 / sine.', zh: '余割。正弦的倒数。'},
+  cot: {en: 'Cotangent. 1 / tangent.', zh: '余切。正切的倒数。'},
+  oint: {en: 'A closed-path integral.', zh: '环路积分。'},
+  det: {en: 'Determinant.', zh: '行列式。'},
+  div: {en: 'A division sign. Also written as the divergence of a vector field with \\nabla\\cdot.', zh: '除号。向量场的散度也可写成 \\nabla\\cdot。'},
+  boxed: {en: 'Draw a box around a formula.', zh: '给公式加方框。'},
+  overbrace: {en: 'A brace above a formula, with an optional label.', zh: '公式上方的大括号，可以带标注。'},
+  underbrace: {en: 'A brace below a formula, with an optional label.', zh: '公式下方的大括号，可以带标注。'},
+  cfrac: {en: 'A continued fraction, built from nested fractions.', zh: '连分数，由嵌套的分数构成。'},
+  matrix: {en: 'A matrix with no surrounding delimiters.', zh: '不带外层括号的矩阵。'},
+  bmod: {en: 'A binary modulus operator. a\\bmod n.', zh: '二元的模运算。a\\bmod n。'},
+  ge: {en: 'Greater than or equal. Same idea as \\geq.', zh: '大于或等于。和 \\geq 一样。'},
+  le: {en: 'Less than or equal. Same idea as \\leq.', zh: '小于或等于。和 \\leq 一样。'},
+  not: {en: 'Negate the next relation. x\\not\\in S.', zh: '否定后面的关系。x\\not\\in S。'},
 };
 
 export function docsForTex(tex, lang = 'en') {
