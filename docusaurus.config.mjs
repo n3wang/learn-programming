@@ -65,6 +65,15 @@ function resolvePistonExecuteUrl() {
 
 const pistonExecuteUrl = resolvePistonExecuteUrl();
 
+// Dev → local Spring Boot. Override with API_BASE_URL.
+const defaultApiBaseUrl = isDevServer
+  ? 'http://localhost:8080'
+  : 'http://localhost:8080';
+const apiBaseUrl = (process.env.API_BASE_URL || defaultApiBaseUrl).replace(
+  /\/$/,
+  '',
+);
+
 const minimalPreset = isMinimalPresetBuild();
 const subsetBuild = isSubsetDocBuild();
 
@@ -92,6 +101,7 @@ const config = {
   projectName: 'Learn-programming',
   customFields: {
     pistonExecuteUrl,
+    apiBaseUrl,
   },
   stylesheets: [
     {

@@ -216,6 +216,16 @@ Screenshots and other binaries (in object storage; DB holds metadata).
 4. `code_drafts` behind lesson editors.
 5. `assignments` / `submissions` / Storage for 编程 problem-of-the-day + screenshots.
 
+### Implemented locally (springbackend + learn-programming)
+
+As of the Spring Boot classroom API:
+
+- Flyway `V5__classroom_student_data.sql`: `rosters`, `students`, `student_day_stats`, `roster_day_meta` (pick history), `code_drafts` — seeded from `classRosters.js`.
+- Public REST under `/api/classroom/**` (see springbackend README).
+- learn-programming: `customFields.apiBaseUrl` (default `http://localhost:8080`); `src/api/classroomClient.js`; pick/reports write-through via `classBehaviorDb.js` with IndexedDB offline fallback.
+
+Still open: assignments/submissions/storage, passkey auth, wiring lesson editors to `code_drafts`.
+
 ## Open choices (decide later)
 
 - Local “class day” timezone (China `Asia/Shanghai` vs teacher browser local).
