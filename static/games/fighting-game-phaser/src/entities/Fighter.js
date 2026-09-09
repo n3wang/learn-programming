@@ -76,7 +76,12 @@ export class Fighter extends Phaser.GameObjects.Sprite {
     this.motion.setStage(stage)
   }
 
+  locksDirection() {
+    return this.combat.directionLocked
+  }
+
   setFacing(faceRight) {
+    if (this.combat.directionLocked && faceRight !== this.faceRight) return
     const flip = faceRight !== (this.naturalFaces === 'right')
     this.faceRight = faceRight
     this.flip = flip

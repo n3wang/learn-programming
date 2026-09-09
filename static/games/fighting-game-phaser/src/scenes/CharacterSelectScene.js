@@ -11,6 +11,7 @@ function specialAttackNames(character) {
   if (character.skills.dashCombo) names.push('Dash')
   if (character.skills.mirror) names.push('Mirror')
   if (character.skills.afterimage) names.push('Image')
+  if (character.skills.lockDirection) names.push('Lock')
   return names
 }
 

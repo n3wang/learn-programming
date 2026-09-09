@@ -118,30 +118,36 @@ export class FightScene extends Phaser.Scene {
   }
 
   applyIntent(fighter, opponent, intent) {
+    if (!fighter.dead && intent.attackJustDown) {
+      fighter.attack({
+        movingForward: fighter.faceRight ? intent.rightIsDown : intent.leftIsDown,
+        opponent
+      })
+    }
+
+    const locked = !fighter.dead && fighter.locksDirection()
+
     if (!fighter.dead) {
       if (intent.rightJustDown) {
-        if (!(fighter.noteDoubleTap(1) && fighter.mirror(opponent, 1))) fighter.setFacing(true)
+        if (!(fighter.noteDoubleTap(1) && fighter.mirror(opponent, 1)) && !locked) fighter.setFacing(true)
       }
       if (intent.leftJustDown) {
-        if (!(fighter.noteDoubleTap(-1) && fighter.mirror(opponent, -1))) fighter.setFacing(false)
+        if (!(fighter.noteDoubleTap(-1) && fighter.mirror(opponent, -1)) && !locked) fighter.setFacing(false)
       }
       if (intent.jumpJustDown) fighter.jump()
-      if (intent.attackJustDown) {
-        fighter.attack({
-          movingForward: fighter.faceRight ? intent.rightIsDown : intent.leftIsDown,
-          opponent
-        })
-      }
     }
+
+    const forward = fighter.faceRight ? 1 : -1
+    const moveDir = locked && intent.moveDir === -forward ? 0 : intent.moveDir
 
     if (fighter.motion.laneSwap) {
       fighter.switchSprite('jump')
-    } else if (intent.moveDir < 0) {
-      fighter.setFacing(false)
+    } else if (moveDir < 0) {
+      if (!locked) fighter.setFacing(false)
       fighter.velocity.x = -fighter.combat.kit.moveSpeed
       fighter.switchSprite('run')
-    } else if (intent.moveDir > 0) {
-      fighter.setFacing(true)
+    } else if (moveDir > 0) {
+      if (!locked) fighter.setFacing(true)
       fighter.velocity.x = fighter.combat.kit.moveSpeed
       fighter.switchSprite('run')
     } else {

@@ -22,6 +22,7 @@ export class FighterCombat {
     this.lastTapDir = 0
     this.lastTapAt = 0
     this.clashUntil = 0
+    this.directionLocked = false
   }
 
   setCharacter(character) {
@@ -42,6 +43,7 @@ export class FighterCombat {
     this.lastTapDir = 0
     this.lastTapAt = 0
     this.clashUntil = 0
+    this.directionLocked = false
   }
 
   hitDamage() {
@@ -82,6 +84,7 @@ export class FighterCombat {
     this.hitFrame = this.kit.sprites[name].hitFrame
     this.lastFinishedAttack = null
     this.clashUntil = now + CLASH_WINDOW_MS
+    if (this.kit.skills.lockDirection) this.directionLocked = true
   }
 
   markAttackFinished() {
@@ -89,6 +92,7 @@ export class FighterCombat {
     this.attackFinishedAt = performance.now()
     this.currentAttack = null
     this.attackLift = 0
+    this.directionLocked = false
   }
 
   queueFollowUp(kind, opponent) {

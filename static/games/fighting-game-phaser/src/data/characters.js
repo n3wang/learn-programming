@@ -28,7 +28,10 @@ const DEFAULT_CHARACTER = {
     airCombo: true,
     dashCombo: true,
     afterimage: true,
-    mirror: true
+    mirror: true,
+    // When true, facing and reverse movement are locked for the swing.
+    // Off for now so it can be acquired later.
+    lockDirection: false
   },
   // distance = abs(jumpVelocity) * x + moveSpeed * k
   dashX: 1,
