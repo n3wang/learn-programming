@@ -1,5 +1,5 @@
 import React, {useEffect, useState} from 'react';
-import useSiteAuth from '@site/src/components/navbar/useSiteAuth';
+import {useSiteAuth} from '@site/src/components/navbar/useSiteAuth';
 import {fetchNotes, fetchRosters} from '@site/src/api/classroomClient';
 
 const panelStyle = {

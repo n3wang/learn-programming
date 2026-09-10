@@ -34,6 +34,9 @@ const AdminSubmissionsPanel = lazyMdxComponent(() =>
 const AdminNotesPanel = lazyMdxComponent(() =>
   import('@site/src/components/class/AdminNotesPanel'),
 );
+const AdminRosterEditorPanel = lazyMdxComponent(() =>
+  import('@site/src/components/class/AdminRosterEditorPanel'),
+);
 
 export default {
     ...MDXComponents,
@@ -64,6 +67,7 @@ export default {
     StudentReportsPanel,
     AdminSubmissionsPanel,
     AdminNotesPanel,
+    AdminRosterEditorPanel,
     BlockArrowScroll,
     p: TranslatableParagraph,
 };

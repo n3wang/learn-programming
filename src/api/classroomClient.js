@@ -134,6 +134,23 @@ export async function fetchSubmissions({rosterSlug, status, since} = {}) {
   return classroomFetch(`/api/classroom/submissions${qs ? `?${qs}` : ''}`);
 }
 
+export async function fetchRosterTsv(rosterSlug) {
+  return classroomFetch(
+    `/api/classroom/rosters/${encodeURIComponent(rosterSlug)}/tsv`,
+  );
+}
+
+export async function saveRosterTsv(rosterSlug, {tsv, mode = 'replace'} = {}) {
+  return classroomFetch(
+    `/api/classroom/rosters/${encodeURIComponent(rosterSlug)}/tsv`,
+    {
+      method: 'PUT',
+      body: JSON.stringify({tsv, mode}),
+      timeoutMs: 15000,
+    },
+  );
+}
+
 /** Returns true if the local Spring Boot classroom API responds. */
 export async function pingClassroomApi() {
   try {

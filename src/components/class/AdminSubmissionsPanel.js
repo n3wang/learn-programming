@@ -1,5 +1,5 @@
 import React, {useEffect, useMemo, useState} from 'react';
-import useSiteAuth from '@site/src/components/navbar/useSiteAuth';
+import {useSiteAuth} from '@site/src/components/navbar/useSiteAuth';
 import {
   fetchAssignments,
   fetchNotes,
