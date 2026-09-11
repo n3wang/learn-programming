@@ -39,6 +39,12 @@ export class PortraitCard {
     this.mark.setFillStyle(selected ? SIDE_COLOR[this.side] : 0x000000, selected ? 1 : 0)
   }
 
+  setVisible(visible) {
+    this.container.setVisible(visible)
+    if (!visible) this.border.disableInteractive()
+    else this.border.setInteractive({ useHandCursor: true })
+  }
+
   destroy() {
     this.container.destroy()
   }

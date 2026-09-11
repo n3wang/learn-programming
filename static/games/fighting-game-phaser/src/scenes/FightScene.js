@@ -8,6 +8,7 @@ import { EventBus } from '../state/EventBus.js'
 import { MatchTimer } from '../utils/timer.js'
 import { getCharacter } from '../data/characters.js'
 import { getStage } from '../data/stages.js'
+import { StageView, enforceMaxSeparation } from '../world/StageView.js'
 import { PLAYER_SPAWN_X, ENEMY_SPAWN_X, TEST_PLAYER_X, TEST_ENEMY_X, HEALTH_BAR_MS } from '../config/gameConfig.js'
 
 export class FightScene extends Phaser.Scene {
@@ -22,10 +23,7 @@ export class FightScene extends Phaser.Scene {
     this.matchEndingAt = 0
     this.paused = false
 
-    this.add.image(0, 0, 'stage_' + this.stage.id).setOrigin(0, 0)
-    if (this.stage.shop) {
-      this.add.sprite(600, 128, 'shop').setOrigin(0, 0).setScale(2.75).play('shop_idle')
-    }
+    this.stageView = new StageView(this, this.stage)
 
     const spawnX = this.testMode ? TEST_PLAYER_X : PLAYER_SPAWN_X
     const enemySpawnX = this.testMode ? TEST_ENEMY_X : ENEMY_SPAWN_X
@@ -49,6 +47,8 @@ export class FightScene extends Phaser.Scene {
 
     this.p1Input = new InputController(this, P1_KEYS)
     this.p2Input = this.testMode ? new DummyController() : new InputController(this, P2_KEYS)
+
+    this.stageView.updateCamera(this.player, this.enemy)
 
     this.scene.launch('UI', { testMode: this.testMode, player: this.player, enemy: this.enemy })
 
@@ -164,13 +164,15 @@ export class FightScene extends Phaser.Scene {
   spawnBetweenPopup(text) {
     const player = this.player
     const enemy = this.enemy
-    const x = (player.position.x + player.hitWidth / 2 + enemy.position.x + enemy.hitWidth / 2) / 2
-    const y = Math.min(player.position.y, enemy.position.y) + 28
-    EventBus.emit('popup', { x, y, text })
+    const worldX = (player.position.x + player.hitWidth / 2 + enemy.position.x + enemy.hitWidth / 2) / 2
+    const worldY = Math.min(player.position.y, enemy.position.y) + 28
+    const screen = this.stageView.toScreen(worldX, worldY)
+    EventBus.emit('popup', { x: screen.x, y: screen.y, text })
   }
 
   spawnHitPopup(target, text) {
-    EventBus.emit('popup', { x: target.position.x + target.hitWidth / 2, y: target.position.y + 20, text })
+    const screen = this.stageView.toScreen(target.position.x + target.hitWidth / 2, target.position.y + 20)
+    EventBus.emit('popup', { x: screen.x, y: screen.y, text })
   }
 
   reactToClash(result) {
@@ -224,6 +226,8 @@ export class FightScene extends Phaser.Scene {
 
     this.player.update()
     this.enemy.update()
+    enforceMaxSeparation(this.player, this.enemy)
+    this.stageView.updateCamera(this.player, this.enemy, dt)
 
     this.playerMarker.setPosition(this.player.position.x - 6, this.player.position.y + this.player.hitHeight + 4)
     this.playerMarker.width = this.player.hitWidth + 12

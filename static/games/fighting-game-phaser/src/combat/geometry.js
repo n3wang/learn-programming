@@ -7,11 +7,13 @@
 // instead of the more obvious width/height so Fighter — a real Phaser
 // Sprite — never collides with Phaser's own width/height accessors, which
 // are tied to texture size and scale, not this game's fixed 50x150 hitbox.)
-import { CLASH_OVERLAP, STAGE_PADDING, CANVAS_WIDTH } from '../config/gameConfig.js'
+import { CLASH_OVERLAP, STAGE_PADDING } from '../config/gameConfig.js'
+import { stageWidth } from '../data/stages.js'
 
 export function clampToStage(fighter) {
+  const width = stageWidth(fighter.motion.currentStage)
   const minX = STAGE_PADDING
-  const maxX = CANVAS_WIDTH - fighter.hitWidth - STAGE_PADDING
+  const maxX = width - fighter.hitWidth - STAGE_PADDING
   if (fighter.position.x < minX) {
     fighter.position.x = minX
     if (fighter.velocity.x < 0) fighter.velocity.x = 0
