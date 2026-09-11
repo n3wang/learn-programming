@@ -62,6 +62,13 @@ The foundational vocabulary and trade-offs distributed systems keep coming back 
 - [Ambassadors](./distributed-systems/ambassador-pattern) — client-side proxies that broker sharded storage, environment-specific service discovery, and A/B request splitting; hands-on StatefulSet + twemproxy and nginx experiment manifests
 - [Replicated Load-Balanced Services](./distributed-systems/replicated-load-balanced-services) — stateless replicas behind a Service, readiness probes, session stickiness, Varnish caching tier, and nginx SSL termination
 - [Sharded Services](./distributed-systems/sharded-services) — sharded caches vs replicated caches, memcache + twemproxy, shared shard routers, shard keys, consistent hashing, and hot shards
+- [Scatter/Gather](./distributed-systems/scatter-gather) — parallelize one request across leaves, term vs leaf sharding for search, stragglers and leaf count, replicated shards for reliability
+- [Functions and Event-Driven Processing](./distributed-systems/functions-and-event-driven-processing) — FaaS vs serverless, when functions fit, decorators, async event handlers, and event pipelines
+- [Ownership Election](./distributed-systems/ownership-election) — singletons vs leaders, CAS/TTL locks on etcd-style stores, renewable leases, and fencing against dual leaders
+- [Work Queue Systems](./distributed-systems/work-queue-systems) — generic source/worker containers, Kubernetes Jobs, dynamic scaling math, and multiworker composition
+- [Event-Driven Batch Processing](./distributed-systems/event-driven-batch-processing) — workflow DAGs: copier/filter/splitter/sharder/merger, pub/sub, work stealing, and poison retries
+- [Coordinated Batch Processing](./distributed-systems/coordinated-batch-processing) — join barriers, reduce (count/sum/histogram), and composing them in an image pipeline
+- [Monitoring and Observability Patterns](./distributed-systems/monitoring-and-observability) — logs, metrics, alerts, traces, Prometheus pull/push, and aggregation/downsampling
 
 ## Planned Topics
 

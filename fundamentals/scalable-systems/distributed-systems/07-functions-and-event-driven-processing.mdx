@@ -1,0 +1,511 @@
+---
+sidebar_position: 7
+title: Functions and Event-Driven Processing
+---
+
+# Functions and Event-Driven Processing
+
+> **Adapted from:** Brendan Burns, *Designing Distributed Systems* (O'Reilly), Chapter 9 — rewritten and condensed for teaching.
+
+Earlier lessons assumed **long-running** servers always ready for traffic — right for heavy load, large in-memory state, or background work. Another class of apps only needs to exist **briefly** for a request or **react** to an event. Public clouds productized that style as **function-as-a-service (FaaS)**; similar runtimes also sit on cluster orchestrators in private clouds. FaaS is often **one piece** of a larger design, not the whole system.
+
+:::note Serverless ≠ event-driven
+**Serverless** means you do not manage the servers. **Event-driven FaaS** means code runs in response to discrete events. They overlap but are not the same:
+
+| | Serverless | Event-driven |
+|---|---|---|
+| Multitenant container platform (CaaS) | ✓ | not necessarily |
+| Open-source FaaS on machines you own | not really | ✓ |
+| Cloud Lambda / Cloud Functions style | often both | ✓ |
+
+Pick **event-driven**, **serverless**, or **both** based on the problem — not the buzzword.
+:::
+
+---
+
+## When FaaS Makes Sense
+
+FaaS is a strong tool in a **narrow** context. Stretching it into every service produces brittle, hard-to-operate designs.
+
+### Benefits (mostly for developers)
+
+- Short path from **source → running code** (little packaging ceremony).
+- **Automatic scale-out** when traffic rises; failed instances restart elsewhere.
+- Functions are **stateless building blocks** — systems tend to stay modular (network is the only integration path; state lives in storage services).
+
+### Challenges
+
+Forced decoupling cuts both ways:
+
+- Hard to see the **whole service**, how functions wire together, and **why** something failed.
+- Easy to create accidental **infinite call loops** (`A → B → C → A`) until timeouts burn money — each function is independent, so dependency graphs are not obvious in the code.
+- You need **monitoring and alerting** early; that ops cost offsets some of FaaS’s deploy simplicity.
+
+### When FaaS is a poor fit
+
+| Need | Why FaaS struggles |
+|---|---|
+| **Long background work** (transcode, compress logs) | Time-bounded, event-triggered runs; scheduled pings help alarms, not generic batch jobs |
+| **Large data in memory** (search indexes) | Cold start must load state while the user waits; if load stays high enough to keep functions warm, you may be **overpaying** vs a long-running service |
+| **Sustained high RPS** | Pay-per-request grows ~linearly; VM/container pricing + reservations often wins once CPUs stay busy |
+
+A common evolution: start on managed FaaS, later run **open-source FaaS on Kubernetes** (or move hot paths to long-running services) to keep the programming model while changing the cost model.
+
+### Check: when to use FaaS
+
+<MultipleChoice
+  id="dds-faas-when"
+  title="FaaS fit"
+  questions={[
+    {
+      prompt: 'Which statement best separates “serverless” from “event-driven FaaS”?',
+      choices: [
+        'They always mean exactly the same thing',
+        'Serverless is about not managing servers; event-driven FaaS is about running code in response to events — you can have either without the other',
+        'Only physical servers can be event-driven',
+        'FaaS never runs on Kubernetes',
+      ],
+      answer: 1,
+      why: 'CaaS can be serverless without being event-driven; self-hosted FaaS can be event-driven without feeling “serverless.”',
+    },
+    {
+      prompt: 'Why is a huge in-memory search index a risky fit for classic FaaS?',
+      choices: [
+        'Functions cannot call HTTP APIs',
+        'Cold starts may need to load large state before answering, hurting latency; steady high traffic that keeps functions warm often costs more than a long-running service',
+        'Indexes only work on mainframes',
+        'FaaS forbids read-only data',
+      ],
+      answer: 1,
+      why: 'Load time and pricing both fight large warm working sets.',
+    },
+    {
+      prompt: 'functionA → functionB → functionC → functionA is dangerous mainly because…',
+      choices: [
+        'HTTP cannot carry JSON',
+        'Radical decoupling hides the cycle; requests can loop until timeout or budget exhaustion',
+        'Kubernetes bans three functions',
+        'Monitoring always prevents loops automatically',
+      ],
+      answer: 1,
+      why: 'No single binary owns the call graph — cycles are easy to miss without observability.',
+    },
+  ]}
+/>
+
+---
+
+## Pattern: Decorator (Request / Response Transformation)
+
+FaaS shines at **small, stateless transforms** between a client and another service — validate, default fields, enrich headers — then forward. That is the **decorator** idea (similar to Python decorators): wrap an existing API without stuffing the logic into the core handler.
+
+```mermaid
+flowchart LR
+  CLIENT[Client]
+  DEC[Decorator function]
+  API[Core API service]
+  CLIENT --> DEC
+  DEC -->|transformed request| API
+  API --> DEC
+  DEC --> CLIENT
+```
+
+Why FaaS instead of an always-on adapter container?
+
+- Defaulting/validation is often **cheap** — you may not want it scaled 1:1 with a heavy API.
+- Easy to **experiment** with transforms, then pull winners into the main service later.
+
+### Hands On: Request defaulting
+
+Implement a handler that fills missing `name` and `color`, then calls the real API.
+
+<CodeExercise
+  id="dds-faas-defaults"
+  title="Decorator: add request defaults"
+  heading="exercise-add-defaults"
+  lang="python"
+  filename="main.py"
+  prompt={`(1) Implement handler(obj): obj is a dict (the JSON body).
+
+(2) If "name" is missing or None, set it to "anonymous".
+
+(3) If "color" is missing or None, set it to "blue".
+
+(4) Return call_my_api(obj) — do not skip the call.`}
+  sampleLog={`(no input)
+{'name': 'foo', 'color': 'blue', 'ok': True}
+{'name': 'anonymous', 'color': 'red', 'ok': True}
+{'name': 'anonymous', 'color': 'blue', 'ok': True}`}
+  starter={`def call_my_api(obj):
+    # Stand-in for the real downstream API.
+    return {**obj, "ok": True}
+
+def handler(obj):
+    # Apply defaults, then call call_my_api.
+    pass
+
+print(handler({"name": "foo"}))
+print(handler({"color": "red"}))
+print(handler({}))
+`}
+  hint="Use obj.get('name') is None (or 'name' not in obj) before assigning; same for color; always return call_my_api(obj)."
+  solution={`def call_my_api(obj):
+    return {**obj, "ok": True}
+
+def handler(obj):
+    if obj.get("name", None) is None:
+        obj["name"] = "anonymous"
+    if obj.get("color", None) is None:
+        obj["color"] = "blue"
+    return call_my_api(obj)
+
+print(handler({"name": "foo"}))
+print(handler({"color": "red"}))
+print(handler({}))
+`}
+  sourceChecks={[
+    {
+      name: 'defaults name',
+      pattern: 'obj\\[["\']name["\']\\]\\s*=',
+      must: true,
+      hint: 'set obj["name"] when missing',
+    },
+    {
+      name: 'defaults color to blue',
+      pattern: 'obj\\[["\']color["\']\\]\\s*=\\s*["\']blue["\']',
+      must: true,
+      hint: 'set color to "blue"',
+    },
+    {
+      name: 'calls downstream API',
+      pattern: 'call_my_api\\s*\\(\\s*obj\\s*\\)',
+      must: true,
+      hint: 'return call_my_api(obj)',
+    },
+  ]}
+  tests={[
+    {
+      name: 'applies defaults then calls API',
+      stdin: '',
+      equals: "{'name': 'foo', 'color': 'blue', 'ok': True}\n{'name': 'anonymous', 'color': 'red', 'ok': True}\n{'name': 'anonymous', 'color': 'blue', 'ok': True}",
+    },
+  ]}
+/>
+
+:::tip Deploying on Kubeless (optional)
+On a Kubernetes cluster with [Kubeless](https://github.com/vmware-archive/kubeless) installed, the book’s flow looks like `kubeless function deploy add-defaults --runtime python27 --handler defaults.handler --from-file defaults.py --trigger-http`. The important design idea is the **decorator**, not the specific FaaS vendor.
+:::
+
+### Check: decorator pattern
+
+<MultipleChoice
+  id="dds-faas-decorator"
+  title="Request decorator"
+  questions={[
+    {
+      prompt: 'Why might you run JSON field defaulting as a FaaS decorator instead of inside the core API process?',
+      choices: [
+        'Defaulting always needs GPUs',
+        'It keeps a conceptually separate transform out of core handlers and lets that cheap step scale independently of the heavier API',
+        'FaaS cannot call other HTTP APIs',
+        'Decorators forbid JSON',
+      ],
+      answer: 1,
+      why: 'Separation of concerns plus independent scale — classic decorator motivation.',
+    },
+  ]}
+/>
+
+---
+
+## Pattern: Handling Events
+
+**Requests** usually sit in a longer session (pages, API conversations). **Events** are often one-shot and asynchronous: user signed up, file uploaded, machine rebooting. Variable rates and independence make events a natural FaaS workload — often **beside** a main app server.
+
+Example: **two-factor authentication**. After password success, fire a webhook to a function that generates a code, registers it with the login service, and texts the user — so the login page is not blocked on SMS latency.
+
+### Hands On: Two-factor code registration
+
+Implement the core logic (SMS library stubbed).
+
+<CodeExercise
+  id="dds-faas-two-factor"
+  title="Event handler: two-factor code"
+  heading="exercise-two-factor"
+  lang="python"
+  filename="main.py"
+  prompt={`(1) Implement two_factor(user, phone, rng): rng is a callable like random.randint.
+
+(2) Generate a six-digit code with rng(100000, 999999).
+
+(3) Call register_code(user, code).
+
+(4) Call send_sms(phone, a message that includes both user and code).
+
+(5) Return {"status": "ok", "code": code} (include code so tests can check it).`}
+  sampleLog={`(no input)
+{'status': 'ok', 'code': 123456}
+registered:alice:123456
+sms:+15551212:Hello alice your authentication code is: 123456.`}
+  starter={`registered = []
+sms_log = []
+
+def register_code(user, code):
+    registered.append((user, code))
+
+def send_sms(phone, msg):
+    sms_log.append((phone, msg))
+
+def two_factor(user, phone, rng):
+    # generate code, register, sms, return status dict
+    pass
+
+result = two_factor("alice", "+15551212", lambda a, b: 123456)
+print(result)
+print("registered:" + registered[0][0] + ":" + str(registered[0][1]))
+print("sms:" + sms_log[0][0] + ":" + sms_log[0][1])
+`}
+  hint="code = rng(100000, 999999); register_code(user, code); send_sms(phone, f'Hello {user} your authentication code is: {code}.')"
+  solution={`registered = []
+sms_log = []
+
+def register_code(user, code):
+    registered.append((user, code))
+
+def send_sms(phone, msg):
+    sms_log.append((phone, msg))
+
+def two_factor(user, phone, rng):
+    code = rng(100000, 999999)
+    register_code(user, code)
+    msg = "Hello {} your authentication code is: {}.".format(user, code)
+    send_sms(phone, msg)
+    return {"status": "ok", "code": code}
+
+result = two_factor("alice", "+15551212", lambda a, b: 123456)
+print(result)
+print("registered:" + registered[0][0] + ":" + str(registered[0][1]))
+print("sms:" + sms_log[0][0] + ":" + sms_log[0][1])
+`}
+  sourceChecks={[
+    {
+      name: 'calls rng for six-digit range',
+      pattern: 'rng\\s*\\(\\s*100000\\s*,\\s*999999\\s*\\)',
+      must: true,
+      hint: 'rng(100000, 999999)',
+    },
+    {
+      name: 'registers code',
+      pattern: 'register_code\\s*\\(',
+      must: true,
+      hint: 'call register_code(user, code)',
+    },
+    {
+      name: 'sends sms',
+      pattern: 'send_sms\\s*\\(',
+      must: true,
+      hint: 'call send_sms(phone, msg)',
+    },
+  ]}
+  tests={[
+    {
+      name: 'registers and texts six-digit code',
+      stdin: '',
+      equals: "{'status': 'ok', 'code': 123456}\nregistered:alice:123456\nsms:+15551212:Hello alice your authentication code is: 123456.",
+    },
+  ]}
+/>
+
+### Check: events vs requests
+
+<MultipleChoice
+  id="dds-faas-events"
+  title="Event handling"
+  questions={[
+    {
+      prompt: 'Why is sending a 2FA text via an async FaaS often better UX than doing it inside the login request handler?',
+      choices: [
+        'SMS is illegal inside web servers',
+        'The login path can return the “enter code” page immediately while registration and SMS run asynchronously',
+        'FaaS cannot generate random numbers',
+        'Passwords become unnecessary',
+      ],
+      answer: 1,
+      why: 'Decouple slow side effects from the interactive request path.',
+    },
+  ]}
+/>
+
+---
+
+## Pattern: Event-Based Pipelines
+
+Some flows look like **flowcharts**: a directed graph of webhooks/functions, edges as HTTP (or other) calls, little shared memory beyond a **context** id in storage.
+
+Vs **microservices**:
+
+- Pipeline steps are **event-triggered** and often short-lived; microservices are usually **long-running**.
+- Pipelines easily mix **human** steps (approve a ticket) with automation.
+
+Example CI-ish flow: commit → build → on success open approval ticket → on close push to prod; on failure file a bug and stop.
+
+### Hands On: New user signup pipeline
+
+Orchestrate **required** handlers (always) and **optional** handlers (only if a flag/key is present on the signup payload).
+
+<CodeExercise
+  id="dds-faas-signup-pipeline"
+  title="Signup pipeline: required vs optional"
+  heading="exercise-signup-pipeline"
+  lang="python"
+  filename="main.py"
+  prompt={`(1) Implement create_user(payload, required, optional, call_fn):
+
+(2) For every (key, webhook) in required.items(), call call_fn(webhook, payload).
+
+(3) For every (key, webhook) in optional.items(), call call_fn only if payload.get(key) is not None.
+
+(4) Return the list of webhooks that were actually invoked, in call order.`}
+  sampleLog={`(no input)
+['https://welcome', 'https://subscribe']
+['https://welcome']`}
+  starter={`def create_user(payload, required, optional, call_fn):
+    # Invoke required always; optional only when payload has that key set.
+    # Return list of webhook URLs that were called, in order.
+    pass
+
+calls = []
+
+def record(webhook, data):
+    calls.append(webhook)
+
+required = {"welcome": "https://welcome"}
+optional = {"subscribe": "https://subscribe"}
+
+print(create_user(
+    {"username": "ada", "subscribe": True},
+    required,
+    optional,
+    record,
+))
+calls.clear()
+print(create_user(
+    {"username": "bob"},
+    required,
+    optional,
+    record,
+))
+`}
+  hint="Loop required.values() (or items) and call; for optional, if payload.get(key) is not None: call. Append each webhook to a list you return."
+  solution={`def create_user(payload, required, optional, call_fn):
+    invoked = []
+    for key, webhook in required.items():
+        call_fn(webhook, payload)
+        invoked.append(webhook)
+    for key, webhook in optional.items():
+        if payload.get(key, None) is not None:
+            call_fn(webhook, payload)
+            invoked.append(webhook)
+    return invoked
+
+calls = []
+
+def record(webhook, data):
+    calls.append(webhook)
+
+required = {"welcome": "https://welcome"}
+optional = {"subscribe": "https://subscribe"}
+
+print(create_user(
+    {"username": "ada", "subscribe": True},
+    required,
+    optional,
+    record,
+))
+calls.clear()
+print(create_user(
+    {"username": "bob"},
+    required,
+    optional,
+    record,
+))
+`}
+  sourceChecks={[
+    {
+      name: 'iterates required',
+      pattern: 'for\\s+.*\\s+in\\s+required',
+      must: true,
+      hint: 'loop over required handlers',
+    },
+    {
+      name: 'gates optional on payload',
+      pattern: 'payload\\.get\\s*\\(',
+      must: true,
+      hint: 'use payload.get(key) for optional steps',
+    },
+    {
+      name: 'calls call_fn',
+      pattern: 'call_fn\\s*\\(',
+      must: true,
+      hint: 'invoke call_fn(webhook, payload)',
+    },
+  ]}
+  tests={[
+    {
+      name: 'required always; optional when present',
+      stdin: '',
+      equals: "['https://welcome', 'https://subscribe']\n['https://welcome']",
+    },
+  ]}
+/>
+
+Factored this way, each step stays a few lines focused on one job; the **pipeline** (required vs optional webhook lists) is what you reason about at a high level.
+
+### Check: pipelines
+
+<MultipleChoice
+  id="dds-faas-pipelines"
+  title="Event pipelines"
+  questions={[
+    {
+      prompt: 'What mainly distinguishes an event-based FaaS pipeline from a typical microservices architecture?',
+      choices: [
+        'Pipelines never use HTTP',
+        'Pipeline steps are event-driven and often short-lived, while microservices are usually long-running processes',
+        'Microservices cannot call other services',
+        'Pipelines forbid human approval steps',
+      ],
+      answer: 1,
+      why: 'Lifetime-bounded, event-triggered steps vs always-on services — plus easier inclusion of async/human events.',
+    },
+    {
+      prompt: 'In the signup example, welcome email is required and mailing-list subscribe is optional. How should the orchestrator decide?',
+      choices: [
+        'Never call either handler',
+        'Always invoke required webhooks; invoke optional ones only when the corresponding key is present on the payload',
+        'Only invoke optional handlers',
+        'Run everything in one monolith binary only',
+      ],
+      answer: 1,
+      why: 'That split keeps experiments (optional steps) cheap without forking the whole signup service.',
+    },
+  ]}
+/>
+
+---
+
+:::important Key takeaways
+- **FaaS / event-driven** code runs for discrete events; **serverless** is about ops ownership — do not conflate them.
+- Great for **stateless transforms**, **async side effects**, and **pipelines** of small handlers; weak for **long jobs**, **huge warm state**, and **always-on heavy RPS** without a pricing rethink.
+- Decoupling improves modularity but demands **observability** (watch for cycles and silent failures).
+- **Decorator**, **event handler**, and **event pipeline** are three practical ways to drop FaaS beside (not instead of) core services.
+- Ideal designs often **compose** FaaS with long-running platforms (e.g. Kubernetes) as the system grows.
+:::
+
+## Further Reading
+
+- Brendan Burns — *Designing Distributed Systems* (O'Reilly), Chapter 9 (Functions and Event-Driven Processing)
+- [Scatter/Gather](./scatter-gather) — long-running parallel request trees (contrast with short-lived functions)
+- [Ownership Election](./ownership-election) — next: exclusive leaders, distributed locks, and leases
+- [Replicated Load-Balanced Services](./replicated-load-balanced-services) — the always-on tier FaaS often sits in front of or beside
+- [The Sidecar Pattern](./sidecar-pattern) / [Ambassadors](./ambassador-pattern) — single-node adapters vs network-level FaaS decorators

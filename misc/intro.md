@@ -14,7 +14,9 @@ In this section I will be be having Miscellaneous lectures that were not in the 
 - Arduino
 - RaspberryPi
 - [Student reports](./student-reports) (class participation by day)
-- [Student data platform](./student-data-platform) (DB / roster / submissions draft)
+- [Submissions (admin)](./student-submissions) (this week’s work, filter by roster)
+- [Class notes (admin)](./class-notes) (teacher / student notes)
+- [Roster editor (admin)](./roster-editor) (bulk TSV edit / save)
 - [Typing copy game](./typing-copy-game) (timed copy + Chinese→English memory batches)
 
 :::

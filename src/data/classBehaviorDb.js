@@ -1,4 +1,12 @@
-/** Daily classroom behavior records (points / absent) in IndexedDB. */
+/** Daily classroom behavior records (points / absent).
+ * Prefers springbackend `/api/classroom` when reachable; IndexedDB is offline cache.
+ */
+
+import {
+  applyDayStat,
+  fetchBehaviorDates,
+  fetchDayStats,
+} from '@site/src/api/classroomClient';
 
 export const CLASS_BEHAVIOR_DB = 'learn-class-behavior';
 export const CLASS_BEHAVIOR_DB_VERSION = 1;
@@ -152,7 +160,7 @@ function notifyBehaviorChange(detail) {
   );
 }
 
-export async function getDailyBehavior(dateKey, rosterId) {
+async function getDailyBehaviorLocal(dateKey, rosterId) {
   const date = String(dateKey || localDateKey());
   const roster = String(rosterId || '');
   try {
@@ -162,6 +170,23 @@ export async function getDailyBehavior(dateKey, rosterId) {
     return sanitizeRecord(row, date, roster);
   } catch {
     return emptyRecord(date, roster);
+  }
+}
+
+export async function getDailyBehavior(dateKey, rosterId) {
+  const date = String(dateKey || localDateKey());
+  const roster = String(rosterId || '');
+  try {
+    const remote = await fetchDayStats(roster, date);
+    const next = sanitizeRecord(remote, date, roster);
+    try {
+      await withStore('readwrite', (store) => req(store.put(next)));
+    } catch {
+      // ignore cache write failures
+    }
+    return next;
+  } catch {
+    return getDailyBehaviorLocal(date, roster);
   }
 }
 
@@ -183,6 +208,13 @@ export async function saveDailyBehavior(record) {
 }
 
 export async function listBehaviorDates(rosterId = null) {
+  if (rosterId) {
+    try {
+      return await fetchBehaviorDates(rosterId);
+    } catch {
+      // fall through to IndexedDB
+    }
+  }
   try {
     const rows = await withStore('readonly', (store) => req(store.getAll()));
     const dates = new Set();
@@ -224,6 +256,7 @@ export async function listDailyBehaviors(dateKey = null) {
 
 /**
  * Apply +1 / -1 / absent for one student on a day.
+ * Writes through to Spring when available; always updates IndexedDB cache.
  * Never throws; returns the updated (or best-effort) record.
  */
 export async function applyStudentBehavior({
@@ -239,7 +272,26 @@ export async function applyStudentBehavior({
     return getDailyBehavior(date, safeRoster);
   }
 
-  const current = await getDailyBehavior(date, safeRoster);
+  try {
+    const remote = await applyDayStat({
+      rosterSlug: safeRoster,
+      day: date,
+      name: safeName,
+      action,
+    });
+    const next = sanitizeRecord(remote, date, safeRoster);
+    try {
+      await withStore('readwrite', (store) => req(store.put(next)));
+    } catch {
+      // ignore
+    }
+    notifyBehaviorChange({date, rosterId: safeRoster, record: next});
+    return next;
+  } catch {
+    // Offline / API down — local-only path
+  }
+
+  const current = await getDailyBehaviorLocal(date, safeRoster);
   const students = {...(current.students || {})};
   const prev = sanitizeStudentEntry(students[safeName]);
 

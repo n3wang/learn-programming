@@ -28,6 +28,15 @@ const NodeLab = lazyMdxComponent(() => import('@site/src/components/NodeLab'));
 const StudentReportsPanel = lazyMdxComponent(() =>
   import('@site/src/components/class/StudentReportsPanel'),
 );
+const AdminSubmissionsPanel = lazyMdxComponent(() =>
+  import('@site/src/components/class/AdminSubmissionsPanel'),
+);
+const AdminNotesPanel = lazyMdxComponent(() =>
+  import('@site/src/components/class/AdminNotesPanel'),
+);
+const AdminRosterEditorPanel = lazyMdxComponent(() =>
+  import('@site/src/components/class/AdminRosterEditorPanel'),
+);
 
 export default {
     ...MDXComponents,
@@ -56,6 +65,9 @@ export default {
     ChartChallenge,
     NodeLab,
     StudentReportsPanel,
+    AdminSubmissionsPanel,
+    AdminNotesPanel,
+    AdminRosterEditorPanel,
     BlockArrowScroll,
     p: TranslatableParagraph,
 };
