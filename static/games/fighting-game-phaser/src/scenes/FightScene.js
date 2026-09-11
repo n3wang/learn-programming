@@ -99,12 +99,14 @@ export class FightScene extends Phaser.Scene {
       this.scene.resume()
       this.scene.resume('UI')
       if (!this.testMode) this.matchTimer.resume()
+      this.scene.stop('Controls')
       this.scene.stop('Pause')
     }
   }
 
   restartMatch() {
     this.scene.stop('UI')
+    this.scene.stop('Controls')
     this.scene.stop('Pause')
     this.scene.stop('Result')
     this.scene.restart()
@@ -112,6 +114,7 @@ export class FightScene extends Phaser.Scene {
 
   goToSelect() {
     this.scene.stop('UI')
+    this.scene.stop('Controls')
     this.scene.stop('Pause')
     this.scene.stop('Result')
     this.scene.start('CharacterSelect')

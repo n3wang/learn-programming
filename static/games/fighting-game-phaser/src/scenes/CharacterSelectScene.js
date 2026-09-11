@@ -186,19 +186,22 @@ export class CharacterSelectScene extends Phaser.Scene {
 
   buildButtons() {
     const centerX = CANVAS_WIDTH / 2
-    createButton(this, centerX, 300, 260, 40, 'Random Characters', () => {
+    createButton(this, centerX, 280, 260, 40, 'Random Characters', () => {
       GameState.p1Character = randomCharacterId()
       GameState.p2Character = randomCharacterId()
       this.hoverStats = { p1: null, p2: null }
       this.refresh()
     })
-    createButton(this, centerX, 350, 260, 40, 'Start', () => {
+    createButton(this, centerX, 330, 260, 40, 'Start', () => {
       GameState.mode = 'match'
       this.scene.start('Fight')
     })
-    createButton(this, centerX, 400, 260, 40, 'Test Range', () => {
+    createButton(this, centerX, 380, 260, 40, 'Test Range', () => {
       GameState.mode = 'test'
       this.scene.start('Fight')
+    })
+    createButton(this, centerX, 430, 260, 40, 'Controls', () => {
+      this.scene.launch('Controls')
     })
   }
 
