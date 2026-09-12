@@ -10,6 +10,9 @@ export class PreloadScene extends Phaser.Scene {
   }
 
   preload() {
+    // Needed for cross-origin stage/character URLs (Spring API on another port).
+    this.load.setCORS('anonymous')
+
     rosterIds().forEach((characterId) => {
       const character = CHARACTERS[characterId]
       for (const action in character.sprites) {
@@ -81,18 +84,41 @@ export class PreloadScene extends Phaser.Scene {
       const sourceKey =
         stage.layers && stage.layers.length ? 'stage_' + stage.id + '_layer0' : 'stage_' + stage.id
       if (!this.textures.exists(sourceKey)) return
-      const source = this.textures.get(sourceKey).getSourceImage()
-      const cropW = Math.min(CANVAS_WIDTH, source.width)
-      const cropH = Math.min(CANVAS_HEIGHT, source.height)
-      const maxX = Math.max(0, source.width - cropW)
-      const cropX =
-        stage.thumbCropX != null ? Phaser.Math.Clamp(stage.thumbCropX, 0, maxX) : Math.floor(maxX / 2)
+      const texture = this.textures.get(sourceKey)
+      // Cross-origin without CORS yields a broken/missing source — skip bake.
+      if (!texture || texture.key === '__MISSING') return
+      const source = texture.getSourceImage()
+      if (!source || !source.width) {
+        // Fall back: reuse full texture as the thumb key.
+        if (!this.textures.exists(stageThumbKey(stage.id))) {
+          this.textures.addImage(stageThumbKey(stage.id), source)
+        }
+        return
+      }
+      try {
+        // Match StageView: treat the bitmap as stretched to stageWidth × 576,
+        // then crop a viewport-sized slice (same as in-fight framing).
+        const stageW = stage.width || CANVAS_WIDTH
+        const scaleX = source.width / stageW
+        const scaleY = source.height / CANVAS_HEIGHT
+        const cropW = Math.min(CANVAS_WIDTH, stageW) * scaleX
+        const cropH = CANVAS_HEIGHT * scaleY
+        const maxX = Math.max(0, source.width - cropW)
+        const cropX =
+          stage.thumbCropX != null
+            ? Phaser.Math.Clamp(stage.thumbCropX * scaleX, 0, maxX)
+            : Math.floor(maxX / 2)
 
-      const thumbKey = stageThumbKey(stage.id)
-      if (this.textures.exists(thumbKey)) this.textures.remove(thumbKey)
-      const canvasTexture = this.textures.createCanvas(thumbKey, cropW, cropH)
-      canvasTexture.getContext().drawImage(source, cropX, 0, cropW, cropH, 0, 0, cropW, cropH)
-      canvasTexture.refresh()
+        const thumbKey = stageThumbKey(stage.id)
+        if (this.textures.exists(thumbKey)) this.textures.remove(thumbKey)
+        const canvasTexture = this.textures.createCanvas(thumbKey, CANVAS_WIDTH, CANVAS_HEIGHT)
+        canvasTexture
+          .getContext()
+          .drawImage(source, cropX, 0, cropW, cropH, 0, 0, CANVAS_WIDTH, CANVAS_HEIGHT)
+        canvasTexture.refresh()
+      } catch {
+        // Tainted canvas — CharacterSelect falls back to the full stage texture.
+      }
     })
   }
 }

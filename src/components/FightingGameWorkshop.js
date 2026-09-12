@@ -1,5 +1,6 @@
 import React, {useCallback, useEffect, useMemo, useRef, useState} from 'react';
 import {useSiteAuth} from '@site/src/components/navbar/useSiteAuth';
+import CEBlock from '@site/src/components/interactive/shell/CEBlock';
 import {
   createGamePack,
   deleteGamePack,
@@ -9,42 +10,12 @@ import {
   updateGamePack,
   uploadGamePackFile,
 } from '@site/src/api/classroomClient';
+import styles from './fightingGameWorkshop.module.css';
 
 const CANVAS_H = 576;
-
-const panelStyle = {
-  border: '1px solid var(--ifm-color-emphasis-300)',
-  borderRadius: 8,
-  padding: '1rem 1.1rem',
-  marginTop: '1.25rem',
-  background: 'var(--ifm-background-surface-color)',
-};
-
-const buttonStyle = {
-  padding: '0.4rem 0.75rem',
-  borderRadius: 6,
-  border: '1px solid var(--ifm-color-emphasis-300)',
-  background: 'var(--ifm-color-primary)',
-  color: '#fff',
-  cursor: 'pointer',
-  fontSize: '0.85rem',
-};
-
-const secondaryBtn = {
-  ...buttonStyle,
-  background: 'transparent',
-  color: 'var(--ifm-font-color-base)',
-};
-
-const inputStyle = {
-  padding: '0.35rem 0.5rem',
-  borderRadius: 6,
-  border: '1px solid var(--ifm-color-emphasis-300)',
-  background: 'var(--ifm-background-color)',
-  color: 'var(--ifm-font-color-base)',
-  width: '100%',
-  maxWidth: 420,
-};
+const CANVAS_W = 1024;
+/** Game track Y is hitbox top; feet sit at y + HIT_HEIGHT. */
+const HIT_HEIGHT = 150;
 
 function packImageUrl(pack) {
   const file =
@@ -60,8 +31,51 @@ function tracksFromMeta(meta) {
   return tracks.map((t) => Number(t?.y) || 330);
 }
 
-/** Interactive preview: background + draggable-looking track lines (via sliders). */
-function TrackPreview({imageUrl, trackYs}) {
+function zoomFromMeta(meta) {
+  const z = Number(meta?.bgZoom);
+  return Number.isFinite(z) && z >= 1 ? z : 1;
+}
+
+function resizeTracks(prev, count) {
+  const next = [];
+  for (let i = 0; i < count; i++) {
+    next.push(prev[i] != null ? prev[i] : i === 0 ? 330 : 280);
+  }
+  return next;
+}
+
+function layoutStageBackdrop(srcW, srcH, {stageW = CANVAS_W, canvasH = CANVAS_H, zoom = 1} = {}) {
+  if (!srcW || !srcH) return {x: 0, y: 0, w: stageW, h: canvasH};
+  const z = Math.max(1, Number(zoom) || 1);
+  const scale = Math.max(stageW / srcW, canvasH / srcH) * z;
+  const w = srcW * scale;
+  const h = srcH * scale;
+  return {x: (stageW - w) / 2, y: canvasH - h, w, h};
+}
+
+function ParamDragger({label, valueText, hint, min, max, step = 1, value, onChange, ariaLabel}) {
+  return (
+    <div className={styles.param}>
+      <div className={styles.paramHead}>
+        <span className={styles.paramLabel}>{label}</span>
+        <span className={styles.paramValue}>{valueText}</span>
+      </div>
+      {hint ? <span className={styles.paramHint}>{hint}</span> : null}
+      <input
+        className={styles.slider}
+        type="range"
+        min={min}
+        max={max}
+        step={step}
+        value={value}
+        onChange={(e) => onChange(Number(e.target.value))}
+        aria-label={ariaLabel || label}
+      />
+    </div>
+  );
+}
+
+function TrackPreview({imageUrl, trackYs, zoom = 1}) {
   const canvasRef = useRef(null);
 
   useEffect(() => {
@@ -75,50 +89,56 @@ function TrackPreview({imageUrl, trackYs}) {
       if (cancelled) return;
       const w = canvas.width;
       const h = canvas.height;
+      const sx = w / CANVAS_W;
+      const sy = h / CANVAS_H;
       ctx.fillStyle = '#111';
       ctx.fillRect(0, 0, w, h);
-      const scale = Math.min(w / img.width, h / img.height);
-      const dw = img.width * scale;
-      const dh = img.height * scale;
-      const dx = (w - dw) / 2;
-      const dy = (h - dh) / 2;
-      ctx.drawImage(img, dx, dy, dw, dh);
+      const layout = layoutStageBackdrop(img.width, img.height, {zoom});
+      ctx.drawImage(img, layout.x * sx, layout.y * sy, layout.w * sx, layout.h * sy);
+      ctx.strokeStyle = 'rgba(255,255,255,0.35)';
+      ctx.lineWidth = 1;
+      ctx.strokeRect(0.5, 0.5, w - 1, h - 1);
       trackYs.forEach((y, i) => {
-        const py = dy + (y / CANVAS_H) * dh;
+        const py = (y / CANVAS_H) * h;
+        const bodyH = (HIT_HEIGHT / CANVAS_H) * h;
+        const feetY = py + bodyH;
         ctx.strokeStyle = i === 0 ? '#facc15' : '#38bdf8';
         ctx.lineWidth = 2;
         ctx.setLineDash([8, 6]);
         ctx.beginPath();
-        ctx.moveTo(dx, py);
-        ctx.lineTo(dx + dw, py);
+        ctx.moveTo(0, py);
+        ctx.lineTo(w, py);
         ctx.stroke();
         ctx.setLineDash([]);
         ctx.fillStyle = ctx.strokeStyle;
         ctx.font = '12px sans-serif';
-        ctx.fillText(`track ${i + 1}: y=${y}`, dx + 8, Math.max(14, py - 6));
-        // Feet marker
-        ctx.fillRect(dx + dw * 0.2 - 8, py - 40, 16, 40);
+        ctx.fillText(`track ${i + 1}: y=${y}`, 8, Math.max(14, py - 6));
+        const stubX = w * 0.2 - 8;
+        ctx.globalAlpha = 0.85;
+        ctx.fillRect(stubX, py, 16, bodyH);
+        ctx.globalAlpha = 1;
+        ctx.fillRect(stubX - 4, feetY - 2, 24, 4);
+        ctx.fillText('feet', stubX + 28, feetY + 4);
       });
+    };
+    img.onerror = () => {
+      if (cancelled) return;
+      ctx.fillStyle = '#222';
+      ctx.fillRect(0, 0, canvas.width, canvas.height);
+      ctx.fillStyle = '#f87171';
+      ctx.font = '14px sans-serif';
+      ctx.fillText('Preview image failed to load', 12, canvas.height / 2);
     };
     img.src = imageUrl;
     return () => {
       cancelled = true;
     };
-  }, [imageUrl, trackYs]);
+  }, [imageUrl, trackYs, zoom]);
 
   if (!imageUrl) {
     return (
-      <div
-        style={{
-          height: 200,
-          borderRadius: 8,
-          background: 'var(--ifm-color-emphasis-200)',
-          display: 'grid',
-          placeItems: 'center',
-          fontSize: '0.85rem',
-        }}
-      >
-        Choose a PNG to preview tracks
+      <div className={styles.previewEmpty}>
+        Choose a PNG background to preview tracks on the fight canvas
       </div>
     );
   }
@@ -126,10 +146,161 @@ function TrackPreview({imageUrl, trackYs}) {
   return (
     <canvas
       ref={canvasRef}
+      className={styles.previewFrame}
       width={640}
       height={360}
-      style={{width: '100%', maxWidth: 640, borderRadius: 8, background: '#111'}}
+      aria-label="Stage track preview"
     />
+  );
+}
+
+/**
+ * Shared create | edit tuner: preview (left) + FormulaExplorer-style draggers (right).
+ */
+function StageTuneEditor({
+  mode,
+  imageUrl,
+  trackCount,
+  onTrackCount,
+  trackYs,
+  onTrackYs,
+  zoom,
+  onZoom,
+  // create-only
+  name,
+  onName,
+  onFile,
+  onSubmitCreate,
+  // edit-only
+  editTitle,
+  onSaveEdit,
+  onCancelEdit,
+  testUrl,
+  busy,
+  canSubmit,
+}) {
+  const feetYs = trackYs.map((y) => y + HIT_HEIGHT);
+
+  return (
+    <div>
+      <div className={styles.layout}>
+        <div className={styles.previewCol}>
+          <span className={styles.sectionLabel}>Preview</span>
+          <TrackPreview imageUrl={imageUrl} trackYs={trackYs} zoom={zoom} />
+        </div>
+
+        <div className={styles.controlsCol}>
+          <span className={styles.sectionLabel}>
+            {mode === 'edit' ? `Edit — ${editTitle}` : 'Upload controls'}
+          </span>
+
+          {mode === 'create' ? (
+            <>
+              <label className={styles.field}>
+                <span className={styles.fieldLabel}>Stage name</span>
+                <input
+                  className={styles.input}
+                  value={name}
+                  onChange={(e) => onName(e.target.value)}
+                  maxLength={64}
+                  placeholder="My pixel stage"
+                />
+              </label>
+              <label className={styles.field}>
+                <span className={styles.fieldLabel}>Background PNG</span>
+                <input
+                  className={styles.input}
+                  type="file"
+                  accept="image/png"
+                  onChange={(e) => onFile(e.target.files?.[0] || null)}
+                />
+              </label>
+            </>
+          ) : null}
+
+          <label className={styles.field}>
+            <span className={styles.fieldLabel}>Number of tracks</span>
+            <select
+              className={styles.select}
+              value={trackCount}
+              onChange={(e) => onTrackCount(Number(e.target.value))}
+            >
+              <option value={1}>1 track (ground)</option>
+              <option value={2}>2 tracks (front / back lane)</option>
+            </select>
+          </label>
+
+          {trackYs.map((y, index) => (
+            <ParamDragger
+              key={index}
+              label={trackCount > 1 ? `Track ${index + 1} Y` : 'Floor track Y'}
+              valueText={String(y)}
+              hint={`Hitbox top. Feet land near y=${y + HIT_HEIGHT} on the 576px canvas.`}
+              min={180}
+              max={500}
+              value={y}
+              onChange={(value) =>
+                onTrackYs(trackYs.map((item, i) => (i === index ? value : item)))
+              }
+            />
+          ))}
+
+          <ParamDragger
+            label="Background zoom"
+            valueText={`${zoom.toFixed(1)}×`}
+            hint="Enlarge if the art has empty padding and looks tiny in-game."
+            min={10}
+            max={40}
+            value={Math.round(zoom * 10)}
+            onChange={(raw) => onZoom(raw / 10)}
+          />
+
+
+
+          <div className={styles.actions}>
+            {mode === 'create' ? (
+              <button
+                type="button"
+                className={styles.btnPrimary}
+                disabled={busy || !canSubmit}
+                onClick={onSubmitCreate}
+              >
+                {busy ? 'Uploading…' : 'Upload stage'}
+              </button>
+            ) : (
+              <>
+                <button
+                  type="button"
+                  className={styles.btnPrimary}
+                  disabled={busy || !canSubmit}
+                  onClick={onSaveEdit}
+                >
+                  {busy ? 'Saving…' : 'Save stage'}
+                </button>
+                <button
+                  type="button"
+                  className={styles.btnGhost}
+                  disabled={busy}
+                  onClick={onCancelEdit}
+                >
+                  Cancel
+                </button>
+                {testUrl ? (
+                  <a
+                    className={styles.btnGhost}
+                    href={testUrl}
+                    target="_blank"
+                    rel="noreferrer"
+                  >
+                    Open in game
+                  </a>
+                ) : null}
+              </>
+            )}
+          </div>
+        </div>
+      </div>
+    </div>
   );
 }
 
@@ -139,23 +310,25 @@ export default function FightingGameWorkshop({stageOnly = false} = {}) {
   const [packs, setPacks] = useState([]);
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
+
+  // Shared tuner state — create and edit reuse the same StageTuneEditor.
+  const [mode, setMode] = useState('create'); // 'create' | 'edit'
+  const [editingPack, setEditingPack] = useState(null);
   const [name, setName] = useState('');
   const [file, setFile] = useState(null);
   const [previewUrl, setPreviewUrl] = useState('');
   const [trackCount, setTrackCount] = useState(1);
   const [trackYs, setTrackYs] = useState([330]);
+  const [bgZoom, setBgZoom] = useState(1);
 
+  const editorRef = useRef(null);
   const isStudent = auth?.role === 'student' && auth?.name && auth?.rosterId;
 
-  const stages = useMemo(
-    () => packs.filter((p) => p.kind === 'stage'),
-    [packs],
-  );
+  const stages = useMemo(() => packs.filter((p) => p.kind === 'stage'), [packs]);
   const mine = useMemo(
     () =>
       stages.filter(
-        (p) =>
-          isStudent && p.author === auth.name && p.rosterSlug === auth.rosterId,
+        (p) => isStudent && p.author === auth.name && p.rosterSlug === auth.rosterId,
       ),
     [stages, isStudent, auth],
   );
@@ -182,33 +355,66 @@ export default function FightingGameWorkshop({stageOnly = false} = {}) {
   }, [refresh]);
 
   useEffect(() => {
-    if (!file) {
-      setPreviewUrl('');
+    if (mode !== 'create' || !file) {
+      if (mode === 'create') setPreviewUrl('');
       return undefined;
     }
     const url = URL.createObjectURL(file);
     setPreviewUrl(url);
     return () => URL.revokeObjectURL(url);
-  }, [file]);
+  }, [file, mode]);
 
   useEffect(() => {
-    setTrackYs((prev) => {
-      const next = [];
-      for (let i = 0; i < trackCount; i++) {
-        next.push(prev[i] != null ? prev[i] : i === 0 ? 330 : 280);
-      }
-      return next;
-    });
+    setTrackYs((prev) => resizeTracks(prev, trackCount));
   }, [trackCount]);
 
-  async function handleCreate(event) {
-    event.preventDefault();
+  function ownedByMe(pack) {
+    return isStudent && pack.author === auth.name && pack.rosterSlug === auth.rosterId;
+  }
+
+  function resetCreateForm() {
+    setMode('create');
+    setEditingPack(null);
+    setName('');
+    setFile(null);
+    setPreviewUrl('');
+    setTrackCount(1);
+    setTrackYs([330]);
+    setBgZoom(1);
+  }
+
+  function beginCreate() {
+    resetCreateForm();
+    editorRef.current?.scrollIntoView({behavior: 'smooth', block: 'start'});
+  }
+
+  function beginEdit(pack) {
+    const ys = tracksFromMeta(pack.meta);
+    setMode('edit');
+    setEditingPack(pack);
+    setName(pack.name || '');
+    setFile(null);
+    setPreviewUrl(packImageUrl(pack));
+    setTrackCount(ys.length >= 2 ? 2 : 1);
+    setTrackYs(ys.length ? ys : [330]);
+    setBgZoom(zoomFromMeta(pack.meta));
+    setError('');
+    editorRef.current?.scrollIntoView({behavior: 'smooth', block: 'start'});
+  }
+
+  function testStageUrl(pack) {
+    return `/games/fighting-game-phaser/index.html?${new URLSearchParams({
+      stage: pack.id,
+    }).toString()}`;
+  }
+
+  async function handleCreate() {
     if (!isStudent) {
       setError('Sign in as a student (settings gear) to upload.');
       return;
     }
     if (!online) {
-      setError('Backend offline — uploads unavailable. Built-in stages still work in the game.');
+      setError('Backend offline — uploads unavailable.');
       return;
     }
     if (!name.trim() || !file) {
@@ -222,6 +428,8 @@ export default function FightingGameWorkshop({stageOnly = false} = {}) {
       const meta = {
         mode: 'single',
         width: 1024,
+        fit: 'cover',
+        bgZoom: Number(bgZoom) || 1,
         tracks: trackYs.map((y) => ({y: Number(y)})),
       };
       const pack = await createGamePack({
@@ -237,20 +445,45 @@ export default function FightingGameWorkshop({stageOnly = false} = {}) {
         ownerName: auth.name,
         file,
       });
-      // Persist tracks again after upload (upload may merge width).
       await updateGamePack(pack.id, {
         rosterSlug: auth.rosterId,
         ownerName: auth.name,
         meta: {
           ...meta,
           tracks: trackYs.map((y) => ({y: Number(y)})),
+          bgZoom: Number(bgZoom) || 1,
         },
       });
-      setName('');
-      setFile(null);
+      resetCreateForm();
       await refresh();
     } catch (err) {
       setError(err.message || 'Upload failed');
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function handleSaveEdit() {
+    if (!editingPack || !ownedByMe(editingPack)) return;
+    setBusy(true);
+    setError('');
+    try {
+      await updateGamePack(editingPack.id, {
+        rosterSlug: auth.rosterId,
+        ownerName: auth.name,
+        meta: {
+          ...(editingPack.meta || {}),
+          mode: editingPack.meta?.mode || 'single',
+          width: editingPack.meta?.width || 1024,
+          fit: 'cover',
+          bgZoom: Number(bgZoom) || 1,
+          tracks: trackYs.map((y) => ({y: Number(y)})),
+        },
+      });
+      resetCreateForm();
+      await refresh();
+    } catch (err) {
+      setError(err.message || 'Failed to save stage');
     } finally {
       setBusy(false);
     }
@@ -264,6 +497,7 @@ export default function FightingGameWorkshop({stageOnly = false} = {}) {
         rosterSlug: auth.rosterId,
         ownerName: auth.name,
       });
+      if (editingPack?.id === pack.id) resetCreateForm();
       await refresh();
     } catch (err) {
       setError(err.message || 'Delete failed');
@@ -272,34 +506,14 @@ export default function FightingGameWorkshop({stageOnly = false} = {}) {
     }
   }
 
-  function testStageUrl(pack) {
-    const params = new URLSearchParams({
-      stage: pack.id,
-    });
-    return `/games/fighting-game-phaser/index.html?${params.toString()}`;
-  }
+  const statusLabel =
+    online == null ? '…' : online ? 'online' : 'offline';
 
   return (
-    <section style={panelStyle}>
-      <h2 style={{marginTop: 0}}>Stage workshop — background + tracks</h2>
-      <p style={{marginBottom: '0.75rem'}}>
-        Upload one PNG background and set where fighters stand (track lines). Backend{' '}
-        <strong>{online == null ? '…' : online ? 'online' : 'offline'}</strong>
-        {online === false
-          ? ' — the game still runs with built-in maps.'
-          : null}
-      </p>
-      {!isStudent ? (
-        <p>
-          Sign in as a <strong>student</strong> (编程 roster) via the settings gear to
-          upload.
-        </p>
-      ) : (
-        <p>
-          Signed in as <strong>{auth.name}</strong> ({auth.rosterLabel || auth.rosterId}).
-          Your stages: {mine.length}/10.
-        </p>
-      )}
+    <div
+      title="Stage workshop"
+      subtitle="Upload a PNG background, tune floor tracks, then open it in the fighting game."
+    >
 
       {error ? (
         <p style={{color: 'var(--ifm-color-danger)'}} role="alert">
@@ -307,129 +521,92 @@ export default function FightingGameWorkshop({stageOnly = false} = {}) {
         </p>
       ) : null}
 
-      <form
-        onSubmit={handleCreate}
-        style={{display: 'grid', gap: '0.75rem', marginBottom: '1.25rem'}}
-      >
-        <label style={{display: 'grid', gap: 4, fontWeight: 600, fontSize: '0.85rem'}}>
-          Stage name
-          <input
-            style={inputStyle}
-            value={name}
-            onChange={(e) => setName(e.target.value)}
-            maxLength={64}
-            placeholder="My pixel stage"
-          />
-        </label>
-        <label style={{display: 'grid', gap: 4, fontWeight: 600, fontSize: '0.85rem'}}>
-          Background PNG (ideally 1024×576)
-          <input
-            type="file"
-            accept="image/png"
-            onChange={(e) => setFile(e.target.files?.[0] || null)}
-          />
-        </label>
-        <label style={{display: 'grid', gap: 4, fontWeight: 600, fontSize: '0.85rem'}}>
-          Number of tracks
-          <select
-            style={inputStyle}
-            value={trackCount}
-            onChange={(e) => setTrackCount(Number(e.target.value))}
-          >
-            <option value={1}>1 track (ground)</option>
-            <option value={2}>2 tracks (front / back lane)</option>
-          </select>
-        </label>
-        {trackYs.map((y, index) => (
-          <label
-            key={index}
-            style={{display: 'grid', gap: 4, fontWeight: 600, fontSize: '0.85rem'}}
-          >
-            Track {index + 1} floor Y ({y})
-            <input
-              type="range"
-              min={180}
-              max={500}
-              value={y}
-              onChange={(e) => {
-                const value = Number(e.target.value);
-                setTrackYs((prev) => prev.map((item, i) => (i === index ? value : item)));
-              }}
-            />
-          </label>
-        ))}
-        <TrackPreview imageUrl={previewUrl} trackYs={trackYs} />
-        <button type="submit" style={buttonStyle} disabled={busy || !online || !isStudent}>
-          {busy ? 'Uploading…' : 'Upload stage'}
-        </button>
-      </form>
+      <StageTuneEditor
+        mode={mode}
+        imageUrl={previewUrl}
+        trackCount={trackCount}
+        onTrackCount={setTrackCount}
+        trackYs={trackYs}
+        onTrackYs={setTrackYs}
+        zoom={bgZoom}
+        onZoom={setBgZoom}
+        name={name}
+        onName={setName}
+        onFile={setFile}
+        onSubmitCreate={handleCreate}
+        editTitle={editingPack?.name || ''}
+        onSaveEdit={handleSaveEdit}
+        onCancelEdit={resetCreateForm}
+        testUrl={editingPack ? testStageUrl(editingPack) : ''}
+        busy={busy}
+        canSubmit={
+          mode === 'create'
+            ? Boolean(online && isStudent && name.trim() && file)
+            : Boolean(online && isStudent && editingPack)
+        }
+      />
 
-      <h3>Class stages</h3>
-      {!online && online != null ? (
-        <p>Gallery unavailable while the API is offline.</p>
-      ) : stages.length === 0 ? (
-        <p>No student stages yet — be the first.</p>
-      ) : (
-        <div
-          style={{
-            display: 'grid',
-            gridTemplateColumns: 'repeat(auto-fill, minmax(200px, 1fr))',
-            gap: '0.75rem',
-          }}
-        >
-          {stages.map((pack) => {
-            const preview = packImageUrl(pack);
-            const owned =
-              isStudent &&
-              pack.author === auth.name &&
-              pack.rosterSlug === auth.rosterId;
-            const ys = tracksFromMeta(pack.meta);
-            return (
-              <article
-                key={pack.id}
-                style={{
-                  border: '1px solid var(--ifm-color-emphasis-300)',
-                  borderRadius: 8,
-                  padding: '0.6rem',
-                }}
-              >
-                {preview ? (
-                  <img
-                    src={preview}
-                    alt=""
-                    style={{
-                      width: '100%',
-                      height: 100,
-                      objectFit: 'cover',
-                      borderRadius: 4,
-                      background: '#111',
-                    }}
-                  />
-                ) : null}
-                <div style={{fontWeight: 700, marginTop: 6}}>{pack.name}</div>
-                <div style={{fontSize: '0.8rem', opacity: 0.85}}>
-                  by {pack.author || 'unknown'} · tracks {ys.join(', ')}
-                </div>
-                <div style={{display: 'flex', flexWrap: 'wrap', gap: 6, marginTop: 8}}>
-                  <a href={testStageUrl(pack)} target="_blank" rel="noreferrer" style={secondaryBtn}>
-                    Open in game
-                  </a>
-                  {owned ? (
-                    <button
-                      type="button"
-                      style={secondaryBtn}
-                      disabled={busy}
-                      onClick={() => handleDelete(pack)}
-                    >
-                      Delete
-                    </button>
+        {!online && online != null ? (
+          <p>Gallery unavailable while the API is offline.</p>
+        ) : stages.length === 0 ? (
+          <p>No student stages yet — be the first.</p>
+        ) : (
+          <div className={styles.gallery}>
+            {stages.map((pack) => {
+              const preview = packImageUrl(pack);
+              const owned = ownedByMe(pack);
+              const ys = tracksFromMeta(pack.meta);
+              const active = editingPack?.id === pack.id && mode === 'edit';
+              return (
+                <article
+                  key={pack.id}
+                  className={`${styles.card} ${active ? styles.cardActive : ''}`}
+                >
+                  {preview ? (
+                    <img className={styles.cardThumb} src={preview} alt="" />
                   ) : null}
-                </div>
-              </article>
-            );
-          })}
-        </div>
-      )}
-    </section>
+                  <div className={styles.cardTitle}>{pack.name}</div>
+                  <div className={styles.cardMeta}>
+                    by {pack.author || 'unknown'} · Y {ys.join(', ')}
+                    {zoomFromMeta(pack.meta) > 1
+                      ? ` · ${zoomFromMeta(pack.meta).toFixed(1)}×`
+                      : ''}
+                  </div>
+                  <div className={styles.actions}>
+                    <a
+                      className={styles.btnGhost}
+                      href={testStageUrl(pack)}
+                      target="_blank"
+                      rel="noreferrer"
+                    >
+                      Open
+                    </a>
+                    {owned ? (
+                      <>
+                        <button
+                          type="button"
+                          className={styles.btnGhost}
+                          disabled={busy}
+                          onClick={() => beginEdit(pack)}
+                        >
+                          Edit
+                        </button>
+                        <button
+                          type="button"
+                          className={styles.btnGhost}
+                          disabled={busy}
+                          onClick={() => handleDelete(pack)}
+                        >
+                          Delete
+                        </button>
+                      </>
+                    ) : null}
+                  </div>
+                </article>
+              );
+            })}
+          </div>
+        )}
+    </div>
   );
 }

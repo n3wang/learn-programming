@@ -86,6 +86,8 @@ function stageFromPack(pack, apiBase) {
       imageSrc: files.z3,
       shop: false,
       width: Number(meta.width) || 3072,
+      bgZoom: Number(meta.bgZoom) > 0 ? Number(meta.bgZoom) : 1,
+      fit: meta.fit === 'stretch' || meta.fit === 'contain' ? meta.fit : 'cover',
       thumbCropX: meta.thumbCropX != null ? Number(meta.thumbCropX) : 1024,
       tracks: Array.isArray(meta.tracks) && meta.tracks.length ? meta.tracks : [{ y: 330 }],
       layers: [
@@ -109,6 +111,8 @@ function stageFromPack(pack, apiBase) {
     imageSrc: files.image,
     shop: false,
     width: Number(meta.width) || 1024,
+    bgZoom: Number(meta.bgZoom) > 0 ? Number(meta.bgZoom) : 1,
+    fit: meta.fit === 'stretch' || meta.fit === 'contain' ? meta.fit : 'cover',
     tracks: Array.isArray(meta.tracks) && meta.tracks.length ? meta.tracks : [{ y: 330 }]
   }
 }

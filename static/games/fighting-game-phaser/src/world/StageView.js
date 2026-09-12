@@ -7,6 +7,7 @@ import {
 } from '../config/gameConfig.js'
 import { stageWidth } from '../data/stages.js'
 import { clampToStage } from '../combat/geometry.js'
+import { layoutStageBackdrop, stageBackdropZoom } from './stageBackdrop.js'
 
 // Builds the stage backdrop (single image or parallax stack) and keeps the
 // camera locked to the fighters' midpoint on wide maps.
@@ -17,18 +18,22 @@ export class StageView {
     this.width = stageWidth(stage)
     this.scrollX = 0
 
+    // Letterbox fill behind cropped / contained art.
+    scene.add.rectangle(0, 0, this.width, CANVAS_HEIGHT, 0x111111).setOrigin(0, 0).setDepth(-40)
+
+    const zoom = stageBackdropZoom(stage)
+    const fit = stage.fit || 'cover'
+
     if (stage.layers && stage.layers.length) {
       stage.layers.forEach((layer, index) => {
-        const image = scene.add
-          .image(0, 0, 'stage_' + stage.id + '_layer' + index)
-          .setOrigin(0, 0)
-          .setScrollFactor(layer.scrollFactor, 1)
-          .setDepth(layer.depth ?? index - 30)
+        const key = 'stage_' + stage.id + '_layer' + index
+        const image = this.placeBackdrop(scene, key, zoom, fit, layer.depth ?? index - 30)
+        image.setScrollFactor(layer.scrollFactor, 1)
         if (layer.alpha != null) image.setAlpha(layer.alpha)
         if (layer.tint != null) image.setTint(layer.tint)
       })
     } else {
-      scene.add.image(0, 0, 'stage_' + stage.id).setOrigin(0, 0).setDepth(-10)
+      this.placeBackdrop(scene, 'stage_' + stage.id, zoom, fit, -10)
     }
 
     if (stage.shop) {
@@ -37,6 +42,20 @@ export class StageView {
 
     scene.cameras.main.setBounds(0, 0, this.width, CANVAS_HEIGHT)
     scene.cameras.main.setScroll(0, 0)
+  }
+
+  placeBackdrop(scene, key, zoom, fit, depth) {
+    const image = scene.add.image(0, 0, key).setOrigin(0, 0).setDepth(depth)
+    const src = scene.textures.exists(key) ? scene.textures.get(key).getSourceImage() : null
+    const layout = layoutStageBackdrop(src?.width || this.width, src?.height || CANVAS_HEIGHT, {
+      stageW: this.width,
+      canvasH: CANVAS_HEIGHT,
+      zoom,
+      fit
+    })
+    image.setPosition(layout.x, layout.y)
+    image.setDisplaySize(layout.w, layout.h)
+    return image
   }
 
   updateCamera(player, enemy, dt = 1 / 60) {

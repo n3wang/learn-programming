@@ -132,7 +132,9 @@ export class CharacterSelectScene extends Phaser.Scene {
       const border = this.add
         .rectangle(0, 0, 128, 72, 0x000000, 0)
         .setStrokeStyle(4, GameState.stageId === stage.id ? 0xfacc15 : 0xffffff)
-      const thumb = this.add.image(0, 0, stageThumbKey(stage.id)).setDisplaySize(120, 68)
+      const thumbKey = stageThumbKey(stage.id)
+      const textureKey = this.textures.exists(thumbKey) ? thumbKey : 'stage_' + stage.id
+      const thumb = this.add.image(0, 0, textureKey).setDisplaySize(120, 68)
       const label = this.add
         .text(0, 46, stage.author ? stage.name + '\nby ' + stage.author : stage.name, {
           fontFamily: '"Press Start 2P", monospace',
