@@ -314,11 +314,63 @@ export const SAMURAI_MACK_PRESET = {
   },
 };
 
+const SPEAR_HUNTRESS_ASSET = `${GAME_BASE}/img/mobs/spear_huntress`;
+
+/**
+ * Spear huntress: 150×150 cells. Empty editor — lesson 4g download (or own art) → upload.
+ * flexibleFrame: upload may replace cell size from sheet height (own designs).
+ * Frames: Idle·Run·Death 8 / Jump·Fall 2 / Attack1·2 5 / Take hit 3.
+ */
+export const SPEAR_HUNTRESS_PRESET = {
+  id: 'spear_huntress',
+  name: '女猎手',
+  frameWidth: 150,
+  frameHeight: 150,
+  footY: 140,
+  faces: 'right',
+  requireUpload: true,
+  flexibleFrame: true,
+  attackKeys: ['attack1', 'attack2'],
+  motionTabs: [
+    {id: 'idle', label: '待机', kind: 'motion'},
+    {id: 'run', label: '移动', kind: 'motion'},
+    {id: 'jump', label: '跳跃', kind: 'motion'},
+    {id: 'fall', label: '下落', kind: 'motion'},
+    {id: 'takeHit', label: '受击', kind: 'motion'},
+    {id: 'death', label: '死亡', kind: 'motion'},
+  ],
+  packDownloads: {
+    idle: `${SPEAR_HUNTRESS_ASSET}/Idle.png`,
+    run: `${SPEAR_HUNTRESS_ASSET}/Run.png`,
+    jump: `${SPEAR_HUNTRESS_ASSET}/Jump.png`,
+    fall: `${SPEAR_HUNTRESS_ASSET}/Fall.png`,
+    attack1: `${SPEAR_HUNTRESS_ASSET}/Attack1.png`,
+    attack2: `${SPEAR_HUNTRESS_ASSET}/Attack2.png`,
+    takeHit: `${SPEAR_HUNTRESS_ASSET}/Take hit.png`,
+    death: `${SPEAR_HUNTRESS_ASSET}/Death.png`,
+  },
+  sprites: {
+    idle: {src: '', framesMax: 8},
+    run: {src: '', framesMax: 8},
+    jump: {src: '', framesMax: 2},
+    fall: {src: '', framesMax: 2},
+    attack1: {src: '', framesMax: 5},
+    attack2: {src: '', framesMax: 5},
+    takeHit: {src: '', framesMax: 3},
+    death: {src: '', framesMax: 8},
+  },
+  attacks: {
+    attack1: {hitFrame: 3, box: {x: 78, y: 40, w: 62, h: 55}},
+    attack2: {hitFrame: 3, box: {x: 82, y: 36, w: 60, h: 58}},
+  },
+};
+
 const PRESETS = {
   brucer: BRUCER_PRESET,
   chinese_hero: CHINESE_HERO_PRESET,
   female_hero_knight: FEMALE_HERO_KNIGHT_PRESET,
   samurai_mack: SAMURAI_MACK_PRESET,
+  spear_huntress: SPEAR_HUNTRESS_PRESET,
 };
 
 function tabsForPreset(preset) {
@@ -921,7 +973,7 @@ function StatsBudgetPanel({statPoints, onChange}) {
 }
 
 /**
- * @param {'brucer'|'chinese_hero'|'female_hero_knight'|'samurai_mack'} preset
+ * @param {'brucer'|'chinese_hero'|'female_hero_knight'|'samurai_mack'|'spear_huntress'} preset
  * @param {boolean} allowUpload   force upload UI (also auto for requireUpload presets)
  */
 export default function CharacterHitboxWorkshop({
@@ -930,12 +982,20 @@ export default function CharacterHitboxWorkshop({
 } = {}) {
   const base = PRESETS[preset] || BRUCER_PRESET;
   const needsUpload = allowUpload || !!base.requireUpload;
+  const flexibleFrame = !!base.flexibleFrame;
   const tabs = useMemo(() => tabsForPreset(base), [base]);
   const saved = typeof window !== 'undefined' ? loadDraftForPreset(base.id) : null;
   const [name, setName] = useState(() => saved?.name || base.name);
   const [characterId, setCharacterId] = useState(
     () => saved?.id || 'draft_' + (base.id || 'char'),
   );
+  const [frameWidth, setFrameWidth] = useState(
+    () => Number(saved?.frameWidth) || base.frameWidth,
+  );
+  const [frameHeight, setFrameHeight] = useState(
+    () => Number(saved?.frameHeight) || base.frameHeight,
+  );
+  const [footY, setFootY] = useState(() => Number(saved?.footY) || base.footY);
   const [tab, setTab] = useState('idle');
   const [sprites, setSprites] = useState(() => {
     const merged = structuredClone(base.sprites);
@@ -1012,17 +1072,28 @@ export default function CharacterHitboxWorkshop({
       author: null,
       faces: base.faces,
       sizeMultiplier,
-      scale: displayScaleForFrame(base.frameWidth, base.frameHeight, sizeMultiplier),
-      frameWidth: base.frameWidth,
-      frameHeight: base.frameHeight,
-      footY: base.footY,
+      scale: displayScaleForFrame(frameWidth, frameHeight, sizeMultiplier),
+      frameWidth,
+      frameHeight,
+      footY,
       sprites,
       attacks,
       statPoints,
       preset: base.id,
       updatedAt: Date.now(),
     }),
-    [name, characterId, attacks, statPoints, sizeMultiplier, sprites, base],
+    [
+      name,
+      characterId,
+      attacks,
+      statPoints,
+      sizeMultiplier,
+      sprites,
+      base,
+      frameWidth,
+      frameHeight,
+      footY,
+    ],
   );
 
   const updateAttack = useCallback((key, patch) => {
@@ -1144,7 +1215,16 @@ export default function CharacterHitboxWorkshop({
       const dataUrl = String(reader.result || '');
       const img = new Image();
       img.onload = () => {
-        const fw = base.frameWidth;
+        let fw = frameWidth;
+        let fh = frameHeight;
+        // Own designs / huntress lesson: cell size follows sheet height (square cells).
+        if (flexibleFrame && (tab === 'idle' || !Object.values(sprites).some((s) => s?.src))) {
+          fh = Math.max(1, img.height);
+          fw = fh;
+          setFrameWidth(fw);
+          setFrameHeight(fh);
+          setFootY(Math.round(fh * 0.93));
+        }
         const frames = Math.max(1, Math.round(img.width / fw));
         setSprites((prev) => ({
           ...prev,
@@ -1156,7 +1236,11 @@ export default function CharacterHitboxWorkshop({
         }));
         setPlaying(false);
         setViewFrame(0);
-        setMessage(`已替换「${tabMeta.label}」精灵表（${frames} 帧）`);
+        setMessage(
+          flexibleFrame && fw !== base.frameWidth
+            ? `已替换「${tabMeta.label}」（格 ${fw}×${fh}，${frames} 帧）`
+            : `已替换「${tabMeta.label}」精灵表（${frames} 帧）`,
+        );
       };
       img.onerror = () => setMessage('图片无法读取');
       img.src = dataUrl;
@@ -1174,8 +1258,16 @@ export default function CharacterHitboxWorkshop({
           <span className={styles.sectionLabel}>素材下载（编辑器外）</span>
           <p className={styles.paramHint} style={{marginBottom: 8}}>
             先在这里下载 PNG
-            {base.id === 'samurai_mack' ? '，改色后再' : '，再'}在下方编辑器对应标签里
+            {base.id === 'samurai_mack'
+              ? '，改色后再'
+              : base.id === 'spear_huntress'
+                ? '（女猎手模板），或上传你自己画的同名动作表，再'
+                : '，再'}
+            在下方编辑器对应标签里
             <strong>上传</strong>。未上传时编辑器只有「上传」。
+            {base.id === 'spear_huntress'
+              ? ' 自创角色：横向精灵表、正方形格（高=一格边长）；先传待机以锁定格尺寸。'
+              : ''}
             {missingRoles.length
               ? `（还剩 ${missingRoles.length} 个未上传）`
               : '（全部已上传）'}
@@ -1223,8 +1315,8 @@ export default function CharacterHitboxWorkshop({
           </span>
           <HitboxCanvas
             imageUrl={sprite.src}
-            frameWidth={base.frameWidth}
-            frameHeight={base.frameHeight}
+            frameWidth={frameWidth}
+            frameHeight={frameHeight}
             framesMax={framesMax}
             frameIndex={Math.min(viewFrame, framesMax - 1)}
             box={isAttack && attack ? attack.box : null}
@@ -1293,13 +1385,13 @@ export default function CharacterHitboxWorkshop({
                 label="盒 X"
                 valueText={String(attack.box.x)}
                 min={0}
-                max={base.frameWidth - 1}
+                max={frameWidth - 1}
                 value={attack.box.x}
                 onChange={(x) =>
                   updateBox({
                     ...attack.box,
                     x,
-                    w: clamp(attack.box.w, 1, base.frameWidth - x),
+                    w: clamp(attack.box.w, 1, frameWidth - x),
                   })
                 }
               />
@@ -1307,13 +1399,13 @@ export default function CharacterHitboxWorkshop({
                 label="盒 Y"
                 valueText={String(attack.box.y)}
                 min={0}
-                max={base.frameHeight - 1}
+                max={frameHeight - 1}
                 value={attack.box.y}
                 onChange={(y) =>
                   updateBox({
                     ...attack.box,
                     y,
-                    h: clamp(attack.box.h, 1, base.frameHeight - y),
+                    h: clamp(attack.box.h, 1, frameHeight - y),
                   })
                 }
               />
@@ -1321,12 +1413,12 @@ export default function CharacterHitboxWorkshop({
                 label="盒 宽"
                 valueText={String(attack.box.w)}
                 min={1}
-                max={base.frameWidth}
+                max={frameWidth}
                 value={attack.box.w}
                 onChange={(w) =>
                   updateBox({
                     ...attack.box,
-                    w: clamp(w, 1, base.frameWidth - attack.box.x),
+                    w: clamp(w, 1, frameWidth - attack.box.x),
                   })
                 }
               />
@@ -1334,12 +1426,12 @@ export default function CharacterHitboxWorkshop({
                 label="盒 高"
                 valueText={String(attack.box.h)}
                 min={1}
-                max={base.frameHeight}
+                max={frameHeight}
                 value={attack.box.h}
                 onChange={(h) =>
                   updateBox({
                     ...attack.box,
-                    h: clamp(h, 1, base.frameHeight - attack.box.y),
+                    h: clamp(h, 1, frameHeight - attack.box.y),
                   })
                 }
               />
@@ -1348,8 +1440,8 @@ export default function CharacterHitboxWorkshop({
             <>
               {tab === 'idle' ? (
                 <SizeComparePanel
-                  frameWidth={base.frameWidth}
-                  frameHeight={base.frameHeight}
+                  frameWidth={frameWidth}
+                  frameHeight={frameHeight}
                   sizeMultiplier={sizeMultiplier}
                   onMultiplierChange={setSizeMultiplier}
                   studentIdleSrc={sprites.idle.src}

@@ -3,6 +3,9 @@ import angleDirection from './angle-direction';
 import angleEx2 from './angle-ex2';
 import angleEx3 from './angle-ex3';
 import angleEx4 from './angle-ex4';
+import boltNutMatching from './bolt-nut-matching';
+import bookSortingRate from './book-sorting-rate';
+import copyShopCost from './copy-shop-cost';
 import costProfitBook from './cost-profit-book';
 import degreeAdd from './degree-add';
 import eqCheckNo from './eq-check-no';
@@ -11,6 +14,9 @@ import linearEx1 from './linear-ex1';
 import linearEx2 from './linear-ex2';
 import linearEx3 from './linear-ex3';
 import linearEx4 from './linear-ex4';
+import matchingPartsDays from './matching-parts-days';
+import profitLossPair from './profit-loss-pair';
+import sameProfitTwoCosts from './same-profit-two-costs';
 import solvingEx31 from './solving-ex3-1';
 import solvingEx32 from './solving-ex3-2';
 import solvingEx33 from './solving-ex3-3';
@@ -23,7 +29,10 @@ import solveFraction from './solve-fraction';
 import solveParen from './solve-paren';
 import solveTranspose from './solve-transpose';
 import solveWord from './solve-word';
+import subwayPassCost from './subway-pass-cost';
 import supplementComplement from './supplement-complement';
+import tableWoodPlan from './table-wood-plan';
+import waterTierPricing from './water-tier-pricing';
 
 /**
  * Register guided-choice worked examples here.
@@ -35,6 +44,9 @@ const GUIDES = {
   'angle-ex2': angleEx2,
   'angle-ex3': angleEx3,
   'angle-ex4': angleEx4,
+  'bolt-nut-matching': boltNutMatching,
+  'book-sorting-rate': bookSortingRate,
+  'copy-shop-cost': copyShopCost,
   'cost-profit-book': costProfitBook,
   'degree-add': degreeAdd,
   'eq-check-no': eqCheckNo,
@@ -43,6 +55,9 @@ const GUIDES = {
   'linear-ex2': linearEx2,
   'linear-ex3': linearEx3,
   'linear-ex4': linearEx4,
+  'matching-parts-days': matchingPartsDays,
+  'profit-loss-pair': profitLossPair,
+  'same-profit-two-costs': sameProfitTwoCosts,
   'solving-ex3-1': solvingEx31,
   'solving-ex3-2': solvingEx32,
   'solving-ex3-3': solvingEx33,
@@ -55,7 +70,10 @@ const GUIDES = {
   'solve-paren': solveParen,
   'solve-transpose': solveTranspose,
   'solve-word': solveWord,
+  'subway-pass-cost': subwayPassCost,
   'supplement-complement': supplementComplement,
+  'table-wood-plan': tableWoodPlan,
+  'water-tier-pricing': waterTierPricing,
 };
 
 export function getGuidedChoice(id) {

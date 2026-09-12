@@ -43,6 +43,9 @@ const FightingGameWorkshop = lazyMdxComponent(() =>
 const CharacterHitboxWorkshop = lazyMdxComponent(() =>
   import('@site/src/components/CharacterHitboxWorkshop'),
 );
+const MediaLibrary = lazyMdxComponent(() =>
+  import('@site/src/components/MediaLibrary'),
+);
 
 export default {
     ...MDXComponents,
@@ -76,6 +79,7 @@ export default {
     AdminRosterEditorPanel,
     FightingGameWorkshop,
     CharacterHitboxWorkshop,
+    MediaLibrary,
     BlockArrowScroll,
     p: TranslatableParagraph,
 };

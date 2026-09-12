@@ -4,6 +4,21 @@ title: 编程
 ---
 
 
+
+## 需要下载的软件
+
+https://drive.google.com/drive/folders/1VN7PbpWOi3ve6vug5PAFr_hFnT3QOrTV?usp=sharin
+
+| | |
+|---|---|
+| ![安装视频](./img/image-8.png) | [安装讲解](https://www.youtube.com/watch?v=PYzyv2hD4pE) |
+| ![像素图编辑器](./img/image-9.png) | 像素图编辑器 |
+| ![Aseprite](./img/image-10.png) | [Aseprite](https://www.aseprite.org/) |
+
+更多视频：[播放列表](https://www.youtube.com/watch?v=cq9P-KcJMkY&list=PLgZyoeNk0Yr423smsnxyT5eTkWPFB3AmP)
+
+
+
 # 总结
 
 这是我们学过的内容地图，以及可以继续自学的播放列表和工具。
@@ -94,13 +109,3 @@ title: 编程
 <YouTubeEmbed id="a9u2yZvsqHA" title="GitHub 新手教程" />
 
 ---
-
-## 需要下载的软件
-
-| | |
-|---|---|
-| ![安装视频](./img/image-8.png) | [安装讲解](https://www.youtube.com/watch?v=PYzyv2hD4pE) |
-| ![像素图编辑器](./img/image-9.png) | 像素图编辑器 |
-| ![Aseprite](./img/image-10.png) | [Aseprite](https://www.aseprite.org/) |
-
-更多视频：[播放列表](https://www.youtube.com/watch?v=cq9P-KcJMkY&list=PLgZyoeNk0Yr423smsnxyT5eTkWPFB3AmP)
