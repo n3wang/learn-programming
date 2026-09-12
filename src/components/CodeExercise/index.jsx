@@ -14,17 +14,10 @@ import SplitPanes from '@site/src/components/codeWorkspace/SplitPanes';
 import HelpModal from '@site/src/components/codeWorkspace/HelpModal';
 import {noTranslateClass} from '@site/src/components/codeWorkspace/noTranslate';
 import chrome from '@site/src/components/codeWorkspace/chrome.module.css';
-
-function executeUrl(api, siteConfig) {
-    if (api) {
-        return api.replace(/\/$/, '');
-    }
-    const fromConfig = siteConfig?.customFields?.pistonExecuteUrl;
-    if (fromConfig) {
-        return String(fromConfig).replace(/\/$/, '');
-    }
-    return 'https://piston.l.l0l.in/api/v2/execute';
-}
+import {
+    fetchPistonExecute,
+    resolvePistonExecuteUrl,
+} from '@site/src/api/pistonClient';
 
 function collectOutput(data) {
     const runResult = data.run || {};
@@ -203,7 +196,7 @@ export default function CodeExercise({
         setSplit(true);
         setChecking(true);
         setResults(null);
-        const endpoint = executeUrl(api, siteConfig);
+        const endpoint = resolvePistonExecuteUrl(api, siteConfig);
         const next = [];
         const program = buildProgram(lang, code, wrapPrefix, wrapSuffix);
 
@@ -220,7 +213,7 @@ export default function CodeExercise({
 
             if (!failed) {
                 for (const test of tests) {
-                    const res = await fetch(endpoint, {
+                    const res = await fetchPistonExecute(endpoint, {
                         method: 'POST',
                         headers: {'Content-Type': 'application/json'},
                         body: JSON.stringify({

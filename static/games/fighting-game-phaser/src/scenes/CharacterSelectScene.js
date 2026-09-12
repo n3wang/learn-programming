@@ -1,17 +1,18 @@
-import { CHARACTERS, rosterIds, getCharacter, randomCharacterId } from '../data/characters.js'
-import { STAGES } from '../data/stages.js'
-import { GameState } from '../state/GameState.js'
+import { CHARACTERS, rosterIds, getCharacter } from '../data/characters.js'
+import { STAGES, stageThumbKey } from '../data/stages.js'
+import { GameState, cycleOpponent, teardownOnline } from '../state/GameState.js'
 import { PortraitCard } from '../ui/PortraitCard.js'
 import { createButton } from '../ui/Button.js'
 import { CANVAS_WIDTH, CANVAS_HEIGHT } from '../config/gameConfig.js'
+import { UI, UI_FONT } from '../ui/strings.js'
 
 function specialAttackNames(character) {
   const names = []
-  if (character.skills.airCombo) names.push('Drop')
-  if (character.skills.dashCombo) names.push('Dash')
-  if (character.skills.mirror) names.push('Mirror')
-  if (character.skills.afterimage) names.push('Image')
-  if (character.skills.lockDirection) names.push('Lock')
+  if (character.skills.airCombo) names.push(UI.skillDrop)
+  if (character.skills.dashCombo) names.push(UI.skillDash)
+  if (character.skills.mirror) names.push(UI.skillMirror)
+  if (character.skills.afterimage) names.push(UI.skillImage)
+  if (character.skills.lockDirection) names.push(UI.skillLock)
   return names
 }
 
@@ -23,29 +24,41 @@ function attackSpeedLabel(character) {
 function headerText(character) {
   return (
     character.name +
-    '\n\nbase damage: ' +
+    '\n\n' +
+    UI.baseDamage +
+    ': ' +
     character.attackDamage.attack1 +
-    '\nmovement speed: ' +
+    '\n' +
+    UI.moveSpeed +
+    ': ' +
     character.moveSpeed +
-    '\nattack speed: ' +
+    '\n' +
+    UI.attackSpeed +
+    ': ' +
     attackSpeedLabel(character) +
-    '\njump: ' +
+    '\n' +
+    UI.jump +
+    ': ' +
     Math.abs(character.jumpVelocity)
   )
 }
 
 const STATS_FONT = {
-  fontFamily: '"Press Start 2P", monospace',
-  fontSize: '10px',
+  fontFamily: UI_FONT,
+  fontSize: '13px',
   color: '#ffffff',
-  lineSpacing: 8
+  lineSpacing: 6
 }
 
 const SPECIALS_MAX_LINES = 2
+const MAP_PAGE_SIZE = 3
+const MAP_SPACING = 150
+const ROSTER_PAGE_SIZE = 6
+const ROSTER_COLS = 2
+const ROSTER_ROWS = 3
+const ROSTER_GAP_X = 92
+const ROSTER_GAP_Y = 92
 
-// Wraps `raw` to fit `maxWidth` using `probe`'s style, capped at `maxLines`
-// lines — the last line gets trimmed down to fit with a trailing "..." if
-// there would have been more content than that.
 function wrapAndClamp(probe, raw, maxWidth, maxLines) {
   probe.setWordWrapWidth(maxWidth, true)
   const lines = probe.getWrappedText(raw)
@@ -63,6 +76,10 @@ function wrapAndClamp(probe, raw, maxWidth, maxLines) {
   return kept.join('\n')
 }
 
+function pageCount(total, pageSize) {
+  return Math.max(1, Math.ceil(total / pageSize))
+}
+
 export class CharacterSelectScene extends Phaser.Scene {
   constructor() {
     super('CharacterSelect')
@@ -70,74 +87,71 @@ export class CharacterSelectScene extends Phaser.Scene {
 
   create() {
     GameState.mode = 'match'
+    GameState.skipSelect = false
+    // Any socket from a finished match is dead weight on this screen.
+    teardownOnline()
     this.hoverStats = { p1: null, p2: null }
     this.cardsP1 = []
     this.cardsP2 = []
+    this.mapCards = []
+    this.mapPage = 0
+    this.rosterPage = { p1: 0, p2: 0 }
+    this.rosterIds = rosterIds()
 
     this.add.rectangle(0, 0, CANVAS_WIDTH, CANVAS_HEIGHT, 0x111111).setOrigin(0, 0)
     this.add
-      .text(CANVAS_WIDTH / 2, 34, 'Choose Fighters', {
-        fontFamily: '"Press Start 2P", monospace',
-        fontSize: '20px',
+      .text(CANVAS_WIDTH / 2, 34, UI.chooseFighters, {
+        fontFamily: UI_FONT,
+        fontSize: '28px',
         color: '#ffffff'
       })
       .setOrigin(0.5, 0.5)
 
     this.pickerRow = this.add
       .text(CANVAS_WIDTH / 2, 66, '', {
-        fontFamily: '"Press Start 2P", monospace',
-        fontSize: '10px',
+        fontFamily: UI_FONT,
+        fontSize: '14px',
         color: '#ffffff',
         align: 'center'
       })
       .setOrigin(0.5, 0.5)
 
-    this.buildRosters()
     this.buildMapPicker()
+    this.buildRosters()
     this.buildStatsPanels()
     this.buildButtons()
     this.refresh()
   }
 
-  buildRosters() {
-    const ids = rosterIds()
-    const startY = 130
-    const gap = 96
-    ids.forEach((id, index) => {
-      const y = startY + index * gap
-      this.cardsP1.push(
-        new PortraitCard(this, 96, y, getCharacter(id), 'p1', {
-          selected: GameState.p1Character === id,
-          onSelect: (charId) => this.selectCharacter('p1', charId),
-          onHover: (charId) => this.setHover('p1', charId)
-        })
-      )
-      this.cardsP2.push(
-        new PortraitCard(this, CANVAS_WIDTH - 96, y, getCharacter(id), 'p2', {
-          selected: GameState.p2Character === id,
-          onSelect: (charId) => this.selectCharacter('p2', charId),
-          onHover: (charId) => this.setHover('p2', charId)
-        })
-      )
-    })
-  }
-
   buildMapPicker() {
-    this.mapCards = []
-    const startX = CANVAS_WIDTH / 2 - ((STAGES.length - 1) * 150) / 2
+    const y = 118
+    const startX = CANVAS_WIDTH / 2 - ((MAP_PAGE_SIZE - 1) * MAP_SPACING) / 2
+
+    this.mapPrevBtn = createButton(this, startX - 100, y, 44, 40, '<', () => {
+      this.mapPage = Math.max(0, this.mapPage - 1)
+      this.refreshMapPicker()
+    })
+    this.mapNextBtn = createButton(this, startX + (MAP_PAGE_SIZE - 1) * MAP_SPACING + 100, y, 44, 40, '>', () => {
+      this.mapPage = Math.min(pageCount(STAGES.length, MAP_PAGE_SIZE) - 1, this.mapPage + 1)
+      this.refreshMapPicker()
+    })
+
     STAGES.forEach((stage, index) => {
-      const x = startX + index * 150
-      const y = 170
+      const slot = index % MAP_PAGE_SIZE
+      const x = startX + slot * MAP_SPACING
       const container = this.add.container(x, y)
       const border = this.add
         .rectangle(0, 0, 128, 72, 0x000000, 0)
         .setStrokeStyle(4, GameState.stageId === stage.id ? 0xfacc15 : 0xffffff)
-      const thumb = this.add.image(0, 0, 'stage_' + stage.id).setDisplaySize(120, 68)
+      const thumbKey = stageThumbKey(stage.id)
+      const textureKey = this.textures.exists(thumbKey) ? thumbKey : 'stage_' + stage.id
+      const thumb = this.add.image(0, 0, textureKey).setDisplaySize(120, 68)
       const label = this.add
-        .text(0, 46, stage.name, {
-          fontFamily: '"Press Start 2P", monospace',
-          fontSize: '8px',
-          color: '#ffffff'
+        .text(0, 46, stage.author ? stage.name + '\n' + UI.by + stage.author : stage.name, {
+          fontFamily: UI_FONT,
+          fontSize: '11px',
+          color: '#ffffff',
+          align: 'center'
         })
         .setOrigin(0.5, 0.5)
       container.add([thumb, border, label])
@@ -146,13 +160,129 @@ export class CharacterSelectScene extends Phaser.Scene {
         GameState.stageId = stage.id
         this.refreshMapPicker()
       })
-      this.mapCards.push({ stage, border })
+      this.mapCards.push({ stage, index, border, container })
     })
+
+    // Jump to the page that contains the current stage.
+    const selectedIndex = STAGES.findIndex((stage) => stage.id === GameState.stageId)
+    if (selectedIndex >= 0) this.mapPage = Math.floor(selectedIndex / MAP_PAGE_SIZE)
+    this.refreshMapPicker()
   }
 
   refreshMapPicker() {
-    this.mapCards.forEach(({ stage, border }) => {
-      border.setStrokeStyle(4, GameState.stageId === stage.id ? 0xfacc15 : 0xffffff)
+    const pages = pageCount(STAGES.length, MAP_PAGE_SIZE)
+    this.mapPage = Phaser.Math.Clamp(this.mapPage, 0, pages - 1)
+
+    this.mapCards.forEach(({ stage, index, border, container }) => {
+      const onPage = Math.floor(index / MAP_PAGE_SIZE) === this.mapPage
+      container.setVisible(onPage)
+      if (onPage) {
+        border.setInteractive({ useHandCursor: true })
+        border.setStrokeStyle(4, GameState.stageId === stage.id ? 0xfacc15 : 0xffffff)
+      } else {
+        border.disableInteractive()
+      }
+    })
+
+    this.mapPrevBtn.setVisibleButton(pages > 1)
+    this.mapNextBtn.setVisibleButton(pages > 1)
+    this.mapPrevBtn.list[0].setAlpha(this.mapPage > 0 ? 1 : 0.35)
+    this.mapNextBtn.list[0].setAlpha(this.mapPage < pages - 1 ? 1 : 0.35)
+  }
+
+  rosterSlotPosition(side, slot) {
+    const col = slot % ROSTER_COLS
+    const row = Math.floor(slot / ROSTER_COLS)
+    if (side === 'p1') {
+      return { x: 70 + col * ROSTER_GAP_X, y: 185 + row * ROSTER_GAP_Y }
+    }
+    return {
+      x: CANVAS_WIDTH - 70 - (ROSTER_COLS - 1 - col) * ROSTER_GAP_X,
+      y: 185 + row * ROSTER_GAP_Y
+    }
+  }
+
+  buildRosters() {
+    this.rosterIds.forEach((id, index) => {
+      const slot = index % ROSTER_PAGE_SIZE
+      const p1Pos = this.rosterSlotPosition('p1', slot)
+      const p2Pos = this.rosterSlotPosition('p2', slot)
+
+      this.cardsP1.push({
+        index,
+        card: new PortraitCard(this, p1Pos.x, p1Pos.y, getCharacter(id), 'p1', {
+          selected: GameState.p1Character === id,
+          onSelect: (charId) => this.selectCharacter('p1', charId),
+          onHover: (charId) => this.setHover('p1', charId)
+        })
+      })
+      this.cardsP2.push({
+        index,
+        card: new PortraitCard(this, p2Pos.x, p2Pos.y, getCharacter(id), 'p2', {
+          selected: GameState.p2Character === id,
+          onSelect: (charId) => this.selectCharacter('p2', charId),
+          onHover: (charId) => this.setHover('p2', charId)
+        })
+      })
+    })
+
+    const arrowY = 152
+    this.rosterPrevP1 = createButton(this, 70, arrowY, 44, 32, '<', () => this.shiftRosterPage('p1', -1))
+    this.rosterNextP1 = createButton(this, 70 + ROSTER_GAP_X, arrowY, 44, 32, '>', () =>
+      this.shiftRosterPage('p1', 1)
+    )
+    this.rosterPrevP2 = createButton(this, CANVAS_WIDTH - 70 - ROSTER_GAP_X, arrowY, 44, 32, '<', () =>
+      this.shiftRosterPage('p2', -1)
+    )
+    this.rosterNextP2 = createButton(this, CANVAS_WIDTH - 70, arrowY, 44, 32, '>', () =>
+      this.shiftRosterPage('p2', 1)
+    )
+
+    this.ensureRosterPageShows('p1', GameState.p1Character)
+    this.ensureRosterPageShows('p2', GameState.p2Character)
+    this.refreshRosterPages()
+  }
+
+  shiftRosterPage(side, delta) {
+    const pages = pageCount(this.rosterIds.length, ROSTER_PAGE_SIZE)
+    this.rosterPage[side] = Phaser.Math.Clamp(this.rosterPage[side] + delta, 0, pages - 1)
+    this.refreshRosterPages()
+  }
+
+  ensureRosterPageShows(side, characterId) {
+    const index = this.rosterIds.indexOf(characterId)
+    if (index < 0) return
+    this.rosterPage[side] = Math.floor(index / ROSTER_PAGE_SIZE)
+  }
+
+  refreshRosterPages() {
+    const pages = pageCount(this.rosterIds.length, ROSTER_PAGE_SIZE)
+
+    const hideP2 = this.isOnlineMode()
+    const apply = (entries, side) => {
+      const page = Phaser.Math.Clamp(this.rosterPage[side], 0, pages - 1)
+      this.rosterPage[side] = page
+      entries.forEach(({ index, card }) => {
+        const onPage = Math.floor(index / ROSTER_PAGE_SIZE) === page && !(hideP2 && side === 'p2')
+        card.setVisible(onPage)
+        card.setSelected(
+          card.character.id === (side === 'p1' ? GameState.p1Character : GameState.p2Character)
+        )
+      })
+    }
+
+    apply(this.cardsP1, 'p1')
+    apply(this.cardsP2, 'p2')
+
+    const showArrows = pages > 1
+    ;[
+      [this.rosterPrevP1, this.rosterPage.p1 > 0, false],
+      [this.rosterNextP1, this.rosterPage.p1 < pages - 1, false],
+      [this.rosterPrevP2, this.rosterPage.p2 > 0, hideP2],
+      [this.rosterNextP2, this.rosterPage.p2 < pages - 1, hideP2]
+    ].forEach(([btn, enabled, hidden]) => {
+      btn.setVisibleButton(showArrows && !hidden)
+      btn.list[0].setAlpha(enabled ? 1 : 0.35)
     })
   }
 
@@ -162,7 +292,6 @@ export class CharacterSelectScene extends Phaser.Scene {
     const innerWidth = panelWidth - 24
     this.statsInnerWidth = innerWidth
 
-    // Off-screen, invisible — used only to measure/wrap text (see wrapAndClamp).
     this.textProbe = this.add.text(0, 0, '', STATS_FONT).setVisible(false)
 
     const p1X = 24
@@ -184,21 +313,34 @@ export class CharacterSelectScene extends Phaser.Scene {
     this.specialsP2 = this.add.text(p2X + 12, p2Y + panelHeight - 34, '', STATS_FONT)
   }
 
+  isOnlineMode() {
+    return GameState.opponent === 'online'
+  }
+
+  opponentLabel() {
+    if (GameState.opponent === 'cpu') return UI.modeVsCpu
+    if (GameState.opponent === 'online') return UI.modeVsOnline
+    return UI.modeVsHuman
+  }
+
   buildButtons() {
     const centerX = CANVAS_WIDTH / 2
-    createButton(this, centerX, 300, 260, 40, 'Random Characters', () => {
-      GameState.p1Character = randomCharacterId()
-      GameState.p2Character = randomCharacterId()
-      this.hoverStats = { p1: null, p2: null }
+    this.opponentToggle = createButton(this, centerX, 280, 260, 40, this.opponentLabel(), () => {
+      cycleOpponent()
+      this.opponentToggle.setLabel(this.opponentLabel())
       this.refresh()
     })
-    createButton(this, centerX, 350, 260, 40, 'Start', () => {
+    createButton(this, centerX, 330, 260, 40, UI.start, () => {
       GameState.mode = 'match'
-      this.scene.start('Fight')
+      // Online picks the opponent (and their character) through matchmaking.
+      this.scene.start(this.isOnlineMode() ? 'OnlineLobby' : 'Fight')
     })
-    createButton(this, centerX, 400, 260, 40, 'Test Range', () => {
+    createButton(this, centerX, 380, 260, 40, UI.testRange, () => {
       GameState.mode = 'test'
       this.scene.start('Fight')
+    })
+    createButton(this, centerX, 430, 260, 40, UI.controls, () => {
+      this.scene.launch('Controls')
     })
   }
 
@@ -215,10 +357,18 @@ export class CharacterSelectScene extends Phaser.Scene {
   }
 
   refresh() {
-    this.cardsP1.forEach((card) => card.setSelected(card.character.id === GameState.p1Character))
-    this.cardsP2.forEach((card) => card.setSelected(card.character.id === GameState.p2Character))
+    this.refreshRosterPages()
+    this.refreshMapPicker()
+    const p2Label = this.isOnlineMode()
+      ? UI.onlineWaiting
+      : UI.p2 + ': ' + CHARACTERS[GameState.p2Character].name
     this.pickerRow.setText(
-      'P1: ' + CHARACTERS[GameState.p1Character].name + '    P2: ' + CHARACTERS[GameState.p2Character].name
+      (this.isOnlineMode() ? UI.onlineYou + ' ' : '') +
+        UI.p1 +
+        ': ' +
+        CHARACTERS[GameState.p1Character].name +
+        '    ' +
+        p2Label
     )
     this.refreshStats()
   }
@@ -227,6 +377,14 @@ export class CharacterSelectScene extends Phaser.Scene {
     const p1Id = this.hoverStats.p1 || GameState.p1Character
     const p2Id = this.hoverStats.p2 || GameState.p2Character
     this.statsP1.setText(headerText(CHARACTERS[p1Id]))
+    if (this.isOnlineMode()) {
+      this.statsP2.setText(UI.onlineOpponent + '\n\n' + UI.onlineWaiting)
+      this.specialsP2.setText('')
+      this.specialsP1.setText(
+        wrapAndClamp(this.textProbe, specialAttackNames(CHARACTERS[p1Id]).join(', '), this.statsInnerWidth, SPECIALS_MAX_LINES)
+      )
+      return
+    }
     this.statsP2.setText(headerText(CHARACTERS[p2Id]))
     this.specialsP1.setText(
       wrapAndClamp(this.textProbe, specialAttackNames(CHARACTERS[p1Id]).join(', '), this.statsInnerWidth, SPECIALS_MAX_LINES)

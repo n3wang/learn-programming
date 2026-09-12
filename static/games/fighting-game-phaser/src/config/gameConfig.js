@@ -4,6 +4,8 @@ export const GRAVITY = 0.7
 export const STAGE_PADDING = 8
 export const MATCH_SECONDS = 60
 export const HEALTH_BAR_MS = 800
+/** Max wait for death anim before showing the result menu (safety net). */
+export const MATCH_END_FALLBACK_MS = 5000
 
 // When both fighters are swinging into each other at once, each only takes
 // this fraction of the hit instead of the full damage.
@@ -32,3 +34,12 @@ export const PLAYER_SPAWN_X = 120
 export const ENEMY_SPAWN_X = 860
 export const TEST_PLAYER_X = 180
 export const TEST_ENEMY_X = 520
+
+// Max center-to-center gap between fighters. Keeps both on screen when the
+// camera tracks their midpoint on wide scrolling stages.
+export const MAX_FIGHTER_SEPARATION = 780
+
+// Camera catch-up on wide stages (higher = snappier). Soft-follows the
+// fighters' midpoint so mirrors/drops/dashes don't snap the view.
+export const CAMERA_FOLLOW_RATE = 5.5
+export const CAMERA_EDGE_PADDING = 48

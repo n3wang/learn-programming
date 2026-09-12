@@ -73,8 +73,19 @@ export class ClashResolver {
     const playerSafe = playerTip
     const enemySafe = enemyTip
 
+    // Both mid-swing at each other: a faster hit frame must not "clean hit"
+    // through the slower swing. Landing into that mutual swing counts as a
+    // clash even before the slower sword's damage zone has extended.
+    const mutualSwing =
+      sharedLane && player.isSwinging() && enemy.isSwinging() && facingEachOther(player, enemy)
+    const hitIntoMutualSwing =
+      (playerLanded && !hittingFromBehind(player, enemy)) ||
+      (enemyLanded && !hittingFromBehind(enemy, player))
     const splitClash =
-      sharedLane && clashOpen(player, now) && clashOpen(enemy, now) && attackRangesClash(player, enemy)
+      mutualSwing &&
+      clashOpen(player, now) &&
+      clashOpen(enemy, now) &&
+      (attackRangesClash(player, enemy) || hitIntoMutualSwing)
     const tippedClash = sharedLane && safeClash(player, enemy)
     let playerSplits = false
     let enemySplits = false
@@ -92,6 +103,10 @@ export class ClashResolver {
         enemy.animator.freezeAtClankFrame()
         result.splitClash = true
       }
+      // Always absorb both swings while the mutual clash holds — including
+      // cooldown frames — so a faster hit frame cannot chip through.
+      player.combat.isAttacking = false
+      enemy.combat.isAttacking = false
       playerSplits = this.splitArmed.player
       enemySplits = this.splitArmed.enemy
     } else if ((tippedClash || playerSafe || enemySafe) && now - this.lastSafeClash > SAFE_CLASH_COOLDOWN_MS) {
@@ -99,41 +114,45 @@ export class ClashResolver {
       result.safeClash = true
     }
 
-    if (playerSafe) {
-      player.combat.isAttacking = false
-    } else if (playerLanded) {
-      const raw = player.hitDamage()
-      const damage = !testMode && enemySplits ? raw * SPLIT_DAMAGE_TAKEN : raw
-      const dealt = Math.max(1, Math.round(damage))
-      enemy.takeHit(dealt)
-      if (testMode) {
-        enemy.health.reset(enemy.combat.kit.maxHealth, enemy.health.maxStamina, enemy.health.staminaRegenPerSecond)
-        enemy.dead = false
-        if (enemy.animator.isDying()) enemy.animator.switchSprite('idle')
+    // Hits that fed the clash are already cancelled — only apply damage when
+    // this frame is not a split clash (avoids punishing the slower startup).
+    if (!splitClash) {
+      if (playerSafe) {
+        player.combat.isAttacking = false
+      } else if (playerLanded) {
+        const raw = player.hitDamage()
+        const damage = !testMode && enemySplits ? raw * SPLIT_DAMAGE_TAKEN : raw
+        const dealt = Math.max(1, Math.round(damage))
+        enemy.takeHit(dealt)
+        if (testMode) {
+          enemy.health.reset(enemy.combat.kit.maxHealth, enemy.health.maxStamina, enemy.health.staminaRegenPerSecond)
+          enemy.dead = false
+          if (enemy.animator.isDying()) enemy.animator.switchSprite('idle')
+        }
+        player.combat.isAttacking = false
+        result.playerLanded = true
+        result.playerDamage = dealt
       }
-      player.combat.isAttacking = false
-      result.playerLanded = true
-      result.playerDamage = dealt
-    }
 
-    if (player.combat.isAttacking && player.animator.frameIndex === player.combat.hitFrame) {
-      player.combat.isAttacking = false
-    }
+      if (player.combat.isAttacking && player.animator.frameIndex === player.combat.hitFrame) {
+        player.combat.isAttacking = false
+      }
 
-    if (enemySafe) {
-      enemy.combat.isAttacking = false
-    } else if (enemyLanded) {
-      const raw = enemy.hitDamage()
-      const damage = playerSplits ? raw * SPLIT_DAMAGE_TAKEN : raw
-      const dealt = Math.max(1, Math.round(damage))
-      player.takeHit(dealt)
-      enemy.combat.isAttacking = false
-      result.enemyLanded = true
-      result.enemyDamage = dealt
-    }
+      if (enemySafe) {
+        enemy.combat.isAttacking = false
+      } else if (enemyLanded) {
+        const raw = enemy.hitDamage()
+        const damage = playerSplits ? raw * SPLIT_DAMAGE_TAKEN : raw
+        const dealt = Math.max(1, Math.round(damage))
+        player.takeHit(dealt)
+        enemy.combat.isAttacking = false
+        result.enemyLanded = true
+        result.enemyDamage = dealt
+      }
 
-    if (enemy.combat.isAttacking && enemy.animator.frameIndex === enemy.combat.hitFrame) {
-      enemy.combat.isAttacking = false
+      if (enemy.combat.isAttacking && enemy.animator.frameIndex === enemy.combat.hitFrame) {
+        enemy.combat.isAttacking = false
+      }
     }
 
     return result

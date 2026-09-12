@@ -1,8 +1,16 @@
 /** Thin client for springbackend classroom APIs (`/api/classroom`). */
 
 import useDocusaurusContext from '@docusaurus/useDocusaurusContext';
+import {
+  DEFAULT_API_BASE,
+  apiBaseCandidates,
+  getApiBaseUrl,
+  isNetworkFailure,
+  normalizeApiBase,
+  rememberApiBaseUrl,
+} from '@site/src/api/apiBase';
 
-const DEFAULT_API_BASE = 'http://localhost:8080';
+export {getApiBaseUrl, rememberApiBaseUrl} from '@site/src/api/apiBase';
 
 export function resolveApiBaseUrl(customFields) {
   const fromConfig =
@@ -10,7 +18,7 @@ export function resolveApiBaseUrl(customFields) {
       ? customFields.apiBaseUrl.trim()
       : '';
   if (fromConfig) {
-    return fromConfig.replace(/\/$/, '');
+    return normalizeApiBase(fromConfig);
   }
   return DEFAULT_API_BASE;
 }
@@ -21,25 +29,15 @@ export function useApiBaseUrl() {
   return resolveApiBaseUrl(siteConfig?.customFields);
 }
 
-/**
- * Read api base without React (IndexedDB layer).
- * Prefers Root.js inject (`window.__LEARN_API_BASE_URL__`), else localhost.
- */
-export function getApiBaseUrl() {
-  if (typeof window !== 'undefined' && window.__LEARN_API_BASE_URL__) {
-    return String(window.__LEARN_API_BASE_URL__).replace(/\/$/, '');
-  }
-  return DEFAULT_API_BASE;
-}
-
-async function classroomFetch(path, options = {}) {
-  const base = getApiBaseUrl();
+async function fetchFromBase(base, path, options) {
   const url = `${base}${path.startsWith('/') ? path : `/${path}`}`;
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), options.timeoutMs || 4000);
   try {
     const res = await fetch(url, {
       ...options,
+      mode: 'cors',
+      credentials: 'omit',
       signal: controller.signal,
       headers: {
         Accept: 'application/json',
@@ -60,6 +58,28 @@ async function classroomFetch(path, options = {}) {
   } finally {
     clearTimeout(timeout);
   }
+}
+
+/**
+ * Same local → deployed retry as Piston: if the configured base is a local
+ * Spring Boot that is not running, fall through to the deployed backend and
+ * remember it, so every later call (and the game) goes straight there.
+ */
+async function classroomFetch(path, options = {}) {
+  const candidates = apiBaseCandidates(getApiBaseUrl());
+  let lastError;
+  for (let i = 0; i < candidates.length; i++) {
+    try {
+      const result = await fetchFromBase(candidates[i], path, options);
+      if (i > 0) rememberApiBaseUrl(candidates[i]);
+      return result;
+    } catch (err) {
+      lastError = err;
+      // A real HTTP status means we reached a backend — do not shop around.
+      if (!isNetworkFailure(err)) throw err;
+    }
+  }
+  throw lastError;
 }
 
 export async function fetchRosters() {
@@ -159,4 +179,89 @@ export async function pingClassroomApi() {
   } catch {
     return false;
   }
+}
+
+export async function fetchGamePacks(kind) {
+  const params = new URLSearchParams();
+  if (kind) {
+    params.set('kind', String(kind));
+  }
+  const qs = params.toString();
+  return classroomFetch(`/api/classroom/game-packs${qs ? `?${qs}` : ''}`, {
+    timeoutMs: 5000,
+  });
+}
+
+export async function fetchGamePack(id) {
+  return classroomFetch(`/api/classroom/game-packs/${encodeURIComponent(id)}`, {
+    timeoutMs: 5000,
+  });
+}
+
+export async function createGamePack({kind, name, rosterSlug, ownerName, meta}) {
+  return classroomFetch('/api/classroom/game-packs', {
+    method: 'POST',
+    body: JSON.stringify({kind, name, rosterSlug, ownerName, meta}),
+    timeoutMs: 10000,
+  });
+}
+
+export async function updateGamePack(id, {rosterSlug, ownerName, name, meta, published}) {
+  return classroomFetch(`/api/classroom/game-packs/${encodeURIComponent(id)}`, {
+    method: 'PATCH',
+    body: JSON.stringify({rosterSlug, ownerName, name, meta, published}),
+    timeoutMs: 10000,
+  });
+}
+
+export async function deleteGamePack(id, {rosterSlug, ownerName}) {
+  return classroomFetch(`/api/classroom/game-packs/${encodeURIComponent(id)}`, {
+    method: 'DELETE',
+    body: JSON.stringify({rosterSlug, ownerName}),
+    timeoutMs: 10000,
+  });
+}
+
+export async function uploadGamePackFile(id, {role, rosterSlug, ownerName, file}) {
+  const base = getApiBaseUrl();
+  const form = new FormData();
+  form.append('role', role);
+  form.append('rosterSlug', rosterSlug);
+  form.append('ownerName', ownerName);
+  form.append('file', file);
+
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 30000);
+  try {
+    const res = await fetch(
+      `${base}/api/classroom/game-packs/${encodeURIComponent(id)}/files`,
+      {
+        method: 'POST',
+        body: form,
+        mode: 'cors',
+        credentials: 'omit',
+        signal: controller.signal,
+      },
+    );
+    if (!res.ok) {
+      const text = await res.text().catch(() => '');
+      const err = new Error(`Classroom API ${res.status}: ${text || res.statusText}`);
+      err.status = res.status;
+      throw err;
+    }
+    return await res.json();
+  } finally {
+    clearTimeout(timeout);
+  }
+}
+
+export function gamePackFileUrl(relativeOrAbsolute) {
+  if (!relativeOrAbsolute) {
+    return '';
+  }
+  if (/^https?:\/\//i.test(relativeOrAbsolute)) {
+    return relativeOrAbsolute;
+  }
+  const base = getApiBaseUrl();
+  return `${base}${relativeOrAbsolute.startsWith('/') ? '' : '/'}${relativeOrAbsolute}`;
 }

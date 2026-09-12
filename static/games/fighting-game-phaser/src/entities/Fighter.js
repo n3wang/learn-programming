@@ -4,7 +4,7 @@ import { FighterAnimator } from './FighterAnimator.js'
 import { FighterHealth } from './FighterHealth.js'
 import { AfterimageTrail } from './AfterimageTrail.js'
 
-const FRAME_SIZE = 200 // every character animation frame is 200x200px
+const FRAME_SIZE = 200 // default for built-in 200×200 packs (Samurai / Kenji)
 
 // Thin coordinator (a real Phaser Sprite) delegating to single-responsibility
 // collaborators. Exposes the flat property surface (position, velocity,
@@ -138,7 +138,11 @@ export class Fighter extends Phaser.GameObjects.Sprite {
     const died = this.health.takeHit(damage)
     if (died) {
       this.fallDown()
-    } else if (!this.animator.isPlaying('attack1') && !this.animator.isPlaying('attack2')) {
+    } else if (
+      !this.animator.isPlaying('attack1') &&
+      !this.animator.isPlaying('attack2') &&
+      !this.animator.isPlaying('attack3')
+    ) {
       this.animator.playTakeHit()
     }
   }
@@ -162,11 +166,15 @@ export class Fighter extends Phaser.GameObjects.Sprite {
 
   // Places the visual sprite so its texture matches the original canvas
   // draw math: drawn top-left at (position - offset), mirrored about the
-  // hitbox's own horizontal center when facing is flipped. Every frame is
-  // a constant 200x200px, so the flip math only needs the current scale.
+  // hitbox's own horizontal center when facing is flipped. Frame size comes
+  // from the kit (workshop packs may not be 200×200).
   syncTransform() {
     const scale = this.combat.kit.scale
-    const drawWidth = FRAME_SIZE * scale
+    const frameW =
+      this.combat.kit.sprites?.idle?.frameWidth ||
+      this.combat.kit.sprites?.attack1?.frameWidth ||
+      FRAME_SIZE
+    const drawWidth = frameW * scale
     const unflippedCenterX = this.position.x - this.offset.x + drawWidth / 2
     const anchor = this.position.x + this.hitWidth / 2
     this.x = this.flip ? 2 * anchor - unflippedCenterX : unflippedCenterX

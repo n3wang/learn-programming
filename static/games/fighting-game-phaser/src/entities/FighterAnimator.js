@@ -2,7 +2,7 @@ import { animKey, DEFAULT_CLANK_FRAME } from '../data/animationDefs.js'
 import { CLANK_FREEZE_MS } from '../config/gameConfig.js'
 
 // Animations that play once and hold their last frame rather than looping.
-const HOLDING_NAMES = new Set(['attack1', 'attack2', 'takeHit'])
+const HOLDING_NAMES = new Set(['attack1', 'attack2', 'attack3', 'takeHit'])
 
 // Wraps sprite.anims.play() and reproduces the original's switchSprite()
 // interrupt-priority rules: an in-progress attack/death animation can't be
@@ -61,7 +61,7 @@ export class FighterAnimator {
   }
 
   isSwinging() {
-    return this.isPlaying('attack1') || this.isPlaying('attack2')
+    return this.isPlaying('attack1') || this.isPlaying('attack2') || this.isPlaying('attack3')
   }
 
   isDying() {
@@ -116,13 +116,14 @@ export class FighterAnimator {
   switchSprite(name) {
     if (this.isDying()) return
     if (this.isSwinging()) return
-    if (name !== 'attack1' && name !== 'attack2' && this.currentAnim === 'takeHit' && !this.holdDone) return
+    if (name !== 'attack1' && name !== 'attack2' && name !== 'attack3' && this.currentAnim === 'takeHit' && !this.holdDone) return
 
     const combat = this.fighter.combat
     if (
       combat.currentAttack &&
       name !== 'attack1' &&
       name !== 'attack2' &&
+      name !== 'attack3' &&
       this.currentAnim === combat.currentAttack
     ) {
       combat.markAttackFinished()

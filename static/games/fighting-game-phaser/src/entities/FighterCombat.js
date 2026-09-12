@@ -1,11 +1,10 @@
 import { CLASH_WINDOW_MS } from '../config/gameConfig.js'
 
-// Owns the attack/combo state machine: attack1 -> queued attack2, the
-// air-combo and dash-combo teleport-then-attack2 chains, the double-tap
-// "mirror" blink-behind-opponent skill, stamina spend for attacks/jump, and
-// the attackBox derived from facing. Consumes plain PlayerIntent objects —
-// never touches keyboard/Phaser input directly — so the same code drives
-// both a human InputController and the Test Range DummyController.
+// Owns the attack/combo state machine: attack1 -> queued attack2 (-> attack3
+// when the kit has sprites.attack3), air/dash combo teleport-then-attack2,
+// double-tap mirror, stamina spend, and the attackBox derived from facing.
+// Consumes plain PlayerIntent objects — never touches keyboard/Phaser input
+// directly — so the same code drives InputController and DummyController.
 export class FighterCombat {
   constructor(fighter) {
     this.fighter = fighter
@@ -46,9 +45,14 @@ export class FighterCombat {
     this.directionLocked = false
   }
 
+  hasAttack(name) {
+    return !!(this.kit?.sprites?.[name])
+  }
+
   hitDamage() {
-    const key = this.currentAttack === 'attack2' ? 'attack2' : 'attack1'
-    return this.kit.attackDamage[key]
+    const key = this.currentAttack
+    if (key && this.kit.attackDamage[key] != null) return this.kit.attackDamage[key]
+    return this.kit.attackDamage.attack1
   }
 
   // Recomputes attackBox.offset/size from current facing — call whenever
@@ -56,8 +60,13 @@ export class FighterCombat {
   applyFacingToAttackBox() {
     const fighter = this.fighter
     const box = this.baseAttackBox
-    fighter.attackBox.offset.x = fighter.flip ? -(box.offset.x + box.hitWidth) : box.offset.x
-    fighter.attackBox.offset.y = (fighter.hitHeight - box.hitHeight) / 2
+    // Mirror about hurtbox center (same as sprite flip), not the left edge —
+    // left-edge mirror pushed workshop boxes far away when facing left.
+    fighter.attackBox.offset.x = fighter.flip
+      ? fighter.hitWidth - box.offset.x - box.hitWidth
+      : box.offset.x
+    // Keep kit/workshop Y (do not re-center — student damage boxes set offset.y).
+    fighter.attackBox.offset.y = box.offset.y
     fighter.attackBox.hitWidth = box.hitWidth
     fighter.attackBox.hitHeight = box.hitHeight
   }
@@ -82,6 +91,16 @@ export class FighterCombat {
     this.isAttacking = true
     this.currentAttack = name
     this.hitFrame = this.kit.sprites[name].hitFrame
+    // Optional per-attack boxes (student workshop drafts).
+    const per = this.kit.attackBoxes && this.kit.attackBoxes[name]
+    if (per) {
+      this.baseAttackBox = {
+        offset: { ...per.offset },
+        hitWidth: per.width,
+        hitHeight: per.height
+      }
+      this.applyFacingToAttackBox()
+    }
     this.lastFinishedAttack = null
     this.clashUntil = now + CLASH_WINDOW_MS
     if (this.kit.skills.lockDirection) this.directionLocked = true
@@ -105,22 +124,32 @@ export class FighterCombat {
   releaseQueuedAttack(now) {
     const fighter = this.fighter
     if (fighter.dead || !this.queuedAttack || !fighter.animator.holdDone) return
-    if (this.currentAttack !== 'attack1') return
 
     const queued = this.queuedAttack
-    this.queuedAttack = null
-    this.comboKind = null
-    this.attackLift = 0
 
-    if (queued.kind === 'air') {
-      fighter.leaveAfterimage()
-      fighter.motion.teleportTo(fighter.position.x + fighter.forwardDir() * this.skillDistance(this.kit.airX, this.kit.airK))
-    } else if (queued.kind === 'dash') {
-      fighter.leaveAfterimage()
-      fighter.motion.teleportTo(fighter.position.x + fighter.forwardDir() * this.skillDistance(this.kit.dashX, this.kit.dashK))
+    if (this.currentAttack === 'attack1') {
+      this.queuedAttack = null
+      this.comboKind = null
+      this.attackLift = 0
+
+      if (queued.kind === 'air') {
+        fighter.leaveAfterimage()
+        fighter.motion.teleportTo(fighter.position.x + fighter.forwardDir() * this.skillDistance(this.kit.airX, this.kit.airK))
+      } else if (queued.kind === 'dash') {
+        fighter.leaveAfterimage()
+        fighter.motion.teleportTo(fighter.position.x + fighter.forwardDir() * this.skillDistance(this.kit.dashX, this.kit.dashK))
+      }
+
+      this.beginAttack('attack2', now)
+      return
     }
 
-    this.beginAttack('attack2', now)
+    if (this.currentAttack === 'attack2' && this.hasAttack('attack3')) {
+      this.queuedAttack = null
+      this.comboKind = null
+      this.attackLift = 0
+      this.beginAttack('attack3', now)
+    }
   }
 
   skillDistance(x, k) {
@@ -173,12 +202,17 @@ export class FighterCombat {
   attack({ movingForward = false, opponent = null, now = performance.now() } = {}) {
     const fighter = this.fighter
     if (fighter.dead) return false
-    if (fighter.animator.isPlaying('attack2') || this.queuedAttack) return false
+    if (this.queuedAttack) return false
+    if (fighter.animator.isPlaying('attack3')) return false
+    if (fighter.animator.isPlaying('attack2') && !this.hasAttack('attack3')) return false
 
     const inAir = !fighter.motion.onGround()
     const followUp =
       fighter.animator.isPlaying('attack1') ||
       (this.lastFinishedAttack === 'attack1' && now - this.attackFinishedAt < this.kit.comboWindow)
+    const followUp3 =
+      this.hasAttack('attack3') &&
+      (this.lastFinishedAttack === 'attack2' && now - this.attackFinishedAt < this.kit.comboWindow)
 
     // Second press is stored and plays only after the first swing finishes.
     if (fighter.animator.isPlaying('attack1')) {
@@ -189,11 +223,16 @@ export class FighterCombat {
       return this.queueFollowUp('combo', opponent)
     }
 
+    // Third press queues attack3 while attack2 is still playing.
+    if (fighter.animator.isPlaying('attack2') && this.hasAttack('attack3')) {
+      return this.queueFollowUp('combo3', opponent)
+    }
+
     if (!fighter.health.spendStamina(this.kit.attackCost)) return false
 
     // Air skill: first swing hits upward. The queued follow-up drops and
     // steps forward.
-    if (this.kit.skills.airCombo && inAir && !followUp) {
+    if (this.kit.skills.airCombo && inAir && !followUp && !followUp3) {
       this.comboKind = 'air'
       this.attackLift = 0
       fighter.motion.velocity.y = Math.min(fighter.motion.velocity.y, -6)
@@ -203,7 +242,7 @@ export class FighterCombat {
 
     // Dash skill: while running forward, the queued follow-up blinks
     // farther ahead.
-    if (this.kit.skills.dashCombo && !inAir && movingForward && !followUp) {
+    if (this.kit.skills.dashCombo && !inAir && movingForward && !followUp && !followUp3) {
       this.comboKind = 'dash'
       this.attackLift = 0
       this.beginAttack('attack1', now)
@@ -212,7 +251,11 @@ export class FighterCombat {
 
     this.comboKind = null
     this.attackLift = 0
-    this.beginAttack(followUp ? 'attack2' : 'attack1', now)
+    if (followUp3) {
+      this.beginAttack('attack3', now)
+    } else {
+      this.beginAttack(followUp ? 'attack2' : 'attack1', now)
+    }
     return true
   }
 }

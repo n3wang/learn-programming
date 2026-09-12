@@ -8,14 +8,11 @@ import {makeDraftId, markPracticeComplete} from '@site/src/components/codeWorksp
 import defaultSourceFilename from '@site/src/components/codeWorkspace/defaultSourceFilename';
 import {noTranslateClass} from '@site/src/components/codeWorkspace/noTranslate';
 import chrome from '@site/src/components/codeWorkspace/chrome.module.css';
+import {
+  fetchPistonExecute,
+  resolvePistonExecuteUrl,
+} from '@site/src/api/pistonClient';
 import styles from './styles.module.css';
-
-function executeUrl(api, siteConfig) {
-  if (api) return api.replace(/\/$/, '');
-  const fromConfig = siteConfig?.customFields?.pistonExecuteUrl;
-  if (fromConfig) return String(fromConfig).replace(/\/$/, '');
-  return 'https://piston.l.l0l.in/api/v2/execute';
-}
 
 const STR = {
   en: {
@@ -57,7 +54,7 @@ function sourceCheck(code, check) {
 }
 
 async function runPiston({endpoint, lang, version, fileName, program}) {
-  const res = await fetch(endpoint, {
+  const res = await fetchPistonExecute(endpoint, {
     method: 'POST',
     headers: {'Content-Type': 'application/json'},
     body: JSON.stringify({
@@ -114,7 +111,7 @@ export default function OutputChallenge({
 
   const [running, setRunning] = useState(false);
   const [result, setResult] = useState(null);
-  const endpoint = executeUrl(api, siteConfig);
+  const endpoint = resolvePistonExecuteUrl(api, siteConfig);
   const want = useMemo(() => normalizeOutput(target), [target]);
 
   const run = useCallback(async () => {
