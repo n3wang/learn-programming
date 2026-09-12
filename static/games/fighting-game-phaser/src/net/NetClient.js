@@ -1,4 +1,4 @@
-import { getFightSocketUrl, socketsSupported } from './netConfig.js'
+import { getFightSocketUrls, socketsSupported } from './netConfig.js'
 
 export const NET_STATUS = {
   IDLE: 'idle',
@@ -22,8 +22,9 @@ const PING_INTERVAL_MS = 4000
  * 'open' | 'close' (emitted once the socket goes away for any reason).
  */
 export class NetClient {
-  constructor(url = getFightSocketUrl()) {
-    this.url = url
+  constructor(urls = getFightSocketUrls()) {
+    this.urls = (Array.isArray(urls) ? urls : [urls]).filter(Boolean)
+    this.url = this.urls[0] || ''
     this.socket = null
     this.status = NET_STATUS.IDLE
     this.latency = 0
@@ -61,14 +62,30 @@ export class NetClient {
     return !!this.socket && this.socket.readyState === 1
   }
 
-  /** Resolves true once the socket is open, false on any failure/timeout. */
-  connect({ timeoutMs = 5000 } = {}) {
-    if (this.isOpen()) return Promise.resolve(true)
-    if (!socketsSupported() || !this.url) {
+  /**
+   * Resolves true once a socket is open, false when every candidate failed.
+   * Candidates are tried in order (configured backend, then the deployed one),
+   * so a missing local Spring Boot is not the end of online play.
+   */
+  async connect({ timeoutMs = 5000 } = {}) {
+    if (this.isOpen()) return true
+    if (!socketsSupported() || !this.urls.length) {
       this.status = NET_STATUS.ERROR
-      return Promise.resolve(false)
+      return false
     }
+    for (const url of this.urls) {
+      if (await this.attempt(url, timeoutMs)) {
+        this.url = url
+        return true
+      }
+      console.warn('[net] relay unreachable at ' + url)
+    }
+    this.status = NET_STATUS.ERROR
+    return false
+  }
 
+  /** One connection attempt. Never emits 'close' for a socket that never opened. */
+  attempt(url, timeoutMs) {
     this.status = NET_STATUS.CONNECTING
     this.closeEmitted = false
 
@@ -82,7 +99,7 @@ export class NetClient {
 
       let socket
       try {
-        socket = new WebSocket(this.url)
+        socket = new WebSocket(url)
       } catch {
         this.status = NET_STATUS.ERROR
         finish(false)
@@ -121,7 +138,9 @@ export class NetClient {
         this.stopPing()
         const wasOpen = this.status === NET_STATUS.OPEN
         this.status = wasOpen ? NET_STATUS.CLOSED : NET_STATUS.ERROR
-        if (!this.closeEmitted) {
+        // A candidate that never opened is just a miss — the caller moves on
+        // to the next URL, so listeners must not be told the link died.
+        if (wasOpen && !this.closeEmitted) {
           this.closeEmitted = true
           this.emit('close', { wasOpen })
         }

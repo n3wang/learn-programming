@@ -3,7 +3,9 @@
 import useDocusaurusContext from '@docusaurus/useDocusaurusContext';
 import {
   DEFAULT_API_BASE,
+  apiBaseCandidates,
   getApiBaseUrl,
+  isNetworkFailure,
   normalizeApiBase,
   rememberApiBaseUrl,
 } from '@site/src/api/apiBase';
@@ -27,8 +29,7 @@ export function useApiBaseUrl() {
   return resolveApiBaseUrl(siteConfig?.customFields);
 }
 
-async function classroomFetch(path, options = {}) {
-  const base = getApiBaseUrl();
+async function fetchFromBase(base, path, options) {
   const url = `${base}${path.startsWith('/') ? path : `/${path}`}`;
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), options.timeoutMs || 4000);
@@ -57,6 +58,28 @@ async function classroomFetch(path, options = {}) {
   } finally {
     clearTimeout(timeout);
   }
+}
+
+/**
+ * Same local → deployed retry as Piston: if the configured base is a local
+ * Spring Boot that is not running, fall through to the deployed backend and
+ * remember it, so every later call (and the game) goes straight there.
+ */
+async function classroomFetch(path, options = {}) {
+  const candidates = apiBaseCandidates(getApiBaseUrl());
+  let lastError;
+  for (let i = 0; i < candidates.length; i++) {
+    try {
+      const result = await fetchFromBase(candidates[i], path, options);
+      if (i > 0) rememberApiBaseUrl(candidates[i]);
+      return result;
+    } catch (err) {
+      lastError = err;
+      // A real HTTP status means we reached a backend — do not shop around.
+      if (!isNetworkFailure(err)) throw err;
+    }
+  }
+  throw lastError;
 }
 
 export async function fetchRosters() {

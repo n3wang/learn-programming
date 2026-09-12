@@ -71,6 +71,41 @@ function statsFromPoints(points) {
 }
 
 const API_BASE_STORAGE_KEY = 'learn_api_base_url'
+/** Mirrors REMOTE_API_BASE in src/api/apiBase.js (keep in sync). */
+const REMOTE_API_BASE = 'https://springbackend.l.l0l.in'
+
+function isLocalApiBase(url) {
+  try {
+    const host = new URL(url).hostname
+    return host === '127.0.0.1' || host === 'localhost' || host === '[::1]'
+  } catch {
+    return false
+  }
+}
+
+/** Deployed backend to fall back on, from the build-time bake when present. */
+export function getGameApiFallback() {
+  if (typeof window === 'undefined') return REMOTE_API_BASE
+  const fromQuery = new URLSearchParams(window.location.search).get('apiFallback')
+  if (fromQuery) return fromQuery.replace(/\/$/, '')
+  if (window.__FIGHT_API_FALLBACK__) {
+    return String(window.__FIGHT_API_FALLBACK__).replace(/\/$/, '')
+  }
+  return REMOTE_API_BASE
+}
+
+/**
+ * Bases to try in order. A local base is only ever a first choice: on a laptop
+ * with no Spring Boot running, the deployed backend still answers instead of
+ * the whole thing failing with ERR_CONNECTION_REFUSED.
+ */
+export function gameApiBaseCandidates(preferred = getGameApiBase()) {
+  const first = String(preferred || '').replace(/\/$/, '')
+  const fallback = getGameApiFallback()
+  if (!first) return [fallback]
+  if (!isLocalApiBase(first) || first === fallback) return [first]
+  return [first, fallback]
+}
 
 function rememberGameApiBase(url) {
   const normalized = String(url || '').replace(/\/$/, '')
@@ -84,7 +119,16 @@ function rememberGameApiBase(url) {
   return normalized
 }
 
+/** A base we have actually reached this session — beats every guess below. */
+let confirmedApiBase = null
+
+export function setConfirmedGameApiBase(url) {
+  confirmedApiBase = rememberGameApiBase(url) || null
+  return confirmedApiBase
+}
+
 export function getGameApiBase() {
+  if (confirmedApiBase) return confirmedApiBase
   if (typeof window === 'undefined') return 'http://localhost:8080'
   const params = new URLSearchParams(window.location.search)
   const fromQuery = params.get('api')
@@ -225,8 +269,7 @@ function stageFromPack(pack, apiBase) {
   }
 }
 
-export async function loadRemoteCatalog({ timeoutMs = 2000 } = {}) {
-  const apiBase = getGameApiBase()
+async function fetchPacks(apiBase, timeoutMs) {
   const controller = new AbortController()
   const timer = setTimeout(() => controller.abort(), timeoutMs)
   try {
@@ -236,10 +279,31 @@ export async function loadRemoteCatalog({ timeoutMs = 2000 } = {}) {
       credentials: 'omit',
       headers: { Accept: 'application/json' }
     })
-    if (!res.ok) return { ok: false, characters: 0, stages: 0 }
+    if (!res.ok) return null
     const packs = await res.json()
-    if (!Array.isArray(packs)) return { ok: false, characters: 0, stages: 0 }
+    return Array.isArray(packs) ? packs : null
+  } catch {
+    return null
+  } finally {
+    clearTimeout(timer)
+  }
+}
 
+export async function loadRemoteCatalog({ timeoutMs = 2000 } = {}) {
+  let apiBase = null
+  let packs = null
+  for (const candidate of gameApiBaseCandidates()) {
+    packs = await fetchPacks(candidate, timeoutMs)
+    if (packs) {
+      apiBase = candidate
+      break
+    }
+  }
+  if (!packs) return { ok: false, characters: 0, stages: 0 }
+  // Pack file URLs — and the fight socket — follow whichever backend answered.
+  setConfirmedGameApiBase(apiBase)
+
+  try {
     let characters = 0
     let stages = 0
     for (const pack of packs) {
@@ -260,8 +324,6 @@ export async function loadRemoteCatalog({ timeoutMs = 2000 } = {}) {
     return { ok: true, characters, stages }
   } catch {
     return { ok: false, characters: 0, stages: 0 }
-  } finally {
-    clearTimeout(timer)
   }
 }
 

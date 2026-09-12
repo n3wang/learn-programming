@@ -1,23 +1,30 @@
-import { getGameApiBase } from '../data/remoteCatalog.js'
+import { getGameApiBase, gameApiBaseCandidates } from '../data/remoteCatalog.js'
 
 const NAME_KEY = 'fg-online-name-v1'
 
-/**
- * Socket URL for the Spring matchmaking relay. Derived from the same API base
- * the pack catalog uses, so a `?api=` override moves both. `?ws=` overrides
- * just the socket (handy when the relay sits behind a different proxy).
- */
-export function getFightSocketUrl() {
-  if (typeof window === 'undefined') return ''
-  const params = new URLSearchParams(window.location.search)
-  const override = params.get('ws')
-  if (override) return override
-
-  let base = getGameApiBase()
-  if (!/^https?:\/\//i.test(base)) {
-    base = window.location.origin + (base.startsWith('/') ? base : '/' + base)
+function socketUrlFor(base) {
+  let origin = String(base || '')
+  if (!/^https?:\/\//i.test(origin)) {
+    origin = window.location.origin + (origin.startsWith('/') ? origin : '/' + origin)
   }
-  return base.replace(/^http/i, 'ws').replace(/\/$/, '') + '/ws/fight'
+  // http -> ws, https -> wss.
+  return origin.replace(/^http/i, 'ws').replace(/\/$/, '') + '/ws/fight'
+}
+
+/**
+ * Socket URLs for the Spring matchmaking relay, tried in order: the configured
+ * backend first, then the deployed one. Derived from the same API base the pack
+ * catalog uses, so a `?api=` override moves both; `?ws=` overrides just the
+ * socket (handy when the relay sits behind a different proxy).
+ *
+ * The fallback matters because a page built with no local Spring Boot bakes
+ * localhost:8080 and would otherwise only ever get ERR_CONNECTION_REFUSED.
+ */
+export function getFightSocketUrls() {
+  if (typeof window === 'undefined') return []
+  const override = new URLSearchParams(window.location.search).get('ws')
+  if (override) return [override]
+  return gameApiBaseCandidates(getGameApiBase()).map(socketUrlFor)
 }
 
 /** Separate queues per class/room so two lessons don't match into each other. */
