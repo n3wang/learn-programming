@@ -284,8 +284,11 @@ export function gamePackFileUrl(relativeOrAbsolute) {
   return `${base}${relativeOrAbsolute.startsWith('/') ? '' : '/'}${relativeOrAbsolute}`;
 }
 
-export async function fetchMediaLibrary(collection) {
-  const params = new URLSearchParams({collection: String(collection || '')});
+export async function fetchMediaLibrary(collection, kind = 'library') {
+  const params = new URLSearchParams({
+    collection: String(collection || ''),
+    kind: String(kind || 'library'),
+  });
   return classroomFetch(`/api/classroom/media-library?${params}`, {
     timeoutMs: 5000,
   });
@@ -337,10 +340,32 @@ export async function uploadMediaLibraryFile({
   });
 }
 
-export async function deleteMediaLibraryItem(id, {adminPassword}) {
+export async function uploadStudentWorkFile({
+  collection,
+  title,
+  rosterSlug,
+  studentName,
+  file,
+}) {
+  const form = new FormData();
+  form.append('collection', collection);
+  form.append('title', title || '');
+  form.append('rosterSlug', rosterSlug);
+  form.append('studentName', studentName);
+  form.append('file', file);
+  return classroomMultipartFetch('/api/classroom/media-library/work/upload', form, {
+    timeoutMs: 30000,
+  });
+}
+
+export async function deleteMediaLibraryItem(id, {adminPassword, rosterSlug, studentName} = {}) {
+  const body = {};
+  if (adminPassword) body.adminPassword = adminPassword;
+  if (rosterSlug) body.rosterSlug = rosterSlug;
+  if (studentName) body.studentName = studentName;
   return classroomFetch(`/api/classroom/media-library/${encodeURIComponent(id)}`, {
     method: 'DELETE',
-    body: JSON.stringify({adminPassword}),
+    body: JSON.stringify(body),
     timeoutMs: 10000,
   });
 }

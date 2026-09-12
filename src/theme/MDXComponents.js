@@ -46,6 +46,9 @@ const CharacterHitboxWorkshop = lazyMdxComponent(() =>
 const MediaLibrary = lazyMdxComponent(() =>
   import('@site/src/components/MediaLibrary'),
 );
+const StudentWorkGallery = lazyMdxComponent(() =>
+  import('@site/src/components/StudentWorkGallery'),
+);
 
 export default {
     ...MDXComponents,
@@ -80,6 +83,7 @@ export default {
     FightingGameWorkshop,
     CharacterHitboxWorkshop,
     MediaLibrary,
+    StudentWorkGallery,
     BlockArrowScroll,
     p: TranslatableParagraph,
 };
