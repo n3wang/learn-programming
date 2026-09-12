@@ -1,6 +1,8 @@
 // P1 uses WASD (left side of the keyboard), P2 uses arrow keys (right side).
 // Lane-swap is bound to the Shift key on the SAME side as each player's own
 // controls: P1 -> Left Shift, P2 -> Right Shift.
+import { UI } from '../ui/strings.js'
+
 export const P1_KEYS = { left: 'A', right: 'D', jump: 'W', attack: 'S' }
 export const P2_KEYS = { left: 'LEFT', right: 'RIGHT', jump: 'UP', attack: 'DOWN' }
 
@@ -20,18 +22,18 @@ export function keyLabel(key) {
 
 export function controlsLines() {
   return [
-    'Player 1',
-    '  Move        ' + keyLabel(P1_KEYS.left) + ' / ' + keyLabel(P1_KEYS.right),
-    '  Jump        ' + keyLabel(P1_KEYS.jump),
-    '  Attack      ' + keyLabel(P1_KEYS.attack),
-    '  Lane swap   Left Shift',
+    UI.player1,
+    '  ' + UI.move + '        ' + keyLabel(P1_KEYS.left) + ' / ' + keyLabel(P1_KEYS.right),
+    '  ' + UI.jump + '        ' + keyLabel(P1_KEYS.jump),
+    '  ' + UI.attack + '        ' + keyLabel(P1_KEYS.attack),
+    '  ' + UI.laneSwap + '     ' + UI.leftShift,
     '',
-    'Player 2',
-    '  Move        ' + keyLabel(P2_KEYS.left) + ' / ' + keyLabel(P2_KEYS.right),
-    '  Jump        ' + keyLabel(P2_KEYS.jump),
-    '  Attack      ' + keyLabel(P2_KEYS.attack),
-    '  Lane swap   Right Shift',
+    UI.player2,
+    '  ' + UI.move + '        ' + keyLabel(P2_KEYS.left) + ' / ' + keyLabel(P2_KEYS.right),
+    '  ' + UI.jump + '        ' + keyLabel(P2_KEYS.jump),
+    '  ' + UI.attack + '        ' + keyLabel(P2_KEYS.attack),
+    '  ' + UI.laneSwap + '     ' + UI.rightShift,
     '',
-    'Pause         Esc'
+    UI.pause + '         Esc'
   ]
 }

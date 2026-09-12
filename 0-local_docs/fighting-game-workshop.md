@@ -75,6 +75,25 @@ DELETE /api/classroom/game-packs/{id}
 GET    /api/classroom/game-packs/files/{fileId}   // binary
 ```
 
+## Online 1v1
+
+The select screen's opponent toggle cycles **1 vs 1（本机）→ 1 vs 电脑 → 1 vs 1（联机）**. Online opens a lobby that queues on the Spring relay and waits for a second student to press online.
+
+| Piece | Spec |
+| --- | --- |
+| Transport | Raw WebSocket at `/ws/fight` (no STOMP/SockJS), URL derived from the same API base as the pack catalog; `?ws=` overrides |
+| Matchmaking | FIFO queue per room (`?room=`, default `default`); the longest-waiting client hosts |
+| Netcode | **Host-authoritative**: P1's browser simulates both fighters and streams snapshots; P2 streams inputs back. The server only relays — it never parses game frames |
+| Framing | Both clients render the identical world (P1 left, P2 right); the guest plays the right-hand fighter with the 玩家1 keys, and bars are tagged `（你）` |
+| Host's picks win | Stage comes from the host; each player brings their own character |
+| Unknown packs | A character/stage the other browser never loaded falls back to a built-in locally — the host still drives the fight |
+| Pause | Esc online opens a non-blocking menu; one client can never freeze the other |
+| Rematch | Both sides must ask; the host fires the restart cue |
+| Identity | `?name=`, else a remembered generated handle |
+| Offline | Connect failure, no `WebSocket`, or an old backend → lobby says 离线 and local 1v1 / 1v PC are untouched |
+
+Server messages: `welcome` `queued` `match` `opponent-left` `pong` `error`. Relayed verbatim between the pair: `in` (input), `st` (snapshot), `ev` (popup / end / rematch). `GET /api/classroom/fight/status` reports `online` / `waiting` / `matches`.
+
 ## Safety
 
 - PNG only; size limits per file
@@ -87,5 +106,6 @@ GET    /api/classroom/game-packs/files/{fileId}   // binary
 | --- | --- |
 | 1 – MVP: Mongo metadata + site-c uploads, stage+tracks workshop, author, delete, offline-safe game | **done** |
 | 1b – 编程 lesson: pixel background + track lines | **done** |
+| 1c – 联机 1v1: Spring WebSocket relay, host-authoritative netcode, offline-safe | **done** |
 | 2 – richer kit/parallax editors, portrait crop | planned |
 | 3 – passkeys, approve-to-publish, fork/remix | planned |

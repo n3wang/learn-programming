@@ -1,15 +1,16 @@
 import { EventBus } from '../state/EventBus.js'
+import { UI, UI_FONT } from './strings.js'
 
 // The Test Range debug readout: dummy attack stats + reach + last-hit text.
 export class TestReadoutPanel {
   constructor(scene, x, y) {
     this.text = scene.add.text(x, y, '', {
-      fontFamily: '"Press Start 2P", monospace',
-      fontSize: '10px',
+      fontFamily: UI_FONT,
+      fontSize: '14px',
       color: '#ffffff',
-      lineSpacing: 10
+      lineSpacing: 8
     })
-    this.lastHitText = 'Last hit: none'
+    this.lastHitText = UI.lastHitNone
 
     this.onHit = (text) => {
       this.lastHitText = text
@@ -20,7 +21,7 @@ export class TestReadoutPanel {
 
   setFighter(fighter) {
     this.fighter = fighter
-    this.lastHitText = 'Last hit: none'
+    this.lastHitText = UI.lastHitNone
     this.render()
   }
 
@@ -28,13 +29,18 @@ export class TestReadoutPanel {
     if (!this.fighter) return
     const damage = this.fighter.combat.kit.attackDamage
     const reach = this.fighter.combat.baseAttackBox.hitWidth
+    let damageLine =
+      UI.attack1 + ': ' + damage.attack1 + '   ' + UI.attack2 + ': ' + damage.attack2
+    if (damage.attack3 != null) {
+      damageLine += '   ' + UI.attack3 + ': ' + damage.attack3
+    }
     this.text.setText(
-      'Test dummy\n' +
-        'Attack 1: ' +
-        damage.attack1 +
-        '   Attack 2: ' +
-        damage.attack2 +
-        '\nReach: ' +
+      UI.testDummy +
+        '\n' +
+        damageLine +
+        '\n' +
+        UI.reach +
+        ': ' +
         reach +
         'px\n' +
         this.lastHitText

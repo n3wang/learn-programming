@@ -1,11 +1,11 @@
 import React, {useCallback, useEffect, useMemo, useRef, useState} from 'react';
 import {useSiteAuth} from '@site/src/components/navbar/useSiteAuth';
-import CEBlock from '@site/src/components/interactive/shell/CEBlock';
 import {
   createGamePack,
   deleteGamePack,
   fetchGamePacks,
   gamePackFileUrl,
+  getApiBaseUrl,
   pingClassroomApi,
   updateGamePack,
   uploadGamePackFile,
@@ -14,7 +14,7 @@ import styles from './fightingGameWorkshop.module.css';
 
 const CANVAS_H = 576;
 const CANVAS_W = 1024;
-/** Game track Y is hitbox top; feet sit at y + HIT_HEIGHT. */
+/** 游戏里站位 Y 是碰撞盒顶部；脚底约在 y + HIT_HEIGHT。 */
 const HIT_HEIGHT = 150;
 
 function packImageUrl(pack) {
@@ -112,13 +112,13 @@ function TrackPreview({imageUrl, trackYs, zoom = 1}) {
         ctx.setLineDash([]);
         ctx.fillStyle = ctx.strokeStyle;
         ctx.font = '12px sans-serif';
-        ctx.fillText(`track ${i + 1}: y=${y}`, 8, Math.max(14, py - 6));
+        ctx.fillText(`站位 ${i + 1}: y=${y}`, 8, Math.max(14, py - 6));
         const stubX = w * 0.2 - 8;
         ctx.globalAlpha = 0.85;
         ctx.fillRect(stubX, py, 16, bodyH);
         ctx.globalAlpha = 1;
         ctx.fillRect(stubX - 4, feetY - 2, 24, 4);
-        ctx.fillText('feet', stubX + 28, feetY + 4);
+        ctx.fillText('脚底', stubX + 28, feetY + 4);
       });
     };
     img.onerror = () => {
@@ -127,7 +127,7 @@ function TrackPreview({imageUrl, trackYs, zoom = 1}) {
       ctx.fillRect(0, 0, canvas.width, canvas.height);
       ctx.fillStyle = '#f87171';
       ctx.font = '14px sans-serif';
-      ctx.fillText('Preview image failed to load', 12, canvas.height / 2);
+      ctx.fillText('预览图加载失败', 12, canvas.height / 2);
     };
     img.src = imageUrl;
     return () => {
@@ -136,11 +136,7 @@ function TrackPreview({imageUrl, trackYs, zoom = 1}) {
   }, [imageUrl, trackYs, zoom]);
 
   if (!imageUrl) {
-    return (
-      <div className={styles.previewEmpty}>
-        Choose a PNG background to preview tracks on the fight canvas
-      </div>
-    );
+    return <div className={styles.previewEmpty}>请选择 PNG 背景以预览站位</div>;
   }
 
   return (
@@ -149,14 +145,11 @@ function TrackPreview({imageUrl, trackYs, zoom = 1}) {
       className={styles.previewFrame}
       width={640}
       height={360}
-      aria-label="Stage track preview"
+      aria-label="关卡站位预览"
     />
   );
 }
 
-/**
- * Shared create | edit tuner: preview (left) + FormulaExplorer-style draggers (right).
- */
 function StageTuneEditor({
   mode,
   imageUrl,
@@ -166,12 +159,10 @@ function StageTuneEditor({
   onTrackYs,
   zoom,
   onZoom,
-  // create-only
   name,
   onName,
   onFile,
   onSubmitCreate,
-  // edit-only
   editTitle,
   onSaveEdit,
   onCancelEdit,
@@ -179,125 +170,114 @@ function StageTuneEditor({
   busy,
   canSubmit,
 }) {
-  const feetYs = trackYs.map((y) => y + HIT_HEIGHT);
-
   return (
-    <div>
-      <div className={styles.layout}>
-        <div className={styles.previewCol}>
-          <span className={styles.sectionLabel}>Preview</span>
-          <TrackPreview imageUrl={imageUrl} trackYs={trackYs} zoom={zoom} />
-        </div>
+    <div className={styles.layout}>
+      <div className={styles.previewCol}>
+        <span className={styles.sectionLabel}>预览</span>
+        <TrackPreview imageUrl={imageUrl} trackYs={trackYs} zoom={zoom} />
+      </div>
 
-        <div className={styles.controlsCol}>
-          <span className={styles.sectionLabel}>
-            {mode === 'edit' ? `Edit — ${editTitle}` : 'Upload controls'}
-          </span>
+      <div className={styles.controlsCol}>
+        <span className={styles.sectionLabel}>
+          {mode === 'edit' ? `编辑 — ${editTitle}` : '上传'}
+        </span>
 
-          {mode === 'create' ? (
-            <>
-              <label className={styles.field}>
-                <span className={styles.fieldLabel}>Stage name</span>
-                <input
-                  className={styles.input}
-                  value={name}
-                  onChange={(e) => onName(e.target.value)}
-                  maxLength={64}
-                  placeholder="My pixel stage"
-                />
-              </label>
-              <label className={styles.field}>
-                <span className={styles.fieldLabel}>Background PNG</span>
-                <input
-                  className={styles.input}
-                  type="file"
-                  accept="image/png"
-                  onChange={(e) => onFile(e.target.files?.[0] || null)}
-                />
-              </label>
-            </>
-          ) : null}
+        {mode === 'create' ? (
+          <>
+            <label className={styles.field}>
+              <span className={styles.fieldLabel}>关卡名称</span>
+              <input
+                className={styles.input}
+                value={name}
+                onChange={(e) => onName(e.target.value)}
+                maxLength={64}
+                placeholder="我的像素关卡"
+              />
+            </label>
+            <label className={styles.field}>
+              <span className={styles.fieldLabel}>背景 PNG</span>
+              <input
+                className={styles.input}
+                type="file"
+                accept="image/png"
+                onChange={(e) => onFile(e.target.files?.[0] || null)}
+              />
+            </label>
+          </>
+        ) : null}
 
-          <label className={styles.field}>
-            <span className={styles.fieldLabel}>Number of tracks</span>
-            <select
-              className={styles.select}
-              value={trackCount}
-              onChange={(e) => onTrackCount(Number(e.target.value))}
-            >
-              <option value={1}>1 track (ground)</option>
-              <option value={2}>2 tracks (front / back lane)</option>
-            </select>
-          </label>
+        <label className={styles.field}>
+          <span className={styles.fieldLabel}>站位线数量</span>
+          <select
+            className={styles.select}
+            value={trackCount}
+            onChange={(e) => onTrackCount(Number(e.target.value))}
+          >
+            <option value={1}>1 条（地面）</option>
+            <option value={2}>2 条（前排 / 后排）</option>
+          </select>
+        </label>
 
-          {trackYs.map((y, index) => (
-            <ParamDragger
-              key={index}
-              label={trackCount > 1 ? `Track ${index + 1} Y` : 'Floor track Y'}
-              valueText={String(y)}
-              hint={`Hitbox top. Feet land near y=${y + HIT_HEIGHT} on the 576px canvas.`}
-              min={180}
-              max={500}
-              value={y}
-              onChange={(value) =>
-                onTrackYs(trackYs.map((item, i) => (i === index ? value : item)))
-              }
-            />
-          ))}
-
+        {trackYs.map((y, index) => (
           <ParamDragger
-            label="Background zoom"
-            valueText={`${zoom.toFixed(1)}×`}
-            hint="Enlarge if the art has empty padding and looks tiny in-game."
-            min={10}
-            max={40}
-            value={Math.round(zoom * 10)}
-            onChange={(raw) => onZoom(raw / 10)}
+            key={index}
+            label={trackCount > 1 ? `站位 ${index + 1} 的 Y` : '地面站位 Y'}
+            valueText={String(y)}
+            hint={`碰撞盒顶部；脚底约在 y=${y + HIT_HEIGHT}`}
+            min={180}
+            max={500}
+            value={y}
+            onChange={(value) =>
+              onTrackYs(trackYs.map((item, i) => (i === index ? value : item)))
+            }
           />
+        ))}
 
+        <ParamDragger
+          label="背景缩放"
+          valueText={`${zoom.toFixed(1)}×`}
+          hint="图太小或留白多时调大"
+          min={10}
+          max={40}
+          value={Math.round(zoom * 10)}
+          onChange={(raw) => onZoom(raw / 10)}
+        />
 
-
-          <div className={styles.actions}>
-            {mode === 'create' ? (
+        <div className={styles.actions}>
+          {mode === 'create' ? (
+            <button
+              type="button"
+              className={styles.btnPrimary}
+              disabled={busy || !canSubmit}
+              onClick={onSubmitCreate}
+            >
+              {busy ? '上传中…' : '上传关卡'}
+            </button>
+          ) : (
+            <>
               <button
                 type="button"
                 className={styles.btnPrimary}
                 disabled={busy || !canSubmit}
-                onClick={onSubmitCreate}
+                onClick={onSaveEdit}
               >
-                {busy ? 'Uploading…' : 'Upload stage'}
+                {busy ? '保存中…' : '保存'}
               </button>
-            ) : (
-              <>
-                <button
-                  type="button"
-                  className={styles.btnPrimary}
-                  disabled={busy || !canSubmit}
-                  onClick={onSaveEdit}
-                >
-                  {busy ? 'Saving…' : 'Save stage'}
-                </button>
-                <button
-                  type="button"
-                  className={styles.btnGhost}
-                  disabled={busy}
-                  onClick={onCancelEdit}
-                >
-                  Cancel
-                </button>
-                {testUrl ? (
-                  <a
-                    className={styles.btnGhost}
-                    href={testUrl}
-                    target="_blank"
-                    rel="noreferrer"
-                  >
-                    Open in game
-                  </a>
-                ) : null}
-              </>
-            )}
-          </div>
+              <button
+                type="button"
+                className={styles.btnGhost}
+                disabled={busy}
+                onClick={onCancelEdit}
+              >
+                取消
+              </button>
+              {testUrl ? (
+                <a className={styles.btnGhost} href={testUrl} target="_blank" rel="noreferrer">
+                  打开游戏
+                </a>
+              ) : null}
+            </>
+          )}
         </div>
       </div>
     </div>
@@ -311,8 +291,7 @@ export default function FightingGameWorkshop({stageOnly = false} = {}) {
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
 
-  // Shared tuner state — create and edit reuse the same StageTuneEditor.
-  const [mode, setMode] = useState('create'); // 'create' | 'edit'
+  const [mode, setMode] = useState('create');
   const [editingPack, setEditingPack] = useState(null);
   const [name, setName] = useState('');
   const [file, setFile] = useState(null);
@@ -321,17 +300,9 @@ export default function FightingGameWorkshop({stageOnly = false} = {}) {
   const [trackYs, setTrackYs] = useState([330]);
   const [bgZoom, setBgZoom] = useState(1);
 
-  const editorRef = useRef(null);
   const isStudent = auth?.role === 'student' && auth?.name && auth?.rosterId;
 
   const stages = useMemo(() => packs.filter((p) => p.kind === 'stage'), [packs]);
-  const mine = useMemo(
-    () =>
-      stages.filter(
-        (p) => isStudent && p.author === auth.name && p.rosterSlug === auth.rosterId,
-      ),
-    [stages, isStudent, auth],
-  );
 
   const refresh = useCallback(async () => {
     setError('');
@@ -345,7 +316,7 @@ export default function FightingGameWorkshop({stageOnly = false} = {}) {
       const data = await fetchGamePacks(stageOnly ? 'stage' : undefined);
       setPacks(Array.isArray(data) ? data : []);
     } catch (err) {
-      setError(err.message || 'Failed to load packs');
+      setError(err.message || '加载失败');
       setPacks([]);
     }
   }, [stageOnly]);
@@ -383,11 +354,6 @@ export default function FightingGameWorkshop({stageOnly = false} = {}) {
     setBgZoom(1);
   }
 
-  function beginCreate() {
-    resetCreateForm();
-    editorRef.current?.scrollIntoView({behavior: 'smooth', block: 'start'});
-  }
-
   function beginEdit(pack) {
     const ys = tracksFromMeta(pack.meta);
     setMode('edit');
@@ -399,26 +365,26 @@ export default function FightingGameWorkshop({stageOnly = false} = {}) {
     setTrackYs(ys.length ? ys : [330]);
     setBgZoom(zoomFromMeta(pack.meta));
     setError('');
-    editorRef.current?.scrollIntoView({behavior: 'smooth', block: 'start'});
   }
 
   function testStageUrl(pack) {
     return `/games/fighting-game-phaser/index.html?${new URLSearchParams({
       stage: pack.id,
+      api: getApiBaseUrl(),
     }).toString()}`;
   }
 
   async function handleCreate() {
     if (!isStudent) {
-      setError('Sign in as a student (settings gear) to upload.');
+      setError('请先以学生身份登录（设置齿轮）再上传。');
       return;
     }
     if (!online) {
-      setError('Backend offline — uploads unavailable.');
+      setError('后端离线，无法上传。');
       return;
     }
     if (!name.trim() || !file) {
-      setError('Name and a PNG background are required.');
+      setError('请填写名称并选择 PNG。');
       return;
     }
 
@@ -457,7 +423,7 @@ export default function FightingGameWorkshop({stageOnly = false} = {}) {
       resetCreateForm();
       await refresh();
     } catch (err) {
-      setError(err.message || 'Upload failed');
+      setError(err.message || '上传失败');
     } finally {
       setBusy(false);
     }
@@ -483,14 +449,14 @@ export default function FightingGameWorkshop({stageOnly = false} = {}) {
       resetCreateForm();
       await refresh();
     } catch (err) {
-      setError(err.message || 'Failed to save stage');
+      setError(err.message || '保存失败');
     } finally {
       setBusy(false);
     }
   }
 
   async function handleDelete(pack) {
-    if (!isStudent || !window.confirm(`Delete "${pack.name}"?`)) return;
+    if (!isStudent || !window.confirm(`确定删除「${pack.name}」？`)) return;
     setBusy(true);
     try {
       await deleteGamePack(pack.id, {
@@ -500,21 +466,14 @@ export default function FightingGameWorkshop({stageOnly = false} = {}) {
       if (editingPack?.id === pack.id) resetCreateForm();
       await refresh();
     } catch (err) {
-      setError(err.message || 'Delete failed');
+      setError(err.message || '删除失败');
     } finally {
       setBusy(false);
     }
   }
 
-  const statusLabel =
-    online == null ? '…' : online ? 'online' : 'offline';
-
   return (
-    <div
-      title="Stage workshop"
-      subtitle="Upload a PNG background, tune floor tracks, then open it in the fighting game."
-    >
-
+    <div>
       {error ? (
         <p style={{color: 'var(--ifm-color-danger)'}} role="alert">
           {error}
@@ -546,67 +505,68 @@ export default function FightingGameWorkshop({stageOnly = false} = {}) {
         }
       />
 
-        {!online && online != null ? (
-          <p>Gallery unavailable while the API is offline.</p>
-        ) : stages.length === 0 ? (
-          <p>No student stages yet — be the first.</p>
-        ) : (
-          <div className={styles.gallery}>
-            {stages.map((pack) => {
-              const preview = packImageUrl(pack);
-              const owned = ownedByMe(pack);
-              const ys = tracksFromMeta(pack.meta);
-              const active = editingPack?.id === pack.id && mode === 'edit';
-              return (
-                <article
-                  key={pack.id}
-                  className={`${styles.card} ${active ? styles.cardActive : ''}`}
-                >
-                  {preview ? (
-                    <img className={styles.cardThumb} src={preview} alt="" />
+      <h3 className={styles.sectionLabel} style={{marginTop: '1.25rem'}}>
+        班级关卡
+      </h3>
+      {!online && online != null ? (
+        <p>后端离线，无法加载画廊。</p>
+      ) : stages.length === 0 ? (
+        <p>还没有同学上传 — 来做第一个吧。</p>
+      ) : (
+        <div className={styles.gallery}>
+          {stages.map((pack) => {
+            const preview = packImageUrl(pack);
+            const owned = ownedByMe(pack);
+            const ys = tracksFromMeta(pack.meta);
+            const active = editingPack?.id === pack.id && mode === 'edit';
+            return (
+              <article
+                key={pack.id}
+                className={`${styles.card} ${active ? styles.cardActive : ''}`}
+              >
+                {preview ? <img className={styles.cardThumb} src={preview} alt="" /> : null}
+                <div className={styles.cardTitle}>{pack.name}</div>
+                <div className={styles.cardMeta}>
+                  作者 {pack.author || '未知'} · Y {ys.join(', ')}
+                  {zoomFromMeta(pack.meta) > 1
+                    ? ` · ${zoomFromMeta(pack.meta).toFixed(1)}×`
+                    : ''}
+                </div>
+                <div className={styles.actions}>
+                  <a
+                    className={styles.btnGhost}
+                    href={testStageUrl(pack)}
+                    target="_blank"
+                    rel="noreferrer"
+                  >
+                    打开
+                  </a>
+                  {owned ? (
+                    <>
+                      <button
+                        type="button"
+                        className={styles.btnGhost}
+                        disabled={busy}
+                        onClick={() => beginEdit(pack)}
+                      >
+                        编辑
+                      </button>
+                      <button
+                        type="button"
+                        className={styles.btnGhost}
+                        disabled={busy}
+                        onClick={() => handleDelete(pack)}
+                      >
+                        删除
+                      </button>
+                    </>
                   ) : null}
-                  <div className={styles.cardTitle}>{pack.name}</div>
-                  <div className={styles.cardMeta}>
-                    by {pack.author || 'unknown'} · Y {ys.join(', ')}
-                    {zoomFromMeta(pack.meta) > 1
-                      ? ` · ${zoomFromMeta(pack.meta).toFixed(1)}×`
-                      : ''}
-                  </div>
-                  <div className={styles.actions}>
-                    <a
-                      className={styles.btnGhost}
-                      href={testStageUrl(pack)}
-                      target="_blank"
-                      rel="noreferrer"
-                    >
-                      Open
-                    </a>
-                    {owned ? (
-                      <>
-                        <button
-                          type="button"
-                          className={styles.btnGhost}
-                          disabled={busy}
-                          onClick={() => beginEdit(pack)}
-                        >
-                          Edit
-                        </button>
-                        <button
-                          type="button"
-                          className={styles.btnGhost}
-                          disabled={busy}
-                          onClick={() => handleDelete(pack)}
-                        >
-                          Delete
-                        </button>
-                      </>
-                    ) : null}
-                  </div>
-                </article>
-              );
-            })}
-          </div>
-        )}
+                </div>
+              </article>
+            );
+          })}
+        </div>
+      )}
     </div>
   );
 }

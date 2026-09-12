@@ -8,6 +8,7 @@ export const ANIMATION_POLICY = {
   takeHit: { repeat: 0 },
   attack1: { repeat: 0 },
   attack2: { repeat: 0 },
+  attack3: { repeat: 0 },
   death: { repeat: 0 }
 }
 

@@ -10,24 +10,13 @@ import splitChartOutput from '@site/src/components/codeWorkspace/splitChartOutpu
 import SplitPanes from '@site/src/components/codeWorkspace/SplitPanes';
 import {noTranslateClass} from '@site/src/components/codeWorkspace/noTranslate';
 import chrome from '@site/src/components/codeWorkspace/chrome.module.css';
-
-function executeUrl(api, siteConfig) {
-    if (api) {
-        return api.replace(/\/$/, '');
-    }
-    const fromConfig = siteConfig?.customFields?.pistonExecuteUrl;
-    if (fromConfig) {
-        return String(fromConfig).replace(/\/$/, '');
-    }
-    return 'https://piston.l.l0l.in/api/v2/execute';
-}
-
-function connectUrl(execute) {
-    const url = new URL(execute);
-    url.protocol = url.protocol === 'https:' ? 'wss:' : 'ws:';
-    url.pathname = url.pathname.replace(/\/execute\/?$/, '/connect');
-    return url.toString();
-}
+import {
+    REMOTE_PISTON_EXECUTE_URL,
+    fetchPistonExecute,
+    isLocalPistonUrl,
+    pistonConnectUrl,
+    resolvePistonExecuteUrl,
+} from '@site/src/api/pistonClient';
 
 export default function PistonRunner({
     lang = 'python',
@@ -106,13 +95,13 @@ export default function PistonRunner({
     }, []);
 
     const runRest = useCallback(async () => {
-        const exec = executeUrl(api, siteConfig);
+        const exec = resolvePistonExecuteUrl(api, siteConfig);
         const langKey = String(lang).toLowerCase();
         const source =
             langKey === 'godot' || langKey === 'gdscript' || langKey === 'gd'
                 ? String(code).replace(/^\t+/gm, (tabs) => '    '.repeat(tabs.length))
                 : code;
-        const res = await fetch(exec, {
+        const res = await fetchPistonExecute(exec, {
             method: 'POST',
             headers: {'Content-Type': 'application/json'},
             body: JSON.stringify({
@@ -187,90 +176,125 @@ export default function PistonRunner({
             return;
         }
 
-        const exec = executeUrl(api, siteConfig);
-        let ws;
-        try {
-            ws = new WebSocket(connectUrl(exec));
-        } catch (e) {
-            setOutput('WebSocket failed, using batch input…\n');
-            runRest().catch((err) => {
-                setIsError(true);
-                setOutput('Could not reach Piston: ' + err.message);
-                finish(null, true);
-            });
-            return;
-        }
+        const exec = resolvePistonExecuteUrl(api, siteConfig);
+        const endpoints = isLocalPistonUrl(exec)
+            ? [exec, REMOTE_PISTON_EXECUTE_URL]
+            : [exec];
+        let endpointIndex = 0;
+        let opened = false;
+        let fallingBack = false;
 
-        wsRef.current = ws;
-
-        ws.onopen = () => {
-            const langKey = String(lang).toLowerCase();
-            const source =
-                langKey === 'godot' || langKey === 'gdscript' || langKey === 'gd'
-                    ? String(code).replace(/^\t+/gm, (tabs) => '    '.repeat(tabs.length))
-                    : code;
-            ws.send(
-                JSON.stringify({
-                    type: 'init',
-                    language: lang,
-                    version,
-                    stdin: '',
-                    files: [{name: fileName, content: source, encoding: 'utf8'}],
-                    run_timeout: runTimeout,
-                    run_cpu_time: runCpuTime,
-                    compile_timeout: 10000,
-                })
-            );
-        };
-
-        ws.onmessage = (event) => {
-            let msg;
+        const attach = (endpoint) => {
+            let ws;
             try {
-                msg = JSON.parse(event.data);
-            } catch {
+                ws = new WebSocket(pistonConnectUrl(endpoint));
+            } catch (e) {
+                setOutput('WebSocket failed, using batch input…\n');
+                runRest().catch((err) => {
+                    setIsError(true);
+                    setOutput('Could not reach Piston: ' + err.message);
+                    finish(null, true);
+                });
                 return;
             }
 
-            if (msg.type === 'error') {
-                setIsError(true);
-                setOutput((prev) => prev + (msg.message || 'Piston error') + '\n');
-                return;
-            }
+            wsRef.current = ws;
 
-            if (msg.type === 'runtime') {
-                setStage('compile');
-                return;
-            }
+            ws.onopen = () => {
+                opened = true;
+                const langKey = String(lang).toLowerCase();
+                const source =
+                    langKey === 'godot' || langKey === 'gdscript' || langKey === 'gd'
+                        ? String(code).replace(/^\t+/gm, (tabs) => '    '.repeat(tabs.length))
+                        : code;
+                ws.send(
+                    JSON.stringify({
+                        type: 'init',
+                        language: lang,
+                        version,
+                        stdin: '',
+                        files: [{name: fileName, content: source, encoding: 'utf8'}],
+                        run_timeout: runTimeout,
+                        run_cpu_time: runCpuTime,
+                        compile_timeout: 10000,
+                    })
+                );
+            };
 
-            if (msg.type === 'stage') {
-                setStage(msg.stage);
-                return;
-            }
-
-            if (msg.type === 'data' && (msg.stream === 'stdout' || msg.stream === 'stderr')) {
-                if (msg.stream === 'stderr') setIsError(true);
-                setOutput((prev) => prev + (msg.data || ''));
-                return;
-            }
-
-            if (msg.type === 'exit') {
-                if (msg.stage === 'run' || msg.code) {
-                    setExitCode(msg.code ?? null);
-                    if (msg.code && msg.code !== 0) setIsError(true);
+            ws.onmessage = (event) => {
+                let msg;
+                try {
+                    msg = JSON.parse(event.data);
+                } catch {
+                    return;
                 }
-            }
+
+                if (msg.type === 'error') {
+                    setIsError(true);
+                    setOutput((prev) => prev + (msg.message || 'Piston error') + '\n');
+                    return;
+                }
+
+                if (msg.type === 'runtime') {
+                    setStage('compile');
+                    return;
+                }
+
+                if (msg.type === 'stage') {
+                    setStage(msg.stage);
+                    return;
+                }
+
+                if (msg.type === 'data' && (msg.stream === 'stdout' || msg.stream === 'stderr')) {
+                    if (msg.stream === 'stderr') setIsError(true);
+                    setOutput((prev) => prev + (msg.data || ''));
+                    return;
+                }
+
+                if (msg.type === 'exit') {
+                    if (msg.stage === 'run' || msg.code) {
+                        setExitCode(msg.code ?? null);
+                        if (msg.code && msg.code !== 0) setIsError(true);
+                    }
+                }
+            };
+
+            ws.onerror = () => {
+                if (wsRef.current !== ws) return;
+                if (!opened && endpointIndex + 1 < endpoints.length) {
+                    fallingBack = true;
+                    return;
+                }
+                if (!opened) {
+                    fallingBack = true;
+                    setOutput('WebSocket failed, using batch input…\n');
+                    runRest().catch((err) => {
+                        setIsError(true);
+                        setOutput('Could not reach Piston: ' + err.message);
+                        finish(null, true);
+                    });
+                    return;
+                }
+                setIsError(true);
+                setOutput((prev) => prev || 'WebSocket error — is Piston running?');
+            };
+
+            ws.onclose = () => {
+                if (wsRef.current !== ws && wsRef.current !== null) return;
+                if (!opened && fallingBack) {
+                    if (endpointIndex + 1 < endpoints.length) {
+                        fallingBack = false;
+                        endpointIndex += 1;
+                        attach(endpoints[endpointIndex]);
+                    }
+                    // else: REST fallback already started from onerror
+                    return;
+                }
+                finish(null, false);
+            };
         };
 
-        ws.onerror = () => {
-            if (wsRef.current !== ws) return;
-            setIsError(true);
-            setOutput((prev) => prev || 'WebSocket error — is Piston running?');
-        };
-
-        ws.onclose = () => {
-            if (wsRef.current !== ws && wsRef.current !== null) return;
-            finish(null, false);
-        };
+        attach(endpoints[0]);
     }, [interactive, runRest, api, siteConfig, lang, version, fileName, code, finish, runTimeout, runCpuTime]);
 
     const sendLine = useCallback(() => {

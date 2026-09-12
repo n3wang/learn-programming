@@ -14,6 +14,10 @@ import SplitPanes from '@site/src/components/codeWorkspace/SplitPanes';
 import HelpModal from '@site/src/components/codeWorkspace/HelpModal';
 import {noTranslateClass} from '@site/src/components/codeWorkspace/noTranslate';
 import chrome from '@site/src/components/codeWorkspace/chrome.module.css';
+import {
+    fetchPistonExecute,
+    resolvePistonExecuteUrl,
+} from '@site/src/api/pistonClient';
 import {REDDIT_SEED, REDDIT_TABLES, buildPythonSqlRunner} from './redditSeed';
 import styles from './sqlExercise.module.css';
 
@@ -24,14 +28,7 @@ const PISTON_VERSION = '*';
 const PISTON_FILENAME = 'main.py';
 
 function executeUrl(api, siteConfig) {
-    if (api) {
-        return api.replace(/\/$/, '');
-    }
-    const fromConfig = siteConfig?.customFields?.pistonExecuteUrl;
-    if (fromConfig) {
-        return String(fromConfig).replace(/\/$/, '');
-    }
-    return 'http://127.0.0.1:2000/api/v2/execute';
+    return resolvePistonExecuteUrl(api, siteConfig);
 }
 
 function collectOutput(data) {
@@ -229,7 +226,7 @@ export default function SqlExercise({
 
             if (!failed) {
                 for (const test of tests) {
-                    const res = await fetch(endpoint, {
+                    const res = await fetchPistonExecute(endpoint, {
                         method: 'POST',
                         headers: {'Content-Type': 'application/json'},
                         body: JSON.stringify({

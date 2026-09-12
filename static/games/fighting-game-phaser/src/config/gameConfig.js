@@ -4,6 +4,8 @@ export const GRAVITY = 0.7
 export const STAGE_PADDING = 8
 export const MATCH_SECONDS = 60
 export const HEALTH_BAR_MS = 800
+/** Max wait for death anim before showing the result menu (safety net). */
+export const MATCH_END_FALLBACK_MS = 5000
 
 // When both fighters are swinging into each other at once, each only takes
 // this fraction of the hit instead of the full damage.

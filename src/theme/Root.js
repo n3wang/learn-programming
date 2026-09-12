@@ -1,19 +1,17 @@
 import React from 'react';
 import useDocusaurusContext from '@docusaurus/useDocusaurusContext';
 import ScratchNotes from '@site/src/components/ScratchNotes';
+import {rememberApiBaseUrl, resolveApiBaseUrl} from '@site/src/api/classroomClient';
 import '@site/src/client/googleTranslateDomPatch';
 import '@site/src/client/googleTranslateNoTranslateCode';
 
 function ApiBaseUrlBridge() {
   const {siteConfig} = useDocusaurusContext();
-  const apiBaseUrl =
-    typeof siteConfig?.customFields?.apiBaseUrl === 'string'
-      ? siteConfig.customFields.apiBaseUrl.replace(/\/$/, '')
-      : 'http://localhost:8080';
+  const apiBaseUrl = resolveApiBaseUrl(siteConfig?.customFields);
 
   React.useEffect(() => {
     if (typeof window !== 'undefined') {
-      window.__LEARN_API_BASE_URL__ = apiBaseUrl;
+      rememberApiBaseUrl(apiBaseUrl);
     }
   }, [apiBaseUrl]);
 

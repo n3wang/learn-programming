@@ -40,6 +40,9 @@ const AdminRosterEditorPanel = lazyMdxComponent(() =>
 const FightingGameWorkshop = lazyMdxComponent(() =>
   import('@site/src/components/FightingGameWorkshop'),
 );
+const CharacterHitboxWorkshop = lazyMdxComponent(() =>
+  import('@site/src/components/CharacterHitboxWorkshop'),
+);
 
 export default {
     ...MDXComponents,
@@ -72,6 +75,7 @@ export default {
     AdminNotesPanel,
     AdminRosterEditorPanel,
     FightingGameWorkshop,
+    CharacterHitboxWorkshop,
     BlockArrowScroll,
     p: TranslatableParagraph,
 };

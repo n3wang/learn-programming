@@ -1,5 +1,6 @@
 import { getPortraitTextureKey } from './PortraitCropper.js'
 import { animKey } from '../data/animationDefs.js'
+import { UI, UI_FONT } from './strings.js'
 
 const SIDE_COLOR = { p1: 0xef4444, p2: 0x3b82f6 }
 
@@ -25,9 +26,9 @@ export class PortraitCard {
     this.portrait = scene.add.image(0, -4, textureKey)
     this.mark = scene.add.rectangle(0, 34, 56, 8, selected ? SIDE_COLOR[side] : 0x000000, selected ? 1 : 0)
     this.author = scene.add
-      .text(0, 48, character.author ? 'by ' + character.author : '', {
-        fontFamily: '"Press Start 2P", monospace',
-        fontSize: '6px',
+      .text(0, 48, character.author ? UI.by + character.author : '', {
+        fontFamily: UI_FONT,
+        fontSize: '10px',
         color: '#d1d5db',
         align: 'center'
       })

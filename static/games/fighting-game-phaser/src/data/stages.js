@@ -3,28 +3,28 @@ import { CANVAS_WIDTH } from '../config/gameConfig.js'
 export const STAGES = [
   {
     id: 'classic',
-    name: 'Classic',
+    name: '经典',
     imageSrc: 'img/bg/classic.png',
     shop: true,
     tracks: [{ y: 330 }]
   },
   {
     id: 'mountain',
-    name: 'Mountain',
+    name: '山脉',
     imageSrc: 'img/bg/mountain.png',
     shop: false,
     tracks: [{ y: 330 }]
   },
   {
     id: 'arena',
-    name: 'Arena',
+    name: '竞技场',
     imageSrc: 'img/bg/arena.png',
     shop: false,
     tracks: [{ y: 320 }, { y: 280 }]
   },
   {
     id: 'town',
-    name: 'Town',
+    name: '小镇',
     imageSrc: 'img/bg/town_wide_z3.png',
     shop: false,
     width: 3072,
@@ -39,7 +39,7 @@ export const STAGES = [
   },
   {
     id: 'forest_night',
-    name: 'Forest',
+    name: '森林',
     imageSrc: 'img/bg/forest_night_z3.png',
     shop: false,
     width: 3072,

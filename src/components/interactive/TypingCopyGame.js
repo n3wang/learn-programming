@@ -19,8 +19,8 @@ import KatexLineTyping from './typingCopy/KatexLineTyping';
 function memoryLevel(id, batchSize, goal) {
   return {
     id,
-    title: `Level ${id}`,
-    blurb: `Preview English + Chinese, then Chinese only after first key. Batches of ${batchSize}. Finish ${goal} correct words.`,
+    title: `第 ${id} 关`,
+    blurb: `先预览英文+中文，开始打字后只留中文。每批 ${batchSize} 词，完成 ${goal} 个正确词。`,
     mode: 'memory',
     batchSize,
     goal,
@@ -34,8 +34,8 @@ function zhLevel(id, title, goal, hideChinese, batchSize) {
     id,
     title,
     blurb: hideChinese
-      ? `Type the Chinese. English stays below. Chinese hides after the first character. Batches of ${batch}. Finish ${goal} correct words.`
-      : `Type the Chinese. English stays below. Chinese stays visible. One sentence at a time, up to the period. Finish ${goal} correct words.`,
+      ? `打中文，下方保留英文提示。打出第一个字后中文隐藏。每批 ${batch} 词，完成 ${goal} 个正确词。`
+      : `打中文，下方保留英文。中文始终可见。按句练习（到句号）。完成 ${goal} 个正确词。`,
     mode: 'zh',
     batchSize: batch,
     goal,
@@ -48,43 +48,43 @@ function zhLevel(id, title, goal, hideChinese, batchSize) {
 const LEVELS = [
   {
     id: 1,
-    title: 'Level 1',
-    blurb: '1 minute. Copy English docs text.',
+    title: '第 1 关',
+    blurb: '1 分钟。抄打英文文档文字。',
     mode: 'timed',
     seconds: 60,
   },
   {
     id: 2,
-    title: 'Level 2',
-    blurb: '3 minutes. Copy English docs text. Letters, digits, spaces, . and , only.',
+    title: '第 2 关',
+    blurb: '3 分钟。抄打英文。仅字母、数字、空格、. 和 ,。',
     mode: 'timed',
     seconds: 3 * 60,
   },
   {
     id: 3,
-    title: 'Level 3',
-    blurb: '5 minutes. Same rules as Level 2, longer run.',
+    title: '第 3 关',
+    blurb: '5 分钟。规则同第 2 关，时间更长。',
     mode: 'timed',
     seconds: 5 * 60,
   },
   {
     id: 4,
-    title: 'Level 4',
-    blurb: '10 minutes. Copy English docs text.',
+    title: '第 4 关',
+    blurb: '10 分钟。抄打英文文档文字。',
     mode: 'timed',
     seconds: 10 * 60,
   },
   {
     id: 5,
-    title: 'Level 5',
-    blurb: 'Type 10 English words.',
+    title: '第 5 关',
+    blurb: '打 10 个英文单词。',
     mode: 'count',
     goal: 10,
   },
   {
     id: 6,
-    title: 'Level 6',
-    blurb: 'Type 20 English words.',
+    title: '第 6 关',
+    blurb: '打 20 个英文单词。',
     mode: 'count',
     goal: 20,
   },
@@ -97,31 +97,31 @@ const LEVELS = [
   memoryLevel(13, 5, 30),
   {
     id: 14,
-    title: 'Level 14',
-    blurb: 'Type 50 English words.',
+    title: '第 14 关',
+    blurb: '打 50 个英文单词。',
     mode: 'count',
     goal: 50,
   },
   {
     id: 15,
-    title: 'Level 15',
-    blurb: 'Type 60 English words.',
+    title: '第 15 关',
+    blurb: '打 60 个英文单词。',
     mode: 'count',
     goal: 60,
   },
   memoryLevel(16, 4, 40),
   memoryLevel(17, 5, 40),
-  zhLevel(18, 'Level 18', 10, false),
-  zhLevel(19, 'Level 19', 20, false),
-  zhLevel(20, 'Level 20', 30, false),
+  zhLevel(18, '第 18 关', 10, false),
+  zhLevel(19, '第 19 关', 20, false),
+  zhLevel(20, '第 20 关', 30, false),
   memoryLevel(21, 5, 20),
-  zhLevel(22, 'Level 22', 10, true, 2),
-  zhLevel(23, 'Level 23', 20, true, 2),
-  zhLevel(24, 'Level 24', 10, true, 3),
-  zhLevel(25, 'Level 25', 20, true, 3),
-  zhLevel(26, 'Level 26', 10, true, 4),
-  zhLevel(27, 'Level 27', 20, true, 4),
-  zhLevel(28, 'Level 28', 20, true, 5),
+  zhLevel(22, '第 22 关', 10, true, 2),
+  zhLevel(23, '第 23 关', 20, true, 2),
+  zhLevel(24, '第 24 关', 10, true, 3),
+  zhLevel(25, '第 25 关', 20, true, 3),
+  zhLevel(26, '第 26 关', 10, true, 4),
+  zhLevel(27, '第 27 关', 20, true, 4),
+  zhLevel(28, '第 28 关', 20, true, 5),
   memoryLevel(29, 5, 50),
   codeLevel(30, 10, 'python', 'Python'),
   codeLevel(31, 15, 'python', 'Python'),
@@ -159,8 +159,8 @@ function isAllowedChar(ch) {
 function codeLevel(id, lineCount, lang = 'python', label = 'Python') {
   return {
     id,
-    title: `Level ${id}`,
-    blurb: `Type ${lineCount} ${label} lines from a mixed pool of lesson snippets. Enter checks each line.`,
+    title: `第 ${id} 关`,
+    blurb: `从题库中打 ${lineCount} 行 ${label}。按 Enter 检查每一行。`,
     mode: 'code',
     lang,
     goal: lineCount,
@@ -176,13 +176,13 @@ function drawLangLines(lang, count) {
 function mathLevel(id, count, view, difficulty) {
   const blurb =
     view === 'render'
-      ? `Type ${count} KaTeX formulas from the rendered math. Enter checks each formula.`
+      ? `对照渲染出的公式，打 ${count} 条 KaTeX。按 Enter 检查。`
       : view === 'half'
-        ? `Half. See the render and the script for ${count} ${difficulty} formulas. The script hides when you start typing.`
-        : `Type ${count} KaTeX formula scripts. Enter checks each formula.`;
+        ? `半提示：同时看渲染与脚本，共 ${count} 条（${difficulty === 'hard' ? '较难' : '基础'}）。开始打字后脚本会隐藏。`
+        : `打 ${count} 条 KaTeX 公式脚本。按 Enter 检查。`;
   return {
     id,
-    title: `Level ${id}`,
+    title: `第 ${id} 关`,
     blurb,
     mode: 'math',
     mathView: view,
@@ -687,10 +687,10 @@ function ChinesePrompt({sentences, wordIndex, activeEnWordIndex}) {
 }
 
 const LEVEL_GROUPS = [
-  {id: 'en', label: 'Type in English', modes: ['timed', 'count', 'memory']},
-  {id: 'zh', label: 'Type in Chinese', modes: ['zh']},
-  {id: 'lang', label: 'Programming languages', modes: ['code']},
-  {id: 'katex', label: 'katex', modes: ['math']},
+  {id: 'en', label: '英文打字', modes: ['timed', 'count', 'memory']},
+  {id: 'zh', label: '中文打字', modes: ['zh']},
+  {id: 'lang', label: '编程语言', modes: ['code']},
+  {id: 'katex', label: '数学公式 (KaTeX)', modes: ['math']},
 ];
 
 function FocusCaret({show, text, pad = 12, fontSize = '1.25rem'}) {
@@ -720,9 +720,13 @@ function FocusCaret({show, text, pad = 12, fontSize = '1.25rem'}) {
   );
 }
 
-function LevelBoard({shownId, completedIds, onHover, onPin, onStart, wide}) {
+function LevelBoard({shownId, completedIds, onHover, onPin, onStart, wide, groups}) {
   const shown = LEVELS.find((l) => l.id === shownId) || null;
   const boardWidth = wide ? 600 : 280;
+  const visibleGroups =
+    Array.isArray(groups) && groups.length
+      ? LEVEL_GROUPS.filter((g) => groups.includes(g.id))
+      : LEVEL_GROUPS;
   return (
     <Box
       sx={{
@@ -757,14 +761,14 @@ function LevelBoard({shownId, completedIds, onHover, onPin, onStart, wide}) {
             </Typography>
           </Box>
           <Button size="small" variant="contained" onClick={() => onStart(shown.id)}>
-            Start
+            开始
           </Button>
         </Box>
       ) : (
         <Box sx={{height: 168, boxSizing: 'border-box'}} />
       )}
       <Box sx={{display: 'grid', gap: 1.5}}>
-        {LEVEL_GROUPS.map((group) => {
+        {visibleGroups.map((group) => {
           const levels = LEVELS.filter(
             (l) =>
               group.modes.includes(l.mode) &&
@@ -821,7 +825,14 @@ function LevelBoard({shownId, completedIds, onHover, onPin, onStart, wide}) {
   );
 }
 
-export default function TypingCopyGame() {
+export default function TypingCopyGame({groups} = {}) {
+  const groupFilter = useMemo(() => {
+    if (Array.isArray(groups) && groups.length) return groups;
+    if (typeof groups === 'string' && groups.trim()) {
+      return groups.split(/[\s,]+/).filter(Boolean);
+    }
+    return undefined;
+  }, [groups]);
   const [levelId, setLevelId] = useState(null);
   const level = LEVELS.find((l) => l.id === levelId) || null;
   const [menuPinnedId, setMenuPinnedId] = useState(null);
@@ -1162,6 +1173,7 @@ export default function TypingCopyGame() {
       onPin={setMenuPinnedId}
       onStart={startLevel}
       wide={wide}
+      groups={groupFilter}
     />
   );
 
@@ -1175,16 +1187,16 @@ export default function TypingCopyGame() {
 
   const progressLabel =
     level.mode === 'timed'
-      ? `Time ${formatTime(secondsLeft)} · Correct ${correctCount} · Skipped ${skippedCount}`
+      ? `剩余 ${formatTime(secondsLeft)} · 正确 ${correctCount} · 跳过 ${skippedCount}`
       : level.mode === 'count'
-        ? `Correct ${correctCount} / ${goal} · Skipped ${skippedCount}`
+        ? `正确 ${correctCount} / ${goal} · 跳过 ${skippedCount}`
         : level.mode === 'code'
-          ? `Lines ${correctCount} / ${codeLines.length || goal} · Missed ${skippedCount}`
+          ? `行数 ${correctCount} / ${codeLines.length || goal} · 错过 ${skippedCount}`
           : level.mode === 'math'
-          ? `Formulas ${correctCount} / ${codeLines.length || goal} · Missed ${skippedCount}`
+          ? `公式 ${correctCount} / ${codeLines.length || goal} · 错过 ${skippedCount}`
           : level.wholeSentence
-          ? `Correct ${correctCount} / ${goal} · Skipped ${skippedCount} · Sentence`
-          : `Correct ${correctCount} / ${goal} · Skipped ${skippedCount} · Batch ${level.batchSize}`;
+          ? `正确 ${correctCount} / ${goal} · 跳过 ${skippedCount} · 按句`
+          : `正确 ${correctCount} / ${goal} · 跳过 ${skippedCount} · 每批 ${level.batchSize}`;
 
   return (
     <Box
@@ -1209,13 +1221,13 @@ export default function TypingCopyGame() {
       >
         <Typography sx={{fontWeight: 700, m: 0}}>
           {level.title}
-          {finished ? (lastResult?.passed ? ' — done' : ' — not passed') : ''}
+          {finished ? (lastResult?.passed ? ' — 通过' : ' — 未通过') : ''}
         </Typography>
         <Button size="small" variant="text" onClick={() => startLevel(level.id)}>
-          Restart
+          重开
         </Button>
         <Button size="small" variant="text" onClick={() => setLevelId(null)}>
-          Levels
+          关卡列表
         </Button>
       </Box>
 
@@ -1345,7 +1357,7 @@ export default function TypingCopyGame() {
             >
               <Typography variant="caption" color="text.secondary" sx={{display: 'block', mb: 0.5}}>
                 {useMemoryPreview && mistakeReveal && !memoryPreview
-                  ? 'Wrong key — Chinese shown again. It hides when you type.'
+                  ? '按错了 — 再次显示中文。继续打字后会隐藏。'
                   : useMemoryPreview
                     ? '背诵中文句子'
                     : '用中文打字'}
@@ -1444,7 +1456,7 @@ export default function TypingCopyGame() {
           onFocus={() => setInputFocused(true)}
           onBlur={() => setInputFocused(false)}
           onClick={() => inputRef.current?.focus()}
-          placeholder={running && !finished ? (typingZh ? 'Type the Chinese…' : 'Type here…') : 'Finished'}
+          placeholder={running && !finished ? (typingZh ? '输入中文…' : '在此输入…') : '已结束'}
           sx={{
             display: 'block',
             width: '100%',
@@ -1481,7 +1493,7 @@ export default function TypingCopyGame() {
               : '.'
             : ' and shows the English sentence again.'}{' '}
           Space confirms a correct word. Empty Space or Tab skips.
-          {showsEnglishCopy(level.mode) ? ` Target shown: ${words[wordIndex] || '—'}` : ''}
+          {showsEnglishCopy(level.mode) ? ` 当前目标：${words[wordIndex] || '—'}` : ''}
         </Typography>
       </Box>}
 
@@ -1501,26 +1513,26 @@ export default function TypingCopyGame() {
         >
           <Box sx={{minWidth: 0}}>
             <Typography sx={{fontWeight: 700, m: 0}}>
-              {lastResult?.passed ? 'Level complete.' : 'Not passed.'}
+              {lastResult?.passed ? '本关通过。' : '未通过。'}
             </Typography>
             <Typography variant="body2" sx={{m: 0, mt: 0.5}}>
-              {level.mode === 'code' ? 'Correct lines' : level.mode === 'math' ? 'Correct formulas' : 'Correct words'}: {correctCount}
-              {isGoalMode(level.mode) ? ` / ${level.mode === 'code' || level.mode === 'math' ? codeLines.length || goal : goal}` : ''} · Skipped: {skippedCount} · Elapsed:{' '}
+              {level.mode === 'code' ? '正确行数' : level.mode === 'math' ? '正确公式' : '正确词数'}: {correctCount}
+              {isGoalMode(level.mode) ? ` / ${level.mode === 'code' || level.mode === 'math' ? codeLines.length || goal : goal}` : ''} · 跳过: {skippedCount} · 用时:{' '}
               {formatTime(
                 level.mode === 'timed' ? (level.seconds || 0) - secondsLeft : elapsedSec,
               )}
               {` · ${lastResult ? lastResult.wpm.toFixed(1) : '0.0'} WPM`}
               {level.mode === 'timed'
-                ? ' (need 3)'
-                : ` · ${lastResult ? Math.round(lastResult.accuracy * 100) : 0}% accuracy (need 50%)`}
+                ? '（需 ≥ 3）'
+                : ` · 准确率 ${lastResult ? Math.round(lastResult.accuracy * 100) : 0}%（需 ≥ 50%）`}
             </Typography>
           </Box>
           <Box sx={{display: 'flex', gap: 1, flexShrink: 0}}>
             <Button size="small" variant="text" onClick={() => setLevelId(null)}>
-              Levels
+              关卡列表
             </Button>
             <Button size="small" variant="contained" onClick={() => startLevel(level.id)}>
-              Restart
+              重开
             </Button>
           </Box>
         </Box>

@@ -1,24 +1,118 @@
-import { registerCharacter } from './characters.js'
+import { registerCharacter, displayScaleForFrame, drawOffsetForFrame } from './characters.js'
 import { registerStage } from './stages.js'
 import { GameState } from '../state/GameState.js'
 
 const CHARACTER_ROLES = ['idle', 'run', 'jump', 'fall', 'attack1', 'attack2', 'takeHit', 'death']
+const OPTIONAL_CHARACTER_ROLES = ['attack3']
+
+/** Mirrors CharacterHitboxWorkshop STAT_SPECS / STAT_BUDGET (keep in sync). */
+const STAT_BUDGET = 5
+const STAT_MIN_POINTS = -3
+const STAT_SPECS = {
+  maxHealth: { base: 100, perPoint: 15, maxPoints: 5, minPoints: STAT_MIN_POINTS },
+  maxStamina: { base: 100, perPoint: 15, maxPoints: 5, minPoints: STAT_MIN_POINTS },
+  moveSpeed: { base: 5, perPoint: 0.5, maxPoints: 5, minPoints: STAT_MIN_POINTS },
+  staminaRegen: { base: 30, perPoint: 5, maxPoints: 5, minPoints: STAT_MIN_POINTS },
+  attackBase: { base: 20, perPoint: 4, maxPoints: 5, minPoints: STAT_MIN_POINTS },
+  jumpPower: { base: 16.2, perPoint: 1.2, maxPoints: 5, minPoints: STAT_MIN_POINTS },
+  jumpCost: { base: 10, perPoint: 2, maxPoints: 5, minPoints: STAT_MIN_POINTS, invert: true },
+  attackCost: { base: 50, perPoint: 5, maxPoints: 5, minPoints: STAT_MIN_POINTS, invert: true }
+}
+const DEFAULT_STAT_POINTS = {
+  maxHealth: 0,
+  maxStamina: 0,
+  moveSpeed: 0,
+  staminaRegen: 0,
+  attackBase: 0,
+  jumpPower: 0,
+  jumpCost: 0,
+  attackCost: 0
+}
+
+function clamp(n, lo, hi) {
+  return Math.max(lo, Math.min(hi, n))
+}
+
+function resolveStatPoints(raw) {
+  const out = { ...DEFAULT_STAT_POINTS }
+  if (!raw || typeof raw !== 'object') return out
+  for (const key of Object.keys(STAT_SPECS)) {
+    if (raw[key] != null) {
+      const spec = STAT_SPECS[key]
+      out[key] = clamp(Number(raw[key]) || 0, spec.minPoints, spec.maxPoints)
+    }
+  }
+  const spent = Object.values(out).reduce((a, b) => a + b, 0)
+  if (spent > STAT_BUDGET) return { ...DEFAULT_STAT_POINTS }
+  return out
+}
+
+function statsFromPoints(points) {
+  const p = resolveStatPoints(points)
+  const value = (key) => {
+    const spec = STAT_SPECS[key]
+    const delta = p[key] * spec.perPoint
+    return spec.invert ? spec.base - delta : spec.base + delta
+  }
+  const attack1 = Math.round(value('attackBase'))
+  const attack2 = Math.round(attack1 * 1.75)
+  const attack3 = Math.round(attack1 * 2.5)
+  const jumpPower = value('jumpPower')
+  return {
+    maxHealth: Math.round(value('maxHealth')),
+    maxStamina: Math.round(value('maxStamina')),
+    moveSpeed: value('moveSpeed'),
+    staminaRegen: Math.round(value('staminaRegen')),
+    attackDamage: { attack1, attack2, attack3 },
+    jumpVelocity: -Math.abs(jumpPower),
+    jumpCost: Math.max(1, Math.round(value('jumpCost'))),
+    attackCost: Math.max(1, Math.round(value('attackCost')))
+  }
+}
+
+const API_BASE_STORAGE_KEY = 'learn_api_base_url'
+
+function rememberGameApiBase(url) {
+  const normalized = String(url || '').replace(/\/$/, '')
+  if (!normalized || typeof window === 'undefined') return normalized
+  try {
+    window.localStorage.setItem(API_BASE_STORAGE_KEY, normalized)
+  } catch {
+    // ignore
+  }
+  window.__LEARN_API_BASE_URL__ = normalized
+  return normalized
+}
 
 export function getGameApiBase() {
   if (typeof window === 'undefined') return 'http://localhost:8080'
   const params = new URLSearchParams(window.location.search)
   const fromQuery = params.get('api')
-  if (fromQuery) return fromQuery.replace(/\/$/, '')
+  if (fromQuery) return rememberGameApiBase(fromQuery)
+
+  if (window.__FIGHT_API_BASE__) {
+    return rememberGameApiBase(window.__FIGHT_API_BASE__)
+  }
+
+  try {
+    const stored = window.localStorage.getItem(API_BASE_STORAGE_KEY)
+    if (stored) return String(stored).replace(/\/$/, '')
+  } catch {
+    // ignore
+  }
+
   try {
     if (window.parent && window.parent !== window && window.parent.__LEARN_API_BASE_URL__) {
-      return String(window.parent.__LEARN_API_BASE_URL__).replace(/\/$/, '')
+      return rememberGameApiBase(window.parent.__LEARN_API_BASE_URL__)
     }
   } catch {
     // cross-origin parent
   }
+
   if (window.__LEARN_API_BASE_URL__) {
     return String(window.__LEARN_API_BASE_URL__).replace(/\/$/, '')
   }
+
   return 'http://localhost:8080'
 }
 
@@ -60,6 +154,18 @@ function characterFromPack(pack, apiBase) {
       frameHeight
     }
   }
+  for (const role of OPTIONAL_CHARACTER_ROLES) {
+    if (!files[role]) continue
+    const spec = spriteMeta[role] || {}
+    sprites[role] = {
+      imageSrc: files[role],
+      framesMax: Number(spec.framesMax) || 4,
+      hitFrame: spec.hitFrame != null ? Number(spec.hitFrame) : undefined,
+      clankFrame: spec.clankFrame != null ? Number(spec.clankFrame) : undefined,
+      frameWidth,
+      frameHeight
+    }
+  }
   return {
     id: remoteCharacterId(pack.id),
     name: pack.name,
@@ -68,6 +174,8 @@ function characterFromPack(pack, apiBase) {
     moveSpeed: meta.moveSpeed,
     jumpVelocity: meta.jumpVelocity,
     attackDamage: meta.attackDamage,
+    footY: meta.footY != null ? Number(meta.footY) : undefined,
+    // scale/offset applied in registerCharacter via applyFrameAutoScale
     sprites
   }
 }
@@ -124,6 +232,8 @@ export async function loadRemoteCatalog({ timeoutMs = 2000 } = {}) {
   try {
     const res = await fetch(`${apiBase}/api/classroom/game-packs`, {
       signal: controller.signal,
+      mode: 'cors',
+      credentials: 'omit',
       headers: { Accept: 'application/json' }
     })
     if (!res.ok) return { ok: false, characters: 0, stages: 0 }
@@ -155,6 +265,113 @@ export async function loadRemoteCatalog({ timeoutMs = 2000 } = {}) {
   }
 }
 
+const WORKSHOP_DRAFT_KEY = 'fg-character-draft-v1'
+const WORKSHOP_LIBRARY_KEY = 'fg-character-library-v1'
+const CLASSIC_IDS = new Set(['samurai', 'kenji'])
+
+function frameBoxToGameAttackBox(box, frameW, frameH, scale, footY) {
+  const drawOff = drawOffsetForFrame({ frameWidth: frameW, frameHeight: frameH, scale, footY })
+  return {
+    offset: {
+      x: Math.round(box.x * scale - drawOff.x),
+      y: Math.round(box.y * scale - drawOff.y)
+    },
+    width: Math.max(1, Math.round(box.w * scale)),
+    height: Math.max(1, Math.round(box.h * scale))
+  }
+}
+
+function registerDraftCharacter(draft) {
+  if (!draft?.sprites || !draft?.attacks) return null
+  const fw = Number(draft.frameWidth) || 82
+  const fh = Number(draft.frameHeight) || 105
+  const sizeMultiplier = Number(draft.sizeMultiplier) > 0 ? Number(draft.sizeMultiplier) : 1
+  const scale = displayScaleForFrame(fw, fh, undefined, sizeMultiplier)
+  const attackKeys = Object.keys(draft.attacks).filter((k) => draft.attacks[k]?.box)
+  if (!attackKeys.includes('attack1') || !attackKeys.includes('attack2')) return null
+  const footY =
+    Number(draft.footY) > 0
+      ? Number(draft.footY)
+      : fw === 82 && fh === 105
+        ? 72
+        : fw === 126 && fh === 126
+          ? 82
+          : fh
+  const attackBoxes = {}
+  for (const key of attackKeys) {
+    attackBoxes[key] = frameBoxToGameAttackBox(draft.attacks[key].box, fw, fh, scale, footY)
+  }
+  const sprite = (role, hitFrame) => {
+    const s = draft.sprites[role]
+    if (!s?.src) return null
+    return {
+      imageSrc: s.src,
+      framesMax: Number(s.framesMax) || 4,
+      frameWidth: fw,
+      frameHeight: fh,
+      hitFrame: hitFrame != null ? Number(hitFrame) : undefined,
+      clankFrame: hitFrame != null ? Number(hitFrame) : undefined
+    }
+  }
+  const roles = ['idle', 'run', 'jump', 'fall', 'takeHit', 'death', ...attackKeys]
+  const sprites = {}
+  for (const role of roles) {
+    const hit = draft.attacks[role] ? draft.attacks[role].hitFrame : undefined
+    const def = sprite(role, hit)
+    if (!def) return null
+    sprites[role] = def
+  }
+  const combat = statsFromPoints(draft.statPoints)
+  const id = String(draft.id || 'draft_char')
+  if (CLASSIC_IDS.has(id)) return null
+  registerCharacter(id, {
+    name: draft.name || '工坊角色',
+    author: draft.author || null,
+    faces: draft.faces === 'left' ? 'left' : 'right',
+    scale,
+    sizeMultiplier,
+    footY,
+    offset: drawOffsetForFrame({ frameWidth: fw, frameHeight: fh, scale, footY }),
+    maxHealth: combat.maxHealth,
+    maxStamina: combat.maxStamina,
+    moveSpeed: combat.moveSpeed,
+    staminaRegen: combat.staminaRegen,
+    attackDamage: combat.attackDamage,
+    jumpVelocity: combat.jumpVelocity,
+    jumpCost: combat.jumpCost,
+    attackCost: combat.attackCost,
+    attackBox: attackBoxes.attack1,
+    attackBoxes,
+    sprites
+  })
+  return id
+}
+
+/** Load all workshop library characters (+ migrate legacy single draft). */
+export function loadWorkshopCharacterDraft() {
+  if (typeof window === 'undefined') return null
+  try {
+    let registered = []
+    const libRaw = JSON.parse(window.localStorage.getItem(WORKSHOP_LIBRARY_KEY) || 'null')
+    const entries = libRaw?.entries && typeof libRaw.entries === 'object' ? libRaw.entries : null
+    if (entries) {
+      for (const draft of Object.values(entries)) {
+        const id = registerDraftCharacter(draft)
+        if (id) registered.push(id)
+      }
+      return libRaw.activeId && registered.includes(libRaw.activeId)
+        ? libRaw.activeId
+        : registered[0] || null
+    }
+
+    // Legacy single-draft key
+    const draft = JSON.parse(window.localStorage.getItem(WORKSHOP_DRAFT_KEY) || 'null')
+    return registerDraftCharacter(draft)
+  } catch {
+    return null
+  }
+}
+
 export function applyLaunchQuery() {
   if (typeof window === 'undefined') return
   const q = new URLSearchParams(window.location.search)
@@ -164,11 +381,14 @@ export function applyLaunchQuery() {
   }
   const p1 = q.get('p1')
   if (p1) {
-    GameState.p1Character = remoteCharacterId(p1)
+    // Workshop drafts use ids like draft_brucer — do not force remote_ prefix.
+    GameState.p1Character = p1.startsWith('remote_') || p1.startsWith('draft_') ? p1 : remoteCharacterId(p1)
   }
   const p2 = q.get('p2')
   if (p2) {
-    GameState.p2Character = remoteCharacterId(p2)
+    GameState.p2Character = p2.startsWith('remote_') || p2.startsWith('draft_') ? p2 : remoteCharacterId(p2)
+  } else if (q.get('draft') === '1' && q.get('mode') === 'test') {
+    GameState.p2Character = 'samurai'
   }
   const stage = q.get('stage')
   if (stage) {

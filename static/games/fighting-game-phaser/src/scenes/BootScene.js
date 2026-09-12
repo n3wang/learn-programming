@@ -1,4 +1,4 @@
-import { loadRemoteCatalog, applyLaunchQuery } from '../data/remoteCatalog.js'
+import { loadRemoteCatalog, loadWorkshopCharacterDraft, applyLaunchQuery } from '../data/remoteCatalog.js'
 
 export class BootScene extends Phaser.Scene {
   constructor() {
@@ -8,6 +8,7 @@ export class BootScene extends Phaser.Scene {
   async create() {
     // Soft-fail: built-ins always work if the classroom API is down.
     await loadRemoteCatalog({ timeoutMs: 2000 })
+    loadWorkshopCharacterDraft()
     applyLaunchQuery()
     this.scene.start('Preload')
   }

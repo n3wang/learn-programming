@@ -1,8 +1,14 @@
 /** Thin client for springbackend classroom APIs (`/api/classroom`). */
 
 import useDocusaurusContext from '@docusaurus/useDocusaurusContext';
+import {
+  DEFAULT_API_BASE,
+  getApiBaseUrl,
+  normalizeApiBase,
+  rememberApiBaseUrl,
+} from '@site/src/api/apiBase';
 
-const DEFAULT_API_BASE = 'http://localhost:8080';
+export {getApiBaseUrl, rememberApiBaseUrl} from '@site/src/api/apiBase';
 
 export function resolveApiBaseUrl(customFields) {
   const fromConfig =
@@ -10,7 +16,7 @@ export function resolveApiBaseUrl(customFields) {
       ? customFields.apiBaseUrl.trim()
       : '';
   if (fromConfig) {
-    return fromConfig.replace(/\/$/, '');
+    return normalizeApiBase(fromConfig);
   }
   return DEFAULT_API_BASE;
 }
@@ -21,17 +27,6 @@ export function useApiBaseUrl() {
   return resolveApiBaseUrl(siteConfig?.customFields);
 }
 
-/**
- * Read api base without React (IndexedDB layer).
- * Prefers Root.js inject (`window.__LEARN_API_BASE_URL__`), else localhost.
- */
-export function getApiBaseUrl() {
-  if (typeof window !== 'undefined' && window.__LEARN_API_BASE_URL__) {
-    return String(window.__LEARN_API_BASE_URL__).replace(/\/$/, '');
-  }
-  return DEFAULT_API_BASE;
-}
-
 async function classroomFetch(path, options = {}) {
   const base = getApiBaseUrl();
   const url = `${base}${path.startsWith('/') ? path : `/${path}`}`;
@@ -40,6 +35,8 @@ async function classroomFetch(path, options = {}) {
   try {
     const res = await fetch(url, {
       ...options,
+      mode: 'cors',
+      credentials: 'omit',
       signal: controller.signal,
       headers: {
         Accept: 'application/json',
@@ -215,7 +212,13 @@ export async function uploadGamePackFile(id, {role, rosterSlug, ownerName, file}
   try {
     const res = await fetch(
       `${base}/api/classroom/game-packs/${encodeURIComponent(id)}/files`,
-      {method: 'POST', body: form, signal: controller.signal},
+      {
+        method: 'POST',
+        body: form,
+        mode: 'cors',
+        credentials: 'omit',
+        signal: controller.signal,
+      },
     );
     if (!res.ok) {
       const text = await res.text().catch(() => '');
