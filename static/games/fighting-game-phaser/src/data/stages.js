@@ -44,10 +44,11 @@ export const STAGES = [
     shop: false,
     width: 3072,
     thumbCropX: 1024,
-    tracks: [{ y: 330 }],
+    tracks: [{ y: 365 }],
     layers: [
       { src: 'img/bg/forest_night_z3.png', scrollFactor: 0.45, depth: -30 },
-      { src: 'img/bg/forest_night_z2.png', scrollFactor: 0.72, depth: -20 },
+      // Cool night tint + softer alpha so mid trees sink into the dark.
+      { src: 'img/bg/forest_night_z2.png', scrollFactor: 0.72, depth: -20, tint: 0x3a4d66, alpha: 0.68 },
       { src: 'img/bg/forest_night_z1.png', scrollFactor: 1, depth: -10 }
     ]
   }
@@ -71,4 +72,12 @@ export function getStage(id) {
 
 export function randomStage() {
   return STAGES[Math.floor(Math.random() * STAGES.length)]
+}
+
+export function registerStage(stage) {
+  if (!stage?.id) return null
+  const existing = STAGES.findIndex((item) => item.id === stage.id)
+  if (existing >= 0) STAGES[existing] = stage
+  else STAGES.push(stage)
+  return stage
 }

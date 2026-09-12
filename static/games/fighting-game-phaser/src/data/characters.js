@@ -147,3 +147,16 @@ export function getCharacter(id) {
   if (!character.sprites) throw new Error(id + ' is missing sprites')
   return { ...character, id }
 }
+
+export function registerCharacter(id, overrides) {
+  const cleaned = {}
+  for (const key of Object.keys(overrides || {})) {
+    if (overrides[key] !== undefined) cleaned[key] = overrides[key]
+  }
+  const def = defineCharacter(cleaned)
+  CHARACTERS[id] = Object.freeze({
+    ...def,
+    author: cleaned.author || null
+  })
+  return CHARACTERS[id]
+}

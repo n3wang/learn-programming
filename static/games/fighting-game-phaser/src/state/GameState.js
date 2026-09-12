@@ -8,7 +8,8 @@ export const GameState = {
   p1Character: 'samurai',
   p2Character: 'kenji',
   stageId: STAGES[0].id,
-  mode: 'match' // 'match' | 'test'
+  mode: 'match', // 'match' | 'test'
+  skipSelect: false
 }
 
 export function randomizeCharacters() {

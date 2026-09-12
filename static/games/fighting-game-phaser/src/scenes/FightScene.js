@@ -104,22 +104,6 @@ export class FightScene extends Phaser.Scene {
     }
   }
 
-  restartMatch() {
-    this.scene.stop('UI')
-    this.scene.stop('Controls')
-    this.scene.stop('Pause')
-    this.scene.stop('Result')
-    this.scene.restart()
-  }
-
-  goToSelect() {
-    this.scene.stop('UI')
-    this.scene.stop('Controls')
-    this.scene.stop('Pause')
-    this.scene.stop('Result')
-    this.scene.start('CharacterSelect')
-  }
-
   applyIntent(fighter, opponent, intent) {
     if (!fighter.dead && intent.attackJustDown) {
       fighter.attack({
@@ -207,6 +191,10 @@ export class FightScene extends Phaser.Scene {
     if (this.player.health.health < this.enemy.health.health || this.player.health.health <= 0) this.player.fallDown()
     if (this.enemy.health.health < this.player.health.health || this.enemy.health.health <= 0) this.enemy.fallDown()
     this.matchTimer.pause()
+    // Freeze Fight visuals; Result is a separate scene so its buttons stay live.
+    this.anims.pauseAll()
+    this.tweens.pauseAll()
+    this.time.paused = true
 
     let resultText
     if (this.player.health.health === this.enemy.health.health) resultText = 'Tie'
@@ -214,6 +202,30 @@ export class FightScene extends Phaser.Scene {
     else resultText = 'Player 2 Wins'
 
     this.scene.launch('Result', { resultText })
+  }
+
+  resumeWorld() {
+    this.time.paused = false
+    this.anims.resumeAll()
+    this.tweens.resumeAll()
+  }
+
+  restartMatch() {
+    this.resumeWorld()
+    this.scene.stop('UI')
+    this.scene.stop('Controls')
+    this.scene.stop('Pause')
+    this.scene.stop('Result')
+    this.scene.restart()
+  }
+
+  goToSelect() {
+    this.resumeWorld()
+    this.scene.stop('UI')
+    this.scene.stop('Controls')
+    this.scene.stop('Pause')
+    this.scene.stop('Result')
+    this.scene.start('CharacterSelect')
   }
 
   update(time, delta) {

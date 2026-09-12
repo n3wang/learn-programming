@@ -160,3 +160,82 @@ export async function pingClassroomApi() {
     return false;
   }
 }
+
+export async function fetchGamePacks(kind) {
+  const params = new URLSearchParams();
+  if (kind) {
+    params.set('kind', String(kind));
+  }
+  const qs = params.toString();
+  return classroomFetch(`/api/classroom/game-packs${qs ? `?${qs}` : ''}`, {
+    timeoutMs: 5000,
+  });
+}
+
+export async function fetchGamePack(id) {
+  return classroomFetch(`/api/classroom/game-packs/${encodeURIComponent(id)}`, {
+    timeoutMs: 5000,
+  });
+}
+
+export async function createGamePack({kind, name, rosterSlug, ownerName, meta}) {
+  return classroomFetch('/api/classroom/game-packs', {
+    method: 'POST',
+    body: JSON.stringify({kind, name, rosterSlug, ownerName, meta}),
+    timeoutMs: 10000,
+  });
+}
+
+export async function updateGamePack(id, {rosterSlug, ownerName, name, meta, published}) {
+  return classroomFetch(`/api/classroom/game-packs/${encodeURIComponent(id)}`, {
+    method: 'PATCH',
+    body: JSON.stringify({rosterSlug, ownerName, name, meta, published}),
+    timeoutMs: 10000,
+  });
+}
+
+export async function deleteGamePack(id, {rosterSlug, ownerName}) {
+  return classroomFetch(`/api/classroom/game-packs/${encodeURIComponent(id)}`, {
+    method: 'DELETE',
+    body: JSON.stringify({rosterSlug, ownerName}),
+    timeoutMs: 10000,
+  });
+}
+
+export async function uploadGamePackFile(id, {role, rosterSlug, ownerName, file}) {
+  const base = getApiBaseUrl();
+  const form = new FormData();
+  form.append('role', role);
+  form.append('rosterSlug', rosterSlug);
+  form.append('ownerName', ownerName);
+  form.append('file', file);
+
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 30000);
+  try {
+    const res = await fetch(
+      `${base}/api/classroom/game-packs/${encodeURIComponent(id)}/files`,
+      {method: 'POST', body: form, signal: controller.signal},
+    );
+    if (!res.ok) {
+      const text = await res.text().catch(() => '');
+      const err = new Error(`Classroom API ${res.status}: ${text || res.statusText}`);
+      err.status = res.status;
+      throw err;
+    }
+    return await res.json();
+  } finally {
+    clearTimeout(timeout);
+  }
+}
+
+export function gamePackFileUrl(relativeOrAbsolute) {
+  if (!relativeOrAbsolute) {
+    return '';
+  }
+  if (/^https?:\/\//i.test(relativeOrAbsolute)) {
+    return relativeOrAbsolute;
+  }
+  const base = getApiBaseUrl();
+  return `${base}${relativeOrAbsolute.startsWith('/') ? '' : '/'}${relativeOrAbsolute}`;
+}

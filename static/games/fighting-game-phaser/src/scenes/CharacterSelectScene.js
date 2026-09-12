@@ -78,6 +78,7 @@ export class CharacterSelectScene extends Phaser.Scene {
 
   create() {
     GameState.mode = 'match'
+    GameState.skipSelect = false
     this.hoverStats = { p1: null, p2: null }
     this.cardsP1 = []
     this.cardsP2 = []
@@ -133,10 +134,11 @@ export class CharacterSelectScene extends Phaser.Scene {
         .setStrokeStyle(4, GameState.stageId === stage.id ? 0xfacc15 : 0xffffff)
       const thumb = this.add.image(0, 0, stageThumbKey(stage.id)).setDisplaySize(120, 68)
       const label = this.add
-        .text(0, 46, stage.name, {
+        .text(0, 46, stage.author ? stage.name + '\nby ' + stage.author : stage.name, {
           fontFamily: '"Press Start 2P", monospace',
           fontSize: '8px',
-          color: '#ffffff'
+          color: '#ffffff',
+          align: 'center'
         })
         .setOrigin(0.5, 0.5)
       container.add([thumb, border, label])

@@ -24,8 +24,16 @@ export class PortraitCard {
       .setStrokeStyle(4, selected ? SIDE_COLOR[side] : 0xffffff)
     this.portrait = scene.add.image(0, -4, textureKey)
     this.mark = scene.add.rectangle(0, 34, 56, 8, selected ? SIDE_COLOR[side] : 0x000000, selected ? 1 : 0)
-    this.container.add([this.border, this.portrait, this.mark])
-    this.container.setSize(80, 80)
+    this.author = scene.add
+      .text(0, 48, character.author ? 'by ' + character.author : '', {
+        fontFamily: '"Press Start 2P", monospace',
+        fontSize: '6px',
+        color: '#d1d5db',
+        align: 'center'
+      })
+      .setOrigin(0.5, 0)
+    this.container.add([this.border, this.portrait, this.mark, this.author])
+    this.container.setSize(80, character.author ? 96 : 80)
 
     this.border.setInteractive({ useHandCursor: true })
     this.border.on('pointerdown', () => onSelect(character.id))
