@@ -9,8 +9,17 @@ import DraftHomeworkButton from '@site/src/components/homework/DraftHomeworkButt
 import CEBlock from './CEBlock';
 import styles from './EquationWorksheet.module.css';
 
-function makeBatch(generator, count) {
-  return Array.from({ length: count }, (_, i) => ({ ...generator(), key: `${Date.now()}-${i}-${Math.random()}` }));
+/**
+ * Build a worksheet batch. By default the first `niceAnswerCount` problems ask
+ * the generator for an integer ("nice") solution when it supports
+ * `{ requireNiceAnswer: true }`; remaining items are unrestricted.
+ */
+function makeBatch(generator, count, niceAnswerCount = 2) {
+  return Array.from({ length: count }, (_, i) => {
+    const requireNiceAnswer = i < niceAnswerCount;
+    const problem = requireNiceAnswer ? generator({ requireNiceAnswer: true }) : generator();
+    return { ...problem, key: `${Date.now()}-${i}-${Math.random()}` };
+  });
 }
 
 function WorksheetItem({ index, problem, sectionTitle }) {
@@ -75,22 +84,36 @@ function WorksheetItem({ index, problem, sectionTitle }) {
 }
 
 /**
- * Generates a batch of `count` problems from `generator()` (each call must
- * return { prompt, steps: string[], answer }), and renders them as a
- * worksheet — each with its own show/hide-answer toggle, plus a button to
- * regenerate the whole batch.
+ * Generates a batch of `count` problems from `generator()` / `generator(opts)`
+ * (each call must return { prompt, steps: string[], answer }), and renders
+ * them as a worksheet — each with its own show/hide-answer toggle, plus a
+ * button to regenerate the whole batch.
+ *
+ * By default the first `niceAnswerCount` (2) problems request
+ * `{ requireNiceAnswer: true }` so generators that support it return integer
+ * solutions; set `niceAnswerCount={0}` to disable.
  *
  * Prompts / steps / answers may mix Chinese with `$...$` / `$$...$$` KaTeX.
  */
-export default function EquationWorksheet({ title, subtitle, generator, count = 5 }) {
-  const [batch, setBatch] = useState(() => makeBatch(generator, count));
+export default function EquationWorksheet({
+  title,
+  subtitle,
+  generator,
+  count = 5,
+  niceAnswerCount = 2,
+}) {
+  const [batch, setBatch] = useState(() => makeBatch(generator, count, niceAnswerCount));
 
   return (
     <CEBlock
       title={title}
       subtitle={subtitle}
       headerAction={
-        <Button size="small" variant="text" onClick={() => setBatch(makeBatch(generator, count))}>
+        <Button
+          size="small"
+          variant="text"
+          onClick={() => setBatch(makeBatch(generator, count, niceAnswerCount))}
+        >
           换一批（{count} 题）
         </Button>
       }

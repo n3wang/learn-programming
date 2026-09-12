@@ -87,12 +87,25 @@ function fmtAnswerNote(fr) {
   return `（即 ${decimal}）`;
 }
 
+/** Whole-number answers in a student-friendly range (e.g. x = -4, x = 12). */
+function isNiceAnswer(fr) {
+  return fr.den === 1 && Math.abs(fr.num) <= 30;
+}
+
 /** Combine `expandedLeft`/`expandedRight` (already-final term lists) into the
  * last two solving steps, or null if the equation has no unique solution. */
-function finalize({ prompt, varName, expandedLeft, expandedRight, priorSteps = [] }) {
+function finalize({
+  prompt,
+  varName,
+  expandedLeft,
+  expandedRight,
+  priorSteps = [],
+  requireNiceAnswer = false,
+}) {
   const { combinedCoeff, combinedConst } = solveSides(expandedLeft, expandedRight);
   if (combinedCoeff.isZero()) return null;
   const answer = combinedConst.div(combinedCoeff);
+  if (requireNiceAnswer && !isNiceAnswer(answer)) return null;
   const combined = `${fmtLeadingCoeff(combinedCoeff)}${varName} = ${fmtCoeffNumber(combinedConst)}`;
   const valueTex = fmtAnswerTex(answer);
   const valueNote = fmtAnswerNote(answer);
@@ -105,6 +118,7 @@ function finalize({ prompt, varName, expandedLeft, expandedRight, priorSteps = [
     prompt,
     steps,
     answer: `${tex(`${varName} = ${valueTex}`)}${valueNote}`,
+    answerIsNice: isNiceAnswer(answer),
   };
 }
 
@@ -116,8 +130,13 @@ function attempt(fn, tries = 25) {
   throw new Error('Failed to generate a solvable equation after many attempts');
 }
 
+function genOptsTries(opts = {}) {
+  return opts.requireNiceAnswer ? 80 : 25;
+}
+
 /** 1. 解下列方程 — move terms, combine like terms (4 shapes mirroring the textbook set). */
-export function genBasicLinearEquation() {
+export function genBasicLinearEquation(opts = {}) {
+  const requireNiceAnswer = Boolean(opts.requireNiceAnswer);
   return attempt(() => {
     const varName = pickOne(VARS);
     const shape = pickOne(['A', 'B', 'C', 'D']);
@@ -143,12 +162,13 @@ export function genBasicLinearEquation() {
     }
 
     const prompt = tex(`${renderSide(left, varName)} = ${renderSide(right, varName)}`);
-    return finalize({ prompt, varName, expandedLeft: left, expandedRight: right });
-  });
+    return finalize({ prompt, varName, expandedLeft: left, expandedRight: right, requireNiceAnswer });
+  }, genOptsTries(opts));
 }
 
 /** 2. 解下列方程（含括号）— distribute a signed multiplier into a parenthesized group first. */
-export function genParenthesesEquation() {
+export function genParenthesesEquation(opts = {}) {
+  const requireNiceAnswer = Boolean(opts.requireNiceAnswer);
   return attempt(() => {
     const varName = pickOne(VARS);
     const A = frac(randInt(2, 9));
@@ -176,12 +196,13 @@ export function genParenthesesEquation() {
     const priorSteps = [
       `去括号，得：${tex(`${renderSide(expandedLeft, varName)} = ${renderSide(expandedRight, varName)}`)}`,
     ];
-    return finalize({ prompt, varName, expandedLeft, expandedRight, priorSteps });
-  });
+    return finalize({ prompt, varName, expandedLeft, expandedRight, priorSteps, requireNiceAnswer });
+  }, genOptsTries(opts));
 }
 
 /** 3. 解下列方程（含分母）— clear denominators by the LCM of the two denominators. */
-export function genFractionEquation() {
+export function genFractionEquation(opts = {}) {
+  const requireNiceAnswer = Boolean(opts.requireNiceAnswer);
   return attempt(() => {
     const varName = pickOne(VARS);
     const DENOMS = [2, 3, 4, 5, 6, 10, 12, 15, -5];
@@ -229,12 +250,14 @@ export function genFractionEquation() {
       expandedLeft: clearedLeft,
       expandedRight: clearedRight,
       priorSteps,
+      requireNiceAnswer,
     });
-  });
+  }, genOptsTries(opts));
 }
 
 /** 4. 用方程解答下列问题 — translate a Chinese sentence into an equation, then solve it. */
-export function genWordTranslationEquation() {
+export function genWordTranslationEquation(opts = {}) {
+  const requireNiceAnswer = Boolean(opts.requireNiceAnswer);
   return attempt(() => {
     const varName = pickOne(VARS);
     const shape = pickOne(['A', 'B', 'C', 'D']);
@@ -251,7 +274,7 @@ export function genWordTranslationEquation() {
       const priorSteps = [
         `列方程：${tex(`${renderSide(expandedLeft, varName)} = ${renderSide(expandedRight, varName)}`)}`,
       ];
-      return finalize({ prompt, varName, expandedLeft, expandedRight, priorSteps });
+      return finalize({ prompt, varName, expandedLeft, expandedRight, priorSteps, requireNiceAnswer });
     }
 
     if (shape === 'B') {
@@ -263,7 +286,7 @@ export function genWordTranslationEquation() {
       const priorSteps = [
         `列方程：${tex(`${renderSide(expandedLeft, varName)} = ${renderSide(expandedRight, varName)}`)}`,
       ];
-      return finalize({ prompt, varName, expandedLeft, expandedRight, priorSteps });
+      return finalize({ prompt, varName, expandedLeft, expandedRight, priorSteps, requireNiceAnswer });
     }
 
     if (shape === 'C') {
@@ -281,7 +304,7 @@ export function genWordTranslationEquation() {
         `列方程：${tex(eqPrompt)}`,
         `去括号，得：${tex(`${renderSide(expandedLeft, varName)} = ${renderSide(expandedRight, varName)}`)}`,
       ];
-      return finalize({ prompt, varName, expandedLeft, expandedRight, priorSteps });
+      return finalize({ prompt, varName, expandedLeft, expandedRight, priorSteps, requireNiceAnswer });
     }
 
     // shape === 'D'
@@ -301,8 +324,8 @@ export function genWordTranslationEquation() {
       `列方程：${tex(eqPrompt)}`,
       `去括号，得：${tex(`${renderSide(expandedLeft, varName)} = ${renderSide(expandedRight, varName)}`)}`,
     ];
-    return finalize({ prompt, varName, expandedLeft, expandedRight, priorSteps });
-  });
+    return finalize({ prompt, varName, expandedLeft, expandedRight, priorSteps, requireNiceAnswer });
+  }, genOptsTries(opts));
 }
 
 export const EQUATION_GENERATORS = [
