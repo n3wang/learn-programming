@@ -1,0 +1,310 @@
+---
+sidebar_position: 7
+title: 4.1 Monte Carlo — random numbers
+sidebar_label: '4.1 Monte Carlo — random numbers'
+---
+
+# 4.1 Monte Carlo — random numbers
+
+> **Source:** Ideas from *Computational Physics* (Landau, Páez, Bordeianu), Ch. 4 intro–§4.2. Rewritten in original wording. Continues [3.4b Specular and Bessel labs](./03-04b-specular-bessel-labs). Labs: [4.1b Monte Carlo labs](./04-01b-monte-carlo-labs).
+
+Deterministic programs are comforting: same input, same output. Yet huge amounts of machine time go into **Monte Carlo** work — calculations that feed **chance-like** numbers into a model of a random process (thermal motion, radioactive decay) or into an average that solves an equation. Later chapters reuse the same tools for integration and for thermal / quantum fluctuations. This lesson is the foundation: where those numbers come from, how to spot a bad generator, and what a random walk predicts for diffusion.
+
+## 4.1 Random numbers
+
+A sequence $r_1,r_2,\ldots$ is **random** if successive values are uncorrelated. That is not the same as **uniform**. Uniform means every value in an interval is equally likely ($P(r)=\mathrm{const}$). The integers $1,2,3,\ldots$ are uniform on their lattice and still perfectly predictable. Conversely, a sequence can look “random” while hiding short-range correlations, for example
+
+$$
+r_1,\ (1-r_1),\ r_2,\ (1-r_2),\ \ldots
+$$
+
+The usual library generator aims for **uniform and uncorrelated** draws on $[0,1)$.
+
+Computers are deterministic machines, so they cannot produce true randomness. A computed stream always has a finite period and hidden structure; given enough previous terms you can predict the next. We call the output **pseudorandom** (and then casually drop the “pseudo”). Better generators hide correlations longer; if you look hard enough, or run long enough, the correlations show. Tables of radioactive counts or hardware noise sources exist as sanity checks, not as production defaults.
+
+### Linear congruent (power-residue) method
+
+The classic integer recurrence on $\{0,1,\ldots,M-1\}$ is
+
+$$
+r_{i+1} \stackrel{\mathrm{def}}{=} (a r_i + c) \bmod M.
+$$
+
+The user supplies a **seed** $r_1$. In Python the remainder is `%`. As a tiny walkthrough: $a=4$, $c=1$, $M=9$, $r_1=3$ yields
+
+$$
+3,\ 4,\ 8,\ 6,\ 7,\ 2,\ 0,\ 1,\ 5,\ 3,\ \ldots
+$$
+
+— a cycle of length $M=9$. Dividing by $M$ maps into $[0,1)$:
+
+$$
+0.333,\ 0.444,\ 0.889,\ \ldots
+$$
+
+For a general interval $[A,B]$,
+
+$$
+x_i = A + (B-A)\, r_i, \qquad 0\le r_i\le 1.
+$$
+
+Once any integer repeats, the whole cycle repeats. Large $a$ and $M$ stretch the period (48-bit generators may reach $M\sim 2^{48}$), but overflow and careless constants produce garbage. Prefer an industrial generator (`random.random()` — Mersenne Twister in CPython) over a homemade LCG for serious work; still **plot** before you trust.
+
+![Figure 4.1 — successive pairs $(r_i,r_{i+1})$: lattice (bad) vs filled cloud (better).](/img/computational-physics/fig-4-1-lcg-scatter.svg)
+
+<FormulaExplorer preset="lcgScatter" />
+
+![Figure 4.2 — $r_i$ versus $i$: coverage and jitter, not a proof of randomness.](/img/computational-physics/fig-4-2-ri-vs-i.svg)
+
+<FormulaExplorer preset="lcgVsIndex" />
+
+<GuidedChoiceExplanation preset="lcg-pseudo-random" />
+
+<MultipleChoice
+  id="cp-41-random"
+  title="Pseudorandom numbers"
+  questions={[
+    {
+      prompt: 'Uniform and random are…',
+      choices: [
+        'synonyms',
+        'different: uniform is about equal likelihood; random is about lack of correlation',
+        'both impossible on a computer',
+        'properties only of Gaussian draws',
+      ],
+      answer: 1,
+      why: 'You can be uniform and predictable, or irregular yet correlated.',
+    },
+    {
+      prompt: 'The LCG step is…',
+      choices: [
+        'r ← (a r + c) mod M',
+        'r ← a^r mod c',
+        'r ← sin(r)',
+        'r ← M / (a r + c)',
+      ],
+      answer: 0,
+      why: 'Multiply, add, remainder — then optionally divide by M for [0,1).',
+    },
+    {
+      type: 'order',
+      prompt: 'Order a preflight check for a generator (top = first).',
+      items: [
+        'Refuse a successive-pair lattice for serious Monte Carlo',
+        'Know the claimed range (e.g. [0,1))',
+        'Plot (r_i, r_{i+1}) and r_i vs i',
+        'Prefer a vetted library generator over a toy LCG',
+      ],
+      order: [3, 1, 2, 0],
+      why: 'Use a good generator, confirm range, plot, then reject visible structure.',
+    },
+  ]}
+/>
+
+## 4.2 Random walk (theory)
+
+A perfume molecule in air takes many collisions before it reaches the back of the room. Model the path as $N$ planar steps $(\Delta x_k,\Delta y_k)$. The squared distance from the origin is
+
+$$
+R^{2} = \Bigl(\sum_{k=1}^{N}\Delta x_k\Bigr)^{2} + \Bigl(\sum_{k=1}^{N}\Delta y_k\Bigr)^{2}.
+$$
+
+Expanding produces diagonal squares and cross terms. If each step’s direction is independent and isotropic, the **cross terms average to zero** over many walks, leaving
+
+$$
+R_{\mathrm{rms}}^{2} = \langle R^{2}\rangle \simeq N\, r_{\mathrm{rms}}^{2}
+\quad\Rightarrow\quad
+R_{\mathrm{rms}} \simeq \sqrt{N}\, r_{\mathrm{rms}}.
+$$
+
+The mean **vector** displacement vanishes,
+
+$$
+\langle\vec{R}\rangle \simeq \vec{0},
+$$
+
+but the mean **length** does not. Endpoints smear uniformly in angle; $\sqrt{N}\, r_{\mathrm{rms}}$ is much smaller than the straight-line $N r_{\mathrm{rms}}$, yet it grows without bound — that is normal diffusion.
+
+![Figure 4.3 — $N$ vector steps end a distance $R$ from the origin.](/img/computational-physics/fig-4-3-random-walk.svg)
+
+<RandomWalkSimulator />
+
+<FormulaExplorer preset="walkRms" />
+
+<GuidedChoiceExplanation preset="random-walk-rms" />
+
+<MultipleChoice
+  id="cp-42-walk"
+  title="Random walk"
+  questions={[
+    {
+      prompt: 'For a random walk with RMS step r_rms, after N steps you expect…',
+      choices: [
+        'R_rms ≈ N r_rms',
+        'R_rms ≈ √N r_rms',
+        'R_rms = 0 always',
+        'R_rms ≈ N² r_rms',
+      ],
+      answer: 1,
+      why: 'Cross terms cancel in the average; N diagonal contributions remain under a square root.',
+    },
+    {
+      prompt: '⟨R⃗⟩ ≈ 0 while R_rms grows because…',
+      choices: [
+        'the vector averages cancel by symmetry, but the squared length does not',
+        'steps have zero length',
+        'the walk is one-dimensional only',
+        'Mersenne Twister cannot produce negative Δx',
+      ],
+      answer: 0,
+      why: 'Endpoints fill all directions → mean vector ~0; ⟨R²⟩ still tracks N.',
+    },
+    {
+      type: 'order',
+      prompt: 'Order a unit-step 2D walk update (top = first).',
+      items: [
+        'Accumulate (x,y) ← (x+Δx, y+Δy)',
+        'Draw Δx′, Δy′ independently in [−1,1]',
+        'Normalize: L=√(Δx′²+Δy′²), Δx=Δx′/L, Δy=Δy′/L',
+        'After many trials, compare ⟨R²⟩½ to √N',
+      ],
+      order: [1, 2, 0, 3],
+      why: 'Sample a direction, unitize the step, walk, then average.',
+    },
+  ]}
+/>
+
+## Checking the $\sqrt{N}$ law (assessment)
+
+Theory assumed isotropic, uncorrelated steps. After $K$ independent trials,
+
+$$
+\langle R^{2}(N)\rangle = \frac{1}{K}\sum_{k=1}^{K} R_{(k)}^{2}(N),
+\qquad
+R_{\mathrm{rms}} = \sqrt{\langle R^{2}(N)\rangle}.
+$$
+
+Two diagnostics:
+
+1. **Cross terms.** The derivation needs
+   $$
+   \frac{\langle\Delta x_i\Delta x_{j\neq i}\rangle}{R^{2}}
+   \simeq
+   \frac{\langle\Delta x_i\Delta y_j\rangle}{R^{2}}
+   \simeq 0
+   $$
+   on a long single walk and after averaging trials.
+2. **$R_{\mathrm{rms}}$ vs $\sqrt{N}$.** Start at small $N$ (noisy) and push to large $N$ (a few correct digits on average). Different ways of injecting randomness (unit-normalized vs raw box steps) shift the slope but not the $\sqrt{N}$ shape.
+
+![Figure 4.4 — left: several 2D walks; right: $R_{\mathrm{rms}}$ vs $\sqrt{N}$ with theory line.](/img/computational-physics/fig-4-4-walks-rms.svg)
+
+<FormulaExplorer preset="walkRmsCurve" />
+
+The same averages apply in **3D** with unit steps $(\Delta x,\Delta y,\Delta z)$: still $R_{\mathrm{rms}}\simeq\sqrt{N}\, r_{\mathrm{rms}}$, now with three components under the square root.
+
+## 4.2.2 Random walks in a brain
+
+Understanding a brain is not only neuron wiring — the **fluid-filled extracellular spaces** between cells shape how drugs, metabolites, and molecular signals diffuse [Nicholson, 2022]. Random-walk models of chemical probes look strikingly like the free walks above. Adding randomly placed **circular obstacles** (inaccessible pockets) changes the picture: walks that **stop** or **bounce** on contact explore less volume, so $R_{\mathrm{rms}}$ drops.
+
+![Figure 4.5 — left: free multi-walk diffusion; right: circular extracellular obstacles.](/img/computational-physics/fig-4-5-brain-walks.svg)
+
+<BrainWalkSimulator />
+
+Einstein’s 1905 estimate for an effective diffusion coefficient in $d$ dimensions is
+
+$$
+D \simeq \frac{R_{\mathrm{rms}}^{2}}{2\, d\, t},
+$$
+
+with $t$ the walk duration. At fixed $d$ and $t$, obstacles that shrink $R_{\mathrm{rms}}$ shrink $D$ by the same factor in $R_{\mathrm{rms}}^{2}$.
+
+<GuidedChoiceExplanation preset="brain-diffusion-obstacles" />
+
+<MultipleChoice
+  id="cp-42-brain"
+  title="Obstructed diffusion"
+  questions={[
+    {
+      prompt: 'Circular extracellular obstacles typically…',
+      choices: [
+        'increase R_rms',
+        'decrease R_rms relative to free walks of the same N',
+        'force every walk to close into a loop',
+        'make D infinite',
+      ],
+      answer: 1,
+      why: 'Forbidden disks remove reachable volume; stop/bounce policies cover less ground.',
+    },
+    {
+      prompt: 'If obstacles cut R_rms by a factor ½ at fixed t and d=2, D changes by about…',
+      choices: ['½', '¼', '2', 'unchanged'],
+      answer: 1,
+      why: 'D ∝ R_rms², so (½)² = ¼.',
+    },
+  ]}
+/>
+
+## 4.2.3 Random protein folding (HP model)
+
+A protein chain is a string of monomers: **hydrophobic (H)** residues prefer to bury away from water; **polar (P)** residues do not. Folding searches low-energy geometries. Full molecular dynamics is slow; a cheap Monte Carlo cartoon is a **self-avoiding random walk** on a 2D square lattice [Yue et al., 1995]:
+
+- From the tip, step only to an **empty** neighbor (three choices at most once the previous site is excluded).
+- At each new site, drop an H or P with $P(\mathrm{H})>P(\mathrm{P})$.
+- Stop when the tip has no free neighbor (or you hit a length cap).
+
+Energy of a finished chain:
+
+$$
+E = -\varepsilon f,
+$$
+
+where $\varepsilon>0$ and $f$ counts **non-bonded H–H neighbor pairs** (lattice neighbors that are not consecutive along the backbone). P–P and H–P contacts do not lower $E$. Compact cores with many H–H contacts are the toy “native” states.
+
+![Figure 4.6 — self-avoiding HP walks; large dots = H, small = P; contacts marked.](/img/computational-physics/fig-4-6-protein-fold.svg)
+
+<ProteinFoldSimulator />
+
+<GuidedChoiceExplanation preset="protein-hp-fold" />
+
+<MultipleChoice
+  id="cp-42-protein"
+  title="HP folding"
+  questions={[
+    {
+      prompt: 'Self-avoiding means…',
+      choices: [
+        'the walk may revisit sites freely',
+        'new steps only go to empty lattice neighbors; the walk stops when trapped',
+        'only H monomers are allowed',
+        'steps have random continuous lengths',
+      ],
+      answer: 1,
+      why: 'Occupied sites are forbidden; a boxed-in tip ends the fold.',
+    },
+    {
+      prompt: 'f in E=−εf counts…',
+      choices: [
+        'all adjacent monomers',
+        'non-bonded H–H lattice neighbors only',
+        'the number of P monomers',
+        'the Manhattan length of the chain',
+      ],
+      answer: 1,
+      why: 'Backbone bonds are excluded; only topological H–H contacts lower the energy.',
+    },
+    {
+      type: 'order',
+      prompt: 'Order one HP fold trial (top = first).',
+      items: [
+        'Record length and E=−εf',
+        'While neighbors remain: step to a random empty site and drop H/P',
+        'Start at the origin with a random H or P',
+        'Stop when the tip is trapped or length hits the cap',
+      ],
+      order: [2, 1, 3, 0],
+      why: 'Seed, grow self-avoidingly, stop, then score energy.',
+    },
+  ]}
+/>
+
+Next: [4.1b Monte Carlo labs](./04-01b-monte-carlo-labs) — LCG drills, walk averages, cross terms, brain $R_{\mathrm{rms}}$, HP energy.

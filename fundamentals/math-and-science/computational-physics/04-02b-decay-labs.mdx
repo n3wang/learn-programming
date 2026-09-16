@@ -1,0 +1,492 @@
+---
+sidebar_position: 10
+title: 4.2b Spontaneous decay labs
+sidebar_label: '4.2b Spontaneous decay labs'
+---
+
+# 4.2b Spontaneous decay labs
+
+> **Source:** Lab ideas from *Computational Physics* (Landau, Páez, Bordeianu), §4.3.4. Rewritten as original drills. Continues [4.2 Spontaneous decay](./04-02-spontaneous-decay).
+
+Simulate discrete decay with the chapter LCG (`r ← (1103515245 r + 12345) % 2³¹`, uniform `r/2³¹`). Each time step, every remaining nucleus decays independently if `rnd() < lambda`. Stubs fail until you fill them in.
+
+## Labs
+
+<ExerciseSet>
+<Exercise title="4.2b.1 Decay trajectory" anchor="exercise-cp-decay-traj">
+
+:::tip Activity: Decay trajectory
+Run until $N=0$. Each line: `t Delta N` (integers). Time starts at $t=1$ for the first step (no $t=0$ row).
+
+Input: `N0 lambda seed` (`lambda` is a float).
+
+<CodeExercise
+  title="Decay trajectory"
+  heading="exercise-cp-decay-traj"
+  lang="python"
+  filename="main.py"
+  prompt="Stochastic decay until extinction; print t Delta N each step."
+  sampleLog={`(input) 25 0.3 1
+1 7 18
+2 1 17
+3 6 11
+4 3 8
+5 3 5
+6 2 3
+7 1 2
+8 1 1
+9 0 1
+10 0 1
+11 0 1
+12 0 1
+13 1 0`}
+  starter={`def decay_rows(N0, lam, seed):
+    # return list of (t, Delta, N) until N hits 0
+    return []
+`}
+  wrapSuffix={`
+N0, lam, seed = input().split()
+for t, Delta, N in decay_rows(int(N0), float(lam), int(seed)):
+    print(t, Delta, N)
+`}
+  hint="LCG state=seed. while N>0: Delta=count rnd()<lam over current N; N-=Delta; t+=1; append."
+  solution={`def decay_rows(N0, lam, seed):
+    r = seed
+    M = 2**31
+
+    def rnd():
+        nonlocal r
+        r = (1103515245 * r + 12345) % M
+        return r / M
+
+    N = N0
+    t = 0
+    rows = []
+    while N > 0:
+        Delta = 0
+        for _ in range(N):
+            if rnd() < lam:
+                Delta += 1
+        t += 1
+        N -= Delta
+        rows.append((t, Delta, max(N, 0)))
+    return rows
+`}
+  sourceChecks={[
+    {name: 'fixed LCG', pattern: '1103515245', must: true, hint: 'use the specified LCG'},
+    {name: 'no random module', pattern: 'random\\.random', must: false, hint: 'deterministic LCG only'},
+  ]}
+  tests={[
+    {
+      name: 'small sample',
+      stdin: '25 0.3 1',
+      equals: '1 7 18\n2 1 17\n3 6 11\n4 3 8\n5 3 5\n6 2 3\n7 1 2\n8 1 1\n9 0 1\n10 0 1\n11 0 1\n12 0 1\n13 1 0',
+    },
+  ]}
+/>
+
+:::
+
+</Exercise>
+
+<Exercise title="4.2b.2 Early ln N slope" anchor="exercise-cp-decay-slope">
+
+:::tip Activity: Early $\ln N$ slope
+With large $N(0)$, fit $\ln N$ vs $t$ by least squares over $t=0..t_{\max}$ (include the starting point $(0,N_0)$; skip times after $N$ hits 0). Print the slope with 6 decimals. It should sit near $-\lambda$.
+
+Input: `N0 lambda seed tmax`.
+
+<CodeExercise
+  title="Early ln N slope"
+  heading="exercise-cp-decay-slope"
+  lang="python"
+  filename="main.py"
+  prompt="Least-squares slope of ln N vs t over the early window."
+  sampleLog={`(input) 5000 0.05 2 20
+-0.052068`}
+  starter={`import math
+
+def early_slope(N0, lam, seed, tmax):
+    return 0.0
+`}
+  wrapSuffix={`
+N0, lam, seed, tmax = input().split()
+print(f"{early_slope(int(N0), float(lam), int(seed), int(tmax)):.6f}")
+`}
+  hint="Collect (t,N) while N>0 and t<=tmax. OLS slope of ln N vs t."
+  solution={`import math
+
+def early_slope(N0, lam, seed, tmax):
+    r = seed
+    M = 2**31
+
+    def rnd():
+        nonlocal r
+        r = (1103515245 * r + 12345) % M
+        return r / M
+
+    N = N0
+    pts = [(0, N0)]
+    for t in range(1, tmax + 1):
+        if N <= 0:
+            break
+        Delta = sum(1 for _ in range(N) if rnd() < lam)
+        N -= Delta
+        if N > 0:
+            pts.append((t, N))
+    xs = [p[0] for p in pts]
+    ys = [math.log(p[1]) for p in pts]
+    n = len(xs)
+    mx = sum(xs) / n
+    my = sum(ys) / n
+    num = sum((x - mx) * (y - my) for x, y in zip(xs, ys))
+    den = sum((x - mx) ** 2 for x in xs)
+    return num / den
+`}
+  sourceChecks={[
+    {name: 'uses log', pattern: 'math\\.log|log\\s*\\(', must: true, hint: 'fit ln N'},
+    {name: 'fixed LCG', pattern: '1103515245', must: true, hint: 'deterministic LCG'},
+  ]}
+  tests={[
+    {name: 'λ=0.05', stdin: '5000 0.05 2 20', equals: '-0.052068'},
+    {name: 'λ=0.10', stdin: '5000 0.10 2 20', equals: '-0.105700'},
+  ]}
+/>
+
+:::
+
+</Exercise>
+
+<Exercise title="4.2b.3 Slope ratio for two λ" anchor="exercise-cp-decay-slope-ratio">
+
+:::tip Activity: Slope ratio
+Compute early slopes (same $N_0$, seed, $t_{\max}$) for $\lambda_1$ and $\lambda_2$. Print `s1 s2 ratio` with 6 decimals where `ratio = s1/s2` (both slopes are negative; ratio should track $\lambda_1/\lambda_2$).
+
+Input: `N0 lam1 lam2 seed tmax`.
+
+<CodeExercise
+  title="Slope ratio"
+  heading="exercise-cp-decay-slope-ratio"
+  lang="python"
+  filename="main.py"
+  prompt="Show that early slopes scale with λ."
+  sampleLog={`(input) 5000 0.05 0.10 2 20
+-0.052068 -0.105700 0.492602`}
+  starter={`import math
+
+def early_slope(N0, lam, seed, tmax):
+    return 0.0
+
+def slope_ratio(N0, lam1, lam2, seed, tmax):
+    # return (s1, s2, s1/s2)
+    return 0.0, 0.0, 0.0
+`}
+  wrapSuffix={`
+N0, lam1, lam2, seed, tmax = input().split()
+s1, s2, ratio = slope_ratio(int(N0), float(lam1), float(lam2), int(seed), int(tmax))
+print(f"{s1:.6f} {s2:.6f} {ratio:.6f}")
+`}
+  hint="Reuse early_slope twice with the same seed (independent runs each start from that seed)."
+  solution={`import math
+
+def early_slope(N0, lam, seed, tmax):
+    r = seed
+    M = 2**31
+
+    def rnd():
+        nonlocal r
+        r = (1103515245 * r + 12345) % M
+        return r / M
+
+    N = N0
+    pts = [(0, N0)]
+    for t in range(1, tmax + 1):
+        if N <= 0:
+            break
+        Delta = sum(1 for _ in range(N) if rnd() < lam)
+        N -= Delta
+        if N > 0:
+            pts.append((t, N))
+    xs = [p[0] for p in pts]
+    ys = [math.log(p[1]) for p in pts]
+    n = len(xs)
+    mx = sum(xs) / n
+    my = sum(ys) / n
+    num = sum((x - mx) * (y - my) for x, y in zip(xs, ys))
+    den = sum((x - mx) ** 2 for x in xs)
+    return num / den
+
+def slope_ratio(N0, lam1, lam2, seed, tmax):
+    s1 = early_slope(N0, lam1, seed, tmax)
+    s2 = early_slope(N0, lam2, seed, tmax)
+    return s1, s2, s1 / s2
+`}
+  sourceChecks={[
+    {name: 'two slopes', pattern: 'lam1|lam2|slope', must: true, hint: 'compute both slopes'},
+  ]}
+  tests={[
+    {
+      name: 'half λ',
+      stdin: '5000 0.05 0.10 2 20',
+      equals: '-0.052068 -0.105700 0.492602',
+    },
+  ]}
+/>
+
+:::
+
+</Exercise>
+
+<Exercise title="4.2b.4 Exponential vs power law" anchor="exercise-cp-decay-vs-power">
+
+:::tip Activity: Exponential vs power law
+Over $t=0..t_{\max}$ with $N>0$, compare residual sum of squares:
+
+- **exp:** $\ln N$ vs model $\ln N_0 - \lambda t$ (use the known $\lambda$, not a fit)
+- **power:** least-squares $\ln N = c + a\ln(t+1)$
+
+Print `exp` if SSE$_{\mathrm{exp}}$ is smaller, else `power`.
+
+Input: `N0 lambda seed tmax`.
+
+<CodeExercise
+  title="Exponential vs power law"
+  heading="exercise-cp-decay-vs-power"
+  lang="python"
+  filename="main.py"
+  prompt="Which model fits the early window better on this run?"
+  sampleLog={`(input) 2000 0.05 3 40
+exp`}
+  starter={`import math
+
+def better_model(N0, lam, seed, tmax):
+    # return 'exp' or 'power'
+    return 'exp'
+`}
+  wrapSuffix={`
+N0, lam, seed, tmax = input().split()
+print(better_model(int(N0), float(lam), int(seed), int(tmax)))
+`}
+  hint="Build pts. sse_exp = sum (ln N - ln N0 + λ t)^2. Fit ln N vs ln(t+1) for power SSE."
+  solution={`import math
+
+def better_model(N0, lam, seed, tmax):
+    r = seed
+    M = 2**31
+
+    def rnd():
+        nonlocal r
+        r = (1103515245 * r + 12345) % M
+        return r / M
+
+    N = N0
+    pts = [(0, N0)]
+    for t in range(1, tmax + 1):
+        if N <= 0:
+            break
+        Delta = sum(1 for _ in range(N) if rnd() < lam)
+        N -= Delta
+        if N > 0:
+            pts.append((t, N))
+
+    sse_exp = sum((math.log(n) - math.log(N0) + lam * t) ** 2 for t, n in pts)
+
+    xs = [math.log(t + 1) for t, _ in pts]
+    ys = [math.log(n) for _, n in pts]
+    n = len(xs)
+    mx = sum(xs) / n
+    my = sum(ys) / n
+    num = sum((x - mx) * (y - my) for x, y in zip(xs, ys))
+    den = sum((x - mx) ** 2 for x in xs)
+    a = num / den
+    c = my - a * mx
+    sse_pow = sum((y - (c + a * x)) ** 2 for x, y in zip(xs, ys))
+    return "exp" if sse_exp < sse_pow else "power"
+`}
+  sourceChecks={[
+    {name: 'compares SSE', pattern: 'sse|exp|power', must: true, hint: 'compare residual sums'},
+    {name: 'fixed LCG', pattern: '1103515245', must: true, hint: 'deterministic LCG'},
+  ]}
+  tests={[
+    {name: 'prefers exp', stdin: '2000 0.05 3 40', equals: 'exp'},
+    {name: 'still exp', stdin: '2000 0.08 5 40', equals: 'exp'},
+  ]}
+/>
+
+:::
+
+</Exercise>
+
+<Exercise title="4.2b.5 ln N vs ln ΔN slopes" anchor="exercise-cp-decay-lnDelta">
+
+:::tip Activity: $\ln N$ vs $\ln\Delta N$ slopes
+Activity uses $\Delta t=1$, so $\Delta N/\Delta t=\Delta N$. Over $t=1..t_{\max}$, collect points with $N>0$ for $\ln N$ and points with $\Delta N>0$ for $\ln\Delta N$. Print least-squares slopes `sN sD ratio` (`ratio=sN/sD`) with 6 decimals — they should match within noise (both $\approx-\lambda$).
+
+Input: `N0 lambda seed tmax`.
+
+<CodeExercise
+  title="ln N vs ln ΔN slopes"
+  heading="exercise-cp-decay-lnDelta"
+  lang="python"
+  filename="main.py"
+  prompt="Compare early slopes of ln N and ln ΔN."
+  sampleLog={`(input) 8000 0.04 3 60
+-0.041309 -0.042129 0.980529`}
+  starter={`import math
+
+def slopes(N0, lam, seed, tmax):
+    # return (slope_lnN, slope_lnDelta, ratio)
+    return 0.0, 0.0, 0.0
+`}
+  wrapSuffix={`
+N0, lam, seed, tmax = input().split()
+sN, sD, ratio = slopes(int(N0), float(lam), int(seed), int(tmax))
+print(f"{sN:.6f} {sD:.6f} {ratio:.6f}")
+`}
+  hint="Include (0,N0) in lnN fit. For ΔN use only steps with Delta>0. OLS on ln vs t."
+  solution={`import math
+
+def ols_slope(pts):
+    xs = [p[0] for p in pts]
+    ys = [math.log(p[1]) for p in pts]
+    n = len(xs)
+    mx = sum(xs) / n
+    my = sum(ys) / n
+    num = sum((x - mx) * (y - my) for x, y in zip(xs, ys))
+    den = sum((x - mx) ** 2 for x in xs)
+    return num / den
+
+def slopes(N0, lam, seed, tmax):
+    r = seed
+    M = 2**31
+
+    def rnd():
+        nonlocal r
+        r = (1103515245 * r + 12345) % M
+        return r / M
+
+    N = N0
+    ptsN = [(0, N0)]
+    ptsD = []
+    for t in range(1, tmax + 1):
+        if N <= 0:
+            break
+        Delta = sum(1 for _ in range(N) if rnd() < lam)
+        N -= Delta
+        if N > 0:
+            ptsN.append((t, N))
+        if Delta > 0:
+            ptsD.append((t, Delta))
+    sN = ols_slope(ptsN)
+    sD = ols_slope(ptsD)
+    return sN, sD, sN / sD
+`}
+  sourceChecks={[
+    {name: 'fixed LCG', pattern: '1103515245', must: true, hint: 'deterministic LCG'},
+    {name: 'logs both', pattern: 'math\\.log', must: true, hint: 'fit ln N and ln ΔN'},
+  ]}
+  tests={[
+    {
+      name: 'proportional',
+      stdin: '8000 0.04 3 60',
+      equals: '-0.041309 -0.042129 0.980529',
+    },
+  ]}
+/>
+
+:::
+
+</Exercise>
+</ExerciseSet>
+
+## Write-ups
+
+<ProblemSet id="cp-42b-assess">
+  <Problem
+    type="concept"
+    title="4.2b.W1"
+    minWords={4}
+    keywords={['random', 'average', 'exponential']}
+    prompt={`In your own words: how can a process that is spontaneous and random at heart produce exponential decay?`}
+    answer={`Each survivor has the same hazard λ, so the expected change is ⟨ΔN⟩=−λNΔt — exactly the continuum law. Randomness averages out when N is large, leaving a smooth exponential envelope; small N shows the underlying Geiger-like fluctuations.`}
+  />
+  <Problem
+    type="concept"
+    title="4.2b.W2"
+    minWords={3}
+    keywords={['semilog', 'power']}
+    prompt={`How does your simulation show the decay is exponential-like rather than a power law $N=\\beta t^{-\\alpha}$?`}
+    answer={`On semilog axes, ln N vs t is nearly straight while N is large (slope ≈ −λ). A power law would be straight on log–log axes instead; comparing residual SSEs in the early window favors the exponential model.`}
+  />
+  <Problem
+    type="concept"
+    title="4.2b.W3"
+    minWords={3}
+    keywords={['slope', 'lambda', 'N0']}
+    prompt={`What stays the same and what changes when you vary $N(0)$ at fixed $\\lambda$, or vary $\\lambda$ at fixed $N(0)$?`}
+    answer={`Fixed λ: early semilog slope is ≈ −λ independent of N(0); N(0) only shifts the curve vertically. Fixed N(0): the slope scales with λ (more negative for larger λ).`}
+  />
+  <Problem
+    type="concept"
+    title="4.2b.W4"
+    minWords={3}
+    keywords={['activity', 'fluctuation']}
+    prompt={`Why does $\\ln\\Delta N$ look noisier than $\\ln N$ even when both trend with the same $\\lambda$?`}
+    answer={`ΔN is a difference of random counts each step, so it fluctuates more than the smoother stock N(t). Both still follow the same average decay constant when N is not too small.`}
+  />
+</ProblemSet>
+
+## Explorers
+
+![Figure 4.7 — stochastic vs exponential decay.](/img/computational-physics/fig-4-7-decay.svg)
+
+### Reference sketch — spontaneous decay
+
+Older demos beeped with `winsound` on Windows each time a nucleus decayed. The loop below is the same physics: each survivor decays with probability $\lambda$ per time step. Print a `*` (or call your own sound API) for each decay — that irregular slowing click train is the Geiger-counter intuition. Graded labs use the **fixed LCG**, not `random.random()`.
+
+```python
+# decay_ref.py — spontaneous decay (reference sketch)
+import random
+
+random.seed(None)  # or an int for a repeatable run
+lam = 0.005
+N = 80
+t_max = 500
+print("t N")
+print(0, N)
+for t in range(1, t_max + 1):
+    if N <= 0:
+        break
+    still = 0
+    for _ in range(N):
+        if random.random() < lam:
+            # winsound.Beep(600, 100)  # optional Geiger click on Windows
+            print("*", end="", flush=True)  # stand-in click
+        else:
+            still += 1
+    N = still
+    print()
+    print(t, N)
+```
+
+<FormulaExplorerTabs
+  items={[
+    {
+      panel: 'decay',
+      label: 'Spontaneous decay',
+      note: 'Referenced in 4.2b.1 — stochastic N(t) vs smooth exponential; Geiger-like clicks.',
+    },
+    {
+      preset: 'decaySemilog',
+      label: 'Semilog decay',
+      note: 'Referenced in 4.2b.2 / 4.2b.W2 — early ln N vs t is nearly straight with slope ≈ −λ.',
+    },
+    {
+      preset: 'decaySlope',
+      label: 'Slope vs λ',
+      note: 'Referenced in 4.2b.3 — early slopes scale with λ.',
+    },
+  ]}
+/>
+
+Next: [4.3 Testing random distributions](./04-03-random-tests).

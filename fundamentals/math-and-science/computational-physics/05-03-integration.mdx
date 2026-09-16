@@ -1,0 +1,172 @@
+---
+sidebar_position: 17
+title: 5.3 Integration algorithms
+sidebar_label: '5.3 Integration algorithms'
+---
+
+# 5.3 Integration algorithms
+
+> **Source:** Ideas from *Computational Physics* (Landau, Páez, Bordeianu), §5.3–§5.3.5. Rewritten in original wording. Continues [5.2 Extrapolated difference](./05-02-extrapolated-diff). Labs: [5.3b Integration labs](./05-03b-integration-labs).
+
+## Problem: integrate a spectrum
+
+A counter records a **rate** $dN/dt$ — particles per unit time. The number that arrived in the first second is the area under that rate curve:
+
+$$
+N(1)=\int_0^1 \frac{dN(t)}{dt}\,dt.
+$$
+
+You may have no antiderivative in closed form — only samples of the rate. The job is numerical quadrature: turn the integral into a finite, stable sum.
+
+## Box counting (Riemann sums)
+
+Graph-paper counting of boxes under a curve is the oldest numerical integration picture; the name **quadrature** stuck even for rules far past plain boxes.
+
+The Riemann definition is the limit of equal-width boxes as the width $h\to 0$:
+
+$$
+\int_a^b f(x)\,dx=\lim_{h\to 0}\Biggl[h\sum_{i=1}^{(b-a)/h} f(x_i)\Biggr].
+$$
+
+On a computer there is no infinitesimal $h$. Every practical rule is a **weighted sum** of $N$ samples:
+
+$$
+\int_a^b f(x)\,dx\simeq\sum_{i=1}^{N} f(x_i)\,w_i.
+$$
+
+Choose nodes $x_i\in[a,b]$ and weights $w_i$. As $N\to\infty$ (with sensible $w_i$) you recover the integral for nice $f$; for some polynomials a clever finite rule is already exact.
+
+Figure 5.2 shows the idea: four equal panels of width $h$, five marked abscissae from $a$ to $b$. The shaded rectangles are one concrete choice of heights (here left-endpoint samples).
+
+![Figure 5.2 — area under f(x) broken into equal-width boxes; five sample points from a to b.](/img/computational-physics/fig-5-2-riemann.svg)
+
+**Equal-width left boxes.** With $h=(b-a)/N$ and samples at the left edge of each panel,
+
+$$
+\int_a^b f\simeq h\sum_{i=0}^{N-1} f(a+ih).
+$$
+
+Midpoint and right-endpoint rules only change where $f$ is evaluated inside each panel; trapezoid and Simpson change the **weights**. Same skeleton: $\sum f_i w_i$.
+
+<FormulaExplorer preset="riemannBox" />
+
+## Equal-spacing workhorses: trapezoid and Simpson
+
+Partition $[a,b]$ into $N$ panels of width $h=(b-a)/N$ and write $f_i=f(a+ih)$.
+
+**Composite trapezoid** connects neighboring samples with straight chords:
+
+$$
+\int_a^b f\simeq\frac{h}{2}\Bigl(f_0+2f_1+2f_2+\cdots+2f_{N-1}+f_N\Bigr).
+$$
+
+**Composite Simpson** needs even $N$ and fits a parabola on each pair of panels:
+
+$$
+\int_a^b f\simeq\frac{h}{3}\Bigl(f_0+4f_1+2f_2+4f_3+\cdots+4f_{N-1}+f_N\Bigr).
+$$
+
+## Simple integration error estimates
+
+Choose a rule that reaches a useful answer with the **fewest** samples. A crude estimate of the algorithmic error $\mathcal{E}$ for equal-spacing rules expands $f$ in a Taylor series about a panel midpoint, then multiplies by the number of panels to cover $[a,b]$. Relative error is $\varepsilon=|\mathcal{E}|\big/\big|\int_a^b f\big|$ when the integral is not tiny.
+
+Standard leading results for smooth $f$:
+
+$$
+\mathcal{E}_{\mathrm{trap}}\sim O(h^{2})\sim\frac{(b-a)\,h^{2}}{12}\langle f''\rangle,
+\qquad
+\mathcal{E}_{\mathrm{simp}}\sim O(h^{4})\sim\frac{(b-a)\,h^{4}}{180}\langle f^{(4)}\rangle.
+$$
+
+Those scalings are illuminating:
+
+- Simpson needs fewer points and has less error than trapezoid for the same smooth $f$.
+- With Simpson (and other higher-order rules) you can push error near machine precision.
+- The best numerical integral is **not** $N\to\infty$. A modest $N\lesssim 10^{3}$ often sits near the sweet spot; larger $N$ mostly buys round-off.
+
+<FormulaExplorer preset="trapSimpsonError" />
+
+## Higher-order algorithms (Romberg)
+
+As with differentiation, if you know how the error depends on $h$, you can cancel the leading term. Suppose trapezoid-like evaluations satisfy
+
+$$
+A(h)\simeq\int_a^b f+\alpha h^{2}+\beta h^{4}+\cdots,
+\qquad
+A\!\left(\frac{h}{2}\right)\simeq\int_a^b f+\frac{\alpha h^{2}}{4}+\frac{\beta h^{4}}{16}+\cdots.
+$$
+
+Then the combination
+
+$$
+A\simeq\frac{4}{3}A\!\left(\frac{h}{2}\right)-\frac{1}{3}A(h)
+\simeq\int_a^b f-\frac{\beta h^{4}}{4}+\cdots
+$$
+
+removes the $h^{2}$ piece (**Romberg** extrapolation). It works only while that $h^{2}$ term actually dominates.
+
+<FormulaExplorer preset="rombergExtra" />
+
+## Elementary weights and a sanity check
+
+Equal-interval “single-block” rules use a small stencil that you tile across $[a,b]$. Shared endpoints of adjacent blocks are counted twice when blocks are strung together. Typical elementary weights:
+
+| Rule | Panels / block | Weights (factor $h$ omitted) |
+| --- | --- | --- |
+| Trapezoid | 1 | $\tfrac12,\;\tfrac12$ |
+| Simpson | 2 | $\tfrac13,\;\tfrac43,\;\tfrac13$ |
+| Three-eighths | 3 | $\tfrac38,\;\tfrac98,\;\tfrac98,\;\tfrac38$ |
+| Milne (Boole) | 4 | $\tfrac{2}{45}(7,32,12,32,7)$ |
+
+Quick audit: sum only the weights of any complete rule. For $f\equiv 1$ the integral is $b-a$, so
+
+$$
+\sum_i w_i = h\times N_{\mathrm{intervals}} = b-a.
+$$
+
+If your weight list fails that identity, the stencil is wrong before you ever touch a nontrivial $f$.
+
+<GuidedChoiceExplanation preset="romberg-integration" />
+
+<MultipleChoice
+  id="cp-53-quad"
+  title="Quadrature, errors, Romberg"
+  questions={[
+    {
+      prompt: 'N(1)=∫₀¹ (dN/dt) dt asks you to…',
+      choices: [
+        'differentiate the rate again',
+        'accumulate the area under the measured rate over [0,1]',
+        'replace the rate by its maximum',
+        'count only N(0)',
+      ],
+      answer: 1,
+      why: 'Integral of rate over time is total count.',
+    },
+    {
+      prompt: 'Compared with composite trapezoid, composite Simpson’s leading truncation is typically…',
+      choices: ['worse: O(h)', 'the same O(h²)', 'better: O(h⁴)', 'exactly zero for every continuous f'],
+      answer: 2,
+      why: 'Taylor mid-panel estimate gives O(h⁴) for Simpson vs O(h²) for trapezoid.',
+    },
+    {
+      prompt: 'Romberg’s (4 A(h/2) − A(h))/3 cancels…',
+      choices: [
+        'all round-off',
+        'the leading O(h²) integration error when that term dominates',
+        'the need to evaluate f at all',
+        'machine epsilon itself',
+      ],
+      answer: 1,
+      why: 'Same Richardson idea as extrapolated differences.',
+    },
+    {
+      prompt: 'Summing the weights of a correct equal-interval rule must give…',
+      choices: ['0', '1 always', 'b − a (= h × number of panels)', 'ε_m'],
+      answer: 2,
+      why: '∫1 dx over [a,b] is b−a.',
+    },
+  ]}
+/>
+
+Next: [5.3b Integration labs](./05-03b-integration-labs). Then [5.4 Gaussian quadrature](./05-04-gaussian-quadrature).

@@ -24,6 +24,7 @@ const YamlEditor = lazyMdxComponent(() => import('@site/src/components/YamlEdito
 const GraphChallenge = lazyMdxComponent(() => import('@site/src/components/GraphChallenge'));
 const OutputChallenge = lazyMdxComponent(() => import('@site/src/components/OutputChallenge'));
 const ChartChallenge = lazyMdxComponent(() => import('@site/src/components/ChartChallenge'));
+const MatPlotChallenge = lazyMdxComponent(() => import('@site/src/components/MatPlotChallenge'));
 const NodeLab = lazyMdxComponent(() => import('@site/src/components/NodeLab'));
 const StudentReportsPanel = lazyMdxComponent(() =>
   import('@site/src/components/class/StudentReportsPanel'),
@@ -75,6 +76,7 @@ export default {
     GraphChallenge,
     OutputChallenge,
     ChartChallenge,
+    MatPlotChallenge,
     NodeLab,
     StudentReportsPanel,
     AdminSubmissionsPanel,

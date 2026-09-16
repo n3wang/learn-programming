@@ -43,6 +43,20 @@ VAX PTE: valid, protect, modify, OS-reserved, PFN — **no use bit**.
 
 **Segmented FIFO** [RL81]: each process has an **RSS** cap; pages on a per-process FIFO. On overflow, first-in leaves the process and goes to a **global clean** or **dirty** second-chance list. Another process may take from the clean list; if the owner faults first, **salvage** without disk I/O. Larger second-chance lists ≈ closer to LRU.
 
+<MultipleChoice
+  id="ce-vm-segmented-fifo-order"
+  title="Rank the sequence"
+  questions={[
+    {
+      type: 'order',
+      prompt: 'Order the life of a page under VAX segmented FIFO replacement, from being resident to possibly being reused without disk I/O.',
+      items: ['The owning process re-faults on the page before it is reclaimed, so it is salvaged with no disk I/O', 'The page sits on a global clean or dirty second-chance list', 'The page is first-in on its process\'s per-process FIFO and the process hits its RSS cap, so the page is evicted from the process', 'The page is resident and counted against its process\'s RSS'],
+      order: [3, 2, 1, 0],
+      why: 'A page stays resident until its process overflows its RSS cap and evicts the oldest (FIFO) page; that page then waits on a global clean/dirty list, where a re-fault by the original owner before true eviction lets it be salvaged for free.',
+    },
+  ]}
+/>
+
 **Emulating reference bits** [BJ81]: mark pages inaccessible; first access traps → restore real protect; untouched pages look “cold.”
 
 **Clustering:** batch dirty pages to swap for large disk transfers (still standard).
@@ -54,7 +68,21 @@ Defer work to cut latency — and sometimes **avoid it entirely**.
 :::
 
 - **Demand zeroing:** grow heap with invalid “demand-zero” PTEs; zero + map only on first fault  
-- **Copy-on-write (COW)** [BB+72]: share R/O; copy only on write. Critical for `fork()` then `exec()` (most pages never need a real copy). Shared libraries too  
+- **Copy-on-write (COW)** [BB+72]: share R/O; copy only on write. Critical for `fork()` then `exec()` (most pages never need a real copy). Shared libraries too
+
+<MultipleChoice
+  id="ce-vm-cow-order"
+  title="Rank the sequence"
+  questions={[
+    {
+      type: 'order',
+      prompt: 'Order what happens to a page under copy-on-write across fork() then exec().',
+      items: ['If the process instead calls exec() before writing, the original shared page is simply dropped — no copy was ever needed', 'fork() marks the page read-only and shared between parent and child (refcount 2)', 'If the child writes to the page, a fault triggers a real copy so each process gets its own page'],
+      order: [1, 2, 0],
+      why: 'fork() shares pages read-only first; a write forces a real copy, but in the common fork-then-exec pattern the page is dropped for a fresh image before any write ever happens, so the copy is avoided entirely.',
+    },
+  ]}
+/>  
 
 ## Linux (x86 focus)
 

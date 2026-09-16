@@ -1,0 +1,170 @@
+---
+sidebar_position: 3
+title: 3.3 Errors with power series
+sidebar_label: '3.3 Errors with power series'
+---
+
+# 3.3 Errors with power series
+
+> **Source:** Series-summation ideas from *Computational Physics* (Landau, Páez, Bordeianu), §3.3. Rewritten in original wording. Continues [3.2 Experimental error investigation](./03-02-experimental-error).
+
+A standard job in computational physics is to turn a series into a number. The sine expansion is exact as an infinite sum:
+
+$$
+\sin x = x - \frac{x^{3}}{3!} + \frac{x^{5}}{5!} - \frac{x^{7}}{7!} + \cdots
+$$
+
+Your task is to evaluate $\sin x$ from **this series alone** for some $x<2\pi$ and some $x>2\pi$, with a relative error under one part in $10^{8}$. An infinite sum is mathematics, not an algorithm: the machine has to stop. The algorithm is the finite recipe
+
+$$
+\sin x \simeq \sum_{n=1}^{N} \frac{(-1)^{n-1} x^{2n-1}}{(2n-1)!}.
+$$
+
+The remaining question is **when $N$ is enough**. Do not stop because the printout matches a table or `math.sin` — that is grading the answer with the answer. A usable test is: the **next** term is already smaller than the error you are willing to live with. For large $|x|$ that forces a large $N$; the terms may even **grow** for a long stretch before they start to shrink and the whole sum settles.
+
+<FormulaExplorer preset="sinTaylor" />
+
+## Do not form $x^{2n-1}/(2n-1)!$ from scratch
+
+Computing a huge power and a huge factorial, then dividing, is a bad loop. Each piece can overflow even when their ratio is modest, and both operations are slow. Neighbouring terms are cheaper:
+
+$$
+t_n = \frac{-x^{2}}{(2n-1)(2n-2)}\, t_{n-1},
+\qquad t_1 = x.
+$$
+
+One multiply per step, no factorial, no giant intermediate.
+
+Absolute error in $\sin x$ is awkward to guarantee from the inside of the loop. A working proxy (while round-off is still small) is **the last term you added**:
+
+$$
+\left|\frac{t_n}{S_n}\right| < \varepsilon
+$$
+
+with $\varepsilon=10^{-8}$ for one part in $10^{8}$. You may pick any $\varepsilon$, but if you ask for something at or below machine precision the loop may never be allowed to succeed.
+
+**Theorem (term as remainder).** If round-off is not yet in charge, the first omitted term is a usable estimate of the truncation error. Stop when that term is a small fraction of the running sum.
+
+```text
+term ← x,  sum ← x,  n ← 1,  ε ← 1e-8
+repeat
+    n ← n + 1
+    term ← term * (-x*x) / ((2n-1)*(2n-2))
+    sum ← sum + term
+until |term/sum| < ε
+```
+
+<FormulaExplorer preset="sinTermStop" />
+
+Slide $x$ past $2\pi$. The ratio $|t_n/S_n|$ stays large until $n$ has outrun $|x|$; then it drops through the dashed $\varepsilon$ line.
+
+<MultipleChoice
+  id="cp-33-series"
+  title="Power-series summation"
+  questions={[
+    {
+      prompt: 'Why is the infinite sine series not yet an algorithm?',
+      choices: [
+        'It diverges for every $x$',
+        'A computer cannot add infinitely many terms, so you need a finite $N$ and a stop rule',
+        'Sine is undefined for $x>2\\pi$',
+        'Factorials are exact only in integer arithmetic',
+      ],
+      answer: 1,
+      why: 'Exact mathematics still has to become a finite loop with an explicit exit.',
+    },
+    {
+      prompt: 'A stop rule that does not peek at a library sine is…',
+      choices: [
+        'halt when $N=10$ always',
+        'halt when $|t_n/S_n|$ is below the tolerance',
+        'halt when the sum equals a published table',
+        'halt when $x^{2n}$ overflows',
+      ],
+      answer: 1,
+      why: 'The last term is a proxy for the leftover, provided round-off has not taken over.',
+    },
+    {
+      type: 'order',
+      prompt: 'Order one safe sine-series step (top = start).',
+      items: [
+        'Stop when $|t_n/S_n|<\\varepsilon$',
+        'Set $t_1=x$ and $S_1=x$',
+        'Do not form $x^{2n-1}$ and $(2n-1)!$ separately',
+        'Update $t_n=-x^{2}/((2n-1)(2n-2))\\, t_{n-1}$, then $S\\leftarrow S+t_n$',
+      ],
+      order: [1, 2, 3, 0],
+      why: 'Initialize, refuse the overflow-prone quotient, recur, then test |term/sum|.',
+    },
+    {
+      type: 'multi',
+      prompt: 'Why is the one-step recurrence better than $x^{2n-1}/(2n-1)!$? (Select all that apply.)',
+      choices: [
+        'The power and the factorial can overflow even when their ratio is small',
+        'Powers and factorials are expensive compared with one multiply',
+        'The recurrence is exact in IEEE arithmetic for every $x$',
+        'You still need $N\\gg|x|$ before terms shrink',
+      ],
+      answers: [0, 1, 3],
+      why: 'Overflow and cost are the reasons to recur. The recurrence does not remove the large-x delay, and it is still rounded.',
+    },
+  ]}
+/>
+
+<GuidedChoiceExplanation preset="sine-series-stop" />
+
+## Lab: $\sin x$ to $10^{-8}$
+
+Implement the recurrence and the $|t_n/S_n|$ stop. Do **not** call `math.sin` or `math.factorial`. The wrapper prints eight digits after the decimal. One test uses $x<2\pi$ and one uses $x>2\pi$.
+
+<ExerciseSet>
+<Exercise title="Sine by recurrence" anchor="exercise-cp-sine-series">
+
+:::tip Activity: Sine by recurrence
+Input: `x eps`. Print `my_sin(x, eps)` with `:.8f`. Start from `term = sum = x`. Each new term is the previous times `-x*x/((2*n-1)*(2*n-2))` with `n` counting terms (`n` starts at 1, then 2, 3, …).
+
+<CodeExercise
+  title="Sine by recurrence"
+  heading="exercise-cp-sine-series"
+  lang="python"
+  filename="main.py"
+  prompt="Loop until abs(term/sum) < eps. No math.sin, no factorial."
+  sampleLog={`(input) 1 1e-8
+0.84147098`}
+  starter={`def my_sin(x, eps=1e-8):
+    return 0.0
+`}
+  wrapSuffix={`
+x, eps = map(float, input().split())
+print(f"{my_sin(x, eps):.8f}")
+`}
+  hint="n starts at 1 with term=x. Then n += 1, term *= -x*x/((2*n-1)*(2*n-2)), sum += term."
+  solution={`def my_sin(x, eps=1e-8):
+    n = 1
+    term = x
+    total = x
+    while abs(term / total) >= eps:
+        n += 1
+        term *= -x * x / ((2 * n - 1) * (2 * n - 2))
+        total += term
+    return total
+`}
+  sourceChecks={[
+    {name: 'recurrence multiply', pattern: 'x\\s*\\*\\s*x|x\\s*\\*\\*\\s*2', must: true, hint: '-x*x in the term update'},
+    {name: 'no library sine', pattern: 'math\\.sin', must: false, hint: 'do not call math.sin'},
+    {name: 'no factorial', pattern: 'factorial|math\\.gamma', must: false, hint: 'do not form (2n-1)! from scratch'},
+  ]}
+  tests={[
+    {name: 'x < 2π', stdin: '1 1e-8', equals: '0.84147098'},
+    {name: 'x > 2π', stdin: '7 1e-8', equals: '0.65698660'},
+  ]}
+/>
+
+:::
+
+</Exercise>
+</ExerciseSet>
+
+If $\varepsilon$ is tighter than the machine can represent, the ratio $|t_n/S_n|$ will bottom out around $\epsilon_m$ and the loop may spin. Keep the requested tolerance **above** machine precision, as in 3.2’s trough: more terms are not always more digits.
+
+Next: [3.3b Series labs](./03-03b-series-labs) — table, false convergence, cancellation dump, $2\pi$ reduction, bad factorial form, and short write-ups.

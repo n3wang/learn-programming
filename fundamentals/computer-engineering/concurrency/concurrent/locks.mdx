@@ -78,6 +78,20 @@ Correct ME. **Not fair** (possible starvation). Spin cost: painful if holder pre
 
 Atomic **FetchAndAdd** returns old and increments. Ticket lock [MS91]: `myturn = FetchAndAdd(&ticket)`; spin until `turn == myturn`; unlock does `turn++`. **Fair progress** once you hold a ticket — unlike plain TAS.
 
+<MultipleChoice
+  id="ce-locks-ticket-order"
+  title="Rank the sequence"
+  questions={[
+    {
+      type: 'order',
+      prompt: 'Order the steps a thread performs to acquire and release a ticket lock.',
+      items: ['Enter the critical section', 'Increment turn (unlock)', 'Spin while turn != myturn', 'Call FetchAndAdd on ticket to get myturn'],
+      order: [3, 2, 0, 1],
+      why: 'The thread first grabs a ticket via FetchAndAdd, spins until it is its turn, enters the critical section, then unlocks by incrementing turn so the next ticket holder proceeds.',
+    },
+  ]}
+/>
+
 ## Too much spinning → yield, then sleep
 
 On one CPU, spinning for a preempted holder wastes whole timeslices.
@@ -86,6 +100,20 @@ On one CPU, spinning for a preempted holder wastes whole timeslices.
 2. **Queue + park/unpark** (Solaris-style, Fig 28.9): short **guard** spin-lock around flag/queue; failed acquire → enqueue, release guard, **park**. Unlock **unparks** next (often **pass** the lock without clearing flag). Use **setpark()** to avoid the wakeup/waiting race.  
 3. **Linux futex**: wait/wake on an address; fast path when uncontended; waiter count packed with lock bit.  
 4. **Two-phase locks**: spin briefly, then sleep (hybrid).
+
+<MultipleChoice
+  id="ce-locks-park-order"
+  title="Rank the sequence"
+  questions={[
+    {
+      type: 'order',
+      prompt: 'Order a thread\'s steps when it fails to acquire a queue + park/unpark lock (Fig 28.9).',
+      items: ['Release the guard spin-lock', 'Acquire the guard spin-lock and find the flag held', 'Park (go to sleep)', 'Add itself to the waiting queue'],
+      order: [1, 3, 0, 2],
+      why: 'The thread takes the short guard lock, sees the flag held, enqueues itself, releases the guard, and only then parks — releasing the guard before parking avoids holding it while asleep.',
+    },
+  ]}
+/>
 
 :::warning Priority inversion
 High-priority spinner blocked on low-priority holder → hang (Pathfinder). Mitigations: avoid long spins, **priority inheritance**, or equal priorities.

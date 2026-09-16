@@ -1,0 +1,497 @@
+---
+sidebar_position: 4
+title: 3.3b Series labs
+sidebar_label: '3.3b Series labs'
+---
+
+# 3.3b Series labs
+
+> **Source:** Lab ideas from *Computational Physics* (Landau, Páez, Bordeianu), §3.3.1. Rewritten as original drills. Continues [3.3 Errors with power series](./03-03-power-series).
+
+Eleven checks on the sine recurrence from 3.3: does it converge, to the right answer, for which $x$, and what breaks when you form factorials or ask for more digits than the machine has. Coding stubs fail until filled in; write-ups need the listed keywords. Use `math.sin` **only** when the prompt says so — as a reference “exact” value, never as the series engine.
+
+## Labs
+
+<ExerciseSet>
+<Exercise title="3.3b.1 Error table" anchor="exercise-cp-sine-table">
+
+:::tip Activity: Error table
+For each $x$ on the input line, sum the sine series with $\varepsilon=10^{-8}$ (recurrence from 3.3). Print one row per $x$:
+
+`x N sum rel_err`
+
+where `rel_err = |sum − math.sin(x)| / |math.sin(x)|` (use `1e-30` in the denominator if $\sin x=0$). Format: `x` with 4 decimals, `N` as int, `sum` with 10 significant figures (`:.10g`), `rel_err` in scientific notation with 3 digits (`:.3e`).
+
+Input: space-separated floats. Output: one blank-separated row per $x$, same order.
+
+<CodeExercise
+  title="Error table"
+  heading="exercise-cp-sine-table"
+  lang="python"
+  filename="main.py"
+  prompt="Recurrence + |term/sum| stop. math.sin only for the error column."
+  sampleLog={`(input) 1.0 0.5
+1.0000 7 0.8414709848 9.055e-13
+0.5000 6 0.4794255386 4.087e-14`}
+  starter={`import math
+
+def series_sin(x, eps=1e-8):
+    # return (sum, N)
+    return 0.0, 0
+
+def row(x, eps=1e-8):
+    # return the formatted line for one x
+    return ""
+`}
+  wrapSuffix={`
+xs = list(map(float, input().split()))
+for x in xs:
+    print(row(x))
+`}
+  hint="Same loop as 3.3. After stop: true=math.sin(x); rel=abs(s-true)/max(abs(true),1e-30); f'{x:.4f} {n} {s:.10g} {rel:.3e}'."
+  solution={`import math
+
+def series_sin(x, eps=1e-8):
+    n = 1
+    term = float(x)
+    total = float(x)
+    while abs(term / total) >= eps:
+        n += 1
+        term *= -x * x / ((2 * n - 1) * (2 * n - 2))
+        total += term
+    return total, n
+
+def row(x, eps=1e-8):
+    s, n = series_sin(x, eps)
+    true = math.sin(x)
+    rel = abs(s - true) / max(abs(true), 1e-30)
+    return f"{x:.4f} {n} {s:.10g} {rel:.3e}"
+`}
+  sourceChecks={[
+    {name: 'recurrence', pattern: '2\\s*\\*\\s*n\\s*-\\s*1', must: true, hint: '(2n-1)(2n-2) in the update'},
+    {name: 'uses math.sin for error', pattern: 'math\\.sin', must: true, hint: 'relative error vs math.sin'},
+    {name: 'no factorial engine', pattern: 'factorial|math\\.gamma', must: false, hint: 'do not build (2n-1)!'},
+  ]}
+  tests={[
+    {
+      name: 'small pair',
+      stdin: '1.0 0.5',
+      equals: '1.0000 7 0.8414709848 9.055e-13\n0.5000 6 0.4794255386 4.087e-14',
+    },
+    {
+      name: 'pi/2',
+      stdin: '1.57079632679',
+      equals: '1.5708 8 1 6.023e-12',
+    },
+  ]}
+/>
+
+:::
+
+</Exercise>
+
+<Exercise title="3.3b.4 Converged but wrong" anchor="exercise-cp-sine-wrong">
+
+:::tip Activity: Converged but wrong
+Without using $\sin(x+2n\pi)=\sin x$, run the series at a **somewhat large** $x$ until $|t_n/S_n|<\varepsilon$. Report whether the loop *thinks* it converged while the answer is still bad.
+
+Input: `x eps`. Print one word: `trap` if $|term/sum|<\varepsilon$ **and** relative error vs `math.sin` is $>10^{-6}$; otherwise `ok`.
+
+(For $x=40$, $\varepsilon=10^{-8}$ you should get `trap`.)
+
+<CodeExercise
+  title="Converged but wrong"
+  heading="exercise-cp-sine-wrong"
+  lang="python"
+  filename="main.py"
+  prompt="Do not reduce x mod 2π. Detect false convergence."
+  sampleLog={`(input) 40 1e-8
+trap`}
+  starter={`import math
+
+def diagnose(x, eps=1e-8):
+    # return 'trap' or 'ok'
+    return 'ok'
+`}
+  wrapSuffix={`
+x, eps = map(float, input().split())
+print(diagnose(x, eps))
+`}
+  hint="Run the usual recurrence. After stop: rel = abs(sum-math.sin(x))/max(abs(math.sin(x)),1e-30). trap if last |term/sum|<eps and rel>1e-6."
+  solution={`import math
+
+def diagnose(x, eps=1e-8):
+    n = 1
+    term = float(x)
+    total = float(x)
+    while abs(term / total) >= eps:
+        n += 1
+        term *= -x * x / ((2 * n - 1) * (2 * n - 2))
+        total += term
+    true = math.sin(x)
+    rel = abs(total - true) / max(abs(true), 1e-30)
+    ratio = abs(term / total)
+    if ratio < eps and rel > 1e-6:
+        return 'trap'
+    return 'ok'
+`}
+  sourceChecks={[
+    {name: 'no mod reduce', pattern: 'fmod|%\\s*\\(?\\s*2\\s*\\*?\\s*math\\.pi|twopi', must: false, hint: 'do not reduce x; the point is the unreduced trap'},
+    {name: 'mentions trap', pattern: 'trap', must: true, hint: "return the word 'trap'"},
+  ]}
+  tests={[
+    {name: 'large trap', stdin: '40 1e-8', equals: 'trap'},
+    {name: 'small ok', stdin: '1 1e-8', equals: 'ok'},
+  ]}
+/>
+
+:::
+
+</Exercise>
+
+<Exercise title="3.3b.5 Cancellation dump" anchor="exercise-cp-sine-cancel">
+
+:::tip Activity: Cancellation dump
+For fixed $x=15$, print every term with $n$ near $x/2$ (specifically $5\le n\le 10$). Format each line:
+
+`n term sum`
+
+with `term` and `sum` in `:.6e`. Huge opposite-sign terms should nearly cancel.
+
+Input: ignored (read a dummy line). Always use $x=15$.
+
+<CodeExercise
+  title="Cancellation dump"
+  heading="exercise-cp-sine-cancel"
+  lang="python"
+  filename="main.py"
+  prompt="Recur from n=1; print only n in 5..10."
+  sampleLog={`(input) -
+5 1.059396e+05 7.781955e+04
+6 -2.166946e+05 -1.388751e+05`}
+  starter={`def dump_cancel(x=15.0):
+    # print lines 'n term sum' for n=5..10
+    pass
+`}
+  wrapSuffix={`
+input()
+dump_cancel()
+`}
+  hint="Keep running the recurrence from n=1. When 5<=n<=10, print f'{n} {term:.6e} {total:.6e}'."
+  solution={`def dump_cancel(x=15.0):
+    n = 1
+    term = float(x)
+    total = float(x)
+    while n < 10:
+        n += 1
+        term *= -x * x / ((2 * n - 1) * (2 * n - 2))
+        total += term
+        if 5 <= n <= 10:
+            print(f"{n} {term:.6e} {total:.6e}")
+`}
+  sourceChecks={[
+    {name: 'recurrence', pattern: '2\\s*\\*\\s*n', must: true, hint: 'term update with (2n-1)(2n-2)'},
+  ]}
+  tests={[
+    {
+      name: 'x=15 window',
+      stdin: '-',
+      equals:
+        '5 1.059396e+05 7.781955e+04\n6 -2.166946e+05 -1.388751e+05\n7 3.125403e+05 1.736652e+05\n8 -3.348646e+05 -1.611994e+05\n9 2.770020e+05 1.158026e+05\n10 -1.822382e+05 -6.643554e+04',
+    },
+  ]}
+/>
+
+:::
+
+</Exercise>
+
+<Exercise title="3.3b.6 Stops converging" anchor="exercise-cp-sine-diverge">
+
+:::tip Activity: Stops converging
+Push $x$ so far that the unreduced series never recovers. Input: `x eps max_n`. Run at most `max_n` terms. Print `diverge` if after `max_n` steps you still have $|term/sum|\ge\varepsilon$ **or** $|sum|>10$; otherwise `finite`.
+
+(For $x=100$, $\varepsilon=10^{-8}$, `max_n=80` expect `diverge`.)
+
+<CodeExercise
+  title="Stops converging"
+  heading="exercise-cp-sine-diverge"
+  lang="python"
+  filename="main.py"
+  prompt="Cap the loop; detect non-recovery."
+  sampleLog={`(input) 100 1e-8 80
+diverge`}
+  starter={`def status(x, eps=1e-8, max_n=80):
+    return 'finite'
+`}
+  wrapSuffix={`
+x, eps, max_n = input().split()
+print(status(float(x), float(eps), int(max_n)))
+`}
+  hint="Loop while n<max_n and |term/sum|>=eps. Afterward: diverge if |term/sum|>=eps or abs(sum)>10."
+  solution={`def status(x, eps=1e-8, max_n=80):
+    n = 1
+    term = float(x)
+    total = float(x)
+    while n < max_n and abs(term / total) >= eps:
+        n += 1
+        term *= -x * x / ((2 * n - 1) * (2 * n - 2))
+        total += term
+    if abs(term / total) >= eps or abs(total) > 10:
+        return 'diverge'
+    return 'finite'
+`}
+  sourceChecks={[
+    {name: 'diverge word', pattern: 'diverge', must: true, hint: "return 'diverge'"},
+  ]}
+  tests={[
+    {name: 'x=100', stdin: '100 1e-8 80', equals: 'diverge'},
+    {name: 'x=1', stdin: '1 1e-8 80', equals: 'finite'},
+  ]}
+/>
+
+:::
+
+</Exercise>
+
+<Exercise title="3.3b.7 Reduce mod 2π" anchor="exercise-cp-sine-reduce">
+
+:::tip Activity: Reduce mod $2\pi$
+Now use $\sin(x+2n\pi)=\sin x$. Map $x$ into $(-\pi,\pi]$ with `math.fmod`, then run the recurrence. Print the sum with `:.8f`.
+
+Input: `x eps`.
+
+<CodeExercise
+  title="Reduce mod 2π"
+  heading="exercise-cp-sine-reduce"
+  lang="python"
+  filename="main.py"
+  prompt="y = fmod(x, 2π); shift into (-π, π]; then series_sin(y)."
+  sampleLog={`(input) 100 1e-8
+-0.50636564`}
+  starter={`import math
+
+def reduce_angle(x):
+    # return y in (-pi, pi]
+    return x
+
+def series_sin(x, eps=1e-8):
+    return 0.0
+`}
+  wrapSuffix={`
+x, eps = map(float, input().split())
+print(f"{series_sin(reduce_angle(x), eps):.8f}")
+`}
+  hint="twopi=2*math.pi; y=math.fmod(x, twopi); if y>math.pi: y-=twopi; elif y<-math.pi: y+=twopi."
+  solution={`import math
+
+def reduce_angle(x):
+    twopi = 2 * math.pi
+    y = math.fmod(x, twopi)
+    if y > math.pi:
+        y -= twopi
+    elif y < -math.pi:
+        y += twopi
+    return y
+
+def series_sin(x, eps=1e-8):
+    n = 1
+    term = float(x)
+    total = float(x)
+    while abs(term / total) >= eps:
+        n += 1
+        term *= -x * x / ((2 * n - 1) * (2 * n - 2))
+        total += term
+    return total
+`}
+  sourceChecks={[
+    {name: 'uses fmod', pattern: 'fmod', must: true, hint: 'math.fmod for reduction'},
+    {name: 'recurrence after reduce', pattern: '2\\s*\\*\\s*n\\s*-\\s*1', must: true, hint: 'series recurrence on the reduced angle'},
+  ]}
+  tests={[
+    {name: 'x=100', stdin: '100 1e-8', equals: '-0.50636564'},
+    {name: 'x=40', stdin: '40 1e-8', equals: '0.74511316'},
+    {name: 'x=1', stdin: '1 1e-8', equals: '0.84147098'},
+  ]}
+/>
+
+:::
+
+</Exercise>
+
+<Exercise title="3.3b.9 Error vs N" anchor="exercise-cp-sine-errN">
+
+:::tip Activity: Error vs $N$
+For a fixed $x$, print $\log_{10}|S_N-\sin x|$ for $N=1,2,\ldots,N_{\max}$ (one number per line, `:.4f`). This is the vertical axis of Figure-style error curves from the book — no plotting library required.
+
+Input: `x N_max`.
+
+<CodeExercise
+  title="Error vs N"
+  heading="exercise-cp-sine-errN"
+  lang="python"
+  filename="main.py"
+  prompt="Partial sums with the recurrence; compare to math.sin each N."
+  sampleLog={`(input) 1 5
+-0.7999
+-2.0895
+-3.7084
+-5.5637
+-7.6039`}
+  starter={`import math
+
+def error_curve(x, n_max):
+    # print log10(|S_n - sin(x)|) for n=1..n_max
+    pass
+`}
+  wrapSuffix={`
+x, n_max = input().split()
+error_curve(float(x), int(n_max))
+`}
+  hint="true=math.sin(x). Build S_n with the recurrence. print(f'{math.log10(abs(S-true)+1e-30):.4f}') each n."
+  solution={`import math
+
+def error_curve(x, n_max):
+    true = math.sin(x)
+    n = 1
+    term = float(x)
+    total = float(x)
+    print(f"{math.log10(abs(total - true) + 1e-30):.4f}")
+    while n < n_max:
+        n += 1
+        term *= -x * x / ((2 * n - 1) * (2 * n - 2))
+        total += term
+        print(f"{math.log10(abs(total - true) + 1e-30):.4f}")
+`}
+  sourceChecks={[
+    {name: 'log10', pattern: 'log10', must: true, hint: 'math.log10 of the absolute error'},
+    {name: 'math.sin reference', pattern: 'math\\.sin', must: true, hint: 'compare to math.sin'},
+  ]}
+  tests={[
+    {
+      name: 'x=1 first five',
+      stdin: '1 5',
+      equals: '-0.7999\n-2.0895\n-3.7084\n-5.5637\n-7.6039',
+    },
+    {
+      name: 'x=3 first three',
+      stdin: '3 3',
+      equals: '0.4562\n0.2151\n-0.4158',
+    },
+  ]}
+/>
+
+:::
+
+</Exercise>
+
+<Exercise title="3.3b.10 Bad factorial form" anchor="exercise-cp-sine-bad">
+
+:::tip Activity: Bad factorial form
+Implement the **naive** term $t_n=(-1)^{n-1} x^{2n-1}/(2n-1)!$ with an explicit factorial (or a running product of integers). Stop on $|t_n/S_n|<\varepsilon$ or after `max_n` terms. Print `sum` with `:.8f`.
+
+For small $x$ this still works; for larger $x$ it overflows or loses digits sooner than the recurrence. Compare mentally with 3.3b.1.
+
+Input: `x eps max_n`.
+
+<CodeExercise
+  title="Bad factorial form"
+  heading="exercise-cp-sine-bad"
+  lang="python"
+  filename="main.py"
+  prompt="Form each term with a factorial-style product. No recurrence multiply by -x*x/((2n-1)(2n-2))."
+  sampleLog={`(input) 1 1e-8 40
+0.84147098`}
+  starter={`def fact(k):
+    # k! for integer k >= 0
+    return 1.0
+
+def bad_sin(x, eps=1e-8, max_n=40):
+    return 0.0
+`}
+  wrapSuffix={`
+x, eps, max_n = input().split()
+print(f"{bad_sin(float(x), float(eps), int(max_n)):.8f}")
+`}
+  hint="For n=1..max_n: odd=2*n-1; term = (-1)**(n-1) * x**odd / fact(odd); sum+=term; break if abs(term/sum)<eps."
+  solution={`def fact(k):
+    out = 1.0
+    for i in range(2, k + 1):
+        out *= i
+    return out
+
+def bad_sin(x, eps=1e-8, max_n=40):
+    total = 0.0
+    for n in range(1, max_n + 1):
+        odd = 2 * n - 1
+        term = ((-1) ** (n - 1)) * (x ** odd) / fact(odd)
+        total += term
+        if abs(term / total) < eps:
+            break
+    return total
+`}
+  sourceChecks={[
+    {name: 'uses power or factorial product', pattern: '\\*\\*|fact\\s*\\(', must: true, hint: 'x**odd / fact(odd) style term'},
+    {name: 'not only recurrence', pattern: '-x\\s*\\*\\s*x\\s*/\\s*\\(\\s*\\(\\s*2\\s*\\*\\s*n', must: false, hint: 'this lab is the factorial form, not the recurrence'},
+  ]}
+  tests={[
+    {name: 'x=1', stdin: '1 1e-8 40', equals: '0.84147098'},
+    {name: 'x=0.5', stdin: '0.5 1e-8 40', equals: '0.47942554'},
+  ]}
+/>
+
+:::
+
+</Exercise>
+</ExerciseSet>
+
+## Write-ups
+
+<ProblemSet id="cp-33b-assess">
+  <Problem
+    type="concept"
+    title="3.3b.2"
+    minWords={1}
+    keywords={['converge']}
+    prompt={`For sufficiently small $x$ (e.g. $x\\le 1$) with $\\varepsilon=10^{-8}$, does the recurrence converge, and does it converge to the correct $\\sin x$? One word is enough if it is the right keyword.`}
+    answer={`Yes — for small $x$ the terms shrink quickly, $|t_n/S_n|$ falls below $10^{-8}$, and the relative error vs math.sin is far smaller than $10^{-8}$. The series does converge to the correct answer in that regime.`}
+  />
+  <Problem
+    type="concept"
+    title="3.3b.3"
+    minWords={1}
+    keywords={['eight']}
+    prompt={`With stop rule $|t_n/S_n|<10^{-8}$, roughly how many decimal places of precision do you expect in the sum (while round-off is not yet in charge)?`}
+    answer={`About eight decimal places — the stop rule asks for one part in $10^{8}$, so $-\\log_{10}\\varepsilon \\approx 8$. In practice the true relative error vs math.sin is often even smaller for modest $x$, until round-off or cancellation intervenes.`}
+  />
+  <Problem
+    type="concept"
+    title="3.3b.8"
+    minWords={3}
+    keywords={['accuracy', 'converge']}
+    prompt={`Scanning $x$ from 1 to 10, then 10 to 100 (unreduced series, $\\varepsilon=10^{-8}$): roughly when does accuracy start to degrade, and when does the algorithm effectively stop converging to $\\sin x$?`}
+    answer={`Accuracy is still fine through $x\\sim 10$–$15$ (relative error near or below $10^{-8}$–$10^{-9}$). By $x\\sim 25$ the loop still stops but the answer is already off at the $10^{-6}$ level; around $x\\sim 40$ it “converges” to a clearly wrong value (large relative error). By $x\\sim 100$ the partial sums explode and the method no longer converges to $\\sin x$ at all — you need the $2\\pi$ reduction.`}
+  />
+  <Problem
+    type="concept"
+    title="3.3b.11"
+    minWords={1}
+    keywords={['machine']}
+    prompt={`What happens if you set $\\varepsilon$ smaller than machine precision (e.g. $10^{-20}$ on IEEE double)?`}
+    answer={`The ratio $|t_n/S_n|$ bottoms out near machine epsilon and may never fall below your $\\varepsilon$, so the loop spins until a max-$N$ guard — or it stops for the wrong reason. You cannot buy digits below machine precision; the trough from lesson 3.2 still applies.`}
+  />
+</ProblemSet>
+
+## Explorers
+
+<FormulaExplorerTabs
+  items={[
+    {
+      preset: 'sinTermStop',
+      label: 'Sine series stop',
+      note: 'Referenced in 3.3b.1 / 3.3b.9 — small x drops cleanly; large x waits, cancels, then lies.',
+    },
+  ]}
+/>
+
+Next: [3.4 Specular reflection and Bessel theory](./03-04-specular-bessel-theory).

@@ -1,0 +1,162 @@
+---
+sidebar_position: 19
+title: 5.4 Gaussian quadrature
+sidebar_label: '5.4 Gaussian quadrature'
+---
+
+# 5.4 Gaussian quadrature
+
+> **Source:** Ideas from *Computational Physics* (Landau, Páez, Bordeianu), §5.4. Rewritten in original wording. Continues [5.3 Integration](./05-03-integration). Labs: [5.4b Gaussian quadrature labs](./05-04b-gaussian-quadrature-labs).
+
+## Weighting function and exactness for high-degree polynomials
+
+Rewrite the basic weighted sum by splitting off a weight $W(x)$ from a smoother piece $g(x)$:
+
+$$
+\int_a^b f(x)\,dx\equiv\int_a^b W(x)\,g(x)\,dx\simeq\sum_{i=1}^{N} w_i\,g(x_i).
+$$
+
+**Gaussian quadrature** chooses both the nodes $x_i$ **and** the weights $w_i$ so the rule is exact whenever $g$ is a polynomial of degree at most $2N-1$. That is an extraordinary bargain: $N$ evaluations match what a naive equal-spacing rule would need far more points to approach. The price is that the $x_i$ are **not** equally spaced — and, for the classical families, never sit exactly at the endpoints $a$ or $b$. Different $N$ give entirely different node sets.
+
+If $g$ is smooth (or can be made smooth by peeling $W$ off a singular or peaked factor), Gauss usually beats trapezoid / Simpson at the same $N$. If the integrand changes character across the domain, split the integral and add the pieces — “smart” library integrators do that automatically.
+
+| Integral | Name |
+| --- | --- |
+| $\int_{-1}^{1} f(y)\,dy$ | Gauss–Legendre |
+| $\int_{-1}^{1} F(y)/\sqrt{1-y^{2}}\,dy$ | Gauss–Chebyshev |
+| $\int_{-\infty}^{\infty} e^{-y^{2}} F(y)\,dy$ | Gauss–Hermite |
+| $\int_0^{\infty} e^{-y} F(y)\,dy$ | Gauss–Laguerre |
+| $\int_0^{\infty} e^{-y} y^{-1/2} F(y)\,dy$ | Associated Gauss–Laguerre |
+
+For ordinary **Gauss–Legendre** on $[-1,1]$, the nodes are the zeros of the Legendre polynomial $P_N$, and the weights involve $P_N'$:
+
+$$
+P_N(y_i)=0,
+\qquad
+w_i=\frac{2}{(1-y_i^{2})\bigl[P_N'(y_i)\bigr]^{2}}.
+$$
+
+Libraries, classical tables, or a short root finder will produce $(y_i,w_i)$. A four-point check set (positive half; mirror with $\pm$):
+
+| $\pm y_i$ | $w_i$ |
+| --- | --- |
+| $0.339981043584856$ | $0.652145154862546$ |
+| $0.861136311594053$ | $0.347854845137454$ |
+
+Sum of all four weights on $[-1,1]$ is $2$ (integral of $1$).
+
+<FormulaExplorer preset="gaussLegendre" />
+
+## Mapping Gaussian points
+
+Elementary Gauss–Legendre data live on $-1<y_i<1$. Map them onto the $x$-interval you care about. Write $(y_i,w_i')$ for the reference nodes/weights on $[-1,1]$.
+
+**1. Uniform map** $[-1,1]\to[a,b]$ (midpoint $(a+b)/2$):
+
+$$
+x_i=\frac{b+a}{2}+\frac{b-a}{2}y_i,
+\qquad
+w_i=\frac{b-a}{2}w_i',
+\qquad
+\int_a^b f(x)\,dx=\frac{b-a}{2}\int_{-1}^{1} f\bigl(x(y)\bigr)\,dy.
+$$
+
+**2. Half-line** $[0,\infty)$ with scale $a$ (midpoint scale):
+
+$$
+x_i=a\frac{1+y_i}{1-y_i},
+\qquad
+w_i=\frac{2a}{(1-y_i)^{2}}w_i'.
+$$
+
+**3. Whole line** $(-\infty,\infty)$ with scale $a$:
+
+$$
+x_i=a\frac{y_i}{1-y_i^{2}},
+\qquad
+w_i=\frac{a(1+y_i^{2})}{(1-y_i^{2})^{2}}w_i'.
+$$
+
+**4. Ray** $[a,\infty)$ with midpoint parameter $a+2b$:
+
+$$
+x_i=\frac{a+2b+a y_i}{1-y_i},
+\qquad
+w_i=\frac{2(b+a)}{(1-y_i)^{2}}w_i'.
+$$
+
+**5. Finite** $[0,b]$ with midpoint $ab/(b+a)$:
+
+$$
+x_i=\frac{ba(1+y_i)}{b+a-(b-a)y_i},
+\qquad
+w_i=\frac{2ab^{2}}{\bigl(b+a-(b-a)y_i\bigr)^{2}}w_i'.
+$$
+
+Even “infinite” ranges only place nodes at large finite $x$. Raising $N$ pushes the outermost node farther out, but it never reaches infinity.
+
+## Derivation sketch (Gauss–Legendre)
+
+Want $N$ nodes so
+
+$$
+\int_{-1}^{1} f(x)\,dx=\sum_{i=1}^{N} w_i f(x_i)
+$$
+
+is exact for every polynomial $f$ of degree $\le 2N-1$ (ignoring round-off).
+
+Legendre polynomials $P_N$ satisfy: (1) $P_N$ is orthogonal on $[-1,1]$ to every polynomial of degree $<N$; (2) $P_N$ has $N$ real roots in $[-1,1]$.
+
+Divide $f$ by $P_N$:
+
+$$
+f(x)=q(x)P_N(x)+r(x),
+$$
+
+with $\deg r\le N$ (and $\deg q\le N-1$ when $\deg f\le 2N-1$). Orthogonality kills $\int q P_N$, so
+
+$$
+\int_{-1}^{1} f=\int_{-1}^{1} r.
+$$
+
+The remainder $r$ has degree $\le N$, so an $N$-point rule can integrate it exactly. Substituting into the discrete sum,
+
+$$
+\sum_i w_i f(x_i)=\sum_i w_i q(x_i)P_N(x_i)+\sum_i w_i r(x_i).
+$$
+
+Choose the nodes to be the **zeros of $P_N$**: then $P_N(x_i)=0$ and the $q$ term vanishes. What remains is an exact $N$-point rule for $r$, hence for every $f$ of degree $\le 2N-1$. The weights (5.60) follow from classical orthogonal-polynomial identities (Hildebrand).
+
+<GuidedChoiceExplanation preset="gaussian-quadrature" />
+
+<MultipleChoice
+  id="cp-54-gauss"
+  title="Gaussian quadrature"
+  questions={[
+    {
+      prompt: 'Gauss–Legendre with N nodes is exact for polynomials of degree…',
+      choices: ['at most N−1', 'at most 2N−1', 'exactly N only', 'any continuous f'],
+      answer: 1,
+      why: 'Nodes and weights are both free — 2N parameters → degree 2N−1.',
+    },
+    {
+      prompt: 'Classical Gauss–Legendre nodes on [−1,1] are…',
+      choices: [
+        'equally spaced including the endpoints',
+        'the zeros of P_N (never at ±1)',
+        'random samples from a Gaussian',
+        'only the midpoint',
+      ],
+      answer: 1,
+      why: 'Legendre roots interior to (−1,1).',
+    },
+    {
+      prompt: 'Uniform map [−1,1]→[a,b] multiplies each weight by…',
+      choices: ['(b−a)/2', 'b−a', '1', 'ε_m'],
+      answer: 0,
+      why: 'Jacobian of x=((b+a)+(b−a)y)/2.',
+    },
+  ]}
+/>
+
+Next: [5.4b Gaussian quadrature labs](./05-04b-gaussian-quadrature-labs).

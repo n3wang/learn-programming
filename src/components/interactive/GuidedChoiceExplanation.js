@@ -39,20 +39,43 @@ function Panel({ text }) {
   );
 }
 
-export default function GuidedChoiceExplanation({ preset }) {
+export default function GuidedChoiceExplanation({preset, compact, onComplete, startMode = 'complete', hideReveal = false}) {
   const data = getGuidedChoice(preset);
   const stageRef = useRef(null);
-  const [mode, setMode] = useState('complete');
+  const [mode, setMode] = useState(startMode === 'guided' ? 'guided' : 'complete');
   const [shown, setShown] = useState(1);
   const [picked, setPicked] = useState(null);
   const [wrong, setWrong] = useState(false);
   const [reserved, setReserved] = useState(0);
   const [choices, setChoices] = useState([]);
-
+  const completeOnce = useRef(false);
   const steps = data?.steps || [];
   const visible = mode === 'complete' ? steps.length : shown;
   const next = steps[shown];
   const waiting = mode === 'guided' && shown < steps.length && next?.ask;
+
+  useEffect(() => {
+    completeOnce.current = false;
+    if (startMode === 'guided') {
+      const first = revealThrough(data?.steps || [], 1);
+      setMode('guided');
+      setShown(first);
+      setPicked(null);
+      setWrong(false);
+    } else {
+      setMode('complete');
+      setShown(1);
+    }
+  }, [preset, startMode, data]);
+
+  useEffect(() => {
+    if (mode !== 'guided' || shown < steps.length || !steps.length || completeOnce.current) {
+      return undefined;
+    }
+    completeOnce.current = true;
+    onComplete?.();
+    return undefined;
+  }, [mode, shown, steps.length, onComplete]);
 
   useEffect(() => {
     if (mode !== 'guided' || !next?.choices) {
@@ -110,7 +133,7 @@ export default function GuidedChoiceExplanation({ preset }) {
   }
 
   return (
-    <section className={styles.root} aria-label={data.title}>
+    <section className={`${styles.root}${compact ? ` ${styles.compact}` : ''}`} aria-label={data.title}>
       
       <p className={styles.lead}>
       <b>{data.title} </b>
@@ -118,7 +141,7 @@ export default function GuidedChoiceExplanation({ preset }) {
           <Button size="small" variant="text" onClick={startGuided}>
             开始引导
           </Button>
-        ) : (
+        ) : hideReveal ? null : (
           <Button size="small" variant="text" onClick={showComplete}>
             看完整解答
           </Button>

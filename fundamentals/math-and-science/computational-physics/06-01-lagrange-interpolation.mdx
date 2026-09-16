@@ -1,0 +1,128 @@
+---
+sidebar_position: 25
+title: 6.5 Data fitting — Lagrange interpolation
+sidebar_label: '6.5 Lagrange interpolation'
+---
+
+# 6.5 Data fitting — Lagrange interpolation
+
+> **Source:** Ideas from *Computational Physics* (Landau, Páez, Bordeianu), §6.5–6.5.1. Rewritten in original wording. Continues [5.6b Mean-value and high-D labs](./05-06b-mean-value-nd-labs). Labs: [6.5b Lagrange interpolation labs](./06-01b-lagrange-interpolation-labs).
+
+## Interpolation vs. fitting
+
+A table of measurements is not a function — it is $n$ isolated points, each carrying its own experimental error. Two different questions can be asked of it:
+
+1. **Interpolate:** find *some* smooth curve that passes through the tabulated values, so you can read off a value between them.
+2. **Fit:** assume a theoretical functional form and adjust its free parameters so the curve matches the data as well as possible in a statistical sense (least squares — covered separately).
+
+Interpolation is simpler and doesn't require knowing the "correct" theory, but it also doesn't account for noise: it forces the curve through every point, warts and all. A worked example is neutron-nucleus resonant scattering. The tabulated cross section:
+
+| $i$ | 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9 |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| $E_i$ (MeV) | 0 | 25 | 50 | 75 | 100 | 125 | 150 | 175 | 200 |
+| $g(E_i)$ (mb) | 10.6 | 16.0 | 45.0 | 83.5 | 52.8 | 19.9 | 10.8 | 8.25 | 4.7 |
+| Error (mb) | 9.34 | 17.9 | 41.5 | 85.5 | 51.5 | 21.5 | 10.8 | 6.29 | 4.14 |
+
+The theoretical Breit–Wigner shape this data is expected to follow is
+
+$$
+f(E)=\frac{f_r}{(E-E_r)^2+\Gamma^2/4},
+$$
+
+with unknown resonance energy $E_r$, width $\Gamma$, and scale $f_r$ — but interpolation alone never needs to know this formula.
+
+## Local polynomials, one interval at a time
+
+Assume $g(x)$ can be approximated on interval $i$ by a degree-$(n-1)$ polynomial
+
+$$
+g_i(x)\simeq a_0+a_1 x+a_2 x^2+\cdots+a_{n-1}x^{n-1}.
+$$
+
+The fit is **local**: a different set of coefficients $a_k$ is used in each interval, rather than forcing one polynomial to cover the entire table. Multiple low-degree polynomials, stitched together, behave far better than a single high-degree one.
+
+## The Lagrange formula
+
+Lagrange found a closed form that fits an $(n-1)$-degree polynomial through $n$ points directly, without solving for the $a_k$ by hand:
+
+$$
+g(x)\simeq g_1\lambda_1(x)+g_2\lambda_2(x)+\cdots+g_n\lambda_n(x),
+\qquad
+\lambda_i(x)=\prod_{j(\ne i)=1}^{n}\frac{x-x_j}{x_i-x_j}.
+$$
+
+Each $\lambda_i(x)$ is built to be $1$ at $x=x_i$ and $0$ at every other tabulated $x_j$, so the sum reproduces $g_i$ exactly at each node. $n$ points give a polynomial of degree $n-1$: three points give a parabola, nine points give an 8th-degree polynomial.
+
+**Worked check.** Given
+
+$$
+x_{1\text{–}4}=(0,1,2,4), \qquad g_{1\text{–}4}=(-12,-12,-24,-60),
+$$
+
+the four-point Lagrange formula gives
+
+$$
+g(x)=\frac{(x-1)(x-2)(x-4)}{(0-1)(0-2)(0-4)}(-12)+\frac{x(x-2)(x-4)}{(1-0)(1-2)(1-4)}(-12)
++\frac{x(x-1)(x-4)}{(2-0)(2-1)(2-4)}(-24)+\frac{x(x-1)(x-2)}{(4-0)(4-1)(4-2)}(-60),
+$$
+
+which simplifies to $g(x)=x^3-9x^2+8x-12$. Checks: $g(4)=64-144+32-12=-60$ ✓, and $g(0.5)=-10.125$ off-node.
+
+Notice the $x_i$ need not be evenly spaced — Lagrange's formula makes no such assumption.
+
+## Why global fits misbehave
+
+The remainder between the interpolating polynomial and the true function is approximately
+
+$$
+R_n\simeq\frac{(x-x_1)(x-x_2)\cdots(x-x_n)}{n!}\,g^{(n)}(\zeta),
+$$
+
+for some $\zeta$ in the interval. If $g$ has large high-order derivatives — as noisy data effectively does — $R_n$ can be large. Fitting all nine cross-section points with one 8th-degree polynomial is guaranteed to pass through every point, but between the nodes it can swing wildly, showing peaks and dips that have nothing to do with the underlying physics.
+
+**Rule of thumb:** if you must interpolate, keep it local (small $n$, e.g. $n=3$) and treat global high-degree interpolation with suspicion. Extrapolation — evaluating outside the tabulated range — is riskier still: the answer then depends more on which polynomial you happened to fit than on the data itself.
+
+<GuidedChoiceExplanation preset="lagrange-interpolation" />
+
+<MultipleChoice
+  id="cp-65-lagrange"
+  title="Lagrange interpolation"
+  questions={[
+    {
+      prompt: 'An n-point Lagrange interpolation produces a polynomial of degree…',
+      choices: ['n', 'n−1', 'n+1', '2n−1'],
+      answer: 1,
+      why: 'n points pin down n coefficients — a degree-(n−1) polynomial.',
+    },
+    {
+      prompt: 'λ_i(x) in the Lagrange formula equals 1 at x_i and…',
+      choices: ['1 at every other node too', '0 at every other tabulated x_j', 'the average of neighboring g values', 'undefined elsewhere'],
+      answer: 1,
+      why: 'Each factor (x−x_j)/(x_i−x_j) vanishes at x=x_j for j≠i.',
+    },
+    {
+      prompt: 'Fitting all nine noisy data points with one 8th-degree polynomial risks…',
+      choices: [
+        'underfitting — missing the peak entirely',
+        'large oscillations between the tabulated points',
+        'no risk — more data points always means a better global fit',
+        'a fit that no longer touches the data',
+      ],
+      answer: 1,
+      why: 'High-order derivatives in the remainder term blow up with noisy tables.',
+    },
+    {
+      prompt: 'The safer alternative to one global high-degree polynomial is…',
+      choices: [
+        'low-order local interpolation in each interval',
+        'extrapolating past the data range',
+        'raising the degree even further',
+        'ignoring the endpoints',
+      ],
+      answer: 0,
+      why: 'Local, low-n fits avoid the wild swings of a single global polynomial.',
+    },
+  ]}
+/>
+
+Next: [6.5b Lagrange interpolation labs](./06-01b-lagrange-interpolation-labs).

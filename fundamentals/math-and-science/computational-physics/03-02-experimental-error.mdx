@@ -1,0 +1,214 @@
+---
+sidebar_position: 2
+title: 3.2 Experimental error investigation
+sidebar_label: '3.2 Experimental error investigation'
+---
+
+# 3.2 Experimental error investigation
+
+> **Source:** Error-tradeoff ideas from *Computational Physics* (Landau, Páez, Bordeianu), §3.2. Rewritten in original wording. Continues [3.1 Errors](./03-01-errors).
+
+An algorithm is not “done” when it prints a number. You still have to decide:
+
+1. **Does it converge**, and how fast?
+2. Even if it converges, **how many digits are real**?
+3. **What did those digits cost** (steps, and therefore round-off)?
+
+“Just run longer” is not a method. Some expansions only work in a patch of parameter space and stall. Even a series that is uniformly convergent can **lose** digits if you keep adding terms: approximation error falls, round-off error climbs, and the sum of the two has a **best** $N$, not an infinite one. A cheaper algorithm is often more accurate for that reason — fewer steps, less garbage.
+
+## Two errors, one $N$
+
+Let the method take $N$ steps. Algorithmic error typically drops as an inverse power once $N$ is large:
+
+$$
+\epsilon_{\mathrm{app}} \simeq \frac{\alpha}{N^{\beta}}.
+$$
+
+$\alpha$ and $\beta$ are empirical; they can drift, and the power law is an $N\to\infty$ cartoon. That the error **does** fall is what it means for the algorithm to work.
+
+Round-off, if the per-step mistakes are uncorrelated, still looks like the random walk from 3.1:
+
+$$
+\epsilon_{\mathrm{ro}} \simeq \sqrt{N}\,\epsilon_m.
+$$
+
+Add them:
+
+$$
+\epsilon_{\mathrm{tot}} \simeq \frac{\alpha}{N^{\beta}} + \sqrt{N}\,\epsilon_m.
+$$
+
+Small $N$: the first term wins (you are still converging). Large $N$: the square root takes over and the answer gets **worse**.
+
+Plot $\log_{10}$ of the **relative** error versus $\log_{10} N$. The negative of that ordinate is the number of decimal places you can defend: if $(\mathcal{A}-A(N))/\mathcal{A}\simeq 10^{-9}$, then $\log_{10}|(\mathcal{A}-A(N))/\mathcal{A}|\simeq -9$.
+
+<FormulaExplorer preset="errorTradeoff" />
+
+**Theorem (best $N$).** Total error is smallest near the $N$ where $\epsilon_{\mathrm{app}}\simeq\epsilon_{\mathrm{ro}}$. Past that trough, extra steps buy round-off, not truth.
+
+On a realistic integrator you would see a steep drop (power-law convergence), then a noisy slow rise. The trough for a careful double-precision run often sits around $10^{-14}$ on that plot — roughly fourteen digits — before the walk upward begins. Quit **before** the uptick.
+
+<MultipleChoice
+  id="cp-32-tradeoff"
+  title="Approximation vs round-off"
+  questions={[
+    {
+      prompt: 'Why can adding more terms of a convergent series make the printed answer worse?',
+      choices: [
+        'Approximation error grows with $N$',
+        'Round-off accumulates with the step count and can overtake a shrinking $\\epsilon_{\\mathrm{app}}$',
+        'Machine precision $\\epsilon_m$ itself increases with $N$',
+        'Logarithms are only defined for $N<10$',
+      ],
+      answer: 1,
+      why: 'ε_app falls; ε_ro climbs like √N (or worse). Their sum has a minimum.',
+    },
+    {
+      prompt: 'If the relative error is about $10^{-9}$, $\\log_{10}$ of that relative error is…',
+      choices: ['$9$', '$-9$', '$10^{9}$', '$1/9$'],
+      answer: 1,
+      why: 'log₁₀(10^{−9})=−9, so you have about nine decimal places.',
+    },
+    {
+      type: 'order',
+      prompt: 'Order how total error usually depends on $N$ (top = small $N$).',
+      items: [
+        'Round-off $\\sqrt{N}\\,\\epsilon_m$ dominates and $\\epsilon_{\\mathrm{tot}}$ creeps up',
+        'A trough where $\\epsilon_{\\mathrm{app}}\\simeq\\epsilon_{\\mathrm{ro}}$ — the best practical $N$',
+        'Approximation $\\alpha/N^{\\beta}$ dominates; the log–log plot drops steeply',
+      ],
+      order: [2, 1, 0],
+      why: 'Converge first, meet in the middle, then round-off wins.',
+    },
+  ]}
+/>
+
+## You do not know $\mathcal{A}$
+
+If you already had the exact answer, you would not be computing. You might have a **cousin** problem with a known result, and you can tune the method there. Or you watch $A(N)$ itself.
+
+While round-off is still small,
+
+$$
+A(N) \simeq \mathcal{A} + \frac{\alpha}{N^{\beta}}.
+$$
+
+Run $2N$ steps and subtract:
+
+$$
+A(N)-A(2N) \simeq \frac{\alpha}{N^{\beta}}\bigl(1-2^{-\beta}\bigr).
+$$
+
+Plot
+
+$$
+\log_{10}\left|\frac{A(N)-A(2N)}{A(2N)}\right|
+\quad\text{versus}\quad
+\log_{10} N.
+$$
+
+A **straight steep drop** means you are in the converging region; the slope is $-\beta$. When the line flattens and then wanders upward, round-off has arrived. A good production $N$ sits just before that change.
+
+In the mantissa you will see the same story without a plot: stable digits march rightward as $N$ grows, then the last places start to flicker and the flicker slowly gets worse. Stop before the flicker.
+
+<FormulaExplorer preset="twoNCheck" />
+
+<GuidedChoiceExplanation preset="error-tradeoff-stop" />
+
+## Stationary point of the cartoon
+
+Take $\epsilon_{\mathrm{app}}=1/N^{2}$ and $\epsilon_{\mathrm{ro}}=\sqrt{N}\,\epsilon_m$:
+
+$$
+\epsilon_{\mathrm{tot}}=\frac{1}{N^{2}}+\sqrt{N}\,\epsilon_m.
+$$
+
+Set the derivative to zero:
+
+$$
+\frac{d\epsilon_{\mathrm{tot}}}{dN}=-\frac{2}{N^{3}}+\frac{1}{2}\frac{\epsilon_m}{\sqrt{N}}=0
+\qquad\Rightarrow\qquad
+N^{\beta+1/2}=\frac{2\alpha\beta}{\epsilon_m}
+\quad(\alpha=1,\;\beta=2\Rightarrow N^{5/2}=4/\epsilon_m).
+$$
+
+For a general power, $N^{*}=(2\alpha\beta/\epsilon_m)^{1/(\beta+1/2)}$. Slide $\beta$ and $\epsilon_m$ on the first chart; the dashed line is that $N^{*}$.
+
+A method with $\epsilon_{\mathrm{app}}\simeq 2/N^{4}$ reaches its trough at **smaller** $N$ (higher power in the denominator of $N^{*}$). Fewer steps also means a shorter random walk, so the round-off piece is smaller too. The “better” algorithm is not only faster — it is often **cleaner**.
+
+<MultipleChoice
+  id="cp-32-nstar"
+  title="The best N"
+  questions={[
+    {
+      prompt: 'For $\\epsilon_{\\mathrm{tot}}=\\alpha N^{-\\beta}+\\sqrt{N}\\,\\epsilon_m$, the model minimum solves…',
+      choices: [
+        '$N=\\alpha/\\epsilon_m$',
+        '$N^{*}=(2\\alpha\\beta/\\epsilon_m)^{1/(\\beta+1/2)}$',
+        '$N^{*}=\\epsilon_m^{\\beta}$',
+        '$N\\to\\infty$ always',
+      ],
+      answer: 1,
+      why: 'Set dε_tot/dN=0 and rearrange. For α=1, β=2 this is N^{5/2}=4/ε_m.',
+    },
+    {
+      prompt: 'A scheme whose $\\epsilon_{\\mathrm{app}}$ falls as $1/N^{4}$ instead of $1/N^{2}$ typically…',
+      choices: [
+        'needs more steps, so it accumulates more round-off',
+        'hits its error trough at smaller $N$, so it can be both quicker and less rounded',
+        'cannot be used in double precision',
+        'has $\\epsilon_{\\mathrm{ro}}=0$',
+      ],
+      answer: 1,
+      why: 'Larger β shrinks N*. Fewer operations → less random-walk round-off as well as a smaller algorithmic term.',
+    },
+  ]}
+/>
+
+## Lab: estimate the double-precision trough
+
+Pick $\epsilon_m=10^{-15}$ (a working double-precision scale). Implement $N^{*}=(2\alpha\beta/\epsilon_m)^{1/(\\beta+1/2)}$ and $\epsilon_{\mathrm{tot}}(N)=\alpha/N^{\beta}+\sqrt{N}\,\epsilon_m$. Report $N^{*}$ in scientific notation with three digits after the decimal.
+
+<ExerciseSet>
+<Exercise title="N* for the error cartoon" anchor="exercise-cp-nstar">
+
+:::tip Activity: Best $N$
+Input: `alpha beta eps_m`. Print $N^{*}$ as `:.3e`.
+
+<CodeExercise
+  title="Best N"
+  heading="exercise-cp-nstar"
+  lang="python"
+  filename="main.py"
+  prompt="N_star = (2*alpha*beta / eps_m) ** (1/(beta + 0.5)). Do not hard-code 1099."
+  sampleLog={`(input) 1 2 1e-15
+1.741e+06`}
+  starter={`def n_star(alpha, beta, eps_m):
+    return 0.0
+`}
+  wrapSuffix={`
+alpha, beta, eps_m = map(float, input().split())
+print(f"{n_star(alpha, beta, eps_m):.3e}")
+`}
+  hint="exponent is 1/(beta + 0.5); numerator is 2*alpha*beta"
+  solution={`def n_star(alpha, beta, eps_m):
+    return (2 * alpha * beta / eps_m) ** (1 / (beta + 0.5))
+`}
+  sourceChecks={[
+    {name: 'uses β+1/2', pattern: 'beta\\s*\\+\\s*0\\.5|beta\\s*\\+\\s*1\\s*/\\s*2', must: true, hint: '1/(beta + 0.5)'},
+    {name: '2 α β', pattern: '2\\s*\\*\\s*alpha\\s*\\*\\s*beta|2\\s*\\*\\s*beta\\s*\\*\\s*alpha', must: true, hint: '2*alpha*beta in the numerator'},
+  ]}
+  tests={[
+    {name: '1/N^2 double', stdin: '1 2 1e-15', equals: '1.741e+06'},
+    {name: '2/N^4 double', stdin: '2 4 1e-15', equals: '3.989e+03'},
+  ]}
+/>
+
+:::
+
+</Exercise>
+</ExerciseSet>
+
+Those two cases are the lesson’s cartoons: $\alpha=1,\beta=2$ wants on the order of $10^{6}$ steps; $\alpha=2,\beta=4$ wants a few thousand — and a smaller $\epsilon_{\mathrm{tot}}$. Check the first chart’s dashed line against your function.
+
+Next: [3.3 Errors with power series](./03-03-power-series).

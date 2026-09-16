@@ -1,0 +1,575 @@
+---
+sidebar_position: 1
+title: 3.1 Errors
+sidebar_label: '3.1 Errors'
+---
+
+# 3.1 Errors
+
+> **Source:** Numerical-error ideas from *Computational Physics* (Landau, Páez, Bordeianu), Chapter 3. Rewritten in original wording; the sine series and the four-digit $1/3$ identity are standard classroom calculations, not a transcription of the book.
+
+A computer printout looks exact. It is not. Every number you get is some mix of **what the mathematics asked for** and **what the machine and the algorithm could actually do**. Before you trust a result — especially a long run — name the error families and estimate which one is in charge.
+
+Bugs and sloppy algebra are still the first place to look. Once the program is the program you meant to write, three more families remain.
+
+## Random error
+
+Uncontrolled physical events: a voltage hiccup, a cosmic-ray bit flip, someone pulling a plug. You do not choose when they happen. Their chance of showing up **grows with wall-clock time**. A twenty-second check can look rock solid; a week-long integration may need **independent reruns** before you believe it is reproducible.
+
+That is the opposite of truncation and round-off, which (on the same binary and the same inputs) happen the same way every time.
+
+<MultipleChoice
+  id="cp-31-random"
+  title="Random error"
+  questions={[
+    {
+      prompt: 'Why can a week-long run be less trustworthy than a 20-second one even if the code is unchanged?',
+      choices: [
+        'Approximation error grows automatically with calendar time',
+        'Rare uncontrolled events become more likely the longer the machine stays up',
+        'IEEE double suddenly loses digits after a few hours',
+        'Sine series need more terms at night',
+      ],
+      answer: 1,
+      why: 'Random errors are uncontrolled; their opportunity window is the running time. Truncation and round-off are deterministic on fixed inputs.',
+    },
+    {
+      prompt: 'The practical check for random error on a long job is to…',
+      choices: [
+        'increase N in a series until the tail vanishes',
+        'print more digits of the mantissa',
+        'rerun the same calculation and compare',
+        'replace floats with integers',
+      ],
+      answer: 2,
+      why: 'Reproducibility across independent runs is what random error fails; algorithmic and round-off error would agree.',
+    },
+  ]}
+/>
+
+## Approximation (algorithmic) error
+
+You almost never run the exact mathematics. Infinite series become finite sums, $dx$ becomes a step $h$, a function that varies is frozen as a constant for one slice. The gap between the true math and that finite recipe is **approximation error** — also called **algorithmic error**, because it lives in the method, not in the hardware.
+
+The textbook example is the sine series, which is exact as an infinite sum and approximate once you stop at $N$ terms:
+
+$$
+\begin{align*}
+\sin x &= \sum_{n=1}^{\infty} \frac{(-1)^{n-1} x^{2n-1}}{(2n-1)!} \\
+&= \sum_{n=1}^{N} \frac{(-1)^{n-1} x^{2n-1}}{(2n-1)!} + \mathcal{E}(x,N).
+\end{align*}
+$$
+
+$\mathcal{E}(x,N)$ is the ignored tail from $n=N+1$ onward. For a **good** algorithm that tail should shrink as $N$ grows and vanish as $N\to\infty$.
+
+For this particular series the scale of $N$ is set by $x$: you need $N \gg |x|$. If $N$ and $|x|$ are comparable, the leftover is large even though the infinite series is perfect.
+
+<FormulaExplorer preset="sinTaylor" />
+
+**Theorem (truncation of a convergent scheme).** If the discrete method is consistent with the mathematics, algorithmic error $\to 0$ as the discretization parameter $N\to\infty$. For the sine Taylor sum, that limit is useful in practice only when $N$ is much larger than $|x|$.
+
+<MultipleChoice
+  id="cp-31-approx"
+  title="Approximation error"
+  questions={[
+    {
+      type: 'order',
+      prompt: 'Order the argument that a truncated sine series can still be accurate (top = start).',
+      items: [
+        'The leftover $\\mathcal{E}(x,N)$ is the tail from $N+1$ to $\\infty$',
+        'For this series the size of $N$ must be set by $x$: you need $N \\gg |x|$',
+        'The infinite sum equals $\\sin x$ exactly',
+        'A good algorithm makes $\\mathcal{E}\\to 0$ as $N\\to\\infty$',
+      ],
+      order: [2, 0, 3, 1],
+      why: 'Exact infinite sum, finite recipe leaves a tail, the tail should vanish with N, and for sine that N has to outrun |x|.',
+    },
+    {
+      prompt: 'You keep N = 4 terms at x = 12. The chart’s leftover is huge mainly because…',
+      choices: [
+        'four-digit round-off has already taken over',
+        'a cosmic ray hit the factorial',
+        'N is not much larger than |x|, so the ignored tail is still big',
+        'sine is undefined for x > π',
+      ],
+      answer: 2,
+      why: 'Algorithmic error, not hardware: the remainder scale is set by x.',
+    },
+    {
+      type: 'multi',
+      prompt: 'Which of these are approximation errors? (Select all that apply.)',
+      choices: [
+        'Stopping a series after N terms',
+        'Replacing an infinitesimal interval by a finite step h',
+        'Storing 1/3 as 0.3333 on a 4-digit machine',
+        'Treating a slowly varying factor as constant on one slice',
+      ],
+      answers: [0, 1, 3],
+      why: 'Finite sums, finite intervals, and frozen coefficients are choices in the algorithm. Short mantissas are round-off.',
+    },
+  ]}
+/>
+
+## Round-off error
+
+Floating-point numbers keep **finitely many digits**. That is the same kind of limitation as a lab instrument with a finite number of significant figures: the value you store is close to the true value, not equal to it. Every extra arithmetic step is another chance to round, so **the damage grows with the number of operations**. Some methods amplify that noise and go unstable; when round-off is most of the answer, you are looking at garbage.
+
+Toy machine with four digits after the decimal: $\frac{1}{3}$ becomes $0.3333$, $\frac{2}{3}$ becomes $0.6667$ (last digit rounded). Then
+
+$$
+2\left(\frac{1}{3}\right) - \frac{2}{3} = 0.6666 - 0.6667 = -0.0001 \neq 0.
+$$
+
+Mathematically the combination is zero. On that machine it is a tiny bias. Repeat the same pattern millions of times and the tiny bias is no longer tiny.
+
+<FormulaExplorer preset="roundoffRepeat" />
+
+<MultipleChoice
+  id="cp-31-roundoff"
+  title="Round-off error"
+  questions={[
+    {
+      prompt: 'On a 4-decimal toy machine, $2(1/3)-2/3$ fails to be 0 because…',
+      choices: [
+        'the sine series was truncated too early',
+        '$1/3$ and $2/3$ cannot both be represented exactly, so their combination does not cancel',
+        'the exponent overflowed',
+        'someone pulled the plug mid-instruction',
+      ],
+      answer: 1,
+      why: 'Each fraction is rounded before the subtract. The identity is exact in the reals, not in a short mantissa.',
+    },
+    {
+      prompt: 'Round-off becomes dangerous mainly when…',
+      choices: [
+        'you only run for 20 seconds',
+        'N → ∞ in a convergent series',
+        'the algorithm performs a huge number of operations (or amplifies noise)',
+        'you print fewer digits',
+      ],
+      answer: 2,
+      why: 'Each step can inject a little rounding; count of steps (and stability) decides whether that stays a speck or eats the result.',
+    },
+  ]}
+/>
+
+## How a float is stored
+
+Write a large number in scientific notation so the **exponent** is a small integer and the **mantissa** carries the significant figures:
+
+$$
+a = 9.8765432109876543 \times 10^{16}.
+$$
+
+The exponent is cheap to keep exactly. The mantissa is not: any digits past what the format allows are thrown away (or rounded). Double precision keeps on the order of **15–16 decimal digits** of $m$; a 6-digit toy word would keep only $9.87654$ and forget the rest. Relative error is $| \tilde a - a | / |a|$ — it falls as you keep more digits of $m$, and has nothing to do with how large $10^{e}$ is.
+
+Slide the digit count in the chart. Watch the relative error drop, then flatten once you have kept everything the true value had.
+
+<FormulaExplorer preset="floatMantissa" />
+
+<MultipleChoice
+  id="cp-31-float"
+  title="Stored floats and significant figures"
+  questions={[
+    {
+      type: 'order',
+      prompt: 'Order how a large floating-point value is stored (top = first).',
+      items: [
+        'Digits of m beyond the format width are rounded or dropped',
+        'Write a = m × 10^e so the exponent is a small integer',
+        'Store e at full precision (it is small)',
+        'Relative error is then |ã − a| / |a|, set by how many digits of m survived',
+      ],
+      order: [1, 2, 0, 3],
+      why: 'Normalize, keep the small exponent, truncate the mantissa, and the leftover is a relative error on m.',
+    },
+    {
+      prompt: 'Why is the exponent usually the safe part of a float?',
+      choices: [
+        'It is stored in the same bits as the mantissa',
+        'It is a small integer, so a short field can hold it exactly',
+        'IEEE double never stores an exponent',
+        'Relative error lives entirely in e, not in m',
+      ],
+      answer: 1,
+      why: 'e is a modest integer. Precision loss is almost always missing digits of m.',
+    },
+  ]}
+/>
+
+Those discarded least-significant digits are not a curiosity. Once a word has a fixed width, **every later arithmetic step works with a slightly wrong mantissa**. Subtract two such words and you can throw away the accurate part on purpose.
+
+## 3.1.1 Courting disaster: subtractive cancellation
+
+A stored value $x_c$ is the exact $x$ plus a little relative noise $\epsilon_x$ of size comparable to machine precision $\epsilon_m$:
+
+$$
+x_c \simeq x(1+\epsilon_x).
+$$
+
+Feed that model through a subtraction $a=b-c$:
+
+$$
+a_c \simeq b(1+\epsilon_b)-c(1+\epsilon_c)
+\qquad\Rightarrow\qquad
+\frac{a_c}{a}\simeq 1+\epsilon_b\frac{b}{a}-\epsilon_c\frac{c}{a}.
+$$
+
+The error in $a$ is a weighted mix of the errors in $b$ and $c$. Nothing forces the last two terms to cancel. The dangerous case is $b\simeq c$: then $a$ is small, the subtraction has already cancelled the leading digits you trusted, and the leftover is built from the noisy tails. Relative to that small $a$,
+
+$$
+\frac{a_c}{a}\simeq 1+\frac{b}{a}(\epsilon_b-\epsilon_c)
+\simeq 1+\frac{b}{a}\max\bigl(|\epsilon_b|,|\epsilon_c|\bigr).
+$$
+
+The factor $b/a$ is huge. You do not get to assume a helpful sign on $\epsilon_b-\epsilon_c$, so you plan for the worst.
+
+**Theorem.** If you subtract two large numbers and the result is small, that small number is less significant than either of the large ones.
+
+<FormulaExplorer preset="subtractCancel" />
+
+You already met this in the sine series for large $x$: $x-x^3/3!+\cdots$ is a pile of big alternating terms whose true sum is only $\sin x\in[-1,1]$. The same trap sits in $e^{-x}\simeq 1-x+x^2/2!-\cdots$. A rewrite removes the cancellation: compute $e^{x}$ (all terms positive) and take the reciprocal. Round-off is still there; you just stopped manufacturing a tiny answer out of two giants.
+
+<FormulaExplorer preset="expNegSeries" />
+
+<MultipleChoice
+  id="cp-31-subtract"
+  title="Subtractive cancellation"
+  questions={[
+    {
+      type: 'order',
+      prompt: 'Order why a small difference of two large floats is untrustworthy (top = start).',
+      items: [
+        'The factor $b/a$ multiplies whatever relative noise did not cancel',
+        'Each stored value is $x_c\\simeq x(1+\\epsilon_x)$',
+        'When $b\\simeq c$, the leading digits cancel and $a$ is small',
+        'The leftover $a$ is assembled from the least-significant bits',
+      ],
+      order: [1, 2, 3, 0],
+      why: 'Approximate storage, then a close subtraction wipes the accurate heads, then b/a magnifies the noisy tails.',
+    },
+    {
+      prompt: 'The identity that avoids cancellation in $e^{-x}$ for large $x$ is…',
+      choices: [
+        'Keep more terms of $1-x+x^{2}/2!-\\cdots$',
+        '$e^{-x}=1/e^{x}$ (sum the positive series, then invert)',
+        'Replace $e^{-x}$ by $\\sin x$',
+        'Subtract in single precision first',
+      ],
+      answer: 1,
+      why: 'The reciprocal never subtracts two huge close partial sums to make a tiny exponential.',
+    },
+    {
+      prompt: '“The small result is less significant than the large inputs” is a statement about…',
+      choices: [
+        'random hardware errors only',
+        'how many trustworthy digits remain after cancellation',
+        'algorithmic truncation of an infinite series',
+        'the exponent overflowing',
+      ],
+      answer: 1,
+      why: 'Significance here means significant figures: the cancelled heads took the reliable digits with them.',
+    },
+  ]}
+/>
+
+<GuidedChoiceExplanation preset="quadratic-stable-root" />
+
+## 3.1.2 Subtractive-cancellation labs
+
+### Quadratic formula
+
+$ax^{2}+bx+c=0$ has two algebraically equal closed forms
+
+$$
+x=\frac{-b\pm\sqrt{b^{2}-4ac}}{2a}
+\qquad\text{or}\qquad
+x=\frac{-2c}{b\pm\sqrt{b^{2}-4ac}}.
+$$
+
+When $b^{2}\gg 4ac$, $\sqrt{\Delta}\approx|b|$, so **one** of the $\pm$ choices subtracts two nearly equal numbers. The other root stays large; recover the tiny one from $x_1 x_2=c/a$ instead of from the cancelling $\pm$. A clean test family is $a=1$, $b=1$, $c=10^{-n}$ as $n$ grows.
+
+<FormulaExplorer preset="quadraticCancel" />
+
+<ExerciseSet>
+<Exercise title="Stable quadratic roots" anchor="exercise-cp-quadratic">
+
+:::tip Activity: Stable quadratic roots
+Input: three floats `a b c` (two distinct real roots). Print the **smaller-magnitude** root in scientific notation with 6 digits after the decimal (`:.6e`). Use a method that still works when $b^{2}\gg 4ac$.
+
+<CodeExercise
+  title="Stable quadratic roots"
+  heading="exercise-cp-quadratic"
+  lang="python"
+  filename="main.py"
+  prompt="Return both roots; the wrapper prints the smaller-magnitude one. Do not rely on the cancelling ± branch for that root."
+  sampleLog={`(input) 1 -3 2
+1.000000e+00`}
+  starter={`import math
+
+def roots(a, b, c):
+    # return two real roots (either order)
+    return 0.0, 0.0
+`}
+  wrapSuffix={`
+a, b, c = map(float, input().split())
+r1, r2 = roots(a, b, c)
+small = r1 if abs(r1) <= abs(r2) else r2
+print(f"{small:.6e}")
+`}
+  hint="Take the ± that makes −b ± sqrt(Δ) add in magnitude (use sign of b), then the other root is c / (a * x_big)."
+  solution={`import math
+
+def roots(a, b, c):
+    disc = math.sqrt(b * b - 4 * a * c)
+    signed = -b - disc if b >= 0 else -b + disc
+    x_big = signed / (2 * a)
+    x_small = c / (a * x_big)
+    return x_big, x_small
+`}
+  sourceChecks={[
+    {name: 'uses sqrt', pattern: 'sqrt', must: true, hint: 'math.sqrt of the discriminant'},
+    {name: 'Vieta second root', pattern: 'c\\s*/', must: true, hint: 'x_small = c / (a * x_big)'},
+  ]}
+  tests={[
+    {name: 'simple', stdin: '1 -3 2', equals: '1.000000e+00'},
+    {name: 'cancelling', stdin: '1 1 1e-12', equals: '-1.000000e-12'},
+  ]}
+/>
+
+:::
+
+</Exercise>
+
+<Exercise title="Three equal sums" anchor="exercise-cp-threesums">
+
+:::tip Activity: Three equal sums
+The three recipes $S^{(1)}$ (alternating $n=1\ldots 2N$), $S^{(2)}$ (odds and evens, one subtraction), and $S^{(3)}=\sum 1/(2n(2n+1))$ are the same mathematically. Implement **$S^{(3)}$**. Input: integer `N`. Print $S^{(3)}$ with 10 digits after the decimal.
+
+<CodeExercise
+  title="Combined positive sum S3"
+  heading="exercise-cp-threesums"
+  lang="python"
+  filename="main.py"
+  prompt="Sum 1/(2n(2n+1)) from n=1 to N. That form has no interior cancellation."
+  sampleLog={`(input) 1
+0.1666666667`}
+  starter={`def s3(n):
+    return 0.0
+`}
+  wrapSuffix={`
+n = int(input())
+print(f"{s3(n):.10f}")
+`}
+  hint="term = 1.0 / (2*n*(2*n+1)); add n = 1..N"
+  solution={`def s3(n):
+    total = 0.0
+    for k in range(1, n + 1):
+        total += 1.0 / (2 * k * (2 * k + 1))
+    return total
+`}
+  sourceChecks={[
+    {name: 'combined denominator', pattern: '2\\s*\\*\\s*\\w+\\s*\\*\\s*\\(\\s*2\\s*\\*\\s*\\w+\\s*\\+\\s*1\\s*\\)', must: true, hint: '1 / (2n(2n+1))'},
+    {name: 'no alternating sign as the method', pattern: '\\(-1\\)\\s*\\*\\*', must: false, hint: 'do not implement the alternating S1 form'},
+  ]}
+  tests={[
+    {name: 'N=1', stdin: '1', equals: '0.1666666667'},
+    {name: 'N=2', stdin: '2', equals: '0.2166666667'},
+    {name: 'N=10', stdin: '10', equals: '0.2836095492'},
+  ]}
+/>
+
+:::
+
+</Exercise>
+
+<Exercise title="Harmonic up vs down" anchor="exercise-cp-harmonic">
+
+:::tip Activity: Harmonic up vs down
+Input: integer `N`. Print `S_up` and `S_down` with 10 digits after the decimal. `S_up` adds $1/n$ from $n=1$ to $N$; `S_down` adds from $n=N$ down to $1$.
+
+<CodeExercise
+  title="Harmonic both directions"
+  heading="exercise-cp-harmonic"
+  lang="python"
+  filename="main.py"
+  prompt="Two loops, opposite order. At small N they agree; the explorer shows them split as N grows."
+  sampleLog={`(input) 4
+2.0833333333 2.0833333333`}
+  starter={`def harmonic_up(n):
+    return 0.0
+
+def harmonic_down(n):
+    return 0.0
+`}
+  wrapSuffix={`
+n = int(input())
+print(f"{harmonic_up(n):.10f} {harmonic_down(n):.10f}")
+`}
+  hint="up: for k in range(1, n+1). down: for k in range(n, 0, -1). Add 1.0/k."
+  solution={`def harmonic_up(n):
+    total = 0.0
+    for k in range(1, n + 1):
+        total += 1.0 / k
+    return total
+
+def harmonic_down(n):
+    total = 0.0
+    for k in range(n, 0, -1):
+        total += 1.0 / k
+    return total
+`}
+  sourceChecks={[
+    {name: 'upward range', pattern: 'range\\(\\s*1\\s*,', must: true, hint: 'range(1, n+1) for the upward sum'},
+    {name: 'downward range', pattern: 'range\\(\\s*n\\s*,\\s*0\\s*,\\s*-1\\s*\\)|reversed\\s*\\(', must: true, hint: 'range(n, 0, -1) or reversed(...)'},
+  ]}
+  tests={[
+    {name: 'N=1', stdin: '1', equals: '1.0000000000 1.0000000000'},
+    {name: 'N=4', stdin: '4', equals: '2.0833333333 2.0833333333'},
+  ]}
+/>
+
+:::
+
+</Exercise>
+</ExerciseSet>
+
+The chart below is the log–log picture the $S^{(1)}$ vs $S^{(3)}$ lab is after: relative error versus $N$, with $S^{(3)}$ as the reference. A straight stretch means the error is a power of $N$. The vertical coordinate is (minus) a count of surviving significant figures.
+
+<FormulaExplorer preset="altThreeSums" />
+
+Adding $1/n$ **upward** dumps small terms into a mantissa that is already full; **downward** parks the large terms last. That is why $S^{\mathrm{down}}$ is usually the more precise of the two, even though the sums are identical on paper.
+
+<FormulaExplorer preset="harmonicUpDown" />
+
+## 3.1.3 Round-off in one product, quotient, or function
+
+For a single division $a=b/c$ the same $x_c=x(1+\epsilon_x)$ model gives
+
+$$
+\frac{a_c}{a}=\frac{1+\epsilon_b}{1+\epsilon_c}\simeq(1+\epsilon_b)(1-\epsilon_c)\simeq 1+\epsilon_b-\epsilon_c.
+$$
+
+Drop the $\epsilon^{2}$ specks and take absolute values (signs are unknown):
+
+$$
+\frac{a_c}{a}\simeq 1+|\epsilon_b|+|\epsilon_c|.
+$$
+
+Multiplication obeys the same worst-case sum. It is the lab rule: **add the relative uncertainties**.
+
+For a smooth $f$, the gap between $f(x)$ and $f(x_c)$ is first-order
+
+$$
+\mathcal{E}\simeq\frac{f'(x)}{f(x)}(x-x_c).
+$$
+
+On $f(x)=\sqrt{1+x}$ that is $\mathcal{E}\simeq (x-x_c)/(2(1+x))$. Near $x=\pi/4$ a fourth-place error in $x$ stays a fourth-place error in $f$ — the derivative is not an amplifier here.
+
+<FormulaExplorerTabs
+  items={[
+    {preset: 'roundoffDivide', label: 'product / quotient'},
+    {preset: 'funcLinearError', label: '√(1+x)'},
+  ]}
+/>
+
+<MultipleChoice
+  id="cp-31-propagate"
+  title="Propagating round-off"
+  questions={[
+    {
+      prompt: 'Worst-case relative error in $b/c$ or $bc$ is…',
+      choices: [
+        '$|\\epsilon_b\\epsilon_c|$',
+        '$|\\epsilon_b|+|\\epsilon_c|$',
+        '$|\\epsilon_b|-|\\epsilon_c|$',
+        '$\\sqrt{\\epsilon_b^{2}+\\epsilon_c^{2}}$ only, never a sum',
+      ],
+      answer: 1,
+      why: 'Linearize, drop ε², and add absolute values because the signs are unknown.',
+    },
+    {
+      type: 'order',
+      prompt: 'Order the argument for error through $f(x)=\\sqrt{1+x}$ (top = start).',
+      items: [
+        'For this $f$, that ratio is $1/(2(1+x))$, so $\\mathcal{E}\\simeq(x-x_c)/(2(1+x))$',
+        '$\\mathcal{E}\\simeq (f\'/f)\\,(x-x_c)$',
+        'Store $x_c=x+\\Delta x$',
+        'A fourth-place $\\Delta x$ near $\\pi/4$ stays the same order in $f$',
+      ],
+      order: [2, 1, 0, 3],
+      why: 'Perturb the input, linearize, insert f′/f for the square root, then check the size at π/4.',
+    },
+  ]}
+/>
+
+## 3.1.4 Round-off error accumulation
+
+One rounding event is a tiny step of length $\epsilon_m$. After $N$ steps, if those steps point in **random** directions, the typical net displacement of a random walk is
+
+$$
+R\simeq\sqrt{N}\,r
+\qquad\Rightarrow\qquad
+\epsilon_{\mathrm{ro}}\simeq\sqrt{N}\,\epsilon_m.
+$$
+
+If the errors refuse to cancel, a sober backup is the coherent bound $N\epsilon_m$. Worse: some **upward recurrences** (spherical Bessel functions are the usual exhibit) let the error grow like $N!$. Those need a separate analysis — the $\sqrt{N}$ cartoon does not apply.
+
+<FormulaExplorer preset="roundoffWalk" />
+
+<MultipleChoice
+  id="cp-31-walk"
+  title="Accumulating round-off"
+  questions={[
+    {
+      prompt: 'If each step’s rounding error is a random ±ε_m, the typical relative error after N steps scales as…',
+      choices: [
+        '$N!\\,\\epsilon_m$ always',
+        '$\\sqrt{N}\\,\\epsilon_m$',
+        '$\\epsilon_m / N$',
+        '$\\epsilon_m$ independent of N',
+      ],
+      answer: 1,
+      why: 'Random-walk net displacement grows as √N times the step length.',
+    },
+    {
+      type: 'multi',
+      prompt: 'Which accumulation laws are used in this lesson? (Select all that apply.)',
+      choices: [
+        '$\\sqrt{N}\\,\\epsilon_m$ when rounding errors wander',
+        '$N\\epsilon_m$ when they do not cancel',
+        '$N!$ for some coherent recurrences',
+        '$\\epsilon_m^{N}$ for every loop',
+      ],
+      answers: [0, 1, 2],
+      why: 'Random, coherent-linear, and factorial-coherent are the three cartoons; ε_m^N is not.',
+    },
+  ]}
+/>
+
+## Which family is it?
+
+Same program can carry all three. Name the dominant one before you “fix” the wrong knob.
+
+<GuidedChoiceExplanation preset="error-kind-classify" />
+
+<MultipleChoice
+  id="cp-31-hygiene"
+  title="Checking a numerical result"
+  questions={[
+    {
+      type: 'order',
+      prompt: 'Order a sane check of a long numerical job (top = first).',
+      items: [
+        'If the job ran a long time, rerun it and compare (random error)',
+        'If the method uses a cutoff N or step h, raise N (or cut h) and see the answer settle',
+        'Estimate whether the operation count could have let round-off take over',
+        'Separate bugs from numerical error: is this even the intended algorithm?',
+      ],
+      order: [3, 1, 2, 0],
+      why: 'Confirm the code, then shrink algorithmic error, then ask whether round-off could dominate, then check reproducibility for long wall-clock runs.',
+    },
+  ]}
+/>
+
+Next: [3.2 Experimental error investigation](./03-02-experimental-error).

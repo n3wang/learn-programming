@@ -23,6 +23,25 @@ NFS burns server time on frequent cache-validity checks. AFS also wanted **clear
 
 Contrasts with NFS: whole files (not blocks), disk (not only memory). v1 cached file contents; directories stayed at the server.
 
+<MultipleChoice
+  id="ce-afs-order-v1"
+  title="Rank the sequence"
+  questions={[
+    {
+      type: 'order',
+      prompt: 'Order the AFSv1 whole-file caching lifecycle (top = first).',
+      items: [
+        'read/write hit the local disk copy (and maybe client RAM cache)',
+        'open triggers a Fetch of the full file to local disk',
+        'A later access does a TestAuth and reuses the local copy if unchanged',
+        'close, if the file is dirty, Stores the whole file back to the server',
+      ],
+      order: [1, 0, 3, 2],
+      why: 'AFSv1 fetches the whole file on open, serves reads/writes from the local disk copy, stores the whole file back on a dirty close, and later opens just re-validate with TestAuth instead of re-fetching.',
+    },
+  ]}
+/>
+
 ### What measurement found
 
 **Patterson’s Law:** measure the problem before rebuilding.
@@ -43,6 +62,25 @@ Result: ~**20 clients** per overloaded server.
 - **FID:** volume ID + file ID + uniquifier (like an NFS file handle). Client walks the path **one component at a time**, caches each dir/file, and registers callbacks
 
 First open of `/home/remzi/notes.txt` does several Fetches; afterward, if callbacks remain valid, opens are **local**. Scale rose to ~**50 clients**/server; common-case speed near local disk.
+
+<MultipleChoice
+  id="ce-afs-order-callback"
+  title="Rank the sequence"
+  questions={[
+    {
+      type: 'order',
+      prompt: 'Order the AFSv2 callback-based access to /home/remzi/notes.txt (top = first).',
+      items: [
+        'A later open finds the callback still valid and is served entirely from the local cache',
+        'The first open walks the path one component at a time, Fetching and caching each dir/file, registering a callback for each',
+        'The server later notices the file changed and breaks the callback, notifying the client',
+        'The next open after the break must re-Fetch from the server, since the cached copy is no longer trusted',
+      ],
+      order: [1, 0, 2, 3],
+      why: 'Callbacks let the client skip server round trips as long as they remain valid; a server-side change breaks the callback, and only then does the client re-fetch.',
+    },
+  ]}
+/>
 
 ## Cache consistency
 

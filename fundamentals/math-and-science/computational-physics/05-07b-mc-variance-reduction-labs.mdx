@@ -1,0 +1,271 @@
+---
+sidebar_position: 26
+title: 5.7b Variance-reduction labs
+sidebar_label: '5.7b Variance-reduction labs'
+---
+
+# 5.7b Variance-reduction labs
+
+> **Source:** Lab ideas from *Computational Physics* (Landau, Páez, Bordeianu), §5.7. Rewritten as original drills. Continues [5.7 Monte Carlo variance reduction](./05-07-mc-variance-reduction).
+
+Control variate on $[0,1]$ for $f(x)=e^{-x}$, $g(x)=1-x$, $J=1/2$. Exact value $I=1-e^{-1}$. Use the chapter LCG only.
+
+:::note Fixed LCG
+`r ← (1103515245 * r + 12345) % 2**31`, then uniform `r / 2**31`. Default seed `1`. Advance the state **before** each draw.
+:::
+
+## Labs
+
+<ExerciseSet>
+<Exercise title="5.7b.1 Plain mean-value MC" anchor="exercise-cp-cv-plain">
+
+:::tip Activity: Plain mean-value MC
+Estimate $I=\int_0^1 e^{-x}\,dx$ by
+
+$$
+I\simeq\frac{1}{N}\sum_{i=1}^{N} e^{-x_i},\qquad x_i\sim U[0,1),
+$$
+
+with the chapter LCG, seed $1$, $N=1000$. Print with **10** decimals.
+
+No input.
+
+<CodeExercise
+  title="Plain mean-value MC"
+  heading="exercise-cp-cv-plain"
+  lang="python"
+  filename="main.py"
+  prompt="(1/N) Σ e^{-x_i} on [0,1]; N=1000, LCG seed 1."
+  sampleLog={`0.6257763482`}
+  starter={`import math
+
+def plain_mc(N, seed=1):
+    return 0.0
+`}
+  wrapSuffix={`
+print(f"{plain_mc(1000):.10f}")
+`}
+  hint="Average math.exp(-x) over N chapter-LCG uniforms."
+  solution={`import math
+
+def plain_mc(N, seed=1):
+    M = 2**31
+    r = seed
+    s = 0.0
+    for _ in range(N):
+        r = (1103515245 * r + 12345) % M
+        s += math.exp(-(r / M))
+    return s / N
+`}
+  sourceChecks={[
+    {name: 'fixed LCG', pattern: '1103515245', must: true, hint: 'chapter LCG'},
+    {name: 'no random module', pattern: 'random\\.random', must: false, hint: 'deterministic LCG only'},
+  ]}
+  tests={[
+    {name: 'N=1000 seed 1', stdin: '', equals: '0.6257763482'},
+  ]}
+/>
+
+:::
+
+</Exercise>
+
+<Exercise title="5.7b.2 Control-variate estimate" anchor="exercise-cp-cv-est">
+
+:::tip Activity: Control-variate estimate
+Same samples as 5.7b.1, but use $g(x)=1-x$ and $J=1/2$:
+
+$$
+I\simeq\frac{1}{N}\sum_{i=1}^{N}\bigl(e^{-x_i}-(1-x_i)\bigr)+\frac{1}{2}.
+$$
+
+Print with **10** decimals. At this $N$ and seed the CV estimate should beat plain MC in absolute error vs $1-e^{-1}$.
+
+No input.
+
+<CodeExercise
+  title="Control-variate estimate"
+  heading="exercise-cp-cv-est"
+  lang="python"
+  filename="main.py"
+  prompt="(1/N) Σ (e^{-x}−(1−x)) + 1/2; N=1000, seed 1."
+  sampleLog={`0.6350849025`}
+  starter={`import math
+
+def cv_mc(N, seed=1):
+    return 0.0
+`}
+  wrapSuffix={`
+print(f"{cv_mc(1000):.10f}")
+`}
+  hint="One LCG stream; accumulate exp(-x)-(1-x); divide by N; add 0.5."
+  solution={`import math
+
+def cv_mc(N, seed=1):
+    M = 2**31
+    r = seed
+    s = 0.0
+    for _ in range(N):
+        r = (1103515245 * r + 12345) % M
+        x = r / M
+        s += math.exp(-x) - (1.0 - x)
+    return s / N + 0.5
+`}
+  sourceChecks={[
+    {name: 'fixed LCG', pattern: '1103515245', must: true, hint: 'chapter LCG'},
+    {name: 'adds J=1/2', pattern: '0\\.5|1\\s*/\\s*2', must: true, hint: 'add known J=1/2'},
+    {name: 'no random module', pattern: 'random\\.random', must: false, hint: 'deterministic LCG only'},
+  ]}
+  tests={[
+    {name: 'N=1000 seed 1', stdin: '', equals: '0.6350849025'},
+  ]}
+/>
+
+:::
+
+</Exercise>
+
+<Exercise title="5.7b.3 Both estimates and |err|" anchor="exercise-cp-cv-compare">
+
+:::tip Activity: Both estimates and $|$err$|$
+Using the **same** LCG stream (seed $1$, $N=1000$), compute plain and CV estimates in one pass. Print four lines:
+
+1. plain estimate (10 decimals)
+2. CV estimate (10 decimals)
+3. $|\mathrm{plain}-I|$ (10 decimals)
+4. $|\mathrm{CV}-I|$ (10 decimals)
+
+where $I=1-e^{-1}$.
+
+No input.
+
+<CodeExercise
+  title="Both estimates and |err|"
+  heading="exercise-cp-cv-compare"
+  lang="python"
+  filename="main.py"
+  prompt="Plain, CV, |plain−I|, |CV−I| for N=1000 seed 1."
+  sampleLog={`0.6257763482
+0.6350849025
+0.0063442107
+0.0029643437`}
+  starter={`import math
+
+def compare(N, seed=1):
+    # return (plain, cv, abs_plain, abs_cv)
+    return 0.0, 0.0, 0.0, 0.0
+`}
+  wrapSuffix={`
+p, c, ep, ec = compare(1000)
+print(f"{p:.10f}")
+print(f"{c:.10f}")
+print(f"{ep:.10f}")
+print(f"{ec:.10f}")
+`}
+  hint="One loop: accumulate sum f and sum (f−g); exact = 1 - exp(-1)."
+  solution={`import math
+
+def compare(N, seed=1):
+    M = 2**31
+    r = seed
+    s_f = 0.0
+    s_res = 0.0
+    for _ in range(N):
+        r = (1103515245 * r + 12345) % M
+        x = r / M
+        fx = math.exp(-x)
+        s_f += fx
+        s_res += fx - (1.0 - x)
+    plain = s_f / N
+    cv = s_res / N + 0.5
+    exact = 1.0 - math.exp(-1.0)
+    return plain, cv, abs(plain - exact), abs(cv - exact)
+`}
+  sourceChecks={[
+    {name: 'fixed LCG', pattern: '1103515245', must: true, hint: 'chapter LCG'},
+    {name: 'exact 1-e^{-1}', pattern: 'exp\\s*\\(\\s*-\\s*1', must: true, hint: 'compare to 1-e^{-1}'},
+  ]}
+  tests={[
+    {
+      name: 'compare N=1000',
+      stdin: '',
+      equals: '0.6257763482\n0.6350849025\n0.0063442107\n0.0029643437',
+    },
+  ]}
+/>
+
+:::
+
+</Exercise>
+</ExerciseSet>
+
+## Write-ups
+
+<ProblemSet id="cp-57b-assess">
+  <Problem
+    type="concept"
+    title="5.7b.W1"
+    minWords={3}
+    keywords={['peak', 'zero', 'waste']}
+    prompt={`Why does a peaked integrand waste uniform Monte Carlo samples?`}
+    answer={`Most draws land where f≈0 and barely change the average; rare peak hits dominate variance.`}
+  />
+  <Problem
+    type="concept"
+    title="5.7b.W2"
+    minWords={3}
+    keywords={['residual', 'known', 'integral']}
+    prompt={`In one sentence: what does a control variate ask Monte Carlo to estimate?`}
+    answer={`Only the residual ∫(f−g); the known J=∫g carries the bulk of I.`}
+  />
+  <Problem
+    type="concept"
+    title="5.7b.W3"
+    minWords={3}
+    keywords={['variance', 'flatter', 'smaller']}
+    prompt={`When does Var(f−g) beat Var(f)?`}
+    answer={`When g tracks f closely so the residual is flatter and less noisy under uniform sampling.`}
+  />
+  <Problem
+    type="concept"
+    title="5.7b.W4"
+    minWords={3}
+    keywords={['half', 'linear', 'one']}
+    prompt={`For g=1−x on [0,1], what is J and why is it useful with f=e^{−x}?`}
+    answer={`J=1/2 exactly; 1−x roughly follows the decay of e^{−x}, so the residual has smaller variance.`}
+  />
+</ProblemSet>
+
+## Explorers
+
+```python
+# control_variate.py — original sketch (not a textbook listing)
+M = 2**31
+
+def plain_and_cv(N, seed=1):
+    r, s_f, s_res = seed, 0.0, 0.0
+    for _ in range(N):
+        r = (1103515245 * r + 12345) % M
+        x = r / M
+        fx = __import__('math').exp(-x)
+        s_f += fx
+        s_res += fx - (1.0 - x)
+    return s_f / N, s_res / N + 0.5
+```
+
+<FormulaExplorerTabs
+  items={[
+    {
+      preset: 'mcControlVariate',
+      label: 'Plain vs CV',
+      note: 'Referenced in 5.7b — |E| vs N for e^{-x} with g=1−x.',
+    },
+    {
+      preset: 'mcMeanValue',
+      label: 'Mean-value MC',
+      note: 'Baseline plain estimator from §5.6.',
+    },
+  ]}
+/>
+
+Next: [5.8 Importance sampling](./05-08-importance-sampling).

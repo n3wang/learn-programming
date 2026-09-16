@@ -1,3 +1,5 @@
+import katex from 'katex';
+
 /** Short KaTeX sources used as the math typing corpus. */
 export const KATEX_FORMULAS = [
   'a+b',
@@ -201,6 +203,59 @@ export function drawMathFormulas(count, {commands = false, difficulty} = {}) {
 export function sameTex(typed, expected) {
   const norm = (s) => String(s).trim().replace(/\s+/g, '');
   return norm(typed) === norm(expected);
+}
+
+/** Strip wrapping $…$ / $$…$$ so recall can match lesson formula strings. */
+export function unwrapTex(s) {
+  return String(s || '')
+    .trim()
+    .replace(/^\$\$([\s\S]*?)\$\$$/, '$1')
+    .replace(/^\$([\s\S]*?)\$$/, '$1')
+    .trim();
+}
+
+function normalizeTex(s) {
+  let t = unwrapTex(s);
+  t = t.replace(/\\dfrac/g, '\\frac').replace(/\\tfrac/g, '\\frac');
+  t = t.replace(/\\displaystyle/g, '');
+  t = t.replace(/\\,|\\;|\\:|\\!|~/g, '');
+  t = t.replace(/\\left|\\right/g, '');
+  t = t.replace(/\\mid|\\vert/g, '|');
+  t = t.replace(/\\times|\\cdot/g, '*');
+  t = t.replace(/\\mathrm\{([^{}]+)\}/g, '$1');
+  t = t.replace(/\\text\{([^{}]+)\}/g, '$1');
+  t = t.replace(/\\operatorname\{([^{}]+)\}/g, '$1');
+  t = t.replace(/\{([A-Za-z0-9])\}/g, '$1');
+  t = t.replace(/\s+/g, '');
+  return t;
+}
+
+/**
+ * Flexible KaTeX compare: whitespace, \frac vs \dfrac, \mid vs |,
+ * optional \left\right, and same rendered HTML.
+ */
+export function equivalentTex(typed, expected) {
+  const a = unwrapTex(typed);
+  const b = unwrapTex(expected);
+  if (!a || !b) {
+    return false;
+  }
+  if (sameTex(a, b)) {
+    return true;
+  }
+  if (normalizeTex(a) === normalizeTex(b)) {
+    return true;
+  }
+  try {
+    const opts = {throwOnError: false, displayMode: true};
+    return katex.renderToString(a, opts) === katex.renderToString(b, opts);
+  } catch {
+    return false;
+  }
+}
+
+export function matchesAnyTex(typed, expectedList) {
+  return (expectedList || []).some((item) => equivalentTex(typed, item));
 }
 
 export const KATEX_COMMAND_DOCS = {

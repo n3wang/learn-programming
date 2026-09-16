@@ -10,6 +10,27 @@ import costProfitBook from './cost-profit-book';
 import degreeAdd from './degree-add';
 import eqCheckNo from './eq-check-no';
 import eqCheckYes from './eq-check-yes';
+import errorKindClassify from './error-kind-classify';
+import quadraticStableRoot from './quadratic-stable-root';
+import errorTradeoffStop from './error-tradeoff-stop';
+import sineSeriesStop from './sine-series-stop';
+import besselMillerDown from './bessel-miller-down';
+import specularCloseOrbit from './specular-close-orbit';
+import lcgPseudoRandom from './lcg-pseudo-random';
+import randomWalkRms from './random-walk-rms';
+import brainDiffusionObstacles from './brain-diffusion-obstacles';
+import proteinHpFold from './protein-hp-fold';
+import spontaneousDecay from './spontaneous-decay';
+import rngUniformTests from './rng-uniform-tests';
+import forwardCentralDiff from './forward-central-diff';
+import extrapolatedDiff from './extrapolated-diff';
+import riemannBoxCounting from './riemann-box-counting';
+import rombergIntegration from './romberg-integration';
+import gaussianQuadrature from './gaussian-quadrature';
+import monteCarloIntegration from './monte-carlo-integration';
+import lagrangeInterpolation from './lagrange-interpolation';
+import cubicSplineInterpolation from './cubic-spline-interpolation';
+import meanValueNd from './mean-value-nd';
 import linearEx1 from './linear-ex1';
 import linearEx2 from './linear-ex2';
 import linearEx3 from './linear-ex3';
@@ -51,6 +72,27 @@ const GUIDES = {
   'degree-add': degreeAdd,
   'eq-check-no': eqCheckNo,
   'eq-check-yes': eqCheckYes,
+  'error-kind-classify': errorKindClassify,
+  'quadratic-stable-root': quadraticStableRoot,
+  'error-tradeoff-stop': errorTradeoffStop,
+  'sine-series-stop': sineSeriesStop,
+  'bessel-miller-down': besselMillerDown,
+  'specular-close-orbit': specularCloseOrbit,
+  'lcg-pseudo-random': lcgPseudoRandom,
+  'random-walk-rms': randomWalkRms,
+  'brain-diffusion-obstacles': brainDiffusionObstacles,
+  'protein-hp-fold': proteinHpFold,
+  'spontaneous-decay': spontaneousDecay,
+  'rng-uniform-tests': rngUniformTests,
+  'forward-central-diff': forwardCentralDiff,
+  'extrapolated-diff': extrapolatedDiff,
+  'riemann-box-counting': riemannBoxCounting,
+  'romberg-integration': rombergIntegration,
+  'gaussian-quadrature': gaussianQuadrature,
+  'monte-carlo-integration': monteCarloIntegration,
+  'lagrange-interpolation': lagrangeInterpolation,
+  'cubic-spline-interpolation': cubicSplineInterpolation,
+  'mean-value-nd': meanValueNd,
   'linear-ex1': linearEx1,
   'linear-ex2': linearEx2,
   'linear-ex3': linearEx3,

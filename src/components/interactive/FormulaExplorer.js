@@ -1,4 +1,4 @@
-import React, {useMemo, useState} from 'react';
+import React, {useMemo, useRef, useState} from 'react';
 import Box from '@site/src/components/ui/Box';
 import Stack from '@site/src/components/ui/Stack';
 import Typography from '@site/src/components/ui/Typography';
@@ -19,35 +19,42 @@ function defaultsFrom(preset) {
  * Formula + chart + sliders for one preset. No outer frame — callers
  * (FormulaExplorer, FormulaExplorerTabs) supply their own header/wrapper.
  */
-export function FormulaExplorerBody({preset, refNote}) {
+export function FormulaExplorerBody({preset, refNote, compact, onInteract, hideFormula}) {
   const [values, setValues] = useState(() => defaultsFrom(preset));
+  const touched = useRef(false);
 
   const result = useMemo(() => preset.compute(values), [preset, values]);
   const example = useMemo(() => (preset.example ? preset.example(values) : null), [preset, values]);
 
   const setParam = (key, raw) => {
+    if (!touched.current) {
+      touched.current = true;
+      onInteract?.();
+    }
     setValues((prev) => ({...prev, [key]: Number(raw)}));
   };
 
   return (
     <>
-      <Box
-        sx={{
-          display: 'block',
-          mb: 1.5,
-          px: 1.5,
-          py: 1,
-          fontSize: '1.05rem',
-          backgroundColor: 'grey.100',
-          borderRadius: 1,
-          overflowX: 'auto',
-          lineHeight: 1.6,
-        }}
-      >
-        <MathText text={preset.formula} />
-      </Box>
+      {hideFormula ? null : (
+        <Box
+          sx={{
+            display: 'block',
+            mb: 1.5,
+            px: 1.5,
+            py: 1,
+            fontSize: '1.05rem',
+            backgroundColor: 'grey.100',
+            borderRadius: 1,
+            overflowX: 'auto',
+            lineHeight: 1.6,
+          }}
+        >
+          <MathText text={preset.formula} />
+        </Box>
+      )}
 
-      {example ? (
+      {!hideFormula && example ? (
         <Box
           sx={{
             mb: 2,
@@ -69,7 +76,7 @@ export function FormulaExplorerBody({preset, refNote}) {
         </Box>
       ) : null}
 
-      <div className={styles.layout}>
+      <div className={compact ? styles.layoutCompact : styles.layout}>
         <div className={styles.chartCol}>
           <span className={styles.chartLabel}>Chart</span>
           {result ? (
@@ -80,8 +87,8 @@ export function FormulaExplorerBody({preset, refNote}) {
               shadeToX={result.shadeToX ?? null}
               refLineX={result.refLineX ?? null}
               refLineY={result.refLineY ?? null}
-              width={440}
-              height={210}
+              width={compact ? 280 : 440}
+              height={compact ? 160 : 210}
             />
           ) : null}
         </div>
@@ -142,7 +149,7 @@ export function FormulaExplorerBody({preset, refNote}) {
  * Client-side formula playground.
  * Chart on the left; sliders + result chips on the right.
  */
-export default function FormulaExplorer({preset: presetId}) {
+export default function FormulaExplorer({preset: presetId, compact, onInteract, hideFormula}) {
   const preset = getPreset(presetId);
 
   if (!preset) {
@@ -155,7 +162,12 @@ export default function FormulaExplorer({preset: presetId}) {
 
   return (
     <CEBlock title={preset.title} subtitle={preset.subtitle}>
-      <FormulaExplorerBody preset={preset} />
+      <FormulaExplorerBody
+        preset={preset}
+        compact={compact}
+        onInteract={onInteract}
+        hideFormula={hideFormula}
+      />
     </CEBlock>
   );
 }

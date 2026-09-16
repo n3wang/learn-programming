@@ -41,6 +41,25 @@ A stateful `open`→fd shared with the server is **distributed state** [O91]: se
 
 `open("/foo")` → LOOKUP; successive `read(fd,…)` use the client’s fd→FH map and **local** offset. `close` is local — no server message.
 
+<MultipleChoice
+  id="ce-nfs-order-open"
+  title="Rank the sequence"
+  questions={[
+    {
+      type: 'order',
+      prompt: 'Order what happens when a client calls open("/foo") then read(fd, …) twice, then close(fd) (top = first).',
+      items: [
+        'Second READ uses the fd→FH map and the new local offset — no LOOKUP needed',
+        'open("/foo") triggers a LOOKUP, returning a file handle (FH)',
+        'close(fd) happens purely locally — no message is sent to the server',
+        'First READ sends FH + offset + count to the server and advances the local offset',
+      ],
+      order: [1, 3, 0, 2],
+      why: 'LOOKUP resolves the FH once at open time; each READ reuses that FH with the client-tracked offset, and close needs no server round trip since NFSv2 is stateless.',
+    },
+  ]}
+/>
+
 ## Idempotent retry
 
 Timeouts: lost request, server down, or lost reply. NFSv2 treats them the same — **resend**.
@@ -59,6 +78,25 @@ NFSv2 engineering:
 - **Flush-on-close** (close-to-open): close forces dirty pages to the server so a later open elsewhere can see updates
 - **Validate before use**: GETATTR; newer server mtime → invalidate cache
 - **Attribute cache** (~few seconds) stops GETATTR storms — at the cost of fuzzy “which version?” semantics
+
+<MultipleChoice
+  id="ce-nfs-order-consistency"
+  title="Rank the sequence"
+  questions={[
+    {
+      type: 'order',
+      prompt: 'Order the close-to-open consistency flow when C1 writes a file and C2 later reads it (top = first).',
+      items: [
+        'C2\'s GETATTR on open sees the newer server mtime and invalidates its stale cache',
+        'C1 writes to the file, dirtying pages only in C1\'s local RAM',
+        'C2 re-fetches the data from the server instead of using its old cached copy',
+        'C1 closes the file, which flushes the dirty pages to the server (flush-on-close)',
+      ],
+      order: [1, 3, 0, 2],
+      why: 'Without close-to-open flushing, C1\'s writes would sit only in local RAM; the close forces them to the server, and C2\'s GETATTR check on open is what detects the update and triggers a re-fetch.',
+    },
+  ]}
+/>
 
 ## Server write buffering
 

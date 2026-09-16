@@ -37,6 +37,20 @@ A fixed **checkpoint region (CR)** points at the latest imap pieces. CR is updat
 
 **Read path (cold):** CR → load imap → inode → (in)direct blocks — same I/O count as a classic FS once imap is cached.
 
+<MultipleChoice
+  id="ce-lfs-coldread-order"
+  title="Rank the sequence"
+  questions={[
+    {
+      type: 'order',
+      prompt: 'Order the cold-start read path LFS uses to locate a file’s data (top = first).',
+      items: ['Read the inode to get (in)direct block pointers', 'Load the relevant imap chunk to find the inode’s disk address', 'Read the checkpoint region (CR)', 'Read the data block'],
+      order: [2, 1, 0, 3],
+      why: 'Since inodes move on every write, lookup must start at the fixed CR, follow it to the current imap chunk to find where the inode now lives, read that inode for its block pointers, and finally read the data.',
+    },
+  ]}
+/>
+
 **Directories** still store `(name, inum)`. When an inode moves, only the imap changes — this avoids the **recursive update problem** up the directory tree.
 
 ## Garbage collection (cleaning)
@@ -46,6 +60,20 @@ Old versions left behind are **garbage**. Cleaning runs **segment-by-segment**: 
 **Liveness:** segment summary stores `(inum, offset)` per block; live iff current inode still points at that address. Version numbers in imap short-circuit truncate/delete checks.
 
 **Policy:** clean **cold** segments sooner; wait on **hot** ones (more blocks die). Cleaning cost was controversial early on [SS+95]; later work improved policies [MR+97].
+
+<MultipleChoice
+  id="ce-lfs-cleaning-order"
+  title="Rank the sequence"
+  questions={[
+    {
+      type: 'order',
+      prompt: 'Order the steps of LFS segment cleaning (top = first).',
+      items: ['Free the M old segments', 'Read M candidate segments into memory', 'Write the N compacted segments to new free space', 'Check each block’s segment-summary entry against the current inode to determine liveness', 'Compact the live blocks into N < M new segments'],
+      order: [1, 3, 4, 2, 0],
+      why: 'The cleaner reads a group of segments, determines which blocks are still live by checking the segment summary against the current inode pointer, compacts the survivors into fewer new segments, writes those out, and then frees the original M segments as contiguous new free space.',
+    },
+  ]}
+/>
 
 ## Crash recovery
 

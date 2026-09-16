@@ -31,6 +31,20 @@ Ask the OS which FDs are ready to read/write (or have errors). Typical loop: `FD
 - `timeout = NULL` — block until ready  
 - `timeout = 0` — poll and return immediately  
 
+<MultipleChoice
+  id="ce-event-select-order"
+  title="Rank the sequence"
+  questions={[
+    {
+      type: 'order',
+      prompt: 'Order the steps of one pass through a select()-based event loop.',
+      items: ['Call select() to find ready descriptors', 'FD_SET the interested sockets', 'processFD on each ready descriptor', 'FD_ZERO to clear the descriptor set'],
+      order: [3, 1, 0, 2],
+      why: 'Each pass clears the set, marks the sockets of interest, asks the OS which are ready via select(), then processes only the ready ones.',
+    },
+  ]}
+/>
+
 :::tip Don’t block in event-based servers
 Any blocking call stalls the **entire** server. Non-blocking / async I/O is mandatory.
 :::
@@ -46,6 +60,20 @@ A file-serving request needs `open`/`read`. Threads: one thread sleeps on I/O; o
 ## Solution: asynchronous I/O
 
 Fill an **aiocb** (fd, offset, buf, nbytes), call `aio_read` — returns immediately. Poll completion with `aio_error` (or get a **signal** when done). Systems without good AIO often use a **hybrid**: events for network + thread pool for disk [PDZ99].
+
+<MultipleChoice
+  id="ce-event-aio-order"
+  title="Rank the sequence"
+  questions={[
+    {
+      type: 'order',
+      prompt: 'Order the steps an event handler takes to issue and complete an asynchronous disk read.',
+      items: ['aio_read returns immediately, handler moves on', 'Poll aio_error (or receive a completion signal)', 'Fill an aiocb with fd, offset, buffer, and nbytes', 'Call aio_read with the aiocb'],
+      order: [2, 3, 0, 1],
+      why: 'The handler first describes the request in an aiocb, issues aio_read (which returns right away without blocking), keeps handling other events, then later checks or is notified of completion.',
+    },
+  ]}
+/>
 
 ## Continuations (manual stack management)
 

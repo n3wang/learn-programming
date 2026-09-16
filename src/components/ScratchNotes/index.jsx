@@ -15,6 +15,14 @@ import {
   listDrafts,
   toggleDraftBookmark,
 } from '@site/src/components/codeWorkspace/drafts';
+import {WIKI, wikiPracticeKind} from '@site/src/data/wiki/catalog';
+import {
+  WIKI_PROGRESS_EVENT,
+  listWikiProgress,
+  markWikiViewed,
+  toggleWikiBookmark,
+} from './wikiStore';
+import WikiDetail from './WikiDetail';
 import styles from './styles.module.css';
 
 const SAVE_MS = 400;
@@ -34,6 +42,62 @@ function formatDate(ts) {
   }
 }
 
+function isWikiLearned(row) {
+  return Boolean(row?.learnedAt || row?.passedAt);
+}
+
+function isWikiStudy(row) {
+  return Boolean(row?.studiedAt) && !isWikiLearned(row);
+}
+
+function wikiStatus(row) {
+  if (isWikiLearned(row)) {
+    return {label: formatDate(row.learnedAt || row.passedAt), done: true};
+  }
+  if (isWikiStudy(row)) {
+    return {label: formatDate(row.studiedAt) || 'study', done: false};
+  }
+  return {label: '', done: false};
+}
+
+const WIKI_PAGE = 25;
+
+function shuffleSample(items, n) {
+  const copy = items.slice();
+  for (let i = copy.length - 1; i > 0; i -= 1) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [copy[i], copy[j]] = [copy[j], copy[i]];
+  }
+  return copy.slice(0, n);
+}
+
+function wikiMatches(entry, q) {
+  if (!q) {
+    return true;
+  }
+  const hay = [entry.title, entry.description, entry.kind, entry.statement, entry.formula, entry.tex]
+    .filter(Boolean)
+    .join('\n')
+    .toLowerCase();
+  return hay.includes(q);
+}
+
+function wikiPool(filter, progress) {
+  return WIKI.filter((e) => {
+    const row = progress[e.id];
+    if (filter === 'bookmarked' && !row?.bookmarked) {
+      return false;
+    }
+    if (filter === 'study' && !isWikiStudy(row)) {
+      return false;
+    }
+    if (filter === 'learned' && !isWikiLearned(row)) {
+      return false;
+    }
+    return true;
+  });
+}
+
 function practiceStatus(row) {
   if (row.completed) {
     return {label: formatDate(row.completedAt || row.updatedAt), done: true};
@@ -51,6 +115,13 @@ export default function ScratchNotes() {
   const [codeSearch, setCodeSearch] = useState('');
   const [codeFilter, setCodeFilter] = useState('all');
   const [practices, setPractices] = useState([]);
+  const [wikiSearch, setWikiSearch] = useState('');
+  const [wikiQuery, setWikiQuery] = useState('');
+  const [wikiFilter, setWikiFilter] = useState('all');
+  const [wikiProgress, setWikiProgress] = useState({});
+  const [wikiId, setWikiId] = useState(null);
+  const [wikiPractice, setWikiPractice] = useState(false);
+  const [wikiBatch, setWikiBatch] = useState([]);
   const saveTimer = useRef(null);
   const textareaRef = useRef(null);
   const dockRef = useRef(null);
@@ -61,6 +132,11 @@ export default function ScratchNotes() {
     return rows;
   }, []);
 
+  const refreshWiki = useCallback(async () => {
+    const map = await listWikiProgress().catch(() => ({}));
+    setWikiProgress(map || {});
+  }, []);
+
   const refreshPractices = useCallback(async () => {
     const rows = await listDrafts().catch(() => []);
     setPractices((rows || []).filter((row) => isPracticeDraft(row) && countsTowardProgress(row)));
@@ -68,19 +144,28 @@ export default function ScratchNotes() {
 
   useEffect(() => {
     let cancelled = false;
-    Promise.all([loadPrefs().catch(() => null), listNotes().catch(() => []), listDrafts().catch(() => [])])
-      .then(([prefs, noteRows, draftRows]) => {
+    Promise.all([
+      loadPrefs().catch(() => null),
+      listNotes().catch(() => []),
+      listDrafts().catch(() => []),
+      listWikiProgress().catch(() => ({})),
+    ])
+      .then(([prefs, noteRows, draftRows, wikiMap]) => {
         if (cancelled) {
           return;
         }
         if (prefs) {
           setOpen(Boolean(prefs.open));
-          if (prefs.tab === 'code' || prefs.tab === 'notes') {
+          if (prefs.tab === 'code' || prefs.tab === 'notes' || prefs.tab === 'wiki') {
             setTab(prefs.tab);
           }
         }
         setNotes(noteRows);
         setPractices((draftRows || []).filter((row) => isPracticeDraft(row) && countsTowardProgress(row)));
+        setWikiProgress(wikiMap || {});
+        if (prefs?.tab === 'wiki') {
+          setWikiBatch(shuffleSample(wikiPool('all', wikiMap || {}), WIKI_PAGE));
+        }
       })
       .finally(() => {
         if (!cancelled) {
@@ -96,16 +181,21 @@ export default function ScratchNotes() {
     const onProgress = () => {
       refreshPractices();
     };
+    const onWiki = () => {
+      refreshWiki();
+    };
     const onHomeworkNotes = () => {
       refreshNotes();
     };
     window.addEventListener(CODE_PROGRESS_EVENT, onProgress);
+    window.addEventListener(WIKI_PROGRESS_EVENT, onWiki);
     window.addEventListener('homework-draft-note', onHomeworkNotes);
     return () => {
       window.removeEventListener(CODE_PROGRESS_EVENT, onProgress);
+      window.removeEventListener(WIKI_PROGRESS_EVENT, onWiki);
       window.removeEventListener('homework-draft-note', onHomeworkNotes);
     };
-  }, [refreshPractices, refreshNotes]);
+  }, [refreshPractices, refreshNotes, refreshWiki]);
 
   const persistPrefs = useCallback((nextOpen, nextTab) => {
     savePrefs({open: nextOpen, tab: nextTab}).catch(() => {});
@@ -114,6 +204,8 @@ export default function ScratchNotes() {
   const close = useCallback(() => {
     setOpen(false);
     setActiveId(null);
+    setWikiId(null);
+    setWikiPractice(false);
     persistPrefs(false, tab);
   }, [persistPrefs, tab]);
 
@@ -123,8 +215,10 @@ export default function ScratchNotes() {
     }
     const onKey = (event) => {
       if (event.key === 'Escape') {
-        if (activeId) {
+        if (activeId || wikiId) {
           setActiveId(null);
+          setWikiId(null);
+          setWikiPractice(false);
           return;
         }
         close();
@@ -141,16 +235,24 @@ export default function ScratchNotes() {
       window.removeEventListener('keydown', onKey);
       document.removeEventListener('mousedown', onPointer);
     };
-  }, [open, activeId, close]);
+  }, [open, activeId, wikiId, close]);
 
   function toggle() {
     const next = !open;
     setOpen(next);
     if (!next) {
       setActiveId(null);
+      setWikiId(null);
+      setWikiPractice(false);
     } else {
       refreshNotes();
       refreshPractices();
+      refreshWiki();
+      if (tab === 'wiki') {
+        setWikiSearch('');
+        setWikiQuery('');
+        setWikiBatch(shuffleSample(wikiPool(wikiFilter, wikiProgress), WIKI_PAGE));
+      }
     }
     persistPrefs(next, tab);
   }
@@ -158,9 +260,17 @@ export default function ScratchNotes() {
   function selectTab(next) {
     setTab(next);
     setActiveId(null);
+    setWikiId(null);
+    setWikiPractice(false);
     persistPrefs(open, next);
     if (next === 'code') {
       refreshPractices();
+    }
+    if (next === 'wiki') {
+      setWikiSearch('');
+      setWikiQuery('');
+      setWikiBatch(shuffleSample(wikiPool(wikiFilter, wikiProgress), WIKI_PAGE));
+      refreshWiki();
     }
   }
 
@@ -234,6 +344,64 @@ export default function ScratchNotes() {
       return {chapter, items, done, total: allInChapter.length};
     });
   }, [filteredPractices, practices]);
+
+  useEffect(() => {
+    const q = wikiSearch.trim();
+    if (!q) {
+      setWikiQuery('');
+      return undefined;
+    }
+    const timer = window.setTimeout(() => setWikiQuery(q), 1000);
+    return () => window.clearTimeout(timer);
+  }, [wikiSearch]);
+
+  const wikiPassedCount = useMemo(
+    () => WIKI.filter((e) => isWikiLearned(wikiProgress[e.id])).length,
+    [wikiProgress],
+  );
+
+  const wikiList = useMemo(() => {
+    const q = wikiQuery.trim().toLowerCase();
+    if (!q) {
+      return wikiBatch;
+    }
+    const hits = WIKI.filter((e) => wikiMatches(e, q));
+    return hits.slice(0, WIKI_PAGE);
+  }, [wikiQuery, wikiBatch]);
+
+  const practicePool = useMemo(() => {
+    if (wikiList.length) {
+      return wikiList;
+    }
+    return wikiPool(wikiFilter, wikiProgress);
+  }, [wikiList, wikiFilter, wikiProgress]);
+
+  const wikiEntry = WIKI.find((e) => e.id === wikiId) || null;
+
+  async function openWiki(id, asPractice) {
+    setWikiPractice(Boolean(asPractice));
+    setWikiId(id);
+    await markWikiViewed(id);
+    refreshWiki();
+  }
+
+  function startPractice() {
+    const graded = practicePool.filter((e) => wikiPracticeKind(e) !== 'read');
+    const pool = graded.length ? graded : practicePool;
+    if (!pool.length) {
+      return;
+    }
+    const pick = pool[Math.floor(Math.random() * pool.length)];
+    openWiki(pick.id, true);
+  }
+
+  function applyWikiFilter(next) {
+    const value = next === wikiFilter && next !== 'all' ? 'all' : next;
+    setWikiFilter(value);
+    setWikiSearch('');
+    setWikiQuery('');
+    setWikiBatch(shuffleSample(wikiPool(value, wikiProgress), WIKI_PAGE));
+  }
 
   async function addNote() {
     const index = notes.length + 1;
@@ -309,6 +477,14 @@ export default function ScratchNotes() {
                 className={tab === 'code' ? styles.tabActive : styles.tab}
                 onClick={() => selectTab('code')}>
                 {completedCount > 0 ? `code lv${completedCount}` : 'code'}
+              </button>
+              <button
+                type="button"
+                role="tab"
+                aria-selected={tab === 'wiki'}
+                className={tab === 'wiki' ? styles.tabActive : styles.tab}
+                onClick={() => selectTab('wiki')}>
+                {wikiPassedCount > 0 ? `wiki lv${wikiPassedCount}` : 'wiki'}
               </button>
             </div>
             <button
@@ -468,6 +644,102 @@ export default function ScratchNotes() {
                     </ul>
                   </div>
                 ))
+              )}
+            </div>
+          )}
+
+          {tab === 'wiki' && wikiEntry && (
+            <WikiDetail
+              entry={wikiEntry}
+              practice={wikiPractice}
+              onBack={() => {
+                setWikiId(null);
+                setWikiPractice(false);
+              }}
+              onProgress={refreshWiki}
+            />
+          )}
+
+          {tab === 'wiki' && !wikiEntry && (
+            <div className={styles.body}>
+              <div className={styles.searchRow}>
+                <input
+                  className={styles.search}
+                  value={wikiSearch}
+                  onChange={(e) => setWikiSearch(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter') {
+                      e.preventDefault();
+                      setWikiQuery(wikiSearch.trim());
+                    }
+                  }}
+                  placeholder="search"
+                  aria-label="Search wiki"
+                />
+              </div>
+              <div className={styles.filters}>
+                <button
+                  type="button"
+                  className={wikiFilter === 'bookmarked' ? styles.filterOn : styles.filter}
+                  onClick={() => applyWikiFilter('bookmarked')}>
+                  bookmarked
+                </button>
+                <button
+                  type="button"
+                  className={wikiFilter === 'all' ? styles.filterOn : styles.filter}
+                  onClick={() => applyWikiFilter('all')}>
+                  all
+                </button>
+                <button
+                  type="button"
+                  className={wikiFilter === 'study' ? styles.filterOn : styles.filter}
+                  onClick={() => applyWikiFilter('study')}>
+                  study
+                </button>
+                <button
+                  type="button"
+                  className={wikiFilter === 'learned' ? styles.filterOn : styles.filter}
+                  onClick={() => applyWikiFilter('learned')}>
+                  learned
+                </button>
+                <button
+                  type="button"
+                  className={styles.wikiPracticeBtn}
+                  onClick={startPractice}
+                  disabled={practicePool.length === 0}>
+                  practice
+                </button>
+              </div>
+              {wikiList.length === 0 ? (
+                <p className={styles.empty}>No matching wiki entries.</p>
+              ) : (
+                <ul className={styles.list}>
+                  {wikiList.map((e) => {
+                    const row = wikiProgress[e.id];
+                    const status = wikiStatus(row);
+                    return (
+                      <li key={e.id} className={styles.codeRowWrap}>
+                        <button
+                          type="button"
+                          className={styles.star}
+                          aria-label={row?.bookmarked ? 'Remove bookmark' : 'Bookmark'}
+                          onClick={() => toggleWikiBookmark(e.id).then(refreshWiki)}>
+                          {row?.bookmarked ? '★' : '☆'}
+                        </button>
+                        <button type="button" className={styles.codeRow} onClick={() => openWiki(e.id)}>
+                          {status.label ? (
+                            <span className={status.done ? styles.done : styles.pending}>
+                              [{status.label}]
+                            </span>
+                          ) : (
+                            <span className={styles.pending}>[—]</span>
+                          )}
+                          <span className={styles.rowTitle}>{e.title}</span>
+                        </button>
+                      </li>
+                    );
+                  })}
+                </ul>
               )}
             </div>
           )}
