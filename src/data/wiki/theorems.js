@@ -374,4 +374,277 @@ export const THEOREMS = [
       why: 'Throw → count → equate fraction to area ratio → scale by $A_{\\mathrm{box}}$.',
     },
   },
+  {
+    id: 'thm-control-variate-variance',
+    kind: 'theorem',
+    title: 'Control variates shrink residual variance',
+    statement:
+      'If $J=\\int g$ is known and $\\mathrm{Var}(f-g)<\\mathrm{Var}(f)$, then estimating $\\int(f-g)+J$ by Monte Carlo has smaller sampling variance than estimating $\\int f$ directly.',
+    description:
+      'A good $g$ tracks the shape of $f$ so the residual is flatter under uniform draws. Exact $J$ carries the bulk of the integral.',
+    href: '/fundamentals/math-and-science/computational-physics/05-07-mc-variance-reduction',
+    order: {
+      prompt: 'Order the control-variate argument (top = first).',
+      items: [
+        'Conclude $\\mathrm{Var}(f-g)<\\mathrm{Var}(f)$ improves the MC error',
+        'Write $I=\\int(f-g)+J$ with $J=\\int g$ known',
+        'Require $|f-g|\\le\\varepsilon$ so $g$ tracks $f$',
+        'Estimate only the residual by sampling',
+      ],
+      order: [1, 2, 3, 0],
+      why: 'Rewrite → track $f$ → sample residual → smaller variance.',
+    },
+  },
+  {
+    id: 'thm-importance-sampling',
+    kind: 'theorem',
+    title: 'Importance sampling identity',
+    statement:
+      'For a normalized weight $w$, $I=\\int f=\\int w\\,(f/w)=\\langle f/w\\rangle$ when $x$ is drawn from $w$. Choosing $w\\propto f$ flattens the ratio and reduces variance.',
+    description:
+      'von Neumann rejection produces $x\\sim w$ by accepting uniform box throws that land under $w$. Metropolis (Ch 17) is the later generalization.',
+    href: '/fundamentals/math-and-science/computational-physics/05-08-importance-sampling',
+    order: {
+      prompt: 'Order the importance-sampling idea (top = first).',
+      items: [
+        'Average $f/w$ over those samples',
+        'Insert $1=w/w$ to write $I=\\langle f/w\\rangle$',
+        'Choose $w$ roughly proportional to $f$',
+        'Draw $x\\sim w$ (inversion or rejection)',
+      ],
+      order: [1, 2, 3, 0],
+      why: 'Identity → choose $w$ → sample → average ratio.',
+    },
+  },
+  {
+    id: 'thm-ivt-bisection',
+    kind: 'theorem',
+    title: 'Sign change implies a root (IVT)',
+    statement:
+      'If $f$ is continuous on $[a,b]$ and $f(a)f(b)<0$, then there exists $c\\in(a,b)$ with $f(c)=0$. Bisection constructs a nested sequence of such brackets whose width $\\to 0$.',
+    description:
+      'Existence comes from the intermediate-value theorem; the algorithm only needs signs. Used for the even square-well residual $g(E)$.',
+    href: '/fundamentals/math-and-science/computational-physics/06-02-bisection-search',
+    order: {
+      prompt: 'Order the IVT → bisection argument (top = first).',
+      items: [
+        'Conclude a root lies in every nested signed bracket',
+        'Assume $f$ continuous and $f(a)f(b)<0$',
+        'Halve and keep the half with opposite endpoint signs',
+        'Drive the width below $\\varepsilon$ and take the midpoint',
+      ],
+      order: [1, 2, 0, 3],
+      why: 'Hypothesis → halve → nested roots → report midpoint.',
+    },
+  },
+  {
+    id: 'thm-newton-linear-model',
+    kind: 'theorem',
+    title: 'Newton step from a linear model',
+    statement:
+      'If $f$ is differentiable near $x_0$ and $f\'(x_0)\\neq 0$, the unique root of the first-order Taylor model $f(x_0)+f\'(x_0)\\Delta x=0$ is $\\Delta x=-f(x_0)/f\'(x_0)$. Iterating $x\\leftarrow x+\\Delta x$ is Newton–Raphson.',
+    description:
+      'Local convergence is rapid when $f$ is nearly linear near the root; flat $f\'$ or a bad start can send iterates far away.',
+    href: '/fundamentals/math-and-science/computational-physics/06-03-newton-raphson',
+    order: {
+      prompt: 'Order the Newton derivation (top = first).',
+      items: [
+        'Solve for $\\Delta x=-f(x_0)/f\'(x_0)$',
+        'Write $x=x_0+\\Delta x$',
+        'Keep the linear Taylor model $f(x_0)+f\'(x_0)\\Delta x$',
+        'Set that model equal to zero',
+      ],
+      order: [1, 2, 3, 0],
+      why: 'Shift → linearize → set to zero → solve for Δx.',
+    },
+  },
+  {
+    id: 'thm-mean-field-curie',
+    kind: 'theorem',
+    title: 'Spontaneous magnetization below Tc',
+    statement:
+      'In Weiss mean-field theory the reduced self-consistency $m=\\tanh(m/t)$ admits a nontrivial solution $0<m\\le 1$ if and only if $t<1$. At $t\\ge 1$ the only real solution is $m=0$.',
+    description:
+      'The Curie point $t=1$ is where the ordered branch collides with the trivial root. Numerically: root-find $f(m,t)=m-\\tanh(m/t)$ at fixed $t$.',
+    href: '/fundamentals/math-and-science/computational-physics/06-04-magnetization-search',
+    order: {
+      prompt: 'Order the Curie-point argument (top = first).',
+      items: [
+        'Conclude spontaneous m>0 only for t<1',
+        'Write the reduced equation m=tanh(m/t)',
+        'Note m=0 is always a root',
+        'Linearize near m=0: slope 1−1/t changes sign at t=1',
+      ],
+      order: [1, 2, 3, 0],
+      why: 'Equation → trivial root → slope test → Tc.',
+    },
+  },
+  {
+    id: 'thm-hyperfine-spectrum',
+    kind: 'theorem',
+    title: 'Hyperfine V spectrum (triplet / singlet)',
+    statement:
+      'For $V=W\\,\\boldsymbol\\sigma_e\\!\\cdot\\!\\boldsymbol\\sigma_p$ in the ordered product basis, the eigenvalues are $W$ (degeneracy 3, triplet) and $-3W$ (singlet). Hence $\\Delta E=4W$.',
+    description:
+      'Outer diagonals contribute two $+W$ levels; the middle $2\\times 2$ supplies $W$ and $-3W$. Labels that swap triplet/singlet disagree with this matrix algebra.',
+    href: '/fundamentals/math-and-science/computational-physics/07-04-hyperfine',
+    order: {
+      prompt: 'Order the spectrum argument (top = first).',
+      items: [
+        'Conclude ΔE=W−(−3W)=4W',
+        'Write V in the |αα⟩,|αβ⟩,|βα⟩,|ββ⟩ basis',
+        'Diagonalize the middle [[−W,2W],[2W,−W]] block',
+        'Combine with outer +W levels: W×3 and −3W×1',
+      ],
+      order: [1, 2, 3, 0],
+      why: 'Matrix → middle eigs → full multiplet → splitting.',
+    },
+  },
+  {
+    id: 'thm-inverse-residual',
+    kind: 'theorem',
+    title: 'Inverse quality via AA⁻¹≈I',
+    statement:
+      'If $B$ is a computed inverse of nonsingular $A$, then $\\max\\|AB-I\\|$ near machine epsilon certifies $B\\approx A^{-1}$ at working precision; a large residual signals failure or severe ill-conditioning.',
+    description:
+      'Used with Gauss–Jordan on the book $3\\times 3$ test matrix and with Hilbert caution when condition numbers grow.',
+    href: '/fundamentals/math-and-science/computational-physics/07-02-tests-before-use',
+    order: {
+      prompt: 'Order the inverse-trust argument (top = first).',
+      items: [
+        'Trust B only if that residual is ~ machine ε (else debug / condition)',
+        'Compute a numerical inverse B of A',
+        'Form the residual matrix AB−I',
+        'Take a max-abs entry as a scalar residual',
+      ],
+      order: [1, 2, 3, 0],
+      why: 'Invert → residual matrix → max norm → accept or reject.',
+    },
+  },
+  {
+    id: 'thm-ode-vs-pde-linear',
+    kind: 'theorem',
+    title: 'ODE structure: order, linearity, IVP',
+    statement:
+      'Newton’s law is a second-order ODE in t. Linear ODEs obey superposition; nonlinear ones do not. Mechanics typically poses an IVP (x(t0),v(t0)), not a two-time BVP.',
+    description:
+      'Dynamic form y0=x, y1=v converts the second-order equation into a first-order system for steppers.',
+    href: '/fundamentals/math-and-science/computational-physics/08-02-ode-form-and-review',
+    order: {
+      prompt: 'Order the classification argument (top = first).',
+      items: [
+        'Choose IVP data (x,v) at t0 for a unique march',
+        'Identify the highest derivative (order) and independent variable (ODE vs PDE)',
+        'Check whether the equation is linear (superposition) or nonlinear',
+        'Rewrite as first-order dynamic form for a stepper',
+      ],
+      order: [1, 2, 3, 0],
+      why: 'Order/type → linearity → dynamic form → IVP data.',
+    },
+  },
+  {
+    id: 'thm-euler-local-error',
+    kind: 'theorem',
+    title: 'Euler local truncation is O(h²)',
+    statement:
+      'One forward-Euler step matches the Taylor series through the linear term, so the local error is O(h²). Global error over a fixed interval typically accumulates as O(h).',
+    description:
+      'Midpoint RK2 and classic RK4 raise the order by sampling additional slopes. Energy drift on a harmonic oscillator is a practical accuracy meter.',
+    href: '/fundamentals/math-and-science/computational-physics/08-03-ode-algorithms',
+    order: {
+      prompt: 'Order the Euler-error argument (top = first).',
+      items: [
+        'Conclude the dropped remainder is O(h²) locally',
+        'Taylor-expand the true y(t+h) about t',
+        'Note Euler keeps y + h y′ only',
+        'Compare to the full series (½h² y″ + …)',
+      ],
+      order: [1, 2, 3, 0],
+      why: 'Taylor → Euler truncation → remainder → O(h²).',
+    },
+  },
+  {
+    id: 'thm-damping-regimes',
+    kind: 'theorem',
+    title: 'Viscous damping regimes',
+    statement:
+      'For mẍ+bẋ+kx=0 with ω0=√(k/m), the free motion is underdamped if b<2mω0, critically damped if equal, and overdamped if b>2mω0.',
+    description:
+      'Near-resonant drives produce beats at |ω−ω0|/(2π). Nonlinear F(x) further bends resonance curves.',
+    href: '/fundamentals/math-and-science/computational-physics/08-05-friction-resonance',
+    order: {
+      prompt: 'Order the damping-regime argument (top = first).',
+      items: [
+        'Label under / critical / over by comparing b to 2mω₀',
+        'Write the characteristic equation for m r² + b r + k = 0',
+        'Identify ω₀ = √(k/m) and the discriminant involving b−2mω₀',
+        'Relate complex vs real roots to ringing vs creep',
+      ],
+      order: [1, 2, 3, 0],
+      why: 'ODE → discriminant → root type → regime label.',
+    },
+  },
+  {
+    id: 'thm-concavity-second-deriv',
+    kind: 'theorem',
+    title: 'Concavity from the second derivative',
+    statement:
+      'If $f\'\'>0$ on $(a,b)$, the graph of $f$ is concave upward there; if $f\'\'<0$, it is concave downward.',
+    description:
+      'Intuitively: cup vs cap. More precisely, the graph lies above (resp. below) its tangent lines on a neighborhood of each point when $f\'\'>0$ (resp. $f\'\'<0$).',
+    href: '/fundamentals/math-and-science/calculus/15-curve-sketching',
+    order: {
+      prompt: 'Order the concavity argument (top = first).',
+      items: [
+        'Conclude cup ($f\'\'>0$) or cap ($f\'\'<0$) on the interval',
+        'Compute or sign-chart $f\'\'$ on $(a,b)$',
+        'Recall: positive $f\'\'$ means $f\'$ is increasing (slopes steepen)',
+        'Relate increasing/decreasing slopes to lying above/below tangents',
+      ],
+      order: [1, 2, 3, 0],
+      why: 'Sign-chart $f\'\'$ → link to mono of $f\'$ → geometric cup/cap.',
+    },
+  },
+  {
+    id: 'thm-inflection-fpp-zero',
+    kind: 'theorem',
+    title: 'Inflection forces f″=0 (when continuous)',
+    statement:
+      'If the graph has an inflection at $x_0$, $f\'\'$ exists nearby, and $f\'\'$ is continuous at $x_0$, then $f\'\'(x_0)=0$. The converse fails (e.g. $x^4$ at $0$).',
+    description:
+      'Inflection means concavity changes, so $f\'\'$ changes sign. A continuous sign change must hit zero. Checking $f\'\'=0$ alone is not enough — verify the sign change.',
+    href: '/fundamentals/math-and-science/calculus/15-curve-sketching',
+    order: {
+      prompt: 'Order the inflection checklist (top = first).',
+      items: [
+        'Confirm $f\'\'$ actually changes sign across the candidate',
+        'Find candidates where $f\'\'=0$ or $f\'\'$ is undefined',
+        'If $f\'\'$ is continuous and changes sign, conclude $f\'\'(x_0)=0$ at an inflection',
+        'Reject candidates with no sign change (e.g. $x^4$ at $0$)',
+      ],
+      order: [1, 2, 3, 0],
+      why: 'Candidates → continuity/sign-change necessity → verify → discard fakes.',
+    },
+  },
+  {
+    id: 'thm-third-deriv-inflection',
+    kind: 'theorem',
+    title: 'Nonzero f‴ forces an inflection',
+    statement:
+      'If $f\'\'(x_0)=0$ and $f\'\'\'(x_0)\\neq 0$, then the graph has an inflection point at $x_0$.',
+    description:
+      '$f\'\'\'(x_0)\\neq 0$ means $f\'\'$ is strictly mono at $x_0$. Crossing through zero, $f\'\'$ changes sign, so concavity changes.',
+    href: '/fundamentals/math-and-science/calculus/15b-curve-sketching-practice',
+    order: {
+      prompt: 'Order the third-derivative inflection argument (top = first).',
+      items: [
+        'Conclude opposite concavity ⇒ inflection at $x_0$',
+        'Note $f\'\'\'(x_0)\\neq 0$ ⇒ $f\'\'$ is mono at $x_0$',
+        'Use $f\'\'(x_0)=0$ so $f\'\'$ has opposite signs on the two sides',
+        'Assume $f\'\'(x_0)=0$ and $f\'\'\'(x_0)\\neq 0$',
+      ],
+      order: [3, 1, 2, 0],
+      why: 'Hypotheses → mono of f″ → sign flip → inflection.',
+    },
+  },
 ];

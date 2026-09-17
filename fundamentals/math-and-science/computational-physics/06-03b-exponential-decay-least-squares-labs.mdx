@@ -1,0 +1,386 @@
+---
+sidebar_position: 35
+title: 6.6b Least-squares fitting labs
+sidebar_label: '6.6b Least-squares fitting labs'
+---
+
+# 6.6b Least-squares fitting labs
+
+> **Source:** Lab ideas from *Computational Physics* (Landau, Páez, Bordeianu), §6.6–6.7.2. Rewritten as original drills. Continues [6.6 Least-squares fitting](./06-03-exponential-decay-least-squares).
+
+Implement linear regression and chi-square from scratch — no `numpy.polyfit` or `scipy.stats.linregress`. Stubs fail until filled in.
+
+## Formula refresh
+
+Warm up: pick the matching equation among lookalikes (same walk as the theory lesson).
+
+<GuidedChoiceExplanation preset="linear-ls-normal-eqs" />
+
+<GuidedChoiceExplanation preset="exponential-decay-least-squares" />
+
+
+## Labs
+
+<ExerciseSet>
+<Exercise title="6.6b.1 Linear regression (equal weights)" anchor="exercise-cp-lsq-linreg">
+
+:::tip Activity: Linear regression (equal weights)
+Implement the numerically stable linear-regression formulas (6.51) with $\sigma_i\equiv1$:
+
+$$
+a_2=\frac{S_{xy}}{S_{xx}},\quad a_1=\bar y-a_2\bar x,\quad
+S_{xy}=\sum_i(x_i-\bar x)(y_i-\bar y),\quad S_{xx}=\sum_i(x_i-\bar x)^2.
+$$
+
+Input: first line `n`, then `n` lines of `x_i y_i`. Print `a1 a2` with 6 decimals.
+
+<CodeExercise
+  title="Linear regression (equal weights)"
+  heading="exercise-cp-lsq-linreg"
+  lang="python"
+  filename="main.py"
+  prompt="Fit y=a1+a2*x by least squares, sigma_i=1."
+  sampleLog={`(input) 4
+0 1
+1 3
+2 5
+3 7
+1.000000 2.000000`}
+  starter={`def linreg(xs, ys):
+    return 0.0, 0.0
+`}
+  wrapSuffix={`
+n = int(input())
+xs, ys = [], []
+for _ in range(n):
+    x, y = map(float, input().split())
+    xs.append(x)
+    ys.append(y)
+a1, a2 = linreg(xs, ys)
+print(f"{a1:.6f} {a2:.6f}")
+`}
+  hint="xbar = mean(xs), ybar = mean(ys); a2 = sum((x-xbar)*(y-ybar)) / sum((x-xbar)**2); a1 = ybar - a2*xbar."
+  solution={`def linreg(xs, ys):
+    n = len(xs)
+    xbar = sum(xs) / n
+    ybar = sum(ys) / n
+    sxy = sum((xs[i] - xbar) * (ys[i] - ybar) for i in range(n))
+    sxx = sum((xs[i] - xbar) ** 2 for i in range(n))
+    a2 = sxy / sxx
+    a1 = ybar - a2 * xbar
+    return a1, a2
+`}
+  sourceChecks={[
+    {name: 'uses mean-centered sums', pattern: 'xbar|mean', must: true, hint: 'use the (6.51) mean-centered form, not the raw S/Sx/Sxx formula'},
+  ]}
+  tests={[
+    {name: 'exact line y=1+2x', stdin: '4\n0 1\n1 3\n2 5\n3 7', equals: '1.000000 2.000000'},
+  ]}
+/>
+
+:::
+
+</Exercise>
+
+<Exercise title="6.6b.2 Decay lifetime from log-linear fit" anchor="exercise-cp-lsq-decay">
+
+:::tip Activity: Decay lifetime from log-linear fit
+$N(t)=N_0e^{-t/\tau}$ becomes linear after taking logs: $\ln N=\ln N_0-t/\tau$. Reuse your `linreg` on $(t_i,\ln N_i)$, then recover $\tau=-1/a_2$ and $N_0=e^{a_1}$.
+
+Input: first line `n`, then `n` lines of `t_i N_i`. Print `N0 tau` with 4 decimals.
+
+<CodeExercise
+  title="Decay lifetime from log-linear fit"
+  heading="exercise-cp-lsq-decay"
+  lang="python"
+  filename="main.py"
+  prompt="Recover N0 and tau from N(t) data via a log-linear fit."
+  sampleLog={`(input) 10
+0 1000.0
+10 670.32
+20 449.329
+30 301.194
+40 201.897
+50 135.335
+60 90.718
+70 60.81
+80 40.762
+90 27.324
+1000.0000 25.0000`}
+  starter={`import math
+
+def linreg(xs, ys):
+    n = len(xs)
+    xbar = sum(xs) / n
+    ybar = sum(ys) / n
+    sxy = sum((xs[i] - xbar) * (ys[i] - ybar) for i in range(n))
+    sxx = sum((xs[i] - xbar) ** 2 for i in range(n))
+    a2 = sxy / sxx
+    a1 = ybar - a2 * xbar
+    return a1, a2
+
+def fit_decay(ts, Ns):
+    return 0.0, 0.0
+`}
+  wrapSuffix={`
+n = int(input())
+ts, Ns = [], []
+for _ in range(n):
+    t, N = map(float, input().split())
+    ts.append(t)
+    Ns.append(N)
+N0, tau = fit_decay(ts, Ns)
+print(f"{N0:.4f} {tau:.4f}")
+`}
+  hint="logs = [math.log(N) for N in Ns]; a1, a2 = linreg(ts, logs); N0 = exp(a1); tau = -1/a2."
+  solution={`import math
+
+def linreg(xs, ys):
+    n = len(xs)
+    xbar = sum(xs) / n
+    ybar = sum(ys) / n
+    sxy = sum((xs[i] - xbar) * (ys[i] - ybar) for i in range(n))
+    sxx = sum((xs[i] - xbar) ** 2 for i in range(n))
+    a2 = sxy / sxx
+    a1 = ybar - a2 * xbar
+    return a1, a2
+
+def fit_decay(ts, Ns):
+    logs = [math.log(N) for N in Ns]
+    a1, a2 = linreg(ts, logs)
+    return math.exp(a1), -1.0 / a2
+`}
+  sourceChecks={[
+    {name: 'takes log of N', pattern: 'math\\.log', must: true, hint: 'linearize by taking log(N) before fitting'},
+  ]}
+  tests={[
+    {
+      name: 'clean tau=25 synthetic decay',
+      stdin: '10\n0 1000.0\n10 670.32\n20 449.329\n30 301.194\n40 201.897\n50 135.335\n60 90.718\n70 60.81\n80 40.762\n90 27.324',
+      equals: '1000.0000 25.0000',
+    },
+  ]}
+/>
+
+:::
+
+</Exercise>
+
+<Exercise title="6.6b.3 Chi-square" anchor="exercise-cp-lsq-chi2">
+
+:::tip Activity: Chi-square
+Compute $\chi^2=\sum_i\left(\dfrac{y_i-g_i}{\sigma_i}\right)^2$ given measured $y_i$, model predictions $g_i$, and errors $\sigma_i$.
+
+Input: first line `n`, then `n` lines of `y_i g_i sigma_i`. Print $\chi^2$ with 6 decimals.
+
+<CodeExercise
+  title="Chi-square"
+  heading="exercise-cp-lsq-chi2"
+  lang="python"
+  filename="main.py"
+  prompt="Compute chi-square from (y_i, g_i, sigma_i) triples."
+  sampleLog={`(input) 4
+1 1.1 1
+3 2.9 1
+7 7.2 1
+15 14.9 1
+0.070000`}
+  starter={`def chi_square(ys, gs, sigmas):
+    return 0.0
+`}
+  wrapSuffix={`
+n = int(input())
+ys, gs, sigmas = [], [], []
+for _ in range(n):
+    y, g, s = map(float, input().split())
+    ys.append(y)
+    gs.append(g)
+    sigmas.append(s)
+print(f"{chi_square(ys, gs, sigmas):.6f}")
+`}
+  hint="Sum ((y-g)/sigma)**2 over all points."
+  solution={`def chi_square(ys, gs, sigmas):
+    return sum(((ys[i] - gs[i]) / sigmas[i]) ** 2 for i in range(len(ys)))
+`}
+  sourceChecks={[
+    {name: 'divides by sigma', pattern: 'sigma', must: true, hint: 'weight each squared residual by 1/sigma_i^2'},
+  ]}
+  tests={[
+    {
+      name: 'four small residuals',
+      stdin: '4\n1 1.1 1\n3 2.9 1\n7 7.2 1\n15 14.9 1',
+      equals: '0.070000',
+    },
+  ]}
+/>
+
+:::
+
+</Exercise>
+
+<Exercise title="6.6b.4 Quadratic least-squares fit" anchor="exercise-cp-lsq-quad">
+
+:::tip Activity: Quadratic least-squares fit
+Fit $g(x)=a_1+a_2x+a_3x^2$ (equal weights, $\sigma_i\equiv1$) by building the $3\times3$ system (6.56)-(6.57) and solving it with plain Gaussian elimination (no numpy).
+
+Input: first line `n`, then `n` lines of `x_i y_i`. Print `a1 a2 a3` with 4 decimals.
+
+<CodeExercise
+  title="Quadratic least-squares fit"
+  heading="exercise-cp-lsq-quad"
+  lang="python"
+  filename="main.py"
+  prompt="Least-squares fit of a quadratic to (x_i, y_i) data."
+  sampleLog={`(input) 4
+0 1
+1 3
+2 7
+3 15
+1.1000 0.1000 1.5000`}
+  starter={`def solve3(A, b):
+    A = [row[:] for row in A]
+    b = b[:]
+    n = 3
+    for i in range(n):
+        piv = A[i][i]
+        for j in range(i + 1, n):
+            f = A[j][i] / piv
+            for k in range(n):
+                A[j][k] -= f * A[i][k]
+            b[j] -= f * b[i]
+    x = [0.0] * n
+    for i in range(n - 1, -1, -1):
+        s = b[i]
+        for k in range(i + 1, n):
+            s -= A[i][k] * x[k]
+        x[i] = s / A[i][i]
+    return x
+
+def quad_fit(xs, ys):
+    return 0.0, 0.0, 0.0
+`}
+  wrapSuffix={`
+n = int(input())
+xs, ys = [], []
+for _ in range(n):
+    x, y = map(float, input().split())
+    xs.append(x)
+    ys.append(y)
+a1, a2, a3 = quad_fit(xs, ys)
+print(f"{a1:.4f} {a2:.4f} {a3:.4f}")
+`}
+  hint="Build S, Sx, Sxx, Sxxx, Sxxxx, Sy, Sxy, Sxxy from the data, assemble the 3x3 matrix A and vector b from (6.57), and call solve3(A, b)."
+  solution={`def solve3(A, b):
+    A = [row[:] for row in A]
+    b = b[:]
+    n = 3
+    for i in range(n):
+        piv = A[i][i]
+        for j in range(i + 1, n):
+            f = A[j][i] / piv
+            for k in range(n):
+                A[j][k] -= f * A[i][k]
+            b[j] -= f * b[i]
+    x = [0.0] * n
+    for i in range(n - 1, -1, -1):
+        s = b[i]
+        for k in range(i + 1, n):
+            s -= A[i][k] * x[k]
+        x[i] = s / A[i][i]
+    return x
+
+def quad_fit(xs, ys):
+    n = len(xs)
+    S = float(n)
+    Sx = sum(xs)
+    Sxx = sum(x * x for x in xs)
+    Sxxx = sum(x ** 3 for x in xs)
+    Sxxxx = sum(x ** 4 for x in xs)
+    Sy = sum(ys)
+    Sxy = sum(xs[i] * ys[i] for i in range(n))
+    Sxxy = sum(xs[i] ** 2 * ys[i] for i in range(n))
+    A = [[S, Sx, Sxx], [Sx, Sxx, Sxxx], [Sxx, Sxxx, Sxxxx]]
+    b = [Sy, Sxy, Sxxy]
+    a1, a2, a3 = solve3(A, b)
+    return a1, a2, a3
+`}
+  sourceChecks={[
+    {name: 'builds 3x3 system', pattern: 'Sxxxx|Sxxx', must: true, hint: 'assemble S, Sx, Sxx, Sxxx, Sxxxx from the data'},
+  ]}
+  tests={[
+    {
+      name: 'book exercise 6.7.2.1(d)',
+      stdin: '4\n0 1\n1 3\n2 7\n3 15',
+      equals: '1.1000 0.1000 1.5000',
+    },
+  ]}
+/>
+
+:::
+
+</Exercise>
+</ExerciseSet>
+
+## Write-ups
+
+<ProblemSet id="cp-66b-lsq-assess">
+  <Problem
+    type="concept"
+    title="6.6b.W1"
+    minWords={3}
+    keywords={['weight', 'sigma', 'error']}
+    prompt={`Why does chi-square divide each squared residual by sigma_i^2 instead of leaving it unweighted?`}
+    answer={`Dividing by sigma_i^2 downweights noisier points, so measurements with larger uncertainty contribute less to the total chi-square.`}
+  />
+  <Problem
+    type="concept"
+    title="6.6b.W2"
+    minWords={3}
+    keywords={['log', 'linear', 'slope']}
+    prompt={`How is N(t)=N0 exp(-t/tau) turned into a linear least-squares problem?`}
+    answer={`Taking the log gives ln N(t) = ln N0 - t/tau, which is linear in t with slope -1/tau and intercept ln N0, so ordinary linear regression on (t, ln N) recovers tau and N0.`}
+  />
+  <Problem
+    type="concept"
+    title="6.6b.W3"
+    minWords={3}
+    keywords={['degrees of freedom', 'N_D', 'M_P']}
+    prompt={`State the rule-of-thumb value chi-square should be close to for a good fit, and what a much smaller value usually indicates.`}
+    answer={`chi^2 should be roughly N_D - M_P, the degrees of freedom; a much smaller value usually means too many parameters or overestimated error bars (fitting the noise rather than the signal).`}
+  />
+  <Problem
+    type="concept"
+    title="6.6b.W4"
+    minWords={3}
+    keywords={['linear', 'parameters', 'quadratic']}
+    prompt={`Why is g(x)=a1+a2 x+a3 x^2 still a "linear" least-squares fit, while g(x)=(a1+a2 x)exp(-a3 x) is not?`}
+    answer={`Linearity is judged by the dependence on the fit parameters a_m, not on x; the quadratic's partial derivatives dg/da_m don't depend on the a's, but a3 appears inside the exponential, making that dependence nonlinear.`}
+  />
+</ProblemSet>
+
+## Explorers
+
+```python
+# lsq_ref.py — linear regression and 3x3 quadratic fit (original sketch)
+def linreg(xs, ys):
+    n = len(xs)
+    xbar = sum(xs) / n
+    ybar = sum(ys) / n
+    sxy = sum((xs[i] - xbar) * (ys[i] - ybar) for i in range(n))
+    sxx = sum((xs[i] - xbar) ** 2 for i in range(n))
+    a2 = sxy / sxx
+    a1 = ybar - a2 * xbar
+    return a1, a2
+```
+
+<FormulaExplorerTabs
+  items={[
+    {
+      preset: 'decayLogFit',
+      label: 'Decay lifetime fit',
+      note: 'Referenced in 6.6b.2 — slide the noise level up and watch the fitted τ drift from the true value.',
+    },
+  ]}
+/>
+
+Next: [6.8 Nonlinear fit to a resonance](./06-04-nonlinear-resonance-fit).

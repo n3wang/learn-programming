@@ -1,0 +1,207 @@
+---
+sidebar_position: 72
+title: 9.8 Fourier code sketches
+sidebar_label: '9.8 Fourier code sketches'
+---
+
+# 9.8 Fourier code sketches
+
+> **Source:** Structural ideas from *Computational Physics* (Landau, Páez, Bordeianu), §9.8 listings. **Original sketches only** — do **not** paste `DFTcomplex.py`, `DFTreal.py`, `FFT.py`, or VPython GUIs from the book / Mathpix CDN. Continues [9.6b](./09-07b-fft-implementation-labs).
+
+Graded DFT / FFT work lives in [9.3b](./09-03b-dft-labs)–[9.6b](./09-07b-fft-implementation-labs). This page is a map of **how the pieces fit** when you leave the sandbox for a local notebook.
+
+## Complex DFT (sandbox-ready)
+
+Build a real signal on $[0,2\pi)$, then form
+
+$$
+Y_n=\frac{1}{\sqrt{2\pi}}\sum_{k=0}^{N-1} y_k\,e^{-2\pi i kn/N}.
+$$
+
+```python
+# dft_complex_sketch.py — original structure (pure Python)
+import math
+import cmath
+
+def signal(N):
+    h = 2.0 * math.pi / N
+    # example: mix of cos/sin tones (choose your own amplitudes)
+    return [
+        30.0 * math.cos(k * h)
+        + 60.0 * math.sin(2.0 * k * h)
+        + 120.0 * math.sin(3.0 * k * h)
+        for k in range(N)
+    ]
+
+def dft_complex(y):
+    N = len(y)
+    s = 1.0 / math.sqrt(2.0 * math.pi)
+    Y = []
+    for n in range(N):
+        z = 0j
+        for k in range(N):
+            z += y[k] * cmath.exp(-2j * math.pi * k * n / N)
+        Y.append(s * z)
+    return Y
+
+# plot |Im Y| or |Y| locally — sandbox only prints numbers
+```
+
+Odd real signals put strength mainly in $\mathrm{Im}\,Y_n$; even signals in $\mathrm{Re}\,Y_n$. Leftover “wrong” parts diagnose window / sampling error (§9.3).
+
+## Real-arithmetic DFT (Im channel)
+
+If $y_k$ is real you can accumulate only sines for the imaginary channel (or only cosines for the real channel):
+
+```python
+# dft_real_im_sketch.py — original structure
+import math
+
+def dft_imag_channel(signal):
+    N = len(signal)
+    s = 1.0 / math.sqrt(2.0 * math.pi)
+    imag = []
+    for n in range(N):
+        acc = 0.0
+        for k in range(N):
+            acc += signal[k] * math.sin(2.0 * math.pi * k * n / N)
+        imag.append(-acc * s)  # matches e^{-iθ} = cos − i sin
+    return imag
+```
+
+Useful when you want to avoid `complex` types, or when grading only the sine projection of a chirp / odd tone. Still $\mathcal{O}(N^2)$.
+
+## FFT with forward / inverse switch
+
+One routine, sign of the twiddle = forward vs inverse; divide by $N$ on the return trip. Flattened length-$2N$ real buffers are optional — lists of `complex` are clearer for learning.
+
+```python
+# fft_switch_sketch.py — original structure (see also §9.6)
+import math
+import cmath
+
+def bitrev_permute(a):
+    N = len(a)
+    bits = int(math.log2(N))
+    for i in range(N):
+        j = 0
+        x = i
+        for _ in range(bits):
+            j = (j << 1) | (x & 1)
+            x >>= 1
+        if j > i:
+            a[i], a[j] = a[j], a[i]
+
+def fft(a, forward=True):
+    """In-place radix-2. forward=True → DFT; False → inverse (÷N)."""
+    a = list(a)
+    N = len(a)
+    assert N & (N - 1) == 0 and N >= 2
+    bitrev_permute(a)
+    sign = -1 if forward else +1
+    length = 2
+    while length <= N:
+        half = length // 2
+        wlen = cmath.exp(sign * 2j * math.pi / length)
+        for i in range(0, N, length):
+            w = 1 + 0j
+            for j in range(half):
+                u = a[i + j]
+                v = a[i + j + half] * w
+                a[i + j] = u + v
+                a[i + j + half] = u - v
+                w *= wlen
+        length *= 2
+    if not forward:
+        a = [z / N for z in a]
+    return a
+```
+
+Assessment (same as §9.7): `fft(fft(y), forward=False)` ≈ `y`; time against `dft_complex` as $N$ grows; optionally multiply by $1/\sqrt{2\pi}$ for physics FT convention.
+
+![Figure 9.8 — radix-2 butterfly: the FFT reorganizes the same DFT sums.](/img/computational-physics/fig-9-8-butterfly.svg)
+
+## DFT vs FFT — decision table
+
+| Situation | Use |
+| --- | --- |
+| $N\lesssim 64$, validating formulas / units | Direct complex DFT ($O(N^2)$) |
+| Checking Im/Re channels on a known odd/even tone | Real-channel DFT or small complex DFT |
+| $N=2^p$ and you need speed or filters | Radix-2 FFT (± switch) |
+| $N$ not a power of two | Pad to next $2^p$, or call a library FFT |
+| Debugging a wrong spectrum | Start with DFT on a single pure tone |
+
+Never “optimize” to FFT until the DFT on a short tone matches the analytic bin.
+
+## Nyquist checklist (before you trust a peak)
+
+![Figure 9.2 — coarse sampling aliases distinct tones onto the same bins.](/img/computational-physics/fig-9-2-aliasing.svg)
+
+1. Sampling interval $\Delta t$ ⇒ Nyquist frequency $f_{\mathrm{Ny}}=1/(2\Delta t)$.
+2. Every physical tone you care about must satisfy $f < f_{\mathrm{Ny}}$ (strictly).
+3. Record length $T=N\Delta t$ sets frequency bin spacing $\Delta f=1/T$.
+4. Window / abrupt truncation leaks power into neighbors — expect imperfect $\mathrm{Re}/\mathrm{Im}$ purity.
+5. If two tones alias, no transform (DFT or FFT) can unmix them — resample denser.
+
+## Visualization note
+
+Book listings draw signals with **VPython** `gcurve` / `gvbars`. Keep the transforms; plot with Matplotlib, Plotly, or whatever you use locally. This course’s sandbox is **stdout locks**, not CDN GUIs.
+
+## Takeaway
+
+| Sketch / check | Role |
+| --- | --- |
+| Complex DFT | Clear $Y_n$; $O(N^2)$ reference before FFT |
+| Real Im channel | Odd / sine-heavy spectra without `complex` |
+| FFT ± switch | Speed; round-trip + timing |
+| Nyquist / $\Delta f$ | $f < 1/(2\Delta t)$; bin spacing $1/(N\Delta t)$ |
+
+Wire filters (§9.4) as `Y[n] *= H_n` between forward and inverse FFT.
+
+<FormulaExplorerTabs preset="fftCostScaling" />
+
+<FormulaExplorerTabs preset="dftNyquistAlias" />
+
+<GuidedChoiceExplanation preset="fourier-code-sketches" />
+
+<MultipleChoice
+  id="cp-98-sketches"
+  title="Fourier code sketches"
+  questions={[
+    {
+      prompt: 'A clear O(N²) reference before FFT work is…',
+      choices: [
+        'a complex DFT on a known tone mix (with consistent 1/√(2π) if desired)',
+        'only printing N and quitting',
+        'deleting all frequency bins',
+        'replacing y by random integers with no transform',
+      ],
+      answer: 0,
+      why: 'Reference DFT validates spectra and timings.',
+    },
+    {
+      prompt: 'Odd real signals put spectral strength mainly in…',
+      choices: [
+        'Im Y_n (sine / odd channel)',
+        'only DC with Re = Im = 0 elsewhere',
+        'Daubechies c₀ alone',
+        'PCA of XXᵀ',
+      ],
+      answer: 0,
+      why: 'Odd ↔ imaginary Fourier content for real y.',
+    },
+    {
+      prompt: 'A fair FFT sketch assessment is to…',
+      choices: [
+        'check iFFT ≈ y and time against the DFT as N grows',
+        'skip inverses because FFTs cannot invert',
+        'require VPython gcurve for a pass',
+        'always use N that is not a power of two for radix-2',
+      ],
+      answer: 0,
+      why: 'Round-trip residual + DFT timing (same as §9.7).',
+    },
+  ]}
+/>
+
+Next: [10.1 Wavelet analysis](./10-01-wavelet-analysis).

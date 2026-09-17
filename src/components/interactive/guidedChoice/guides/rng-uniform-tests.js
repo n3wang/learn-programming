@@ -1,29 +1,92 @@
-/** Moment and lag-product tests for a uniform RNG. */
+/** Uniform RNG moment and lag-product tests — pick the equation. */
 
 export default {
   title: 'Testing a uniform generator',
-  lead: 'Pseudorandom streams are correlated by construction. Which quick checks catch a bad generator before your Monte Carlo paper does?',
+  lead:
+    'Moments and lag products for uniforms on $[0,1]$. Pick the matching equation at each step.',
   steps: [
     {
-      caption: 'Look at the numbers, plot $r_i$ vs $i$, and scatter $(r_{2i},r_{2i+1})$. A lattice or stripe pattern fails immediately.',
+      ask: 'The $k$th sample moment of $N$ draws is…',
+      choices: [
+        {
+          label: '$\\displaystyle\\langle x^{k}\\rangle=\\frac{1}{N}\\sum_{i=1}^{N} x_i^{k}$',
+          ok: true,
+        },
+        {
+          label: '$\\displaystyle\\langle x^{k}\\rangle=\\sum_{i=1}^{N} x_i^{k}$ (no $1/N$)',
+          ok: false,
+        },
+        {
+          label: '$\\displaystyle\\langle x^{k}\\rangle=\\frac{1}{N}\\sum_{i=1}^{N} x_i$',
+          ok: false,
+        },
+      ],
+      caption: 'Compare to the exact integral for a uniform density.',
     },
     {
-      ask: 'For uniforms on $[0,1]$, the $k$th sample moment should approach…',
+      ask: 'For uniforms on $[0,1]$, the exact $k$th moment is…',
       choices: [
-        {label: '$1/(k+1)$, with $\\sqrt{N}|\\mathrm{error}|$ of order 1 if the deviations are random', ok: true},
-        {label: '$k!$ always', ok: false},
-        {label: '$0$ for every $k$', ok: false},
+        {
+          label:
+            '$\\displaystyle\\langle x^{k}\\rangle\\simeq\\int_0^1 x^{k}\\,dx=\\frac{1}{k+1}$',
+          ok: true,
+        },
+        {
+          label:
+            '$\\displaystyle\\langle x^{k}\\rangle\\simeq\\int_0^1 x^{k}\\,dx=\\frac{1}{k}$',
+          ok: false,
+        },
+        {
+          label:
+            '$\\displaystyle\\langle x^{k}\\rangle\\simeq\\int_0^1 x^{k}\\,dx=\\frac{1}{k-1}$ ($k>1$)',
+          ok: false,
+        },
       ],
-      caption: '$\\int_0^1 x^k\\,dx=1/(k+1)$. Growing $\\sqrt{N}|\\mathrm{error}|$ hints at bias, not mere sampling noise.',
+      caption:
+        'Sampling noise of order $1/\\sqrt{N}$: check that $\\sqrt{N}|\\langle x^{k}\\rangle-1/(k+1)|$ stays $O(1)$.',
     },
     {
-      ask: 'The lag product $C(k)=\\langle x_i x_{i+k}\\rangle$ for independent uniforms is…',
+      ask: 'The lag product at lag $k$ is defined as…',
       choices: [
-        {label: '$\\approx 1/4$', ok: true},
-        {label: '$\\approx 1/2$', ok: false},
-        {label: '$\\approx 0$', ok: false},
+        {
+          label:
+            '$\\displaystyle C(k)=\\frac{1}{N}\\sum_{i=1}^{N} x_i\\,x_{i+k}$',
+          ok: true,
+        },
+        {
+          label:
+            '$\\displaystyle C(k)=\\frac{1}{N}\\sum_{i=1}^{N}(x_i-x_{i+k})$',
+          ok: false,
+        },
+        {
+          label:
+            '$\\displaystyle C(k)=\\frac{1}{N}\\sum_{i=1}^{N} x_i^{k}$',
+          ok: false,
+        },
       ],
-      caption: '$\\iint xy\\,dx\\,dy=1/4$. Pass the average and still plot scatter — averages can hide lattices.',
+      caption: 'Independent uniforms have joint density $1$ on the unit square.',
+    },
+    {
+      ask: 'That independence predicts…',
+      choices: [
+        {
+          label:
+            '$\\displaystyle C(k)\\simeq\\int_0^1\\!\\!\\int_0^1 xy\\,dx\\,dy=\\frac{1}{4}$',
+          ok: true,
+        },
+        {
+          label:
+            '$\\displaystyle C(k)\\simeq\\int_0^1\\!\\!\\int_0^1 xy\\,dx\\,dy=\\frac{1}{2}$',
+          ok: false,
+        },
+        {
+          label:
+            '$\\displaystyle C(k)\\simeq\\int_0^1\\!\\!\\int_0^1 xy\\,dx\\,dy=\\frac{1}{3}$',
+          ok: false,
+        },
+      ],
+      caption:
+        'Matching $1/4$ with $\\sqrt{N}|C-1/4|=O(1)$ supports independence — still scatter-plot successive pairs.',
     },
   ],
 };

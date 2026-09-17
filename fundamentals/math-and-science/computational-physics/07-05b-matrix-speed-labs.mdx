@@ -1,0 +1,518 @@
+---
+sidebar_position: 47
+title: 7.7b Matrix-speed labs
+sidebar_label: '7.7b Matrix-speed labs'
+---
+
+# 7.7b Matrix-speed labs
+
+> **Source:** Lab ideas from *Computational Physics* (Landau, Páez, Bordeianu), §7.7–7.7.2. Rewritten as original drills (list sandbox — no NumPy). Continues [7.7 Speeding up matrix computing](./07-05-matrix-speed).
+
+Practice vector-style list ops, **stride-aware** nestings, and both matmul loop orders. Graded outputs lock *correctness* (same sums / same $C$ / same derivatives). Use `time.perf_counter()` locally to *feel* the speed gap — wall-clock is too noisy to grade.
+
+## Formula refresh
+
+Warm up: pick the matching equation among lookalikes (same walk as the theory lesson).
+
+<GuidedChoiceExplanation preset="matrix-vectorization" />
+
+
+## Labs
+
+<ExerciseSet>
+<Exercise title="7.7b.1 Map f(x)=x²−3x+4" anchor="exercise-cp-77-map">
+
+:::tip Activity: Elementwise map via comprehension
+Read five integers on one line. Apply $f(x)=x^{2}-3x+4$ to each (prefer a list comprehension). Print the five results as integers, space-separated.
+
+<CodeExercise
+  title="Map f(x)=x²−3x+4"
+  heading="exercise-cp-77-map"
+  lang="python"
+  filename="main.py"
+  prompt="Apply f(x)=x²−3x+4 to five ints; print results."
+  sampleLog={`(input) 1 2 3 4 5
+2 2 4 8 14`}
+  starter={`def f(x):
+    return 0  # TODO: x**2 - 3*x + 4
+
+def apply_f(xs):
+    return []  # TODO: comprehension over xs
+`}
+  wrapSuffix={`
+xs = list(map(int, input().split()))
+print(' '.join(str(v) for v in apply_f(xs)))
+`}
+  hint="return [f(x) for x in xs] with f(x)=x*x - 3*x + 4."
+  solution={`def f(x):
+    return x * x - 3 * x + 4
+
+def apply_f(xs):
+    return [f(x) for x in xs]
+`}
+  sourceChecks={[
+    {name: 'comprehension or map', pattern: 'for\s+x\s+in|map\s*\\(', must: true, hint: 'apply f across the whole list in one expression'},
+  ]}
+  tests={[
+    {name: '1..5', stdin: '1 2 3 4 5', equals: '2 2 4 8 14'},
+    {name: 'zeros and neg', stdin: '0 -1 10 3 3', equals: '4 8 74 4 4'},
+  ]}
+/>
+
+:::
+
+</Exercise>
+
+<Exercise title="7.7b.2 SAXPY on lists" anchor="exercise-cp-77-saxpy">
+
+:::tip Activity: SAXPY $\mathbf y\leftarrow a\mathbf x+\mathbf y$
+Implement `saxpy(a, x, y)` returning a new list $a x_i+y_i$. Fixed test: $a=2$, $x=(1,2,3)$, $y=(4,5,6)$ → print `6 9 12`.
+
+No input.
+
+<CodeExercise
+  title="SAXPY on lists"
+  heading="exercise-cp-77-saxpy"
+  lang="python"
+  filename="main.py"
+  prompt="y ← a*x + y for lists; print result for the fixed test."
+  sampleLog={`6 9 12`}
+  starter={`def saxpy(a, x, y):
+    return []  # TODO: [a*xi + yi for each i]
+`}
+  wrapSuffix={`
+out = saxpy(2.0, [1.0, 2.0, 3.0], [4.0, 5.0, 6.0])
+print(' '.join(str(int(v)) for v in out))
+`}
+  hint="return [a * x[i] + y[i] for i in range(len(x))]."
+  solution={`def saxpy(a, x, y):
+    return [a * x[i] + y[i] for i in range(len(x))]
+`}
+  sourceChecks={[
+    {name: 'scaled add', pattern: 'a\s*\\*\s*x|x\\[i\\].*y\\[i\\]|zip\\(', must: true, hint: 'form a*x_i + y_i for each index'},
+  ]}
+  tests={[
+    {name: 'fixed saxpy', equals: '6 9 12'},
+  ]}
+/>
+
+:::
+
+</Exercise>
+
+<Exercise title="7.7b.3 Matvec 2×2" anchor="exercise-cp-77-matvec">
+
+:::tip Activity: Matrix–vector product
+For $A=\begin{pmatrix}1&2\\3&4\end{pmatrix}$ and $\mathbf x=(5,6)^{\mathsf T}$, compute $A\mathbf x$ and print as integers `17 39`.
+
+No input.
+
+<CodeExercise
+  title="Matvec 2×2"
+  heading="exercise-cp-77-matvec"
+  lang="python"
+  filename="main.py"
+  prompt="Compute A@x for the fixed 2×2 test; print integers."
+  sampleLog={`17 39`}
+  starter={`def matvec(A, x):
+    return [0.0] * len(x)  # TODO: row-times-x sums
+`}
+  wrapSuffix={`
+A = [[1.0, 2.0], [3.0, 4.0]]
+x = [5.0, 6.0]
+y = matvec(A, x)
+print(' '.join(str(int(v)) for v in y))
+`}
+  hint="y[i] = A[i][0]*x[0] + A[i][1]*x[1]. In row-major layout this walks each row contiguously."
+  solution={`def matvec(A, x):
+    return [sum(A[i][j] * x[j] for j in range(len(x))) for i in range(len(A))]
+`}
+  sourceChecks={[
+    {name: 'row-times-vector', pattern: 'A\\[i\\]\\[j\\]\s*\\*\s*x\\[j\\]|sum\\(', must: true, hint: 'standard matvec sum over j'},
+  ]}
+  tests={[
+    {name: '2x2 matvec', equals: '17 39'},
+  ]}
+/>
+
+:::
+
+</Exercise>
+
+<Exercise title="7.7b.4 Row vs column gather" anchor="exercise-cp-77-rowcol">
+
+:::tip Activity: Row vs column gather
+For the fixed $4\times 3$ matrix with entries $1..12$ in row-major order, print row $0$ and column $0$ as integers:
+
+`1 2 3` then on the next line `1 4 7 10`.
+
+No input.
+
+<CodeExercise
+  title="Row vs column gather"
+  heading="exercise-cp-77-rowcol"
+  lang="python"
+  filename="main.py"
+  prompt="Print row 0 and column 0 of the fixed 4×3 matrix."
+  sampleLog={`1 2 3
+1 4 7 10`}
+  starter={`def make_matrix():
+    # 4×3 with entries 1..12 row-major
+    return []
+
+def row0(M):
+    return []
+
+def col0(M):
+    return []
+`}
+  wrapSuffix={`
+M = make_matrix()
+print(' '.join(str(int(v)) for v in row0(M)))
+print(' '.join(str(int(v)) for v in col0(M)))
+`}
+  hint="M[i][j] = i*3+j+1. Row 0 is M[0]; column 0 is [M[i][0] for i in range(4)]."
+  solution={`def make_matrix():
+    return [[i * 3 + j + 1 for j in range(3)] for i in range(4)]
+
+def row0(M):
+    return M[0][:]
+
+def col0(M):
+    return [M[i][0] for i in range(len(M))]
+`}
+  sourceChecks={[
+    {name: 'indexes column', pattern: 'M\\[i\\]\\[0\\]|M\\[.*\\]\\[0\\]', must: true, hint: 'column 0 uses a varying row index'},
+  ]}
+  tests={[
+    {name: 'row and col', equals: '1 2 3\n1 4 7 10'},
+  ]}
+/>
+
+:::
+
+</Exercise>
+
+<Exercise title="7.7b.5 Sum of squares both nestings" anchor="exercise-cp-77-sos">
+
+:::tip Activity: Sum of squares — both nestings
+On the same $4\times 3$ matrix, compute $\sum_{ij} M_{ij}^{2}$ once with outer-$j$ / inner-$i$ and once with outer-$i$ / inner-$j$. Print both sums as integers (they must match): `650 650`.
+
+No input.
+
+<CodeExercise
+  title="Sum of squares both nestings"
+  heading="exercise-cp-77-sos"
+  lang="python"
+  filename="main.py"
+  prompt="SOS with both loop nestings; print two equal integers."
+  sampleLog={`650 650`}
+  starter={`def make_matrix():
+    return [[i * 3 + j + 1 for j in range(3)] for i in range(4)]
+
+def sos_column_outer(M):
+    # TODO: for j, for i: accumulate M[i][j]**2
+    return 0
+
+def sos_row_outer(M):
+    # TODO: for i, for j: accumulate M[i][j]**2
+    return 0
+`}
+  wrapSuffix={`
+M = make_matrix()
+print(f"{int(sos_column_outer(M))} {int(sos_row_outer(M))}")
+`}
+  hint="Same flops; column-outer is large stride on row-major lists. Both must return 650."
+  solution={`def make_matrix():
+    return [[i * 3 + j + 1 for j in range(3)] for i in range(4)]
+
+def sos_column_outer(M):
+    n, m = len(M), len(M[0])
+    s = 0.0
+    for j in range(m):
+        for i in range(n):
+            s += M[i][j] * M[i][j]
+    return s
+
+def sos_row_outer(M):
+    n, m = len(M), len(M[0])
+    s = 0.0
+    for i in range(n):
+        for j in range(m):
+            s += M[i][j] * M[i][j]
+    return s
+`}
+  sourceChecks={[
+    {name: 'two nestings', pattern: 'for\s+j|for\s+i', must: true, hint: 'implement both loop orders'},
+  ]}
+  tests={[
+    {name: 'both 650', equals: '650 650'},
+  ]}
+/>
+
+:::
+
+</Exercise>
+
+<Exercise title="7.7b.6 Report strides" anchor="exercise-cp-77-stride">
+
+:::tip Activity: Report flat strides
+For an $N\times M$ row-major list-of-rows, print the flat strides for a step along a **row** and along a **column** as integers: `1 M`.
+
+Fixed $N=4$, $M=3$ → print `1 3`.
+
+No input.
+
+<CodeExercise
+  title="Report strides"
+  heading="exercise-cp-77-stride"
+  lang="python"
+  filename="main.py"
+  prompt="Print row-step stride and column-step stride for 4×3 row-major."
+  sampleLog={`1 3`}
+  starter={`def strides(n_rows, n_cols):
+    # TODO: return (row_stride, col_stride) for flat index i*n_cols+j
+    return (0, 0)
+`}
+  wrapSuffix={`
+r, c = strides(4, 3)
+print(f"{r} {c}")
+`}
+  hint="Flat index = i*M + j. Δj=+1 → stride 1; Δi=+1 → stride M."
+  solution={`def strides(n_rows, n_cols):
+    return (1, n_cols)
+`}
+  sourceChecks={[
+    {name: 'uses n_cols', pattern: 'n_cols|M', must: true, hint: 'column stride equals the row width'},
+  ]}
+  tests={[
+    {name: '1 3', equals: '1 3'},
+  ]}
+/>
+
+:::
+
+</Exercise>
+
+<Exercise title="7.7b.7 Matmul ijk (low stride)" anchor="exercise-cp-77-matmul-ijk">
+
+:::tip Activity: Matmul — $i,j,k$ nesting
+Multiply
+
+$$
+A=\begin{pmatrix}1&2&3\\4&5&6\\7&8&9\end{pmatrix},\quad
+B=\begin{pmatrix}9&8&7\\6&5&4\\3&2&1\end{pmatrix}
+$$
+
+with outer $i$, then $j$, accumulate on $k$. Print $C$ row-major as integers:
+
+`30 24 18 84 69 54 138 114 90`
+
+No input.
+
+<CodeExercise
+  title="Matmul ijk"
+  heading="exercise-cp-77-matmul-ijk"
+  lang="python"
+  filename="main.py"
+  prompt="C=AB with i,j,k nesting; print 9 ints row-major."
+  sampleLog={`30 24 18 84 69 54 138 114 90`}
+  starter={`def matmul_ijk(A, B):
+    # TODO: for i, for j, sum_k A[i][k]*B[k][j]
+    return []
+`}
+  wrapSuffix={`
+A = [[1.0, 2.0, 3.0], [4.0, 5.0, 6.0], [7.0, 8.0, 9.0]]
+B = [[9.0, 8.0, 7.0], [6.0, 5.0, 4.0], [3.0, 2.0, 1.0]]
+C = matmul_ijk(A, B)
+print(' '.join(str(int(C[i][j])) for i in range(3) for j in range(3)))
+`}
+  hint="c_ij = sum_k a_ik b_kj. Initialize each c_ij to 0 before the k loop."
+  solution={`def matmul_ijk(A, B):
+    n = len(A)
+    C = [[0.0] * n for _ in range(n)]
+    for i in range(n):
+        for j in range(n):
+            s = 0.0
+            for k in range(n):
+                s += A[i][k] * B[k][j]
+            C[i][j] = s
+    return C
+`}
+  sourceChecks={[
+    {name: 'triple loop', pattern: 'for\s+.*\n.*for\s+.*\n.*for', must: true, hint: 'three nested loops over i,j,k'},
+  ]}
+  tests={[
+    {name: 'C flat', equals: '30 24 18 84 69 54 138 114 90'},
+  ]}
+/>
+
+:::
+
+</Exercise>
+
+<Exercise title="7.7b.8 Matmul column-heavy nesting" anchor="exercise-cp-77-matmul-bad">
+
+:::tip Activity: Matmul — column-heavy nesting
+Same $A,B$, but nest as: for each $j$, zero the column of $C$, then for each $k$ for each $i$ do $c_{ij}\mathrel{+}=a_{ik}b_{kj}$. Print the **same** nine integers.
+
+No input.
+
+<CodeExercise
+  title="Matmul column-heavy nesting"
+  heading="exercise-cp-77-matmul-bad"
+  lang="python"
+  filename="main.py"
+  prompt="Same C via j,k,i-style nesting; print 9 ints."
+  sampleLog={`30 24 18 84 69 54 138 114 90`}
+  starter={`def matmul_column_heavy(A, B):
+    # TODO: for j: zero column; for k: for i: C[i][j] += ...
+    return []
+`}
+  wrapSuffix={`
+A = [[1.0, 2.0, 3.0], [4.0, 5.0, 6.0], [7.0, 8.0, 9.0]]
+B = [[9.0, 8.0, 7.0], [6.0, 5.0, 4.0], [3.0, 2.0, 1.0]]
+C = matmul_column_heavy(A, B)
+print(' '.join(str(int(C[i][j])) for i in range(3) for j in range(3)))
+`}
+  hint="Same math as 7.7b.7 — different memory walk. On your machine, time both for larger N."
+  solution={`def matmul_column_heavy(A, B):
+    n = len(A)
+    C = [[0.0] * n for _ in range(n)]
+    for j in range(n):
+        for i in range(n):
+            C[i][j] = 0.0
+        for k in range(n):
+            for i in range(n):
+                C[i][j] += A[i][k] * B[k][j]
+    return C
+`}
+  sourceChecks={[
+    {name: 'inner over i', pattern: 'for\s+i', must: true, hint: 'inner loop should run over row index i at fixed j'},
+  ]}
+  tests={[
+    {name: 'same C', equals: '30 24 18 84 69 54 138 114 90'},
+  ]}
+/>
+
+:::
+
+</Exercise>
+
+<Exercise title="7.7b.9 FD and CD on an array" anchor="exercise-cp-77-diff-array">
+
+:::tip Activity: Forward and central differences on an array
+Let $y_i=i^{2}$ for $i=0,\ldots,19$ and $h=1$. At $i=5$, print the forward difference $(y_{i+1}-y_i)/h$ and the central difference $(y_{i+1}-y_{i-1})/(2h)$ with 6 decimals.
+
+No input.
+
+Expected: `11.000000 10.000000` (exact $y'(5)=10$; FD carries the usual $O(h)$ bias).
+
+<CodeExercise
+  title="FD and CD on an array"
+  heading="exercise-cp-77-diff-array"
+  lang="python"
+  filename="main.py"
+  prompt="At i=5 on y=i², print FD and CD with 6 decimals."
+  sampleLog={`11.000000 10.000000`}
+  starter={`def fd_cd(ys, i, h=1.0):
+    # TODO: return (forward, central)
+    return 0.0, 0.0
+`}
+  wrapSuffix={`
+ys = [float(i * i) for i in range(20)]
+fd, cd = fd_cd(ys, 5, 1.0)
+print(f"{fd:.6f} {cd:.6f}")
+`}
+  hint="fd=(ys[i+1]-ys[i])/h; cd=(ys[i+1]-ys[i-1])/(2*h)."
+  solution={`def fd_cd(ys, i, h=1.0):
+    fd = (ys[i + 1] - ys[i]) / h
+    cd = (ys[i + 1] - ys[i - 1]) / (2.0 * h)
+    return fd, cd
+`}
+  sourceChecks={[
+    {name: 'uses neighbors', pattern: 'ys\\[i\\s*\\+|ys\\[i\\s*-', must: true, hint: 'touch ys[i±1]'},
+  ]}
+  tests={[
+    {name: 'fd cd', equals: '11.000000 10.000000'},
+  ]}
+/>
+
+:::
+
+</Exercise>
+</ExerciseSet>
+
+## Write-ups
+
+<ProblemSet id="cp-77b-assess">
+  <Problem
+    type="concept"
+    title="7.7b.W1"
+    minWords={3}
+    keywords={['perf_counter', 'median', 'noise']}
+    prompt={`How should you time two short kernels fairly?`}
+    answer={`Use time.perf_counter(), repeat each kernel several times, and compare medians (or means of the middle samples) so a single noisy run does not decide the winner.`}
+  />
+  <Problem
+    type="concept"
+    title="7.7b.W2"
+    minWords={3}
+    keywords={['stride', 'cache', 'column']}
+    prompt={`Why can column-outer sum-of-squares be slower than row-outer on a Python list-of-rows even though both do the same flops?`}
+    answer={`List-of-rows is row-major: column-outer jumps by the row width each inner step and thrashs cache, while row-outer streams contiguous entries.`}
+  />
+  <Problem
+    type="concept"
+    title="7.7b.W3"
+    minWords={3}
+    keywords={['matmul', 'nesting', 'identical']}
+    prompt={`If ijk and column-heavy matmul nestings return the same C, why still compare their timings for large N?`}
+    answer={`Identical mathematics does not imply identical memory traffic; large N exposes stride and cache effects that tiny N hides.`}
+  />
+  <Problem
+    type="concept"
+    title="7.7b.W4"
+    minWords={3}
+    keywords={['NumPy', 'vectorized', 'slice']}
+    prompt={`On a machine with NumPy, how would you speed up FD over ≥10⁵ samples compared with a pure-Python index loop?`}
+    answer={`Use sliced vectorized ops such as (y[1:]-y[:-1])/h (and a similar central stencil) so the work runs in compiled contiguous loops instead of per-index Python.`}
+  />
+</ProblemSet>
+
+## Explorers
+
+```python
+# matrix_speed_ref.py — stride / matmul nestings (original sketch)
+import time
+
+def sos_row(M):
+    return sum(M[i][j] * M[i][j] for i in range(len(M)) for j in range(len(M[0])))
+
+def sos_col(M):
+    n, m = len(M), len(M[0])
+    return sum(M[i][j] * M[i][j] for j in range(m) for i in range(n))
+
+def time_call(fn, *args, repeats=5):
+    samples = []
+    for _ in range(repeats):
+        t0 = time.perf_counter()
+        fn(*args)
+        samples.append(time.perf_counter() - t0)
+    samples.sort()
+    return samples[len(samples) // 2]
+```
+
+Time `sos_row` vs `sos_col` (and both matmul nestings) for growing $N$ on your machine.
+
+<FormulaExplorerTabs
+  items={[
+    {
+      preset: 'linearSystem2D',
+      label: 'Small Ax=b',
+      note: 'Layout does not change the math of Ax=b — only how fast you walk A when N is large.',
+    },
+  ]}
+/>
+
+Next: [7.8 Code-listing sketches](./07-06-code-listing-sketches) — original Newton / hyperfine sketches (not textbook dumps).

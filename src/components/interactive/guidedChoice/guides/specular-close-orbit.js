@@ -1,29 +1,55 @@
-/** Closed ray when φ/π is rational. */
+/** Closed specular orbit when φ/π is rational — pick the equation. */
 
 export default {
   title: 'Closing a specular orbit',
-  lead: 'Inside a circular mirror, each bounce advances $\\theta$ by $2\\phi$. When does the ray retrace itself?',
+  lead:
+    'Circular mirror, step $2\\phi$ each bounce. Pick the matching equation at each step.',
   steps: [
     {
-      caption: 'Angles on a circle are mod $2\\pi$: $\\theta$ and $\\theta+2\\pi$ are the same hit point.',
+      ask: 'Each bounce advances the hit angle by…',
+      choices: [
+        {label: '$\\theta_{\\mathrm{new}}=\\theta_{\\mathrm{old}}+2\\phi$', ok: true},
+        {label: '$\\theta_{\\mathrm{new}}=\\theta_{\\mathrm{old}}+\\phi$', ok: false},
+        {label: '$\\theta_{\\mathrm{new}}=\\theta_{\\mathrm{old}}+2\\pi$', ok: false},
+      ],
+      caption: 'Angles on a circle are mod $2\\pi$.',
     },
     {
-      ask: 'After $m$ bounces the advance is $2 m \\phi$. The path closes when…',
+      ask: 'After $m$ bounces the advance is $2m\\phi$. The path closes when…',
       choices: [
-        {label: '$2 m \\phi = 2\\pi n$ for integers $m,n$ — i.e. $\\phi/\\pi$ is rational', ok: true},
-        {label: '$\\phi$ equals $\\pi/2$ only', ok: false},
-        {label: 'the radius is an integer', ok: false},
+        {
+          label: '$2m\\phi=2\\pi n$ for integers $m,n$',
+          ok: true,
+        },
+        {
+          label: '$2m\\phi=\\pi n$ for integers $m,n$',
+          ok: false,
+        },
+        {
+          label: '$m\\phi=2\\pi$ only (fixed $n=1$)',
+          ok: false,
+        },
       ],
-      caption: 'So $\\phi/\\pi=n/m$ yields a finite polygonal figure. Irrational multiples densely fill chords.',
+      caption: 'Divide by $2\\pi$: equivalent to a rational multiple of $\\pi$.',
     },
     {
-      ask: 'Rounding $\\phi$ and $\\theta$ to four decimals each bounce…',
+      ask: 'That closing condition is the same as…',
       choices: [
-        {label: 'injects a tiny angle error that grows with the number of steps', ok: true},
-        {label: 'has no effect because reflection is exact', ok: false},
-        {label: 'only changes the circle’s radius', ok: false},
+        {
+          label: '$\\displaystyle\\frac{\\phi}{\\pi}=\\frac{n}{m}$ (rational)',
+          ok: true,
+        },
+        {
+          label: '$\\displaystyle\\frac{\\phi}{\\pi}=\\frac{m}{n}$ with $m\\phi$ irrational',
+          ok: false,
+        },
+        {
+          label: '$\\phi=\\pi$ only',
+          ok: false,
+        },
       ],
-      caption: 'Same story as any long finite-precision iteration: relative error climbs with step count.',
+      caption:
+        'Irrational $\\phi/\\pi$ densely fills chords. Four-decimal rounding each bounce injects angle error that grows with step count.',
     },
   ],
 };

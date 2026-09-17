@@ -450,7 +450,13 @@ export default function SqlExercise({
             <HelpModal open={help === 'hint'} title="Hint" onClose={() => setHelp(null)}>
                 {hint}
             </HelpModal>
-            <HelpModal open={help === 'solution'} title="Solution" code onClose={() => setHelp(null)}>
+            <HelpModal
+                open={help === 'solution'}
+                title="Solution"
+                code
+                lang={lang || 'sql'}
+                onClose={() => setHelp(null)}
+            >
                 {solution}
             </HelpModal>
         </div>

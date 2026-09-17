@@ -1,29 +1,69 @@
-/** Pseudorandom vs truly random; why LCG scatterplots matter. */
+/** Linear congruent generator — pick the recurrence and normalization. */
 
 export default {
   title: 'Pseudorandom sequences',
-  lead: 'A computer is deterministic, so its “random” stream is a long cycle of pseudorandom numbers. What should you check before trusting it?',
+  lead:
+    'A computer is deterministic. Pick the LCG update and the $[0,1)$ map among lookalikes.',
   steps: [
     {
-      caption: 'Uniform means every value in an interval is equally likely. Random means successive draws are uncorrelated. You can have either property without the other.',
+      ask: 'The linear congruent generator advances the integer state by…',
+      choices: [
+        {
+          label: '$\\displaystyle r_{i+1}=(a r_i+c)\\bmod M$',
+          ok: true,
+        },
+        {
+          label: '$\\displaystyle r_{i+1}=a^{r_i}\\bmod c$',
+          ok: false,
+        },
+        {
+          label: '$\\displaystyle r_{i+1}=\\sin(r_i)$',
+          ok: false,
+        },
+      ],
+      caption:
+        'Knowing enough prior $r$ values determines the next one exactly — hence “pseudo.”',
     },
     {
-      ask: 'The linear congruent update $r_{i+1}=(a r_i+c)\\bmod M$ is called pseudorandom because…',
+      ask: 'A common map onto the unit interval is…',
       choices: [
-        {label: 'knowing enough prior $r$ values determines the next one exactly', ok: true},
-        {label: 'it only produces irrational numbers', ok: false},
-        {label: 'the sequence never repeats', ok: false},
+        {
+          label: '$\\displaystyle x_i=\\dfrac{r_i}{M}\\in[0,1)$',
+          ok: true,
+        },
+        {
+          label: '$\\displaystyle x_i=r_i\\,M$ (unbounded)',
+          ok: false,
+        },
+        {
+          label: '$\\displaystyle x_i=M/r_i$',
+          ok: false,
+        },
       ],
-      caption: 'Once an integer repeats, the whole cycle repeats. Large $M$ only hides the period.',
+      caption:
+        'Once any integer repeats, the whole cycle repeats. Large $M$ only hides the period.',
     },
     {
-      ask: 'A successive-pair plot $(r_i,r_{i+1})$ shows a clear lattice. You should…',
+      ask: 'A successive-pair scatter that shows a clear lattice means you should treat the stream as…',
       choices: [
-        {label: 'refuse the generator for serious Monte Carlo work', ok: true},
-        {label: 'connect the points with lines to hide the pattern', ok: false},
-        {label: 'divide by $M$ twice to fix it', ok: false},
+        {
+          label:
+            '$\\displaystyle (r_i,r_{i+1})$ correlated $\\Rightarrow$ reject for serious Monte Carlo',
+          ok: true,
+        },
+        {
+          label:
+            '$\\displaystyle (r_i,r_{i+1})$ correlated $\\Rightarrow$ always safe to use',
+          ok: false,
+        },
+        {
+          label:
+            '$\\displaystyle (r_i,r_{i+1})$ lattice $\\Rightarrow$ divide by $M$ twice to fix it',
+          ok: false,
+        },
       ],
-      caption: 'Your visual cortex is a cheap correlation detector. Lattice ⇒ correlations ⇒ not for production.',
+      caption:
+        'Your visual cortex is a cheap correlation detector. Prefer a vetted library generator, then still plot.',
     },
   ],
 };

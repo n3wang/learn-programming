@@ -1,29 +1,73 @@
-/** Extrapolated difference and second-derivative stencils. */
+/** Extrapolated difference and second-derivative stencil — pick the equation. */
 
 export default {
   title: 'Extrapolated derivatives',
-  lead: 'Central difference still leaves an $O(h^{2})$ error. How do you cancel that term without inventing a brand-new Taylor story from scratch?',
+  lead:
+    '$D_{\\mathrm{ed}}$ and the central $y\'\'$ stencil. Pick the matching equation at each step.',
   steps: [
     {
-      caption: 'Richardson idea: combine $D_{\\mathrm{cd}}(h)$ and $D_{\\mathrm{cd}}(h/2)$ so the shared $h^{2}$ pieces cancel. The extended difference is $(4 D_{\\mathrm{cd}}(h/2)-D_{\\mathrm{cd}}(h))/3$.',
+      ask: 'Richardson combo of two central differences is…',
+      choices: [
+        {
+          label:
+            '$\\displaystyle D_{\\mathrm{ed}}(t,h)=\\frac{4\\,D_{\\mathrm{cd}}(t,h/2)-D_{\\mathrm{cd}}(t,h)}{3}$',
+          ok: true,
+        },
+        {
+          label:
+            '$\\displaystyle D_{\\mathrm{ed}}(t,h)=\\frac{D_{\\mathrm{cd}}(t,h/2)-4\\,D_{\\mathrm{cd}}(t,h)}{3}$',
+          ok: false,
+        },
+        {
+          label:
+            '$\\displaystyle D_{\\mathrm{ed}}(t,h)=\\frac{4\\,D_{\\mathrm{cd}}(t,h)-D_{\\mathrm{cd}}(t,h/2)}{3}$',
+          ok: false,
+        },
+      ],
+      caption: 'Cancels the shared $O(h^{2})$ piece → leading error typically $O(h^{4})$.',
     },
     {
-      ask: 'The leading truncation error of the extrapolated difference is typically…',
+      ask: 'Central difference of a central first derivative starts as…',
       choices: [
-        {label: '$O(h^{4})$ (until round-off dominates)', ok: true},
-        {label: 'still $O(h)$', ok: false},
-        {label: 'exactly zero for every $C^{\\infty}$ function', ok: false},
+        {
+          label:
+            '$\\displaystyle y\'\'(t)\\simeq\\frac{y\'(t+h/2)-y\'(t-h/2)}{h}$',
+          ok: true,
+        },
+        {
+          label:
+            '$\\displaystyle y\'\'(t)\\simeq\\frac{y\'(t+h/2)+y\'(t-h/2)}{h}$',
+          ok: false,
+        },
+        {
+          label:
+            '$\\displaystyle y\'\'(t)\\simeq\\frac{y\'(t+h)-y\'(t)}{h}$',
+          ok: false,
+        },
       ],
-      caption: 'Higher-order stencils are fragile on noisy data — smooth or fit first (Chapter 6) before differentiating measurements.',
+      caption: 'Substitute forward/backward first differences for each $y\'$.',
     },
     {
-      ask: 'A compact central second derivative is…',
+      ask: 'After substituting the first differences, the compact central second derivative is…',
       choices: [
-        {label: '$[y(t+h)-2y(t)+y(t-h)]/h^{2}$', ok: true},
-        {label: '$[y(t+h)-y(t)]/h$', ok: false},
-        {label: '$y(t)/h^{2}$ only', ok: false},
+        {
+          label:
+            '$\\displaystyle y\'\'(t)\\simeq\\frac{y(t+h)-2y(t)+y(t-h)}{h^{2}}$',
+          ok: true,
+        },
+        {
+          label:
+            '$\\displaystyle y\'\'(t)\\simeq\\frac{y(t+h)+2y(t)+y(t-h)}{h^{2}}$',
+          ok: false,
+        },
+        {
+          label:
+            '$\\displaystyle y\'\'(t)\\simeq\\frac{y(t+h)-y(t-h)}{h^{2}}$',
+          ok: false,
+        },
       ],
-      caption: 'More subtractions ⇒ worse cancellation. Optimal $h$ for $y\'\'$ is usually larger than for $y\'$.',
+      caption:
+        'More subtractions ⇒ worse cancellation. Optimal $h$ for $y\'\'$ is usually larger than for $y\'$ ($\\varepsilon_{\\mathrm{ro}}\\sim\\varepsilon_m/h^{2}$).',
     },
   ],
 };

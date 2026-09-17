@@ -1,0 +1,110 @@
+---
+sidebar_position: 81
+title: 10.5 Discrete wavelet transforms
+sidebar_label: '10.5 Discrete wavelets'
+---
+
+# 10.5 Discrete wavelet transforms
+
+> **Source:** Ideas from *Computational Physics* (Landau, Páez, Bordeianu), §10.5. Rewritten in original wording — **no** textbook `dwt.py` dump. Continues [10.4b](./10-04b-wavelet-transforms-labs). Next: [10.5b](./10-05b-dwt-labs).
+
+## Only $N$ independent coeffs
+
+With $N$ samples $y_m$ you can keep only $N$ independent transform numbers and still hit the sample grid. Stay consistent with $\Delta\omega\Delta t\gtrsim 2\pi$ while doing so. Pick the dyadic lattice, the orthonormal reconstruction, and the Daub4 taps among lookalikes.
+
+<GuidedChoiceExplanation preset="dwt-pyramid-daub4" />
+
+Then $Y_{j,k}\simeq\sum_m\psi_{j,k}(t_m)\,y_m\,h$. Orthonormality $\int\psi_{j,k}^*\psi_{j',k'}=\delta_{jj'}\delta_{kk'}$ plus time localization ⇒ low correlation ⇒ good compression.
+
+![Figure 10.8 — equal-area time–frequency tiles.](/img/computational-physics/fig-10-8-tf-tiles.svg)
+
+Low $\omega$: few wide tiles (smooth outline). High $\omega$: many narrow tiles (detail). Same area $\sim 2\pi$.
+
+## Filters instead of integrals
+
+Industrial DWTs use **multiresolution analysis** (Mallat): pass the signal through digital **lowpass** $L$ and **highpass** $H$ filters (convolutions = discrete wavelet overlaps), then **↓2** decimate. Recurse on the lowpass branch.
+
+![Figure 10.9 — L/H tree with factor-of-2 decimation.](/img/computational-physics/fig-10-9-filter-tree.svg)
+
+Highpass outputs are **details** $d^{(level)}$ (store). Lowpass outputs are **smooth** $s^{(level)}$ (feed the next stage). Stop when two smooth and two detail numbers remain.
+
+![Figure 10.10 — pyramid downsampling.](/img/computational-physics/fig-10-10-pyramid.svg)
+
+**Synthesis** reverses the arrows: upsample, apply transpose filters, merge until length $N$ returns.
+
+## Daub4 coefficients
+
+Daubechies filters are defined by tap weights, not closed forms. Stack $L=(c_0,c_1,c_2,c_3)$ and $H=(c_3,-c_2,c_1,-c_0)$ (and shifted copies) into an orthogonal matrix — the $c_i$ you picked above. $L$ smooths (weighted average); $H$ differences (detail). Larger $N$ builds a banded filter matrix with wrap-around at the edges; pyramid reorders smooth/detail after each stage.
+
+![Figure 10.12 — Daub4 packets via inverse filtering (schematic).](/img/computational-physics/fig-10-12-daub4.svg)
+
+Inverse-transform a unit impulse in coefficient space to **see** the time-domain Daub4 shape at different scales.
+
+## Practice checklist
+
+1. Implement Daub4 forward/inverse on length $2^n$ (chirp $\sin(60t^2)$ is the book’s demo).
+2. Stop the pyramid at different `nend` to watch ↓2 stages.
+3. Invert (`sign` flip) and match $y$.
+4. Impulse → mother visualizations at growing widths.
+
+```python
+# dwt_daub4_sketch.py — original structure (not a textbook dump)
+c0, c1, c2, c3 = ...  # Daub4 closed form
+# forward: for each pair, s = L·y_local, d = H·y_local; ↓2; recurse on s
+# inverse: upsample; apply transpose taps; merge
+```
+
+<FormulaExplorerTabs preset="daub4Coeffs" />
+
+<MultipleChoice
+  id="cp-105-dwt"
+  title="Discrete wavelets"
+  questions={[
+    {
+      prompt: 'A dyadic DWT takes scales…',
+      choices: [
+        's = 2ʲ (powers of two)',
+        's continuous only',
+        's = j always',
+        's forbidden',
+      ],
+      answer: 0,
+      why: 'Power-of-two grid automatically multi-resolves.',
+    },
+    {
+      prompt: 'In the pyramid, ↓2 means…',
+      choices: [
+        'keep half the samples (decimation)',
+        'double the length',
+        'delete all details',
+        'force cᵢ=0',
+      ],
+      answer: 0,
+      why: 'Factor-of-2 subsample after each filter.',
+    },
+    {
+      prompt: 'Daub4 highpass H on a constant or linear ramp should…',
+      choices: [
+        'output ~0 (vanishing moments)',
+        'always explode',
+        'equal the lowpass',
+        'require N odd',
+      ],
+      answer: 0,
+      why: 'Built to kill polynomials through degree 1.',
+    },
+    {
+      prompt: 'Synthesis (inverse DWT)…',
+      choices: [
+        'upsamples and applies transpose filters up the tree',
+        'only runs more ↓2 steps',
+        'throws away all d⁽ˡ⁾',
+        'needs a continuous CWT only',
+      ],
+      answer: 0,
+      why: 'Reverse the pyramid arrows.',
+    },
+  ]}
+/>
+
+Next: [10.5b DWT labs](./10-05b-dwt-labs).

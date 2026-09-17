@@ -1,29 +1,88 @@
-/** Stochastic decay vs exponential mean-field law. */
+/** Spontaneous decay: P=−λ → dN/dt → exponential — pick the equation. */
 
 export default {
   title: 'Spontaneous decay',
-  lead: 'Each nucleus decays independently with fixed probability per time step. When does that look exponential?',
+  lead:
+    'Discrete hazard to continuum exponential. Pick the matching equation at each step.',
   steps: [
     {
-      caption: 'The microscopic law is $\\mathcal{P}=(\\Delta N/N)/\\Delta t=-\\lambda$ (constant per surviving particle). The exponential $N(0)e^{-\\lambda t}$ appears only after $N\\to\\infty$ and $\\Delta t\\to 0$.',
+      ask: 'Constant decay probability per unit time for each survivor is written…',
+      choices: [
+        {
+          label:
+            '$\\displaystyle\\mathcal{P}=\\frac{\\Delta N(t)/N(t)}{\\Delta t}=-\\lambda$',
+          ok: true,
+        },
+        {
+          label:
+            '$\\displaystyle\\mathcal{P}=\\frac{\\Delta N(t)/N(t)}{\\Delta t}=+\\lambda$',
+          ok: false,
+        },
+        {
+          label:
+            '$\\displaystyle\\mathcal{P}=\\frac{\\Delta N(t)}{\\Delta t}=-\\lambda$',
+          ok: false,
+        },
+      ],
+      caption: 'Minus sign: $\\Delta N$ counts particles lost.',
     },
     {
-      ask: 'For a small sample, the semilog plot of $N(t)$…',
+      ask: 'Rearrange to a finite-difference activity law:',
       choices: [
-        {label: 'shows stochastic bumps; exponential is only the smooth large-$N$ limit', ok: true},
-        {label: 'must be perfectly straight for any $N(0)$', ok: false},
-        {label: 'always follows a power law $t^{-\\alpha}$', ok: false},
+        {
+          label: '$\\displaystyle\\frac{\\Delta N(t)}{\\Delta t}=-\\lambda N(t)$',
+          ok: true,
+        },
+        {
+          label: '$\\displaystyle\\frac{\\Delta N(t)}{\\Delta t}=-\\lambda/N(t)$',
+          ok: false,
+        },
+        {
+          label: '$\\displaystyle\\frac{\\Delta N(t)}{\\Delta t}=+\\lambda N(t)$',
+          ok: false,
+        },
       ],
-      caption: 'Same $\\lambda$ for every particle — randomness averages out only when many particles remain.',
+      caption: 'Simulable: $\\Delta N$ in one step is random; the mean over samples tracks $-\\lambda N$.',
     },
     {
-      ask: 'On a semilog plot, changing $N(0)$ at fixed $\\lambda$ mainly…',
+      ask: 'As $N\\to\\infty$ and $\\Delta t\\to 0$, the continuum ODE is…',
       choices: [
-        {label: 'shifts the curve vertically; the early slope stays $\\approx-\\lambda$', ok: true},
-        {label: 'changes the slope proportional to $N(0)$', ok: false},
-        {label: 'removes all fluctuations', ok: false},
+        {
+          label: '$\\displaystyle\\frac{dN}{dt}=-\\lambda N$',
+          ok: true,
+        },
+        {
+          label: '$\\displaystyle\\frac{dN}{dt}=+\\lambda N$',
+          ok: false,
+        },
+        {
+          label: '$\\displaystyle\\frac{dN}{dt}=-\\lambda/N$',
+          ok: false,
+        },
       ],
-      caption: 'Activity $\\Delta N/\\Delta t$ tracks $N$, so $\\ln N$ and $\\ln\\Delta N$ share the same decay constant.',
+      caption: 'Solve with $N(0)$ given.',
+    },
+    {
+      ask: 'The exponential solution (with $\\tau=1/\\lambda$) is…',
+      choices: [
+        {
+          label:
+            '$\\displaystyle N(t)=N(0)e^{-\\lambda t}=N(0)e^{-t/\\tau}$',
+          ok: true,
+        },
+        {
+          label:
+            '$\\displaystyle N(t)=N(0)e^{+\\lambda t}$',
+          ok: false,
+        },
+        {
+          label:
+            '$\\displaystyle N(t)=N(0)\\bigl(1-\\lambda t\\bigr)$ only',
+          ok: false,
+        },
+      ],
+      caption:
+        'Activity $dN/dt=-\\lambda N(0)e^{-\\lambda t}$. Exponential is the large-$N$ envelope, not every small sample path.',
     },
   ],
 };

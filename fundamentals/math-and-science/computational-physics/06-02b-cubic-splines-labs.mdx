@@ -1,0 +1,402 @@
+---
+sidebar_position: 33
+title: 6.5.2b Cubic splines labs
+sidebar_label: '6.5.2b Cubic splines labs'
+---
+
+# 6.5.2b Cubic splines labs
+
+> **Source:** Lab ideas from *Computational Physics* (Landau, Páez, Bordeianu), §6.5.2–6.5.3. Rewritten as original drills. Continues [6.5.2 Cubic splines](./06-02-cubic-splines).
+
+Build a natural cubic spline from scratch — no calling a library spline routine. Stubs fail until filled in.
+
+## Formula refresh
+
+Warm up: pick the matching equation among lookalikes (same walk as the theory lesson).
+
+<GuidedChoiceExplanation preset="cubic-spline-interpolation" />
+
+
+## Labs
+
+<ExerciseSet>
+<Exercise title="6.5.2b.1 Estimate g'' by forward difference" anchor="exercise-cp-spline-gpp">
+
+:::tip Activity: Estimate g'' by forward difference
+Implement the endpoint second-derivative estimate
+
+$$
+g''(x_2)\simeq\frac{[g(x_3)-g(x_2)]/[x_3-x_2]-[g(x_2)-g(x_1)]/[x_2-x_1]}{[x_3-x_1]/2}.
+$$
+
+Input: `x1 g1 x2 g2 x3 g3`. Print with 6 decimals.
+
+<CodeExercise
+  title="Estimate g'' by forward difference"
+  heading="exercise-cp-spline-gpp"
+  lang="python"
+  filename="main.py"
+  prompt="Forward-difference estimate of g''(x2) from three points."
+  sampleLog={`(input) 0 10.6 25 16.0 50 45.0
+0.037760`}
+  starter={`def gpp_estimate(x1, g1, x2, g2, x3, g3):
+    return 0.0
+`}
+  wrapSuffix={`
+x1, g1, x2, g2, x3, g3 = map(float, input().split())
+print(f"{gpp_estimate(x1, g1, x2, g2, x3, g3):.6f}")
+`}
+  hint="Numerator: (g3-g2)/(x3-x2) - (g2-g1)/(x2-x1). Denominator: (x3-x1)/2."
+  solution={`def gpp_estimate(x1, g1, x2, g2, x3, g3):
+    num = (g3 - g2) / (x3 - x2) - (g2 - g1) / (x2 - x1)
+    den = (x3 - x1) / 2.0
+    return num / den
+`}
+  sourceChecks={[
+    {name: 'divides by half-span', pattern: '2\\.0|/\\s*2', must: true, hint: 'denominator is (x3-x1)/2'},
+  ]}
+  tests={[
+    {
+      name: 'first three cross-section points',
+      stdin: '0 10.6 25 16.0 50 45.0',
+      equals: '0.037760',
+    },
+  ]}
+/>
+
+:::
+
+</Exercise>
+
+<Exercise title="6.5.2b.2 Solve the natural spline system" anchor="exercise-cp-spline-solve">
+
+:::tip Activity: Solve the natural spline system
+Given $n$ tabulated points, solve for the second derivatives $M_i=g''(x_i)$ of the **natural** cubic spline ($M_1=M_n=0$). The interior equations are
+
+$$
+h_{i-1}M_{i-1}+2(h_{i-1}+h_i)M_i+h_i M_{i+1}=6\left(\frac{g_{i+1}-g_i}{h_i}-\frac{g_i-g_{i-1}}{h_{i-1}}\right),
+\qquad h_i=x_{i+1}-x_i.
+$$
+
+Solve the resulting tridiagonal system with plain Gaussian elimination (no numpy).
+
+Input: first line `n`, then `n` lines of `x_i g_i`. Print all $n$ values of $M_i$ on one line, space-separated, 6 decimals each.
+
+<CodeExercise
+  title="Solve the natural spline system"
+  heading="exercise-cp-spline-solve"
+  lang="python"
+  filename="main.py"
+  prompt="Solve for natural-spline second derivatives M_i."
+  sampleLog={`(input) 4
+0 -12
+1 -12
+2 -24
+4 -60
+0.000000 -17.217391 -3.130435 0.000000`}
+  starter={`def natural_spline_M(xs, ys):
+    n = len(xs)
+    return [0.0] * n
+`}
+  wrapSuffix={`
+n = int(input())
+xs, ys = [], []
+for _ in range(n):
+    x, y = map(float, input().split())
+    xs.append(x)
+    ys.append(y)
+M = natural_spline_M(xs, ys)
+print(' '.join(f"{m:.6f}" for m in M))
+`}
+  hint="Build the n x n tridiagonal matrix with rows 0 and n-1 forcing M=0, then Gaussian-eliminate."
+  solution={`def natural_spline_M(xs, ys):
+    n = len(xs)
+    h = [xs[i + 1] - xs[i] for i in range(n - 1)]
+    A = [[0.0] * n for _ in range(n)]
+    b = [0.0] * n
+    A[0][0] = 1.0
+    A[n - 1][n - 1] = 1.0
+    for i in range(1, n - 1):
+        A[i][i - 1] = h[i - 1]
+        A[i][i] = 2.0 * (h[i - 1] + h[i])
+        A[i][i + 1] = h[i]
+        b[i] = 6.0 * ((ys[i + 1] - ys[i]) / h[i] - (ys[i] - ys[i - 1]) / h[i - 1])
+
+    for i in range(n):
+        piv = A[i][i]
+        for j in range(i + 1, n):
+            f = A[j][i] / piv
+            for k in range(n):
+                A[j][k] -= f * A[i][k]
+            b[j] -= f * b[i]
+
+    M = [0.0] * n
+    for i in range(n - 1, -1, -1):
+        s = b[i]
+        for k in range(i + 1, n):
+            s -= A[i][k] * M[k]
+        M[i] = s / A[i][i]
+    return M
+`}
+  sourceChecks={[
+    {name: 'natural boundary', pattern: 'A\\[0\\]\\[0\\]\\s*=\\s*1|A\\[n\\s*-\\s*1\\]', must: true, hint: 'force M[0]=M[n-1]=0 with A[0][0]=1, A[n-1][n-1]=1'},
+  ]}
+  tests={[
+    {
+      name: 'book 4-point table',
+      stdin: '4\n0 -12\n1 -12\n2 -24\n4 -60',
+      equals: '0.000000 -17.217391 -3.130435 0.000000',
+    },
+  ]}
+/>
+
+:::
+
+</Exercise>
+
+<Exercise title="6.5.2b.3 Evaluate the spline" anchor="exercise-cp-spline-eval">
+
+:::tip Activity: Evaluate the spline
+Given nodes, values, and the second derivatives $M_i$ (from the previous exercise), evaluate the spline at a query $x$ using
+
+$$
+g(x)=A\,g_i+B\,g_{i+1}+\bigl[(A^3-A)M_i+(B^3-B)M_{i+1}\bigr]\frac{h^2}{6},
+\qquad A=\frac{x_{i+1}-x}{h},\ B=\frac{x-x_i}{h},\ h=x_{i+1}-x_i,
+$$
+
+where $[x_i,x_{i+1}]$ is the bracketing interval.
+
+Input: first line `n`, then `n` lines of `x_i g_i`, then one line with `x`. Print the spline value with 6 decimals. (You may hard-code the $M_i$ solver from 6.5.2b.2, or copy it in.)
+
+<CodeExercise
+  title="Evaluate the spline"
+  heading="exercise-cp-spline-eval"
+  lang="python"
+  filename="main.py"
+  prompt="Evaluate the natural cubic spline at x."
+  sampleLog={`(input) 4
+0 -12
+1 -12
+2 -24
+4 -60
+0.5
+-10.923913`}
+  starter={`def natural_spline_M(xs, ys):
+    n = len(xs)
+    h = [xs[i + 1] - xs[i] for i in range(n - 1)]
+    A = [[0.0] * n for _ in range(n)]
+    b = [0.0] * n
+    A[0][0] = 1.0
+    A[n - 1][n - 1] = 1.0
+    for i in range(1, n - 1):
+        A[i][i - 1] = h[i - 1]
+        A[i][i] = 2.0 * (h[i - 1] + h[i])
+        A[i][i + 1] = h[i]
+        b[i] = 6.0 * ((ys[i + 1] - ys[i]) / h[i] - (ys[i] - ys[i - 1]) / h[i - 1])
+    for i in range(n):
+        piv = A[i][i]
+        for j in range(i + 1, n):
+            f = A[j][i] / piv
+            for k in range(n):
+                A[j][k] -= f * A[i][k]
+            b[j] -= f * b[i]
+    M = [0.0] * n
+    for i in range(n - 1, -1, -1):
+        s = b[i]
+        for k in range(i + 1, n):
+            s -= A[i][k] * M[k]
+        M[i] = s / A[i][i]
+    return M
+
+def spline_eval(xs, ys, M, x):
+    return 0.0
+`}
+  wrapSuffix={`
+n = int(input())
+xs, ys = [], []
+for _ in range(n):
+    a, gg = map(float, input().split())
+    xs.append(a)
+    ys.append(gg)
+x = float(input())
+M = natural_spline_M(xs, ys)
+print(f"{spline_eval(xs, ys, M, x):.6f}")
+`}
+  hint="Find i with xs[i] <= x <= xs[i+1], set h=xs[i+1]-xs[i], A=(xs[i+1]-x)/h, B=(x-xs[i])/h."
+  solution={`def natural_spline_M(xs, ys):
+    n = len(xs)
+    h = [xs[i + 1] - xs[i] for i in range(n - 1)]
+    A = [[0.0] * n for _ in range(n)]
+    b = [0.0] * n
+    A[0][0] = 1.0
+    A[n - 1][n - 1] = 1.0
+    for i in range(1, n - 1):
+        A[i][i - 1] = h[i - 1]
+        A[i][i] = 2.0 * (h[i - 1] + h[i])
+        A[i][i + 1] = h[i]
+        b[i] = 6.0 * ((ys[i + 1] - ys[i]) / h[i] - (ys[i] - ys[i - 1]) / h[i - 1])
+    for i in range(n):
+        piv = A[i][i]
+        for j in range(i + 1, n):
+            f = A[j][i] / piv
+            for k in range(n):
+                A[j][k] -= f * A[i][k]
+            b[j] -= f * b[i]
+    M = [0.0] * n
+    for i in range(n - 1, -1, -1):
+        s = b[i]
+        for k in range(i + 1, n):
+            s -= A[i][k] * M[k]
+        M[i] = s / A[i][i]
+    return M
+
+def spline_eval(xs, ys, M, x):
+    n = len(xs)
+    for i in range(n - 1):
+        if xs[i] <= x <= xs[i + 1]:
+            h = xs[i + 1] - xs[i]
+            A = (xs[i + 1] - x) / h
+            B = (x - xs[i]) / h
+            return A * ys[i] + B * ys[i + 1] + ((A**3 - A) * M[i] + (B**3 - B) * M[i + 1]) * (h * h) / 6.0
+`}
+  sourceChecks={[
+    {name: 'uses cubic term (A**3', pattern: 'A\\s*\\*\\*\\s*3|A\\s*\\*\\s*A\\s*\\*\\s*A', must: true, hint: 'include the (A^3-A)M_i correction term'},
+  ]}
+  tests={[
+    {
+      name: 'midpoint of first interval',
+      stdin: '4\n0 -12\n1 -12\n2 -24\n4 -60\n0.5',
+      equals: '-10.923913',
+    },
+  ]}
+/>
+
+:::
+
+</Exercise>
+
+<Exercise title="6.5.2b.4 Integrate one cubic piece" anchor="exercise-cp-spline-quad">
+
+:::tip Activity: Integrate one cubic piece
+For a single interval of width $h$ starting at local offset $0$, integrate the local cubic
+
+$$
+\int_0^h g_i(u)\,du = h\,g_i+\frac{h^2}{2}g_i'+\frac{h^3}{6}g_i''+\frac{h^4}{24}g_i'''
+$$
+
+(this is (6.35) written with $u=x-x_i$).
+
+Input: `h gi gip gipp gippp`. Print with 6 decimals.
+
+<CodeExercise
+  title="Integrate one cubic piece"
+  heading="exercise-cp-spline-quad"
+  lang="python"
+  filename="main.py"
+  prompt="Analytic integral of one spline cubic piece over [0,h]."
+  sampleLog={`(input) 1 2 3 4 6
+4.416667`}
+  starter={`def spline_piece_integral(h, gi, gip, gipp, gippp):
+    return 0.0
+`}
+  wrapSuffix={`
+h, gi, gip, gipp, gippp = map(float, input().split())
+print(f"{spline_piece_integral(h, gi, gip, gipp, gippp):.6f}")
+`}
+  hint="Sum h*gi + h**2/2*gip + h**3/6*gipp + h**4/24*gippp."
+  solution={`def spline_piece_integral(h, gi, gip, gipp, gippp):
+    return h * gi + (h**2 / 2.0) * gip + (h**3 / 6.0) * gipp + (h**4 / 24.0) * gippp
+`}
+  sourceChecks={[
+    {name: 'uses all four terms', pattern: 'gippp', must: true, hint: 'include the h**4/24*gippp term'},
+  ]}
+  tests={[
+    {name: 'h=1 sample', stdin: '1 2 3 4 6', equals: '4.416667'},
+  ]}
+/>
+
+:::
+
+</Exercise>
+</ExerciseSet>
+
+## Write-ups
+
+<ProblemSet id="cp-66b-assess">
+  <Problem
+    type="concept"
+    title="6.5.2b.W1"
+    minWords={3}
+    keywords={['value', 'first', 'second', 'derivative']}
+    prompt={`Which quantities does a cubic spline force to be continuous across interval boundaries?`}
+    answer={`The function value, the first derivative, and the second derivative — the third derivative is only approximated from adjacent second derivatives, not matched exactly.`}
+  />
+  <Problem
+    type="concept"
+    title="6.5.2b.W2"
+    minWords={3}
+    keywords={['natural', 'zero', 'curvature']}
+    prompt={`What condition defines a "natural" spline, and what physical picture does it mimic?`}
+    answer={`g''=0 at both endpoints; it mimics a flexible drafting spline whose free ends carry no curvature.`}
+  />
+  <Problem
+    type="concept"
+    title="6.5.2b.W3"
+    minWords={3}
+    keywords={['N-2', 'boundary conditions', 'endpoints']}
+    prompt={`Why do the interior matching conditions alone not fully determine a cubic spline?`}
+    answer={`Matching value/slope/curvature at interior nodes gives only N−2 equations for N unknown second derivatives; two more equations, the boundary conditions at the two endpoints, are required to close the system.`}
+  />
+  <Problem
+    type="concept"
+    title="6.5.2b.W4"
+    minWords={3}
+    keywords={['analytic', 'cubic', 'sum intervals']}
+    prompt={`How is a spline-fit table integrated over a range spanning several nodes?`}
+    answer={`Each cubic piece is integrated analytically in closed form, and the pieces are summed over all the intervals spanned by the range.`}
+  />
+</ProblemSet>
+
+## Explorers
+
+```python
+# spline_ref.py — natural cubic spline: solve, evaluate, integrate (original sketch)
+def natural_spline_M(xs, ys):
+    n = len(xs)
+    h = [xs[i + 1] - xs[i] for i in range(n - 1)]
+    A = [[0.0] * n for _ in range(n)]
+    b = [0.0] * n
+    A[0][0] = 1.0
+    A[n - 1][n - 1] = 1.0
+    for i in range(1, n - 1):
+        A[i][i - 1] = h[i - 1]
+        A[i][i] = 2.0 * (h[i - 1] + h[i])
+        A[i][i + 1] = h[i]
+        b[i] = 6.0 * ((ys[i + 1] - ys[i]) / h[i] - (ys[i] - ys[i - 1]) / h[i - 1])
+    for i in range(n):
+        piv = A[i][i]
+        for j in range(i + 1, n):
+            f = A[j][i] / piv
+            for k in range(n):
+                A[j][k] -= f * A[i][k]
+            b[j] -= f * b[i]
+    M = [0.0] * n
+    for i in range(n - 1, -1, -1):
+        s = b[i]
+        for k in range(i + 1, n):
+            s -= A[i][k] * M[k]
+        M[i] = s / A[i][i]
+    return M
+```
+
+<FormulaExplorerTabs
+  items={[
+    {
+      preset: 'cubicSplineFit',
+      label: 'Natural cubic spline',
+      note: 'Same Table 6.1 points as the Lagrange explorer — compare peak |g| at the same n; the spline never overshoots the data envelope.',
+    },
+  ]}
+/>
+
+Next: [6.6 Exponential decay and least-squares fitting](./06-03-exponential-decay-least-squares).

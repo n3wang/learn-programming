@@ -1,0 +1,165 @@
+---
+sidebar_position: 38
+title: 7.3 Matrices in Python
+sidebar_label: '7.3 Matrices in Python'
+---
+
+# 7.3 Matrices in Python
+
+> **Source:** Ideas from *Computational Physics* (Landau, Páez, Bordeianu), §7.3–7.3.3. Rewritten in original wording. Continues [6.8b Nonlinear least-squares labs](./06-04b-nonlinear-resonance-fit-labs). Labs: [7.3b Matrices in Python labs](./07-01b-matrices-in-python-labs).
+
+## Lists as arrays
+
+Python's built-in sequence type is the **list** — an ordered, mutable container:
+
+```python
+L = [1, 2, 3]
+L[0]        # 1 (0-indexed)
+L[0] = 5    # L is now [5, 2, 3]
+len(L)      # 3
+```
+
+A **tuple** looks similar but is *immutable* — `T = (1, 2, 3, 4)`; attempting `T[0] = 5` raises an error. Lists are dynamic (no need to declare a size up front), and a "list of lists" gives compound structure: `L = [[1,2],[3,4],[5,6]]` with `L[0]` giving `[1, 2]`.
+
+Handy list operations: `L1 + L2` concatenates, `x in L` tests membership, `L[i:j]` slices, `L.append(x)`, `L.sort()`, `L.reverse()`, `L.count(x)`, `L.index(x)`, `L.remove(x)`.
+
+## Why NumPy instead of raw lists
+
+Plain lists are flexible but not built for math: `[1,2,3] + [1,2,3]` concatenates to a 6-element list rather than adding elementwise, and there is no real notion of a mathematical matrix. **NumPy** arrays fix this — a uniform (single dtype), fixed-shape container optimized for vectorized numerical operations:
+
+```python
+from numpy import *
+vector1 = array([1, 2, 3, 4, 5])
+vector2 = vector1 + vector1     # [2, 4, 6, 8, 10] — real elementwise addition
+vector2 = 3 * vector1           # [3, 6, 9, 12, 15] — scalar multiply
+```
+
+A NumPy array can have up to 32 dimensions (indices), but **every element must share the same type** — mixing `int` and `float` input upcasts the whole array to `float64`. The number of indices is the array's `ndim`; what mathematicians call a matrix's "size" is the array's `shape`; `size` gives the total element count.
+
+```python
+import numpy as np
+a = np.arange(12).reshape((3, 4))  # 0..11 reshaped into 3 rows, 4 cols
+a.shape   # (3, 4)
+a.ndim    # 2
+a.size    # 12
+a.T       # transpose: 4 rows, 3 cols
+```
+
+**Slicing** extracts sub-arrays with `start:stop:step`, and — critically — indices count from 0, so `1:3` means indices 1 and 2 (not 3):
+
+```python
+a[:2, :]     # first two rows
+a[:, 1:3]    # columns 1 and 2
+```
+
+Slicing avoids copying large chunks of memory and is one reason vectorized NumPy code runs much faster than an equivalent Python loop.
+
+## Elementwise `*` vs. the real matrix product
+
+This is the single most common NumPy pitfall: `*` between two 2D arrays multiplies **elementwise**, not as a mathematical matrix product. For real matrix multiplication, use `dot` (or the `@` operator):
+
+```python
+matrix1 = array([[0, 1], [1, 3]])
+dot(matrix1, matrix1)     # [[1, 3], [3, 10]]  — true matrix product
+matrix1 * matrix1         # [[0, 1], [1, 9]]   — elementwise product
+```
+
+NumPy also supports **broadcasting** — assigning or operating on many elements with a single statement:
+
+```python
+w = zeros(100, float)
+w = 23.7          # every element of w becomes 23.7
+
+stuff = zeros(10, float)
+t = arange(4)
+stuff[3:7] = sqrt(t + 1)   # sqrt() applied elementwise, result written into a slice
+```
+
+Broadcasting lets Python push the loop into fast C code instead of iterating element-by-element in the interpreter — this is where most of NumPy's speed comes from.
+
+## Solving linear systems with NumPy's linear algebra library
+
+NumPy arrays by themselves are not mathematical matrices — for that, use `numpy.linalg`, a thin, robust interface to the battle-tested LAPACK library. The standard problem is
+
+$$
+A\mathbf x=\mathbf b,
+$$
+
+with $A$ a known $N\times N$ matrix, $\mathbf b$ a known vector, and $\mathbf x$ unknown:
+
+```python
+from numpy import array
+from numpy.linalg import solve
+
+A = array([[1, 2, 3], [22, 32, 42], [55, 66, 100]])
+b = array([1, 2, 3])
+x = solve(A, b)              # solves Ax=b directly (Gaussian elimination / LU)
+residual = dot(A, x) - b     # ~ machine precision, essentially zero
+```
+
+An alternative is computing the explicit inverse and multiplying: `x = dot(inv(A), b)`. This works, but `solve` is both faster and more numerically stable — computing a full inverse does more work than necessary and can amplify round-off error. Prefer `solve` unless you specifically need the inverse matrix itself for something else.
+
+**Eigenvalue problems** $A\boldsymbol\omega=\lambda\boldsymbol\omega$ (e.g. finding the principal axes of an inertia tensor) are solved with `numpy.linalg.eig`:
+
+```python
+from numpy.linalg import eig
+
+I = array([[2/3, -1/4], [-1/4, 2/3]])
+eigenvalues, eigenvectors = eig(I)
+```
+
+Each column of `eigenvectors` is an eigenvector paired with the corresponding entry of `eigenvalues`; the pairing is verified by checking that $I\boldsymbol\omega-\lambda\boldsymbol\omega$ comes out to (near) zero.
+
+**Why use a library at all?** Hand-written matrix routines are rarely competitive: library implementations (LAPACK and friends) are typically an order of magnitude faster, are engineered to minimize round-off error, and transparently adapt to the local hardware (desktop vs. cluster). Writing your own Gaussian elimination is valuable for *understanding* the algorithm (as in the spline and quadratic-fit exercises earlier in this chapter) — but production numerical work should reach for `numpy.linalg`.
+
+<FormulaExplorer preset="linearSystem2D" />
+
+<GuidedChoiceExplanation preset="numpy-arrays" />
+
+<MultipleChoice
+  id="cp-73-numpy"
+  title="Matrices in Python"
+  questions={[
+    {
+      prompt: 'A NumPy array, unlike a Python list, requires that…',
+      choices: [
+        'every element share the same data type',
+        'every element be a float, never an int',
+        'the array have exactly 2 dimensions',
+        'the array be immutable like a tuple',
+      ],
+      answer: 0,
+      why: 'NumPy arrays are uniform (single-dtype) containers; mixed input is upcast to one common type.',
+    },
+    {
+      prompt: 'For two 2D NumPy arrays A and B, the TRUE matrix product is computed with…',
+      choices: ['A * B', 'dot(A, B)', 'A + B', 'A[B]'],
+      answer: 1,
+      why: '* multiplies elementwise; dot() (or @) performs the real row-by-column matrix product.',
+    },
+    {
+      prompt: 'The most direct way to solve Ax=b for x in NumPy is…',
+      choices: [
+        'numpy.linalg.solve(A, b)',
+        'A / b',
+        'A.append(b)',
+        'sorted(A, key=b)',
+      ],
+      answer: 0,
+      why: 'solve() uses Gaussian elimination/LU and is faster and more stable than computing an explicit inverse.',
+    },
+    {
+      prompt: 'Why do library matrix routines (e.g. LAPACK via numpy.linalg) tend to beat hand-written ones?',
+      choices: [
+        'they are usually faster, more numerically careful about round-off, and adapt to local hardware',
+        'hand-written routines are always mathematically incorrect',
+        'library routines never need testing',
+        'there is no real difference in practice',
+      ],
+      answer: 0,
+      why: 'Decades of optimization and testing go into libraries like LAPACK — reinventing them rarely pays off.',
+    },
+  ]}
+/>
+
+Next: [7.3b Matrices in Python labs](./07-01b-matrices-in-python-labs).

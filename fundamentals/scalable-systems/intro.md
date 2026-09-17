@@ -69,6 +69,7 @@ The foundational vocabulary and trade-offs distributed systems keep coming back 
 - [Event-Driven Batch Processing](./distributed-systems/event-driven-batch-processing) — workflow DAGs: copier/filter/splitter/sharder/merger, pub/sub, work stealing, and poison retries
 - [Coordinated Batch Processing](./distributed-systems/coordinated-batch-processing) — join barriers, reduce (count/sum/histogram), and composing them in an image pipeline
 - [Monitoring and Observability Patterns](./distributed-systems/monitoring-and-observability) — logs, metrics, alerts, traces, Prometheus pull/push, and aggregation/downsampling
+- [Common Failure Patterns](./distributed-systems/common-failure-patterns) — thundering herd, silent zeros, client-error blind spots, versioning, optional caches, runaway deletes, obsolete work, second-system rewrites
 
 ## Planned Topics
 

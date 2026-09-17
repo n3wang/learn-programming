@@ -1,0 +1,146 @@
+---
+sidebar_position: 57
+title: 8.7 ODE solver sketches
+sidebar_label: '8.7 ODE solver sketches'
+---
+
+# 8.7 ODE solver sketches
+
+> **Source:** Structural ideas from *Computational Physics* (Landau, Páez, Bordeianu), §8.7 listings. **Original sketches only** — do **not** paste `rk4.py`, `rk45.py`, `ABM.py`, or VPython GUIs from the book / Mathpix CDN.
+
+## Fixed-step RK2 / RK4 (sandbox-ready)
+
+Graded work in [8.4b](./08-03b-ode-algorithms-labs) already implements these. Structure reminder:
+
+```python
+# rk_fixed_sketch.py — original structure (pure Python)
+def f(t, y, params):
+    x, v = y
+    # return [v, F(x,v,t)/m]
+    ...
+
+def rk2_step(t, y, h, params):
+    k1 = scale(h, f(t, y, params))
+    y_mid = add(y, scale(0.5, k1))
+    k2 = scale(h, f(t + 0.5 * h, y_mid, params))
+    return add(y, k2)
+
+def rk4_step(t, y, h, params):
+    k1 = f(t, y, params)
+    k2 = f(t + 0.5 * h, add(y, scale(0.5 * h, k1)), params)
+    k3 = f(t + 0.5 * h, add(y, scale(0.5 * h, k2)), params)
+    k4 = f(t + h, add(y, scale(h, k3)), params)
+    incr = scale(h / 6.0, add(k1, add(scale(2, k2), add(scale(2, k3), k4))))
+    return add(y, incr)
+```
+
+Swap `F` for harmonic, $|x|^{p}$, soft $\alpha$, or $-bv+F_0\cos\omega t$ without changing the stepper.
+
+## Adaptive RK45 (sketch only)
+
+Two formulas of different order share stages. Their difference estimates the local error; grow or shrink $h$ to hit a tolerance. Pseudocode:
+
+```python
+# rk45_adapt_sketch.py — structure only (original)
+def rk45_step(t, y, h, tol, params):
+    # evaluate shared stages → y4 (order 4) and y5 (order 5)
+    # err ≈ ||y5 - y4||
+    # if err < tol: accept y5 (or y4), maybe increase h
+    # else: reject, shrink h, retry
+    ...
+```
+
+Not required for locked labs; useful when stiffness or sharp drives make fixed $h$ wasteful.
+
+![Figure 8.5 — uniform steps are the fixed-$h$ mental model; adaptive methods vary the spacing.](/img/computational-physics/fig-8-5-uniform-steps.svg)
+
+## When to prefer fixed RK4 vs adaptive RK45
+
+| Prefer fixed RK4 | Prefer adaptive RK45 |
+| --- | --- |
+| Smooth $F$, known period, you want reproducible $h$ | Sharp kicks, stiffness, or unknown timescales |
+| Energy / period scans at fixed resolution | Hitting a tolerance with fewer $f$ calls |
+| Graded sandbox locks (stdout samples) | Local notebooks once RK4 energy checks pass |
+
+Fixed RK4 with a **chosen** $h$ is easier to debug: if energy drifts, shrink $h$ or fix $F$. Adaptive methods hide the step size — great for production, worse for learning the truncation story.
+
+## Energy check (use the explorer)
+
+For conservative forces, monitor
+
+$$
+E=\tfrac12 mv^2+V(x)
+$$
+
+along the trajectory. A good stepper keeps $E$ flat to many digits; Euler drifts; RK4 usually holds until $h$ is too coarse. Use the harmonic explorer below to compare methods before trusting a nonlinear run.
+
+## Adams–Bashforth–Moulton (sketch only)
+
+Multistep methods store a short history of $\mathbf f$ values. Adams–Bashforth **predicts** $\mathbf y_{n+1}$; Adams–Moulton **corrects** with an implicit formula (often one evaluation of $\mathbf f$ at the predicted point). Startup needs a single-step RK fill of the history.
+
+```python
+# abm_sketch.py — structure only (original)
+# history: f_n, f_{n-1}, f_{n-2}, ...
+# y_pred = AB_predict(y_n, history, h)
+# f_pred = f(t_{n+1}, y_pred)
+# y_corr = AM_correct(y_n, history, f_pred, h)
+```
+
+## Visualization note
+
+Older book listings couple solvers to **VPython** animations. Keep the ODE algebra; plot with whatever you use locally. This course’s sandbox is pure Python stdout — energy digits and $x(t)$ samples, not 3D springs on a CDN.
+
+## Takeaway
+
+| Method | Role in this course |
+| --- | --- |
+| RK2 / RK4 fixed $h$ | Required mental model + labs |
+| Energy $E(t)$ flatness | Primary correctness check |
+| RK45 adaptive | Optional once fixed-$h$ diagnostics click |
+| ABM multistep | Optional; needs RK startup history |
+
+<FormulaExplorerTabs preset="harmonicEulerRk" />
+
+<GuidedChoiceExplanation preset="ode-code-sketches" />
+
+<MultipleChoice
+  id="cp-86-sketches"
+  title="ODE solver sketches"
+  questions={[
+    {
+      prompt: 'RK4 advances y with…',
+      choices: [
+        'four stages of f and a weighted h/6 combination',
+        'a single Euler step only',
+        'no evaluations of f',
+        'only the AB predictor',
+      ],
+      answer: 0,
+      why: 'Classic four-stage Runge–Kutta.',
+    },
+    {
+      prompt: 'Adaptive RK45 decides to accept or shrink h from…',
+      choices: [
+        'the difference between paired order-4 and order-5 updates vs a tolerance',
+        'the source-line count of the driver',
+        'whether VPython is installed',
+        'always doubling h forever',
+      ],
+      answer: 0,
+      why: 'Embedded error estimate ‖y₅ − y₄‖.',
+    },
+    {
+      prompt: 'Adams–Bashforth–Moulton needs a history of f values; startup usually…',
+      choices: [
+        'fills that history with a single-step RK method',
+        'sets every past f to zero and never corrects',
+        'requires complex DFT bins',
+        'forbids any predictor',
+      ],
+      answer: 0,
+      why: 'Multistep methods bootstrap from a one-step starter.',
+    },
+  ]}
+/>
+
+Next: [9.1 Fourier series](./09-01-fourier-series).

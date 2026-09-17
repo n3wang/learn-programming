@@ -1,0 +1,123 @@
+---
+sidebar_position: 46
+title: 7.7 Speeding up matrix computing
+sidebar_label: '7.7 Speeding up matrix computing'
+---
+
+# 7.7 Speeding up matrix computing
+
+> **Source:** Ideas from *Computational Physics* (Landau, Páez, Bordeianu), §7.7–7.7.2. Rewritten in original wording — **not** a paste of `TuneNumpy.py` or Fortran stride snippets. Continues [7.6b Hyperfine labs](./07-04b-hyperfine-labs). Labs: [7.7b Matrix-speed labs](./07-05b-matrix-speed-labs).
+
+## Why loops feel slow
+
+A pure-Python `for` over list indices pays interpreter overhead on every element. The same arithmetic expressed as a **vectorized** array operation (NumPy ufuncs, or a comprehension that a library can accelerate) pushes work into compiled loops, contiguous memory, and often SIMD.
+
+Even in this course's list-only sandbox you can practice the mindset: apply one formula to a whole vector, write SAXPY as a single pass, and notice how nested loops walk memory.
+
+## Timing an operation
+
+Wall-clock timing is the honest scoreboard. In Python:
+
+```python
+import time
+
+t0 = time.perf_counter()
+# … work …
+t1 = time.perf_counter()
+print(t1 - t0)  # seconds
+```
+
+Prefer `perf_counter` over `time.time` for short kernels. Run each candidate several times and compare **medians** — one noisy sample lies. Graded labs here lock *correctness* of kernels (same sum, same $C$, same derivatives); you time stride variants on your own machine.
+
+## Stride and layout
+
+Matrices in memory are flat arrays with a **stride** (element gap) along each axis.
+
+- **Row-major** (C, default NumPy, Python `list` of rows): row $i$ is contiguous. Flat index for $(i,j)$ is roughly $i\cdot M+j$ on an $N\times M$ matrix — moving $j\to j+1$ has stride **1**; moving $i\to i+1$ at fixed $j$ has stride **$M$**.
+- **Column-major** (Fortran, classic MATLAB): columns are contiguous; the preferred inner loop flips.
+
+Identical flop counts can differ in wall time by large factors when one nesting thrashs the cache and the other streams.
+
+### Loop A vs loop B (sum of squares)
+
+Both loops visit every entry of `vec[N][M]` and accumulate $\sum_{ij} v_{ij}^{2}$:
+
+- **Large stride (bad on row-major):** outer over columns $j$, inner over rows $i$ — each inner step jumps by $M$ in the flat layout.
+- **Unit stride (good on row-major):** outer over rows $i$, inner over columns $j$ — consecutive $j$ hit neighbors in memory.
+
+Same arithmetic; different cache behavior. Labs compute both and check they agree.
+
+### Column vs row gathers
+
+Filling `x[j] = m[0][j]` walks a **row** (unit stride). Filling `x[i] = m[i][0]` walks a **column** (stride $M$). Time both for large $M$ on your laptop — the row walk should win in CPython lists / NumPy C-order arrays.
+
+## Matrix multiply and array derivatives
+
+$C=AB$ is $O(N^{3})$ regardless of $(i,j,k)$ nesting; row-major layouts reward streaming rows of $A$. Forward/central differences on a sampled $y[i]$ are the same stride story. Pick the matmul sum, the flat-index/stride formulas, and the FD/CD stencils among lookalikes.
+
+<GuidedChoiceExplanation preset="matrix-vectorization" />
+
+A **low-stride** nesting (row-major friendly) accumulates $c_{ij}$ with $a_{ik}$ streaming along a row. A **high-stride** nesting that updates $c_{ij}$ with an inner loop on $i$ at fixed $j,k$ jumps down columns. On a machine with NumPy, compare `A @ B` against a triple Python loop once $A,B$ hold $\gtrsim 10^{5}$ floats. Labs lock FD/CD on $y_i=i^{2}$ at one interior point.
+
+## NumPy / linear-algebra cheat sheet (original short list)
+
+| Need | Typical call / idea |
+| --- | --- |
+| Elementwise $f$ on an array | `f(a)` ufunc or comprehension over a list |
+| SAXPY $\mathbf y\leftarrow a\mathbf x+\mathbf y$ | Level-1 BLAS building block |
+| Matrix–vector $A\mathbf x$ | `dot(A, x)` / `@` |
+| Matrix–matrix $AB$ | `dot(A, B)` (not `A*B`) |
+| Solve $A\mathbf x=\mathbf b$ | `linalg.solve(A, b)` |
+| Eigenpairs | `linalg.eig` / `eigh` for symmetric |
+
+Use libraries in production; reimplement kernels in labs to *see* indexing and stride.
+
+<FormulaExplorerTabs preset="matrixMulFlops" />
+
+<MultipleChoice
+  id="cp-77-speed"
+  title="Speeding up matrix computing"
+  questions={[
+    {
+      prompt: 'Vectorized array ops beat Python element loops mainly because…',
+      choices: [
+        'compiled kernels and better memory use replace per-element interpreter overhead',
+        'Python forbids loops entirely',
+        'vectorization always uses fewer floating-point operations',
+        'lists cannot store floats',
+      ],
+      answer: 0,
+      why: 'The arithmetic is similar; the overhead and cache behavior differ.',
+    },
+    {
+      prompt: 'On a row-major N×M list-of-rows, walking down one column has flat stride…',
+      choices: ['M (jump a full row width each step)', '1 always', 'N only', '0'],
+      answer: 0,
+      why: 'Flat index i*M+j; i→i+1 at fixed j advances by M.',
+    },
+    {
+      prompt: 'Two matmul triple-loops with the same flops but different (i,j,k) nesting…',
+      choices: [
+        'can differ a lot in wall time because of stride / cache, even when C is identical',
+        'must always take exactly the same time',
+        'are illegal in Python',
+        'change the mathematical value of AB',
+      ],
+      answer: 0,
+      why: 'Correctness is nesting-independent; performance is not.',
+    },
+    {
+      prompt: 'For timing short kernels you should prefer…',
+      choices: [
+        'time.perf_counter() and several repeats (median)',
+        'a single time.time() call with no repeats',
+        'counting source lines instead of measuring',
+        'assuming NumPy is always slower',
+      ],
+      answer: 0,
+      why: 'perf_counter is for intervals; noise wants replication.',
+    },
+  ]}
+/>
+
+Next: [7.7b Matrix-speed labs](./07-05b-matrix-speed-labs) — maps, SAXPY, stride sums, both matmul orders, FD/CD. Then [7.8 Code-listing sketches](./07-06-code-listing-sketches).

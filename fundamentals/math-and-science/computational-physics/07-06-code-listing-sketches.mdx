@@ -1,0 +1,141 @@
+---
+sidebar_position: 48
+title: 7.8 Code-listing sketches
+sidebar_label: '7.8 Code-listing sketches'
+---
+
+# 7.8 Code-listing sketches
+
+> **Source:** Structural ideas from *Computational Physics* (Landau, Páez, Bordeianu), §7.8 listings. **Original sketches only** — not a paste of `NewtonNDanimate.py` or `Hyperfine.py` (those depend on VPython / SymPy GUIs outside this sandbox).
+
+## Multidimensional Newton for two masses on a string
+
+Section [7.5](./07-03-string-problem) reduced the statics lesson to a 2D Newton toy. The full two-mass / three-string problem is a **9-unknown** residual $F(\mathbf x)=\mathbf 0$ with components that encode:
+
+- horizontal / vertical length closures with $\sin\theta_i$, $\cos\theta_i$,
+- force balance with tensions,
+- three circle constraints $\sin^{2}\theta_i+\cos^{2}\theta_i=1$.
+
+A practical solver:
+
+1. Evaluate $F(\mathbf x)$.
+2. Build the Jacobian by **central differences** in each coordinate (step $h\sim 10^{-4}$).
+3. Solve $J\,\Delta\mathbf x=-F$ (Gaussian elimination / `linalg.solve` when NumPy is available).
+4. Update $\mathbf x\leftarrow\mathbf x+\Delta\mathbf x$; stop when $\|\Delta\mathbf x\|$ and $\|F\|$ are tiny.
+5. Optionally redraw the geometry each iteration (any plotting toolkit — VPython is one historical choice).
+
+Prefer $\cos\theta_i=+\sqrt{1-\sin^{2}\theta_i}$ when the sketch needs $\cos>0$ (see [7.5](./07-03-string-problem)).
+
+## Jacobian by central differences
+
+For residual $F:\mathbb{R}^n\to\mathbb{R}^n$, build $J$ by central differences (and check the zero-field hyperfine spectrum). Pick the column formula and the $\{W,W,W,-3W\}$ spectrum among lookalikes.
+
+<GuidedChoiceExplanation preset="matrix-code-sketches" />
+
+Use $h\sim 10^{-4}$ (or scaled $h\sim 10^{-4}\max(1,|x_j|)$). Analytic $\partial F_i/\partial x_j$ is nicer when you have it; finite differences keep the physics code short and are fine for the string toy.
+
+### When $J$ is singular (or nearly so)
+
+Newton needs a solvable $J\,\Delta\mathbf x=-F$. Failure modes (same spirit as 1D Newton traps in Fig. 6.3):
+
+![Figure 6.3 — Newton can stall when the derivative vanishes or the update jumps.](/img/computational-physics/fig-6-3-newton-failures.svg)
+
+| Symptom | Likely cause | Mitigation |
+| --- | --- | --- |
+| `linalg.solve` / GE blows up | $\det J\approx 0$ (redundant constraints, bad branch of $\cos$) | Restart from a better $\mathbf x_0$; enforce $\cos>0$ |
+| $\|\Delta\mathbf x\|$ huge while $\|F\|$ barely drops | Ill-conditioned $J$ | Smaller $h$ or damping: $\mathbf x\leftarrow\mathbf x+\lambda\Delta\mathbf x$ with $\lambda<1$ |
+| Oscillating iterates | Bracket / geometry inconsistent | Check length closures before trusting the step |
+
+If $J$ is singular, **do not** trust the update — fix the residual definition or the initial guess first.
+
+```python
+# newton_nd_string_sketch.py — structure only (original)
+def F(x, out):
+    # fill out[0]..out[8] with length, force, and sin²+cos² residuals
+    ...
+
+def jacobian(x, h=1e-4):
+    # central difference columns of J
+    ...
+
+def newton_nd(x, eps=1e-3, maxit=100):
+    for it in range(maxit):
+        f = F(x)
+        J = jacobian(x)
+        dx = solve_linear(J, [-fi for fi in f])  # your GE or library solve
+        x = [xi + d for xi, d in zip(x, dx)]
+        if max(abs(d) for d in dx) <= eps and max(abs(fi) for fi in f) <= eps:
+            return x, it
+    return x, maxit
+```
+
+## Hyperfine matrix with a computer-algebra assist
+
+Section [7.6](./07-04-hyperfine) already builds
+
+$$
+V=W\begin{pmatrix}1&0&0&0\\0&-1&2&0\\0&2&-1&0\\0&0&0&1\end{pmatrix}
+$$
+
+by hand. A symbolic package can print `eigenvals()` of $V$ and of $V+V_{\mathrm{mag}}(B)$ when an external field couples $\mu_e,\mu_p$. Numerically, the zero-field spectrum is $W$ (×3) and $-3W$ (×1); the gap is $4W$. With $B\neq 0$ the levels split further — plot $E_i(B)$ from the closed forms or from a dense `eig` sweep.
+
+```python
+# hyperfine_sketch.py — structure only (original)
+# V = [[W,0,0,0],[0,-W,2*W,0],[0,2*W,-W,0],[0,0,0,W]]
+# print sorted eigenvalues for W=1  →  -3, 1, 1, 1
+# optionally add diagonal magnetic terms and re-diagonalize vs B
+```
+
+## Takeaway
+
+| Piece | Keep | Swap freely |
+| --- | --- | --- |
+| String ND Newton | $F$, central-diff $J$, solve $J\Delta x=-F$ | VPython / any plotter |
+| Hyperfine | $V$, eigenvalues, $E_i(B)$ | SymPy GUI vs NumPy `eig` |
+| Singular $J$ | Detect / restart / damp | Fancy line-search libraries |
+
+Listings in older books often glue residuals to a **specific GUI**. Graded path: [7.5b](./07-03b-string-problem-labs) + [7.6b](./07-04b-hyperfine-labs) + [7.7b](./07-05b-matrix-speed-labs).
+
+<FormulaExplorerTabs preset="linearSystem2D" />
+
+<MultipleChoice
+  id="cp-76-sketches"
+  title="Matrix code sketches"
+  questions={[
+    {
+      prompt: 'A practical ND Newton step for the string residuals is…',
+      choices: [
+        'build J by central differences, solve J Δx = −F, then x ← x + Δx',
+        'only animate masses and never form F',
+        'set every Jacobian entry to 1',
+        'replace all constraints by random noise',
+      ],
+      answer: 0,
+      why: 'Finite-difference J + linear solve is the standard ND Newton loop.',
+    },
+    {
+      prompt: 'Zero-field hyperfine V (gap 4W) should first print eigenvalues…',
+      choices: [
+        'W (×3) and −3W (×1)',
+        'only zeros',
+        'only ±∞',
+        'a single value 4W with multiplicity 4',
+      ],
+      answer: 0,
+      why: 'Triplet at W and singlet at −3W; gap is 4W.',
+    },
+    {
+      prompt: 'When the sketch needs cos θ_i > 0 you should prefer…',
+      choices: [
+        'cos θ_i = +√(1 − sin² θ_i)',
+        'always take the negative square root',
+        'drop the circle constraints',
+        'set cos = sin',
+      ],
+      answer: 0,
+      why: 'Positive branch matches the geometric sketch in §7.5.',
+    },
+  ]}
+/>
+
+Next: [8.1 Nonlinear oscillators](./08-01-nonlinear-oscillators).

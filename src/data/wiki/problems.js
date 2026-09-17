@@ -172,6 +172,15 @@ export const PROBLEMS = [
     href: '/fundamentals/math-and-science/computational-physics/05-04-gaussian-quadrature',
   },
   {
+    id: 'problem-gauss-mapping',
+    kind: 'problem',
+    title: 'Map Gauss–Legendre onto [a,b]',
+    description:
+      'From reference (yᵢ,wᵢ′) on [−1,1], pick the affine node map and Jacobian weight factor for a general [a,b] (and variants for [0,∞)).',
+    sample: 'gauss-mapping',
+    href: '/fundamentals/math-and-science/computational-physics/05-04-gaussian-quadrature',
+  },
+  {
     id: 'problem-monte-carlo-integration',
     kind: 'problem',
     title: 'Estimate an integral by Monte Carlo',
@@ -188,5 +197,563 @@ export const PROBLEMS = [
       'Write I ≈ V⟨f⟩, explain σ_I ~ σ_f/√N, and contrast M^D grids with sampling on a 10D calibration integral.',
     sample: 'mean-value-nd',
     href: '/fundamentals/math-and-science/computational-physics/05-06-mean-value-nd',
+  },
+  {
+    id: 'problem-mc-variance-reduction',
+    kind: 'problem',
+    title: 'Reduce Monte Carlo variance with a control',
+    description:
+      'Explain when uniform sampling wastes effort, rewrite I=∫(f−g)+J, and compare plain vs CV on e^{-x} with g=1−x.',
+    sample: 'mc-variance-reduction',
+    href: '/fundamentals/math-and-science/computational-physics/05-07-mc-variance-reduction',
+  },
+  {
+    id: 'problem-importance-sampling',
+    kind: 'problem',
+    title: 'Importance sample an integral',
+    description:
+      'Write I=⟨f/w⟩ with x~w, choose w∝f, and use rejection or inverse CDF to draw from w.',
+    sample: 'importance-sampling',
+    href: '/fundamentals/math-and-science/computational-physics/05-08-importance-sampling',
+  },
+  {
+    id: 'problem-bisection-search',
+    kind: 'problem',
+    title: 'Trap a root by bisection',
+    description:
+      'Given a continuous residual with a sign-change bracket, apply interval halving, explain linear W/2ᴺ convergence, and apply it to the even square-well g(E).',
+    sample: 'bisection-search',
+    href: '/fundamentals/math-and-science/computational-physics/06-02-bisection-search',
+  },
+  {
+    id: 'problem-newton-raphson',
+    kind: 'problem',
+    title: 'Refine a root by Newton–Raphson',
+    description:
+      'From a close guess, apply Δx=−f/f′ (difference derivative OK), compare iteration count with bisection, and use backtracking when |f| grows — including the even square-well g(E).',
+    sample: 'newton-raphson',
+    href: '/fundamentals/math-and-science/computational-physics/06-03-newton-raphson',
+  },
+  {
+    id: 'problem-magnetization-search',
+    kind: 'problem',
+    title: 'Map m(t) by residual search',
+    description:
+      'At fixed reduced t, root-find m−tanh(m/t)=0 with bisection and Newton, compare iteration counts, and tabulate the spontaneous branch down through Tc.',
+    sample: 'magnetization-search',
+    href: '/fundamentals/math-and-science/computational-physics/06-04-magnetization-search',
+  },
+  {
+    id: 'problem-subtractive-cancellation',
+    kind: 'problem',
+    title: 'Explain subtractive cancellation',
+    description:
+      'Show why b≃c makes a=b−c lose significant digits, how |b/a| magnifies the leftover, and rewrite e^(−x) or a quadratic root to avoid it.',
+    sample: 'subtractive-cancellation',
+    href: '/fundamentals/math-and-science/computational-physics/03-01-errors',
+  },
+  {
+    id: 'problem-richardson-cancel-h2',
+    kind: 'problem',
+    title: 'Cancel the O(h²) difference error',
+    description:
+      'From D(h)=y′+αh²+… and D(h/2)=y′+αh²/4+…, form (4D(h/2)−D(h))/3 and state the new leading order.',
+    sample: 'richardson-cancel-h2',
+    href: '/fundamentals/math-and-science/computational-physics/05-02-extrapolated-diff',
+  },
+  {
+    id: 'problem-trap-simpson-weights',
+    kind: 'problem',
+    title: 'Build Trapezoid and Simpson weights',
+    description:
+      'Stitch single-panel trapezoids into h/2(f0+2∑+fN), then upgrade pairs of panels to Simpson’s (1,4,2,…,1)/3 pattern and compare error orders.',
+    sample: 'trap-simpson-weights',
+    href: '/fundamentals/math-and-science/computational-physics/05-03-integration',
+  },
+  {
+    id: 'problem-square-well-residual',
+    kind: 'problem',
+    title: 'Derive the even square-well residual',
+    description:
+      'Start from √(V0−E) tan√(V0−E)=√E, rewrite as g(E)=√E cot√(V0−E)−√(V0−E), and explain why a sign-change bracket is required.',
+    sample: 'square-well-residual',
+    href: '/fundamentals/math-and-science/computational-physics/06-01-quantum-bound-states',
+  },
+  {
+    id: 'problem-newton-delta-from-taylor',
+    kind: 'problem',
+    title: 'Derive the Newton correction',
+    description:
+      'Linearize f(x0+Δx)≈f+f′Δx, set the model to zero to get Δx=−f/f′, and name the flat-derivative failure mode.',
+    sample: 'newton-delta-from-taylor',
+    href: '/fundamentals/math-and-science/computational-physics/06-03-newton-raphson',
+  },
+  {
+    id: 'problem-weiss-mean-field-reduce',
+    kind: 'problem',
+    title: 'Reduce Weiss magnetism to m(t)',
+    description:
+      'From M=Nμ tanh(λμM/kBT), introduce m, t, Tc to reach m=tanh(m/t) and the residual f=m−tanh(m/t); locate Tc.',
+    sample: 'weiss-mean-field-reduce',
+    href: '/fundamentals/math-and-science/computational-physics/06-04-magnetization-search',
+  },
+  {
+    id: 'problem-lagrange-basis-product',
+    kind: 'problem',
+    title: 'Build the Lagrange basis λᵢ',
+    description:
+      'Construct λᵢ(x)=∏_{j≠i}(x−xⱼ)/(xᵢ−xⱼ) so λᵢ(xₖ)=δᵢₖ, then form g=∑ gᵢλᵢ and state the degree.',
+    sample: 'lagrange-basis-product',
+    href: '/fundamentals/math-and-science/computational-physics/06-01-lagrange-interpolation',
+  },
+  {
+    id: 'problem-linear-ls-normal-eqs',
+    kind: 'problem',
+    title: 'Derive linear least-squares normals',
+    description:
+      'From ∂χ²/∂aₘ=0 for g=a1+a2x, assemble the weighted sums and solve for a1,a2; log-linearize exponential decay.',
+    sample: 'linear-ls-normal-eqs',
+    href: '/fundamentals/math-and-science/computational-physics/06-03-exponential-decay-least-squares',
+  },
+  {
+    id: 'problem-chi2-stationarity',
+    kind: 'problem',
+    title: 'Turn χ² into a nonlinear system',
+    description:
+      'Write ∂χ²/∂aₘ=0 for Breit–Wigner parameters, explain why the resulting fₘ(a)=0 system is nonlinear, and choose multidimensional Newton.',
+    sample: 'chi2-stationarity',
+    href: '/fundamentals/math-and-science/computational-physics/06-04-nonlinear-resonance-fit',
+  },
+  {
+    id: 'problem-bw-partials-newton',
+    kind: 'problem',
+    title: 'Breit–Wigner partials and residuals',
+    description:
+      'For g=a1/[(x−a2)²+a3], pick ∂g/∂aₘ and the three stationarity residuals f1=f2=f3=0, then solve with multidimensional Newton.',
+    sample: 'bw-partials-newton',
+    href: '/fundamentals/math-and-science/computational-physics/06-04-nonlinear-resonance-fit',
+  },
+  {
+    id: 'problem-tests-before-use',
+    kind: 'problem',
+    title: 'Trust a matrix inverse with residuals',
+    description:
+      'After Gauss–Jordan, check max|AA⁻¹−I| against machine ε, compare to an analytic inverse, and verify Ax≈b / Av≈λv before trusting the numbers.',
+    sample: 'tests-before-use',
+    href: '/fundamentals/math-and-science/computational-physics/07-02-tests-before-use',
+  },
+  {
+    id: 'problem-string-statics-newton',
+    kind: 'problem',
+    title: 'Nonlinear statics with cos±sqrt and Newton',
+    description:
+      'Reduce angles with c=±√(1−s²) (prefer + when cos>0), run 2D Newton with Jacobian JΔx=−f, and reject unphysical roots.',
+    sample: 'string-statics-newton',
+    href: '/fundamentals/math-and-science/computational-physics/07-03-string-problem',
+  },
+  {
+    id: 'problem-hyperfine-spin',
+    kind: 'problem',
+    title: 'Build hyperfine V and its 4W gap',
+    description:
+      'Form V=W σe·σp in the product basis, read triplet W×3 vs singlet −3W, and report ΔE/W=4.',
+    sample: 'hyperfine-spin',
+    href: '/fundamentals/math-and-science/computational-physics/07-04-hyperfine',
+  },
+  {
+    id: 'problem-matrix-vectorization',
+    kind: 'problem',
+    title: 'Think in vector ops and stride',
+    description:
+      'Contrast Python element loops with vectorized maps/SAXPY/matvec, and explain why row-major matvec walks rows with unit stride.',
+    sample: 'matrix-vectorization',
+    href: '/fundamentals/math-and-science/computational-physics/07-05-matrix-speed',
+  },
+  {
+    id: 'problem-matrix-stride-matmul',
+    kind: 'problem',
+    title: 'Compare stride and matmul nestings',
+    description:
+      'Explain row-major strides (1 vs M), why column-outer SOS can be slower, implement both matmul nestings that yield the same C, and time them locally with perf_counter medians.',
+    sample: 'matrix-vectorization',
+    href: '/fundamentals/math-and-science/computational-physics/07-05b-matrix-speed-labs',
+  },
+  {
+    id: 'problem-nonlinear-oscillator-models',
+    kind: 'problem',
+    title: 'Build F from anharmonic V(x)',
+    description:
+      'Differentiate soft V≈½kx²(1−⅔αx) and power-law V=k|x|^p/p, state when motion is harmonic, and warn about unbound soft trajectories past x=1/α.',
+    sample: 'nonlinear-oscillator-models',
+    href: '/fundamentals/math-and-science/computational-physics/08-01-nonlinear-oscillators',
+  },
+  {
+    id: 'problem-ode-dynamic-form',
+    kind: 'problem',
+    title: 'Cast Newton as a first-order system',
+    description:
+      'Introduce y0=x, y1=v, write f=(v,F/m), and evaluate a sample RHS for a harmonic spring.',
+    sample: 'ode-dynamic-form',
+    href: '/fundamentals/math-and-science/computational-physics/08-02-ode-form-and-review',
+  },
+  {
+    id: 'problem-euler-rk2-step',
+    kind: 'problem',
+    title: 'Compare Euler and RK2 on a harmonic orbit',
+    description:
+      'Take one Euler and one RK2 step from (0,1), integrate to t=0.25, and compare to A sin(ωt) plus an energy-digit score.',
+    sample: 'euler-rk2-step',
+    href: '/fundamentals/math-and-science/computational-physics/08-03-ode-algorithms',
+  },
+  {
+    id: 'problem-rk4-weights',
+    kind: 'problem',
+    title: 'Assemble classic RK4 stages and weights',
+    description:
+      'Pick the four stage slopes k1…k4 (endpoint / mid / mid / endpoint) and the weighted update y←y+(k1+2k2+2k3+k4)/6.',
+    sample: 'rk4-weights',
+    href: '/fundamentals/math-and-science/computational-physics/08-03-ode-algorithms',
+  },
+  {
+    id: 'problem-energy-precision-ode',
+    kind: 'problem',
+    title: 'Quantify ODE accuracy with energy digits',
+    description:
+      'After integrating one period, form |(E−E0)/E0| and report −log10 as a digits estimate; contrast RK4 vs Euler.',
+    sample: 'energy-precision-ode',
+    href: '/fundamentals/math-and-science/computational-physics/08-03b-ode-algorithms-labs',
+  },
+  {
+    id: 'problem-friction-damping-regimes',
+    kind: 'problem',
+    title: 'Classify damping and compute beat frequency',
+    description:
+      'Compare b to 2mω0 for under/critical/over regimes, and evaluate |ω−ω0|/(2π) for a near-resonant drive.',
+    sample: 'friction-damping-regimes',
+    href: '/fundamentals/math-and-science/computational-physics/08-05-friction-resonance',
+  },
+  {
+    id: 'problem-fourier-series-coefficients',
+    kind: 'problem',
+    title: 'Expand a period-T signal in harmonics',
+    description:
+      'State ω=2π/T, project (a_n,b_n), use odd/even shortcuts, and interpret Gibbs midpoint convergence for a sawtooth.',
+    sample: 'fourier-series-coefficients',
+    href: '/fundamentals/math-and-science/computational-physics/09-01-fourier-series',
+  },
+  {
+    id: 'problem-fourier-transform-pair',
+    kind: 'problem',
+    title: 'State the continuous FT pair and power spectrum',
+    description:
+      'Write forward/inverse transforms with 1/√(2π), define |Y|², and recall the 2πδ consistency identity.',
+    sample: 'fourier-transform-pair',
+    href: '/fundamentals/math-and-science/computational-physics/09-02-fourier-transforms',
+  },
+  {
+    id: 'problem-dft-nyquist-alias',
+    kind: 'problem',
+    title: 'Apply Nyquist and spot aliasing',
+    description:
+      'From h compute s and s/2; explain when f and f−2s share samples; contrast coarse vs fine sampling of two sinusoids.',
+    sample: 'dft-nyquist-alias',
+    href: '/fundamentals/math-and-science/computational-physics/09-03-discrete-fourier-transforms',
+  },
+  {
+    id: 'problem-autocorrelation-power',
+    kind: 'problem',
+    title: 'Recover |S|² via autocorrelation',
+    description:
+      'Form A(τ) for y=s+n, argue noise averages out, and relate A(ω) to √(2π)|S|².',
+    sample: 'autocorrelation-power',
+    href: '/fundamentals/math-and-science/computational-physics/09-04-noise-filtering',
+  },
+  {
+    id: 'problem-convolution-filter-sinc',
+    kind: 'problem',
+    title: 'Filter via convolution / sinc',
+    description:
+      'State G=√(2π)FH, contrast RC lowpass vs highpass, and explain Hamming-windowed sinc truncation.',
+    sample: 'convolution-filter-sinc',
+    href: '/fundamentals/math-and-science/computational-physics/09-05-filters-and-sinc',
+  },
+  {
+    id: 'problem-fft-butterfly-bitrev',
+    kind: 'problem',
+    title: 'Explain FFT butterflies and bit reversal',
+    description:
+      'Compare N² vs N log N, write one butterfly, and produce the 3-bit reversed order 0..7.',
+    sample: 'fft-butterfly-bitrev',
+    href: '/fundamentals/math-and-science/computational-physics/09-06-fft',
+  },
+  {
+    id: 'problem-fft-implementation-roundtrip',
+    kind: 'problem',
+    title: 'Implement and assess a tiny FFT',
+    description:
+      'Enforce N=2^n, bit-reverse, run butterflies on ym=m+mi, scale DC, and verify FFT∘iFFT plus DFT timing.',
+    sample: 'fft-implementation-roundtrip',
+    href: '/fundamentals/math-and-science/computational-physics/09-07-fft-implementation',
+  },
+  {
+    id: 'problem-wavelet-mother-daughter',
+    kind: 'problem',
+    title: 'Motivate wavelets for nonstationary tones',
+    description:
+      'Explain why a global DFT fails on staged multi-tone y(t), and how scale/translate of a mother builds a localized basis.',
+    sample: 'wavelet-mother-daughter',
+    href: '/fundamentals/math-and-science/computational-physics/10-01-wavelet-analysis',
+  },
+  {
+    id: 'problem-wave-packet-uncertainty',
+    kind: 'problem',
+    title: 'Estimate Δt, Δω, and C',
+    description:
+      'For an N-cycle burst compute Δt and Δω, form the product vs 2π, and interpret the uncertainty tradeoff.',
+    sample: 'wave-packet-uncertainty',
+    href: '/fundamentals/math-and-science/computational-physics/10-02-wave-packets-uncertainty',
+  },
+  {
+    id: 'problem-stft-window',
+    kind: 'problem',
+    title: 'Define and apply an STFT window',
+    description:
+      'Write Y(ω,τ) with w(t−τ), evaluate gated samples, and state the fixed-width limitation vs wavelets.',
+    sample: 'stft-window',
+    href: '/fundamentals/math-and-science/computational-physics/10-03-short-time-fourier',
+  },
+  {
+    id: 'problem-cwt-scale-tau',
+    kind: 'problem',
+    title: 'Build and interpret a CWT scalogram',
+    description:
+      'Form daughters ψ_{s,τ}, map s↔ω, scan τ then s, and explain why staged multi-tones light up more small-s bands later in τ.',
+    sample: 'cwt-scale-tau',
+    href: '/fundamentals/math-and-science/computational-physics/10-04-wavelet-transforms',
+  },
+  {
+    id: 'problem-dwt-pyramid-daub4',
+    kind: 'problem',
+    title: 'Run a Daub4 pyramid DWT',
+    description:
+      'State dyadic (s,τ), build L/H from Daub4 taps, ↓2 recurse on smooth coeffs, and invert with transpose filters.',
+    sample: 'dwt-pyramid-daub4',
+    href: '/fundamentals/math-and-science/computational-physics/10-05-discrete-wavelet-transforms',
+  },
+  {
+    id: 'problem-pca-variance-covariance',
+    kind: 'problem',
+    title: 'Center features and form covariances for PCA',
+    description:
+      'Compute means, sample variances, and C=XXᵀ/(N−1); eigendecompose for PCs and project with a feature matrix.',
+    sample: 'pca-variance-covariance',
+    href: '/fundamentals/math-and-science/computational-physics/10-06-principal-components',
+  },
+  {
+    id: 'problem-cwt-dwt-code-sketches',
+    kind: 'problem',
+    title: 'Wire Morlet CWT and Daub4 pyramid sketches',
+    description:
+      'Outline a local CWT (s,τ) grid and a Daub4 chirp pyramid, then state how to round-trip-check without textbook VPython listings.',
+    sample: 'cwt-dwt-code-sketches',
+    href: '/fundamentals/math-and-science/computational-physics/10-07-wavelet-code-sketches',
+  },
+  {
+    id: 'problem-nn-bio-artificial',
+    kind: 'problem',
+    title: 'Relate biological spikes to artificial nodes',
+    description:
+      'Contrast dendritic integration / action potentials with weighted-sum + activation neurons, and state what “learning” changes.',
+    sample: 'nn-bio-artificial',
+    href: '/fundamentals/math-and-science/computational-physics/11-01-neural-networks-intro',
+  },
+  {
+    id: 'problem-nn-forward-sigmoid',
+    kind: 'problem',
+    title: 'Compute a shallow-net forward pass',
+    description:
+      'Form Σ=w·x+b, apply logistic/tanh/ReLU, and evaluate a small 2–2–1 network by hand.',
+    sample: 'nn-forward-sigmoid',
+    href: '/fundamentals/math-and-science/computational-physics/11-02-simple-neural-network',
+  },
+  {
+    id: 'problem-nn-loss-backprop',
+    kind: 'problem',
+    title: 'Lower Loss with backprop and SGD',
+    description:
+      'Write MSE Loss, differentiate a logistic net with the chain rule, and take a learning-rate step on one weight.',
+    sample: 'nn-loss-backprop',
+    href: '/fundamentals/math-and-science/computational-physics/11-03-training-backprop',
+  },
+  {
+    id: 'problem-nn-graphical-deep',
+    kind: 'problem',
+    title: 'Explain a hierarchical line-classifier net',
+    description:
+      'Describe how successive hidden layers turn pixels into pairs and line classes, including inactivity at zero and ReLU gating.',
+    sample: 'nn-graphical-deep',
+    href: '/fundamentals/math-and-science/computational-physics/11-04-graphical-deep-net',
+  },
+  {
+    id: 'problem-nn-tf-tensors',
+    kind: 'problem',
+    title: 'Use tensor rank/shape and A=Z+N',
+    description:
+      'State rank vs shape, reshape a feature column for sklearn, and compute mass number from Z and N.',
+    sample: 'nn-tf-tensors',
+    href: '/fundamentals/math-and-science/computational-physics/11-05-ml-software-part2',
+  },
+  {
+    id: 'problem-nn-tf-physics-examples',
+    kind: 'problem',
+    title: 'Run nuclear / Hubble checks for ML stacks',
+    description:
+      'Compute mass excess, mirror GradientTape on a linear residual, and state how MSE SGD fits Hubble or poly B/A data.',
+    sample: 'nn-tf-physics-examples',
+    href: '/fundamentals/math-and-science/computational-physics/11-06-tensorflow-sklearn-examples',
+  },
+  {
+    id: 'problem-nn-kmeans-clustering',
+    kind: 'problem',
+    title: 'Cluster particle masses with k-means',
+    description:
+      'Distinguish supervised vs unsupervised learning, run assign/update steps for k=3 on masses, and state why scaling helps linear classifiers.',
+    sample: 'nn-kmeans-clustering',
+    href: '/fundamentals/math-and-science/computational-physics/11-07-ml-clustering',
+  },
+  {
+    id: 'problem-nn-keras-dense',
+    kind: 'problem',
+    title: 'Build a Keras Dense linear fit',
+    description:
+      'Explain Dense(units=1), compile/fit, and recover y=wx+b for a Hubble-style regression.',
+    sample: 'nn-keras-dense',
+    href: '/fundamentals/math-and-science/computational-physics/11-08-keras-deep-learning',
+  },
+  {
+    id: 'problem-nn-opencv-rgb',
+    kind: 'problem',
+    title: 'Use RGB histograms and frame differences',
+    description:
+      'State 256³ color capacity, build tone histograms for ripeness, and describe background subtraction on video.',
+    sample: 'nn-opencv-rgb',
+    href: '/fundamentals/math-and-science/computational-physics/11-09-opencv-image-processing',
+  },
+  {
+    id: 'problem-nn-explore-repos',
+    kind: 'problem',
+    title: 'Plan a baseline on a public ML dataset',
+    description:
+      'Pick a physics/ML repository dataset and outline features, supervised vs not, a simple baseline, and a hold-out metric.',
+    sample: 'nn-explore-repos',
+    href: '/fundamentals/math-and-science/computational-physics/11-10-explore-ml-repositories',
+  },
+  {
+    id: 'problem-qc-dirac-ket',
+    kind: 'problem',
+    title: 'Use Dirac notation for qubits',
+    description:
+      'Relate kets, bras, brackets, and outer products; identify |0⟩/|1⟩ with spin-½ basis vectors.',
+    sample: 'qc-dirac-ket',
+    href: '/fundamentals/math-and-science/computational-physics/12-01-dirac-notation',
+  },
+  {
+    id: 'problem-qc-qubit-bloch',
+    kind: 'problem',
+    title: 'Normalize a qubit and form tensor products',
+    description:
+      'Enforce |u|²+|v|²=1, read Bloch amplitudes, and Kronecker-multiply two qubits into ℂ⁴.',
+    sample: 'qc-qubit-bloch',
+    href: '/fundamentals/math-and-science/computational-physics/12-02-qubits',
+  },
+  {
+    id: 'problem-qc-entanglement-bell',
+    kind: 'problem',
+    title: 'Detect entanglement and build Pauli tensors',
+    description:
+      'Apply wz=xy, recognize Bell states, and evaluate entries of dipole H ∝ XX+YY+ZZ−3ZZ.',
+    sample: 'qc-entanglement-bell',
+    href: '/fundamentals/math-and-science/computational-physics/12-03-entanglement',
+  },
+  {
+    id: 'problem-qc-logic-gates',
+    kind: 'problem',
+    title: 'Wire classical gates and quantum Bell circuit',
+    description:
+      'Truth-table XOR/AND half-adder; map X/H/CNOT/CZ/Toffoli; H then CNOT builds |β₀₀⟩.',
+    sample: 'qc-logic-gates',
+    href: '/fundamentals/math-and-science/computational-physics/12-04-logic-gates',
+  },
+  {
+    id: 'problem-qc-cirq-circuits',
+    kind: 'problem',
+    title: 'Simulate Cirq-style circuits and half-adders',
+    description:
+      'H²=I, X then H → |−⟩, SWAP/CNOT bit flips, Toffoli carry + CNOT sum.',
+    sample: 'qc-cirq-circuits',
+    href: '/fundamentals/math-and-science/computational-physics/12-05-qc-programming',
+  },
+  {
+    id: 'problem-qc-qiskit-bell',
+    kind: 'problem',
+    title: 'Qiskit Bell, IBM endianness, transpile',
+    description:
+      'H→CX Bell amps, |wz−xy|, rightmost = q0, simulator vs noisy hardware.',
+    sample: 'qc-qiskit-bell',
+    href: '/fundamentals/math-and-science/computational-physics/12-07-qiskit',
+  },
+  {
+    id: 'problem-qc-qft',
+    kind: 'problem',
+    title: 'Build and read QFT₄',
+    description:
+      'Z₄=-i, matrix prefactor 1/2, Qiskit |2⟩=|10⟩, H/P/SWAP circuit.',
+    sample: 'qc-qft',
+    href: '/fundamentals/math-and-science/computational-physics/12-08-qft',
+  },
+  {
+    id: 'problem-qc-grover',
+    kind: 'problem',
+    title: 'Amplify a marked state with Grover',
+    description:
+      'n=log₂N qubits, oracle phase flip, diffuser, ~π√N/4 rounds; decode table value.',
+    sample: 'qc-grover',
+    href: '/fundamentals/math-and-science/computational-physics/12-09-grover',
+  },
+  {
+    id: 'problem-qc-shor',
+    kind: 'problem',
+    title: 'Factor via period finding (Shor outline)',
+    description:
+      'gcd, phase→T, gcd(r^{T/2}±1,N); toy N=15 → 3×5.',
+    sample: 'qc-shor',
+    href: '/fundamentals/math-and-science/computational-physics/12-10-shor',
+  },
+  {
+    id: 'problem-qc-code-sketches',
+    kind: 'problem',
+    title: 'Wire Chapter 12 notebook sketches',
+    description:
+      'Map dipole eig, QFT₄, Grover √N vs √n trap, Shor Fraction/gcd — without pasting book listings.',
+    sample: 'qc-code-sketches',
+    href: '/fundamentals/math-and-science/computational-physics/12-11-qc-code-sketches',
+  },
+  {
+    id: 'problem-concavity-inflection',
+    kind: 'problem',
+    title: 'Concavity and inflection from y″',
+    description:
+      'Factor or sign-chart y″; list up/down intervals; keep only roots where y″ changes sign (reject x⁴-type false candidates).',
+    sample: 'inflection-points',
+    href: '/fundamentals/math-and-science/calculus/15b-curve-sketching-practice',
+  },
+  {
+    id: 'problem-oblique-asymptote-sketch',
+    kind: 'problem',
+    title: 'Rational sketch with oblique asymptote',
+    description:
+      'Polynomial division → y=mx+b+r(x); vertical poles; classify critical numbers; confirm remainder→0 at infinity.',
+    sample: 'asymptotes',
+    href: '/fundamentals/math-and-science/calculus/15b-curve-sketching-practice',
   },
 ];

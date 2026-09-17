@@ -1,0 +1,114 @@
+---
+sidebar_position: 34
+title: 6.6 Exponential decay and least-squares fitting
+sidebar_label: '6.6 Least-squares fitting'
+---
+
+# 6.6 Exponential decay and least-squares fitting
+
+> **Source:** Ideas from *Computational Physics* (Landau, Páez, Bordeianu), §6.6–6.7.2. Rewritten in original wording. Continues [6.5.2b Cubic splines labs](./06-02b-cubic-splines-labs). Labs: [6.6b Least-squares fitting labs](./06-03b-exponential-decay-least-squares-labs).
+
+## Fitting exponential decay
+
+Real particle-decay measurements — such as the number of $\pi$-meson decays $\Delta N$ recorded in 10-ns time bins — are noisy and finite in number, unlike the smooth theoretical curve they're compared against. Given such data, the problem is to deduce a physical constant, the particle **lifetime** $\tau$, from the scatter.
+
+The underlying physics is a stochastic process: in a short time $\Delta t$, the number of decays $\Delta N$ out of $N(t)$ remaining particles is proportional to both $N(t)$ and $\Delta t$:
+
+$$
+\Delta N(t)=-\frac1\tau N(t)\,\Delta t \quad\Rightarrow\quad \frac{\Delta N(t)}{\Delta t}=-\lambda N(t),
+$$
+
+with $\tau=1/\lambda$ the lifetime. Taking $\Delta t\to 0$ yields $dN/dt=-\lambda N$, whose solution is exponential decay $N(t)=N_0e^{-t/\tau}$ — the curve to fit (compare $\tau$ against the tabulated pion lifetime $2.6\times10^{-8}\,$s). The walk below linearizes that fit and recovers $\tau$ from a straight line.
+
+## Why "best fit" doesn't mean "passes through every point"
+
+Three points frame all of least-squares fitting:
+
+1. If the data carry real experimental error, the statistically "best" fit will **not** pass through every data point — forcing that (as Lagrange interpolation does) actually makes the fit worse, not better.
+2. If the assumed theoretical form is wrong for the data, its best fit may simply be a poor fit — and that's useful information, since it tells you the theory doesn't apply.
+3. Only the simplest case — a fit linear in its parameters — has a closed-form solution. Everything else needs a trial-and-error numerical search (Section 6.8).
+
+## Chi-square and linear least squares
+
+Given $N_D$ measurements $(x_i,y_i\pm\sigma_i)$ and a theory $g(x;\{a_m\})$ with $M_P$ parameters, least-squares fitting adjusts the $a_m$ to minimize $\chi^{2}$. When $g=a_1+a_2x$ the stationarity conditions are linear — closed formulas for $a_1,a_2$ (and a stabler centered form). Walk $\chi^{2}\to\partial\chi^{2}=0\to$ normal equations — pick the matching formula at each step.
+
+<GuidedChoiceExplanation preset="linear-ls-normal-eqs" />
+
+If $g$ depends on the $a_m$ nonlinearly, the same stationarity conditions become a nonlinear system — search (Section [6.8](./06-04-nonlinear-resonance-fit)), trying several starts so a found minimum is global.
+
+**Rule of thumb** (Gaussian errors): a good fit has $\chi^{2}\simeq N_D-M_P$. Much smaller usually means too many parameters or overestimated $\sigma_i$; much larger usually means a bad theory or underestimated errors. If $\sigma_i$ is unknown, a common fallback is $\sigma_i\equiv 1$.
+
+Parameter uncertainties and correlation follow from the same weighted sums: $\sigma_{a_1}^{2}=S_{xx}/\Delta$, $\sigma_{a_2}^{2}=S/\Delta$, $\operatorname{cov}(a_1,a_2)=-S_x/\Delta$, and $\rho=\operatorname{cov}/(\sigma_{a_1}\sigma_{a_2})\in[-1,1]$.
+
+## Turning exponential decay into a linear fit
+
+$N(t)=N_0e^{-t/\tau}$ is nonlinear in $\tau$, but a logarithm linearizes it. Pick the decay law, the $\ln N$ line, and the recovery formulas among lookalikes.
+
+<GuidedChoiceExplanation preset="exponential-decay-least-squares" />
+
+## Extending to a quadratic (still linear in the parameters!)
+
+$g(x)=a_1+a_2x+a_3x^2$ is still a **linear** fit — linearity refers to the dependence on the $a$'s, not on $x$. (By contrast, $g(x)=(a_1+a_2x)e^{-a_3x}$ is *not* linear, because $a_3$ appears inside the exponential.) Minimizing $\chi^2$ for the quadratic gives three simultaneous *linear* equations in $a_1,a_2,a_3$:
+
+$$
+\begin{aligned}
+Sa_1+S_xa_2+S_{xx}a_3&=S_y,\\
+S_xa_1+S_{xx}a_2+S_{xxx}a_3&=S_{xy},\\
+S_{xx}a_1+S_{xxx}a_2+S_{xxxx}a_3&=S_{xxy},
+\end{aligned}
+$$
+
+with $S_{xxx}=\sum x_i^3/\sigma_i^2$, $S_{xxxx}=\sum x_i^4/\sigma_i^2$, $S_{xxy}=\sum x_i^2y_i/\sigma_i^2$ extending the earlier sums. In matrix form this is $A\vec a=\vec b$ with
+
+$$
+A=\begin{bmatrix}S&S_x&S_{xx}\\S_x&S_{xx}&S_{xxx}\\S_{xx}&S_{xxx}&S_{xxxx}\end{bmatrix},\qquad
+\vec a=\begin{bmatrix}a_1\\a_2\\a_3\end{bmatrix},\qquad
+\vec b=\begin{bmatrix}S_y\\S_{xy}\\S_{xxy}\end{bmatrix}.
+$$
+
+For $3\times3$ a closed form exists, but larger problems need a numerical linear solve — the same kind of Gaussian-elimination machinery used for the cubic-spline system in the previous lesson. This pattern — more parameters, same structure — is exactly why linear algebra libraries (Chapter 7) matter for fitting realistic models.
+
+<FormulaExplorer preset="decayLogFit" />
+
+<MultipleChoice
+  id="cp-66-lsq"
+  title="Least-squares fitting"
+  questions={[
+    {
+      prompt: 'chi-square weights each residual by…',
+      choices: ['sigma_i', '1/sigma_i^2', 'x_i', 'N_D - M_P'],
+      answer: 1,
+      why: 'Larger error bars => smaller weight, via 1/sigma_i^2.',
+    },
+    {
+      prompt: 'A good fit typically has chi-square close to…',
+      choices: ['0', 'N_D (number of data points)', 'N_D - M_P (degrees of freedom)', 'M_P (number of parameters)'],
+      answer: 2,
+      why: 'Much less than N_D-M_P suggests overfitting; much more suggests a bad theory or bad error estimates.',
+    },
+    {
+      prompt: 'N(t) = N0 exp(-t/tau) can be fit with the LINEAR least-squares formulas by…',
+      choices: [
+        'taking the logarithm of N(t), giving ln N = ln N0 - t/tau',
+        'it cannot be linearized, ever',
+        'fitting N(t) directly since exp() is already linear in tau',
+        'ignoring N0 entirely',
+      ],
+      answer: 0,
+      why: 'ln N is linear in t with slope -1/tau and intercept ln N0.',
+    },
+    {
+      prompt: 'g(x)=a1+a2 x+a3 x^2 is a linear least-squares problem because…',
+      choices: [
+        'linearity is judged by dependence on the a_m parameters, not on x',
+        'x^2 is technically linear',
+        'quadratics are never valid fits',
+        'it has exactly 3 data points',
+      ],
+      answer: 0,
+      why: 'Each partial derivative dg/da_m is independent of the a_m — that is what makes the chi^2 equations linear.',
+    },
+  ]}
+/>
+
+Next: [6.6b Least-squares fitting labs](./06-03b-exponential-decay-least-squares-labs).

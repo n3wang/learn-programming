@@ -1,29 +1,70 @@
-/** Recurrence vs factorial, and |term/sum| as a stop rule. */
+/** Sine Taylor: recursive term ratio and stop rule — pick the equation. */
 
 export default {
   title: 'Summing sine',
-  lead: 'Compute $\\sin x$ from its Taylor series to a relative error of $10^{-8}$, without looking up $\\sin x$.',
+  lead:
+    'Finite sine series needs a recurrence and a stop. Pick the matching equation at each step.',
   steps: [
     {
-      caption: 'The infinite sum is exact mathematics. A computer needs a finite $N$ and a rule for when $N$ is enough.',
+      ask: 'The finite recipe for $\\sin x$ (stop at $N$ terms) is…',
+      choices: [
+        {
+          label:
+            '$\\displaystyle\\sin x\\simeq\\sum_{n=1}^{N}\\frac{(-1)^{n-1}x^{2n-1}}{(2n-1)!}$',
+          ok: true,
+        },
+        {
+          label:
+            '$\\displaystyle\\sin x\\simeq\\sum_{n=1}^{N}\\frac{(-1)^{n}x^{2n}}{(2n)!}$',
+          ok: false,
+        },
+        {
+          label:
+            '$\\displaystyle\\sin x\\simeq\\sum_{n=1}^{N}\\frac{x^{2n-1}}{(2n-1)!}$ (all positive)',
+          ok: false,
+        },
+      ],
+      caption: 'Do not form each power and factorial from scratch.',
     },
     {
-      ask: 'A workable stop rule that does not peek at a table is…',
+      ask: 'Neighbouring terms obey which one-step recurrence ($t_1=x$)?',
       choices: [
-        {label: 'halt when $|t_n / S_n|$ is below the tolerance (last term $\\approx$ leftover)', ok: true},
-        {label: 'halt when the sum equals `math.sin(x)`', ok: false},
-        {label: 'always use $N=5$, independent of $x$', ok: false},
+        {
+          label:
+            '$\\displaystyle t_n=\\frac{-x^{2}}{(2n-1)(2n-2)}\\,t_{n-1}$',
+          ok: true,
+        },
+        {
+          label:
+            '$\\displaystyle t_n=\\frac{+x^{2}}{(2n-1)(2n-2)}\\,t_{n-1}$',
+          ok: false,
+        },
+        {
+          label:
+            '$\\displaystyle t_n=\\frac{-x^{2}}{(2n+1)(2n)}\\,t_{n-1}$',
+          ok: false,
+        },
       ],
-      caption: 'If round-off is not yet in charge, the next unused term is a decent proxy for the truncation error.',
+      caption: 'One multiply per step — no factorial, no giant intermediate.',
     },
     {
-      ask: 'The next term should be built by…',
+      ask: 'A stop rule that does not peek at a table is…',
       choices: [
-        {label: '$t_n = -x^{2}/((2n-1)(2n-2))\\, t_{n-1}$ (one multiply per step)', ok: true},
-        {label: 'computing $x^{2n-1}$ and $(2n-1)!$ separately, then dividing', ok: false},
-        {label: 'calling `math.factorial` for every $n$', ok: false},
+        {
+          label: '$\\displaystyle\\left|\\frac{t_n}{S_n}\\right|<\\varepsilon$',
+          ok: true,
+        },
+        {
+          label: '$\\displaystyle\\left|\\frac{t_n}{S_n}\\right|>\\varepsilon$',
+          ok: false,
+        },
+        {
+          label: '$\\displaystyle|t_n-S_n|<\\varepsilon$',
+          ok: false,
+        },
       ],
-      caption: 'Powers and factorials overflow individually and are expensive. The ratio of neighbouring terms is a short multiply.',
+      caption:
+        'While round-off is small, the last term is a usable proxy for the leftover. Keep $\\varepsilon$ above machine precision.',
     },
   ],
 };

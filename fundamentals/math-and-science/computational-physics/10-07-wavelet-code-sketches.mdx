@@ -1,0 +1,191 @@
+---
+sidebar_position: 85
+title: 10.7 Wavelet code sketches
+sidebar_label: '10.7 Wavelet code sketches'
+---
+
+# 10.7 Wavelet code sketches
+
+> **Source:** Structural ideas from *Computational Physics* (Landau, Páez, Bordeianu), §10.7 listings. **Original sketches only** — do **not** paste `CWT.py`, `DWT.py`, or VPython GUIs from the book / Mathpix CDN. Continues [10.6b](./10-06b-pca-labs). Next: [10.7b](./10-07b-wavelet-code-labs).
+
+Graded CWT / DWT / PCA work lives in [10.4b](./10-04b-wavelet-transforms-labs)–[10.6b](./10-06b-pca-labs). This page maps **how the pieces fit** when you leave the sandbox for a local notebook.
+
+## CWT sketch (Morlet + Riemann grid)
+
+Build a staged multi-tone on $[0,W]$, sample $N$ points, then for each scale $s$ and translation $\tau$ accumulate
+
+$$
+Y(s,\tau)=\frac1{\sqrt s}\sum_i y(t_i)\,\Psi\!\left(\frac{t_i-\tau}{s}\right)\,h,
+$$
+
+with mother $\Psi(T)=\sin(8T)\,e^{-T^2/2}$. Scales often grow **geometrically** ($s\leftarrow s\cdot\Delta s$) so a few dozen $s$ cover fine→coarse; $\tau$ steps linearly across the window. Inverse sketch: integrate $Y(s,\tau)\,\psi_{s,\tau}(t)$ with a factor $\sim s^{-3/2}\,\mathrm{d}s\,\mathrm{d}\tau$ (normalize against $\max|Y|$ or match peak heights).
+
+```python
+# cwt_morlet_sketch.py — original structure (pure Python)
+import math
+
+def signal(N, W=12.0):
+    """Staged tones: 1 → 2 → 3 frequencies (edit breakpoints as you like)."""
+    h = W / N
+    t1, t2 = W / 6.0, 4.0 * W / 6.0
+    y = []
+    t = 0.0
+    for _ in range(N):
+        if t <= t1:
+            y.append(math.sin(2 * math.pi * t))
+        elif t <= t2:
+            y.append(5 * math.sin(2 * math.pi * t) + 10 * math.sin(4 * math.pi * t))
+        else:
+            y.append(
+                2.5 * math.sin(2 * math.pi * t)
+                + 6 * math.sin(4 * math.pi * t)
+                + 10 * math.sin(6 * math.pi * t)
+            )
+        t += h
+    return y, h
+
+def morlet(t, s, tau):
+    T = (t - tau) / s
+    return math.sin(8 * T) * math.exp(-0.5 * T * T)
+
+def cwt_point(sig, h, s, tau, t0=0.0):
+    acc = 0.0
+    t = t0
+    for yi in sig:
+        t += h
+        acc += yi * morlet(t, s, tau) * h
+    return acc / math.sqrt(s)
+
+# Grid: s *= dS each outer step; tau += dTau each inner step
+# Plot |Y| as a heat / wireframe locally — sandbox only prints numbers
+```
+
+Expect a scalogram that lights **one** band early, then a second (smaller $s$), then a third — the point of CWT vs a global DFT ([10.4](./10-04-wavelet-transforms)).
+
+## DWT sketch (Daub4 pyramid on a chirp)
+
+Fill length $N=2^n$ with a chirp $y_i=\sin(60\,\xi_i^2)$, $\xi_i=i/N$. One **forward** Daub4 stage: walk pairs with ↓2,
+
+$$
+\begin{aligned}
+s_i &= c_0 y_{2i}+c_1 y_{2i+1}+c_2 y_{2i+2}+c_3 y_{2i+3},\\
+d_i &= c_3 y_{2i}-c_2 y_{2i+1}+c_1 y_{2i+2}-c_0 y_{2i+3},
+\end{aligned}
+$$
+
+(wrap edges as you prefer). Pyramid: repeat on the smooth half until length 4. Inverse: upsample and apply the transpose taps (`sign < 0` in many book APIs).
+
+```python
+# dwt_daub4_chirp_sketch.py — original structure (not a textbook dump)
+import math
+
+N = 1024  # power of two
+sq3, fsq2 = math.sqrt(3.0), 4.0 * math.sqrt(2.0)
+c0 = (1 + sq3) / fsq2
+c1 = (3 + sq3) / fsq2
+c2 = (3 - sq3) / fsq2
+c3 = (1 - sq3) / fsq2
+
+def chirp(xi):
+    return math.sin(60.0 * xi * xi)
+
+def daube4_forward(f):
+    """One ↓2 stage; f length n (even, ≥4). Returns smooth||detail length n."""
+    n = len(f)
+    mp = n // 2
+    tr = [0.0] * n
+    j = 0
+    for i in range(mp - 1):
+        tr[i] = c0 * f[j] + c1 * f[j + 1] + c2 * f[j + 2] + c3 * f[j + 3]
+        tr[i + mp] = c3 * f[j] - c2 * f[j + 1] + c1 * f[j + 2] - c0 * f[j + 3]
+        j += 2
+    # wrap last pair onto f[n-2], f[n-1], f[0], f[1]
+    tr[mp - 1] = c0 * f[n - 2] + c1 * f[n - 1] + c2 * f[0] + c3 * f[1]
+    tr[n - 1] = c3 * f[n - 2] - c2 * f[n - 1] + c1 * f[0] - c0 * f[1]
+    return tr
+
+def pyramid_forward(f, nend=4):
+    out = list(f)
+    nd = len(out)
+    while nd >= nend:
+        head = daube4_forward(out[:nd])
+        out[:nd] = head
+        nd //= 2
+    return out
+
+# f = [chirp(i / N) for i in range(N)]
+# Y = pyramid_forward(f)
+# inverse: grow nd *= 2 with transpose taps; compare to f
+```
+
+## Visualization note
+
+Book listings draw with **VPython** `gcurve` / `gvbars` / `Axes3D` wireframes. Keep the transforms; plot with Matplotlib / Plotly / anything local. This course’s sandbox is **stdout locks**, not CDN GUIs.
+
+## Takeaway
+
+| Sketch | Role |
+| --- | --- |
+| Morlet CWT grid | Slow, clear $Y(s,\tau)$; scalogram intuition |
+| Geometric $s$ ladder | Cover decades of scale with few samples |
+| Daub4 + pyramid | Fast orthonormal DWT; chirp / impulse checks |
+| Inverse path | Round-trip validate before trusting compression |
+
+Wire PCA ([10.6](./10-06-principal-components)) on multi-channel tables after you trust the 1D wavelet pipeline.
+
+<FormulaExplorerTabs preset="daub4Coeffs" />
+
+<GuidedChoiceExplanation preset="cwt-dwt-code-sketches" />
+
+<MultipleChoice
+  id="cp-107-sketches"
+  title="Wavelet code sketches"
+  questions={[
+    {
+      prompt: 'A Morlet CWT coefficient is essentially…',
+      choices: [
+        'a Riemann sum of y(t) Ψ((t−τ)/s) / √s',
+        'only an FFT of the whole record',
+        'Daub4 c₀ alone',
+        'PCA of XXᵀ',
+      ],
+      answer: 0,
+      why: 'Slow reference overlap on a (s,τ) grid.',
+    },
+    {
+      prompt: 'Geometric Δs = (W/s₀)^{1/nₛ} is used so that…',
+      choices: [
+        'a few dozen scales cover fine→coarse decades',
+        'τ must be complex',
+        'N cannot be a power of two',
+        'highpass taps vanish',
+      ],
+      answer: 0,
+      why: 'Log-spaced scales match multi-resolution.',
+    },
+    {
+      prompt: 'Daub4 pyramid forward on a chirp should stop when…',
+      choices: [
+        'smooth length reaches a small nend (e.g. 4)',
+        'all samples are deleted',
+        's becomes continuous only',
+        'VPython is required',
+      ],
+      answer: 0,
+      why: 'Recurse ↓2 on the smooth half.',
+    },
+    {
+      prompt: 'Best first validation of a DWT sketch is…',
+      choices: [
+        'inverse pyramid ≈ original chirp',
+        'delete details and hope',
+        'print only c₀',
+        'skip centering forever',
+      ],
+      answer: 0,
+      why: 'Round-trip before trusting plots.',
+    },
+  ]}
+/>
+
+Next: [10.7b Wavelet code labs](./10-07b-wavelet-code-labs).

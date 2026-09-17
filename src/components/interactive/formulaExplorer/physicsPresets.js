@@ -33,8 +33,426 @@ function logAbs(err) {
   return Math.log10(Math.abs(err) + 1e-16);
 }
 
+/** Table 6.1: neutron resonant-scattering cross section (Landau §6.5). */
+const CS_E = [0, 25, 50, 75, 100, 125, 150, 175, 200];
+const CS_G = [10.6, 16.0, 45.0, 83.5, 52.8, 19.9, 10.8, 8.25, 4.7];
+
+function lagrangeEval(xs, ys, x) {
+  const n = xs.length;
+  let total = 0;
+  for (let i = 0; i < n; i += 1) {
+    let term = ys[i];
+    for (let j = 0; j < n; j += 1) {
+      if (j === i) continue;
+      term *= (x - xs[j]) / (xs[i] - xs[j]);
+    }
+    total += term;
+  }
+  return total;
+}
+
+function solveTridiagGeneral(A, b) {
+  const n = b.length;
+  const M = A.map((row) => row.slice());
+  const rhs = b.slice();
+  for (let i = 0; i < n; i += 1) {
+    const piv = M[i][i];
+    for (let j = i + 1; j < n; j += 1) {
+      const f = M[j][i] / piv;
+      for (let k = 0; k < n; k += 1) M[j][k] -= f * M[i][k];
+      rhs[j] -= f * rhs[i];
+    }
+  }
+  const x = new Array(n).fill(0);
+  for (let i = n - 1; i >= 0; i -= 1) {
+    let s = rhs[i];
+    for (let k = i + 1; k < n; k += 1) s -= M[i][k] * x[k];
+    x[i] = s / M[i][i];
+  }
+  return x;
+}
+
+/** Natural cubic spline: returns second derivatives M_i for nodes (xs, ys). */
+function naturalSplineM(xs, ys) {
+  const n = xs.length;
+  const h = [];
+  for (let i = 0; i < n - 1; i += 1) h.push(xs[i + 1] - xs[i]);
+  const A = Array.from({length: n}, () => new Array(n).fill(0));
+  const b = new Array(n).fill(0);
+  A[0][0] = 1;
+  A[n - 1][n - 1] = 1;
+  for (let i = 1; i < n - 1; i += 1) {
+    A[i][i - 1] = h[i - 1];
+    A[i][i] = 2 * (h[i - 1] + h[i]);
+    A[i][i + 1] = h[i];
+    b[i] = 6 * ((ys[i + 1] - ys[i]) / h[i] - (ys[i] - ys[i - 1]) / h[i - 1]);
+  }
+  return solveTridiagGeneral(A, b);
+}
+
+function splineEval(xs, ys, M, x) {
+  const n = xs.length;
+  let i = 0;
+  for (; i < n - 2; i += 1) {
+    if (x <= xs[i + 1]) break;
+  }
+  const h = xs[i + 1] - xs[i];
+  const A = (xs[i + 1] - x) / h;
+  const B = (x - xs[i]) / h;
+  return A * ys[i] + B * ys[i + 1] + ((A ** 3 - A) * M[i] + (B ** 3 - B) * M[i + 1]) * (h * h) / 6;
+}
+
+function linregEqualWeights(xs, ys) {
+  const n = xs.length;
+  const xbar = xs.reduce((a, v) => a + v, 0) / n;
+  const ybar = ys.reduce((a, v) => a + v, 0) / n;
+  let sxy = 0;
+  let sxx = 0;
+  for (let i = 0; i < n; i += 1) {
+    sxy += (xs[i] - xbar) * (ys[i] - ybar);
+    sxx += (xs[i] - xbar) ** 2;
+  }
+  const a2 = sxy / sxx;
+  const a1 = ybar - a2 * xbar;
+  return {a1, a2};
+}
+
+/** Deterministic pseudo-noise in [-1,1] from the chapter LCG, seeded per index. */
+function lcgNoise(seed, i) {
+  let r = BigInt((seed * 7919 + i * 104729) | 0);
+  const M = 2147483648n;
+  r = (1103515245n * (r < 0n ? -r : r) + 12345n) % M;
+  return (Number(r) / 2147483648) * 2 - 1;
+}
+
 /** Computational-physics charts: truncation, round-off, stored mantissa. */
 export const PHYSICS_PRESETS = {
+  lagrangeGlobalFit: {
+    id: 'lagrangeGlobalFit',
+    title: 'Lagrange fit: local vs. global (Table 6.1)',
+    subtitle: 'More nodes ⇒ higher degree ⇒ bigger swings between the tabulated points',
+    formula:
+      '$g(x)\\simeq\\sum_{i=1}^{n} g_i\\lambda_i(x),\\quad \\lambda_i(x)=\\prod_{j\\ne i}\\dfrac{x-x_j}{x_i-x_j}$',
+    params: [
+      {
+        key: 'n',
+        label: 'n (points used)',
+        meaning: 'Leading n points of Table 6.1, fit with one degree-(n-1) Lagrange polynomial.',
+        min: 3,
+        max: 9,
+        step: 1,
+        default: 4,
+      },
+    ],
+    example(v) {
+      const n = Math.round(clamp(v.n, 3, 9));
+      return `Fitting the first ${n} points with a degree-${n - 1} polynomial. Watch the curve overshoot grow as n increases.`;
+    },
+    compute(v) {
+      const n = Math.round(clamp(v.n, 3, 9));
+      const xs = CS_E.slice(0, n);
+      const ys = CS_G.slice(0, n);
+      const lo = xs[0];
+      const hi = xs[xs.length - 1];
+      const pad = 0.15 * (hi - lo || 1);
+      const series = [];
+      const steps = 80;
+      let maxAbs = 0;
+      for (let k = 0; k <= steps; k += 1) {
+        const x = lo - pad + (((hi + pad) - (lo - pad)) * k) / steps;
+        const y = lagrangeEval(xs, ys, x);
+        maxAbs = Math.max(maxAbs, Math.abs(y));
+        series.push({x, y, highlight: false});
+      }
+      for (let i = 0; i < n; i += 1) {
+        series.push({x: xs[i], y: ys[i], highlight: true});
+      }
+      return {
+        chartType: 'scatter',
+        yLabel: 'cross section g(E) [mb]',
+        series,
+        stats: [
+          {label: 'degree', value: String(n - 1)},
+          {label: 'peak |g|', value: fmt(maxAbs, 2)},
+          {label: 'max data |g|', value: fmt(Math.max(...ys.map(Math.abs)), 2)},
+        ],
+        note: 'Orange = the n tabulated points actually used. Blue = the fitted polynomial, sampled slightly beyond the fitted interval (a mild extrapolation). At n=9 the curve swings far above any tabulated value — the Runge-type blowup the lesson warns about.',
+      };
+    },
+  },
+
+  cubicSplineFit: {
+    id: 'cubicSplineFit',
+    title: 'Natural cubic spline (Table 6.1)',
+    subtitle: 'Same points as the Lagrange fit — but splines never overshoot like that',
+    formula:
+      '$g_i(x)=g_i+g_i\'(x-x_i)+\\tfrac12 g_i\'\'(x-x_i)^2+\\tfrac16 g_i\'\'\'(x-x_i)^3$',
+    params: [
+      {
+        key: 'n',
+        label: 'n (points used)',
+        meaning: 'Leading n points of Table 6.1, spline-fit with a natural boundary condition.',
+        min: 3,
+        max: 9,
+        step: 1,
+        default: 4,
+      },
+    ],
+    example(v) {
+      const n = Math.round(clamp(v.n, 3, 9));
+      return `Spline through the first ${n} points. Compare the peak value to the Lagrange fit at the same n.`;
+    },
+    compute(v) {
+      const n = Math.round(clamp(v.n, 3, 9));
+      const xs = CS_E.slice(0, n);
+      const ys = CS_G.slice(0, n);
+      const M = naturalSplineM(xs, ys);
+      const lo = xs[0];
+      const hi = xs[xs.length - 1];
+      const series = [];
+      const steps = 80;
+      let maxAbs = 0;
+      for (let k = 0; k <= steps; k += 1) {
+        const x = lo + ((hi - lo) * k) / steps;
+        const y = splineEval(xs, ys, M, Math.min(x, hi - 1e-9));
+        maxAbs = Math.max(maxAbs, Math.abs(y));
+        series.push({x, y, highlight: false});
+      }
+      for (let i = 0; i < n; i += 1) {
+        series.push({x: xs[i], y: ys[i], highlight: true});
+      }
+      return {
+        chartType: 'scatter',
+        yLabel: 'cross section g(E) [mb]',
+        series,
+        stats: [
+          {label: 'n', value: String(n)},
+          {label: 'peak |g|', value: fmt(maxAbs, 2)},
+          {label: 'max data |g|', value: fmt(Math.max(...ys.map(Math.abs)), 2)},
+        ],
+        note: 'The spline (blue) stays close to the data envelope for every n — unlike the Lagrange polynomial, which overshoots badly once n gets large.',
+      };
+    },
+  },
+
+  decayLogFit: {
+    id: 'decayLogFit',
+    title: 'Decay lifetime via log-linear fit',
+    subtitle: 'ln N(t) = ln N0 − t/τ — linear regression recovers τ from noisy counts',
+    formula: '$\\ln N(t)=\\ln N_0-\\dfrac{t}{\\tau}$',
+    params: [
+      {
+        key: 'tau',
+        label: 'τ (true lifetime)',
+        meaning: 'The lifetime used to generate the synthetic decay data.',
+        min: 5,
+        max: 50,
+        step: 1,
+        default: 25,
+      },
+      {
+        key: 'noise',
+        label: 'noise level',
+        meaning: 'Relative scatter added to each simulated count before fitting.',
+        min: 0,
+        max: 0.3,
+        step: 0.01,
+        default: 0.06,
+      },
+      {
+        key: 'seed',
+        label: 'seed',
+        meaning: 'Different noise realization.',
+        min: 1,
+        max: 20,
+        step: 1,
+        default: 3,
+      },
+    ],
+    example(v) {
+      const tau = clamp(v.tau, 5, 50);
+      return `True τ=${fmt(tau, 1)}. Fit ln N vs t by least squares and compare the recovered τ to the true value.`;
+    },
+    compute(v) {
+      const tau = clamp(v.tau, 5, 50);
+      const noise = clamp(v.noise, 0, 0.3);
+      const seed = Math.round(clamp(v.seed, 1, 20));
+      const N0 = 1000;
+      const ts = [0, 10, 20, 30, 40, 50, 60, 70, 80, 90];
+      const logs = ts.map((t, i) => {
+        const clean = N0 * Math.exp(-t / tau);
+        const noisy = clean * (1 + noise * lcgNoise(seed, i));
+        return Math.log(Math.max(noisy, 1e-6));
+      });
+      const {a1, a2} = linregEqualWeights(ts, logs);
+      const tauFit = -1 / a2;
+      const series = ts.map((t, i) => ({x: t, y: logs[i], highlight: true}));
+      for (let k = 0; k <= 40; k += 1) {
+        const t = (90 * k) / 40;
+        series.push({x: t, y: a1 + a2 * t, highlight: false});
+      }
+      return {
+        chartType: 'scatter',
+        yLabel: 'ln N(t)',
+        series,
+        stats: [
+          {label: 'true τ', value: fmt(tau, 2)},
+          {label: 'fitted τ', value: fmt(tauFit, 2)},
+          {label: 'fitted N0', value: fmt(Math.exp(a1), 1)},
+        ],
+        note: 'Orange = simulated noisy ln N(t) counts. Blue = the least-squares line, slope −1/τ. More noise widens the gap between fitted and true τ.',
+      };
+    },
+  },
+
+  breitWignerFit: {
+    id: 'breitWignerFit',
+    title: 'Fit-by-eye: Breit-Wigner resonance (Table 6.1)',
+    subtitle: 'Slide the three parameters until the curve matches the data — watch chi-square',
+    formula: '$g(E)=\\dfrac{f_r}{(E-E_r)^2+\\Gamma^2/4}$',
+    params: [
+      {
+        key: 'fr',
+        label: 'f_r (peak scale)',
+        meaning: 'Scale parameter a1 — roughly the peak height times the width-squared term.',
+        min: 100,
+        max: 200000,
+        step: 100,
+        default: 60000,
+      },
+      {
+        key: 'Er',
+        label: 'E_r (resonance energy)',
+        meaning: 'Location of the peak, a2.',
+        min: 0,
+        max: 200,
+        step: 1,
+        default: 78,
+      },
+      {
+        key: 'Gamma',
+        label: 'Γ (width)',
+        meaning: 'Full width at half maximum; a3 = Γ²/4 in the fit equations.',
+        min: 10,
+        max: 120,
+        step: 1,
+        default: 55,
+      },
+    ],
+    example(v) {
+      return `Adjust f_r, E_r, and Γ to minimize chi-square against the 9 tabulated cross sections.`;
+    },
+    compute(v) {
+      const fr = clamp(v.fr, 100, 200000);
+      const Er = clamp(v.Er, 0, 200);
+      const Gamma = clamp(v.Gamma, 10, 120);
+      const a3 = (Gamma * Gamma) / 4;
+      const g = (x) => fr / ((x - Er) ** 2 + a3);
+      const series = [];
+      for (let k = 0; k <= 80; k += 1) {
+        const x = (200 * k) / 80;
+        series.push({x, y: g(x), highlight: false});
+      }
+      let chi2 = 0;
+      for (let i = 0; i < CS_E.length; i += 1) {
+        const resid = CS_G[i] - g(CS_E[i]);
+        chi2 += resid * resid;
+        series.push({x: CS_E[i], y: CS_G[i], highlight: true});
+      }
+      const dof = CS_E.length - 3;
+      return {
+        chartType: 'scatter',
+        yLabel: 'cross section g(E) [mb]',
+        series,
+        stats: [
+          {label: 'chi²', value: fmt(chi2, 2)},
+          {label: 'dof (N_D-M_P)', value: String(dof)},
+          {label: 'chi²/dof', value: fmt(chi2 / dof, 2)},
+        ],
+        note: 'Orange = Table 6.1 data. Blue = the Breit-Wigner theory curve at your chosen (f_r, E_r, Γ). chi²/dof near 1 is a good fit.',
+      };
+    },
+  },
+
+  linearSystem2D: {
+    id: 'linearSystem2D',
+    title: 'Solving Ax=b: two lines meeting at x',
+    subtitle: 'numpy.linalg.solve finds exactly where these two lines cross',
+    formula: '$a_{11}x+a_{12}y=b_1,\\qquad a_{21}x+a_{22}y=b_2$',
+    params: [
+      {
+        key: 'a11',
+        label: 'a11',
+        meaning: 'Coefficient of x in equation 1.',
+        min: -5,
+        max: 5,
+        step: 0.5,
+        default: 2,
+      },
+      {
+        key: 'a12',
+        label: 'a12',
+        meaning: 'Coefficient of y in equation 1.',
+        min: -5,
+        max: 5,
+        step: 0.5,
+        default: 1,
+      },
+      {
+        key: 'a21',
+        label: 'a21',
+        meaning: 'Coefficient of x in equation 2.',
+        min: -5,
+        max: 5,
+        step: 0.5,
+        default: 1,
+      },
+      {
+        key: 'a22',
+        label: 'a22',
+        meaning: 'Coefficient of y in equation 2.',
+        min: -5,
+        max: 5,
+        step: 0.5,
+        default: -3,
+      },
+    ],
+    example(v) {
+      return `A near-singular matrix (rows nearly parallel) makes the intersection point swing wildly — that is ill-conditioning.`;
+    },
+    compute(v) {
+      const a11 = clamp(v.a11, -5, 5) || 1e-6;
+      const a12 = clamp(v.a12, -5, 5);
+      const a21 = clamp(v.a21, -5, 5);
+      const a22 = clamp(v.a22, -5, 5) || 1e-6;
+      const b1 = 4;
+      const b2 = 1;
+      const det = a11 * a22 - a12 * a21;
+      const safeDet = Math.abs(det) < 1e-6 ? (det < 0 ? -1e-6 : 1e-6) : det;
+      const xSol = (b1 * a22 - a12 * b2) / safeDet;
+      const ySol = (a11 * b2 - b1 * a21) / safeDet;
+      const series = [];
+      const range = 6;
+      for (let k = 0; k <= 40; k += 1) {
+        const x = -range + (2 * range * k) / 40;
+        if (Math.abs(a12) > 1e-9) series.push({x, y: (b1 - a11 * x) / a12, highlight: false});
+        if (Math.abs(a22) > 1e-9) series.push({x, y: (b2 - a21 * x) / a22, highlight: false});
+      }
+      series.push({x: xSol, y: ySol, highlight: true});
+      return {
+        chartType: 'scatter',
+        yLabel: 'y',
+        series,
+        stats: [
+          {label: 'det(A)', value: fmt(det, 3)},
+          {label: 'x', value: fmt(xSol, 3)},
+          {label: 'y', value: fmt(ySol, 3)},
+        ],
+        note: 'Blue = the two equations as lines. Orange = the unique solution (x,y), exactly what solve(A,b) returns. As det(A) → 0 the lines become parallel and the solution point flies off to infinity.',
+      };
+    },
+  },
+
   sinTaylor: {
     id: 'sinTaylor',
     title: 'Sine series truncation',
@@ -2259,6 +2677,177 @@ export const PHYSICS_PRESETS = {
     },
   },
 
+  mcControlVariate: {
+    id: 'mcControlVariate',
+    title: 'Control-variate Monte Carlo',
+    subtitle: 'Plain ⟨e^{-x}⟩ vs residual + J for g=1−x on [0,1]',
+    formula:
+      '$I\\simeq\\dfrac{1}{N}\\sum\\bigl(e^{-x_i}-(1-x_i)\\bigr)+\\dfrac{1}{2}$',
+    params: [
+      {
+        key: 'N',
+        label: 'samples N',
+        meaning: 'Shared chapter-LCG stream for plain and CV estimates of ∫₀¹ e^{-x} dx.',
+        min: 64,
+        max: 16384,
+        step: 64,
+        default: 1000,
+      },
+      {
+        key: 'seed',
+        label: 'LCG seed',
+        meaning: 'Chapter LCG: advance then draw r/2³¹.',
+        min: 1,
+        max: 20,
+        step: 1,
+        default: 1,
+      },
+    ],
+    example(v) {
+      const N = Math.max(64, Math.floor(clamp(v.N, 64, 16384)));
+      return `Same N=${N} samples: plain mean of e^{-x} vs CV with g=1−x, J=1/2. CV should cut |E| when g tracks f.`;
+    },
+    compute(v) {
+      const Nfocus = Math.max(64, Math.floor(clamp(v.N, 64, 16384)));
+      const seed = Math.max(1, Math.floor(clamp(v.seed, 1, 20)));
+      const exact = 1 - Math.exp(-1);
+      const runBoth = (N) => {
+        const xs = lcgFloatSeq(seed, N);
+        let sF = 0;
+        let sRes = 0;
+        for (let i = 0; i < N; i += 1) {
+          const x = xs[i];
+          const fx = Math.exp(-x);
+          sF += fx;
+          sRes += fx - (1 - x);
+        }
+        return {plain: sF / N, cv: sRes / N + 0.5};
+      };
+      const focus = runBoth(Nfocus);
+      const series = [];
+      for (let N = 64; N <= 16384; N *= 2) {
+        const {plain, cv} = runBoth(N);
+        const mid = Math.log10(N);
+        // Blue = plain |E|; orange highlight = CV |E|.
+        series.push({
+          x: mid,
+          y: Math.log10(Math.abs(plain - exact) + 1e-18),
+          highlight: false,
+        });
+        series.push({
+          x: mid,
+          y: Math.log10(Math.abs(cv - exact) + 1e-18),
+          highlight: true,
+        });
+      }
+      return {
+        chartType: 'scatter',
+        yLabel: 'log₁₀ |Î−I| vs log₁₀ N (orange=CV)',
+        series,
+        stats: [
+          {label: 'N', value: String(Nfocus)},
+          {label: 'plain', value: fmt(focus.plain, 10)},
+          {label: 'CV', value: fmt(focus.cv, 10)},
+          {label: '|E_plain|', value: Math.abs(focus.plain - exact).toExponential(2)},
+          {label: '|E_CV|', value: Math.abs(focus.cv - exact).toExponential(2)},
+        ],
+        note: 'Orange = CV, blue = plain. Lower residual variance ⇒ smaller Monte Carlo error at the same N.',
+      };
+    },
+  },
+
+  mcRejection: {
+    id: 'mcRejection',
+    title: 'von Neumann rejection',
+    subtitle: 'Throw under a box of height w₀; keep points under w(x)',
+    formula: '$(x,W)=(U,w_0 V);\\;\\mathrm{accept\\ if\\ }W\\le w(x)$',
+    params: [
+      {
+        key: 'Nthrows',
+        label: 'throws',
+        meaning: 'Number of box throws. Each throw uses two chapter-LCG uniforms.',
+        min: 64,
+        max: 4096,
+        step: 64,
+        default: 1000,
+      },
+      {
+        key: 'seed',
+        label: 'LCG seed',
+        meaning: 'Chapter LCG seed for the rejection stream.',
+        min: 1,
+        max: 20,
+        step: 1,
+        default: 1,
+      },
+      {
+        key: 'shape',
+        label: 'w shape',
+        meaning: '1 → w(x)=2x on [0,1]; 2 → w(x)=2(1−x). Box height w₀=2 in both cases.',
+        min: 1,
+        max: 2,
+        step: 1,
+        default: 1,
+      },
+    ],
+    example(v) {
+      const N = Math.max(64, Math.floor(clamp(v.Nthrows, 64, 4096)));
+      const shape = Math.max(1, Math.floor(clamp(v.shape, 1, 2)));
+      const name = shape === 1 ? 'w=2x' : 'w=2(1−x)';
+      return `${N} throws under ${name}, w₀=2. Acceptance rate ≈ area(w)/area(box).`;
+    },
+    compute(v) {
+      const Nfocus = Math.max(64, Math.floor(clamp(v.Nthrows, 64, 4096)));
+      const seed = Math.max(1, Math.floor(clamp(v.seed, 1, 20)));
+      const shape = Math.max(1, Math.floor(clamp(v.shape, 1, 2)));
+      const w0 = 2;
+      const wAt = (x) => (shape === 1 ? 2 * x : 2 * (1 - x));
+      const run = (Nthrows) => {
+        const uv = lcgFloatSeq(seed, 2 * Nthrows);
+        let hits = 0;
+        const pts = [];
+        for (let i = 0; i < Nthrows; i += 1) {
+          const x = uv[2 * i];
+          const W = w0 * uv[2 * i + 1];
+          const ok = W <= wAt(x);
+          if (ok) hits += 1;
+          if (i < 120) {
+            pts.push({x, y: W, highlight: ok});
+          }
+        }
+        return {hits, rate: hits / Nthrows, pts};
+      };
+      const focus = run(Nfocus);
+      const curve = [];
+      for (let i = 0; i <= 40; i += 1) {
+        const x = i / 40;
+        curve.push({x, y: wAt(x), highlight: false, series: 'w'});
+      }
+      const series = [
+        ...curve,
+        ...focus.pts.map((p) => ({
+          x: p.x,
+          y: p.y,
+          highlight: p.highlight,
+          series: p.highlight ? 'accept' : 'reject',
+        })),
+      ];
+      return {
+        chartType: 'scatter',
+        yLabel: 'W vs x (curve = w)',
+        series,
+        stats: [
+          {label: 'throws', value: String(Nfocus)},
+          {label: 'accepted', value: String(focus.hits)},
+          {label: 'rate', value: fmt(focus.rate, 6)},
+          {label: 'w₀', value: String(w0)},
+          {label: 'w', value: shape === 1 ? '2x' : '2(1−x)'},
+        ],
+        note: 'Accepted x ~ w. Feed them into ⟨f/w⟩ for importance sampling (labs use inverse CDF when available).',
+      };
+    },
+  },
+
   besselUpDown: {
     id: 'besselUpDown',
     title: 'Upward vs downward j_ℓ',
@@ -2314,6 +2903,2139 @@ export const PHYSICS_PRESETS = {
           {label: 'up j₈', value: up[Math.min(8, L)].toExponential(4)},
         ],
         note: 'When j_ℓ is still O(1), up and down agree. Once upward has cancelled into n_ℓ garbage, the relative difference → 1.',
+      };
+    },
+  },
+
+  bisectionSearch: {
+    id: 'bisectionSearch',
+    title: 'Bisection (interval halving)',
+    subtitle: 'Bracket shrinks by 1/2 each step while f(x−)f(x+) stays negative',
+    formula: '$x=\\dfrac{x_{-}+x_{+}}{2},\\quad\\text{keep the half with }f(x_{-})f(x)<0$',
+    params: [
+      {
+        key: 'fn',
+        label: 'f',
+        meaning: '0: x³−x−2 on [1,2]. 1: (x−√2) on [1,2]. 2: cos(x) on [0,2].',
+        min: 0,
+        max: 2,
+        step: 1,
+        default: 0,
+      },
+      {
+        key: 'steps',
+        label: 'halvings N',
+        meaning: 'How many bisection steps to show. Width → W/2ᴺ.',
+        min: 1,
+        max: 24,
+        step: 1,
+        default: 8,
+      },
+    ],
+    example(v) {
+      const N = Math.max(1, Math.floor(v.steps));
+      const which = Math.floor(clamp(v.fn, 0, 2));
+      const names = ['x³−x−2', 'x−√2', 'cos x'];
+      return `After N=${N} steps on ${names[which]}, the surviving bracket half-width is initial_width/2^N.`;
+    },
+    compute(v) {
+      const which = Math.floor(clamp(v.fn, 0, 2));
+      const N = Math.max(1, Math.floor(v.steps));
+      const specs = [
+        {f: (x) => x * x * x - x - 2, a0: 1, b0: 2, root: 1.5213797068},
+        {f: (x) => x - Math.SQRT2, a0: 1, b0: 2, root: Math.SQRT2},
+        {f: (x) => Math.cos(x), a0: 0, b0: 2, root: Math.PI / 2},
+      ];
+      const {f, a0, b0, root} = specs[which];
+      let a = a0;
+      let b = b0;
+      let fa = f(a);
+      const history = [];
+      for (let i = 0; i < N; i += 1) {
+        const m = 0.5 * (a + b);
+        const fm = f(m);
+        history.push({n: i + 1, a, b, m, width: b - a});
+        if (fa * fm <= 0) {
+          b = m;
+        } else {
+          a = m;
+          fa = fm;
+        }
+      }
+      const mid = 0.5 * (a + b);
+      const series = history.map((h) => ({
+        x: h.n,
+        y: Math.log10(h.width + 1e-18),
+        highlight: h.n === N,
+      }));
+      return {
+        chartType: 'line',
+        yLabel: 'log₁₀ (bracket width) vs step',
+        series,
+        stats: [
+          {label: 'x−', value: fmt(a, 8)},
+          {label: 'x₊', value: fmt(b, 8)},
+          {label: 'mid', value: fmt(mid, 8)},
+          {label: '|mid−root|', value: Math.abs(mid - root).toExponential(2)},
+        ],
+        note: 'Linear convergence: each step cuts the uncertainty in half. Safe whenever a continuous f changes sign on the bracket.',
+      };
+    },
+  },
+
+  squareWellEven: {
+    id: 'squareWellEven',
+    title: 'Even square-well residual g(E)',
+    subtitle: 'g(E)=√E cot√(V₀−E) − √(V₀−E); root = bound energy',
+    formula: '$g(E)=\\sqrt{E}\\,\\cot\\sqrt{V_0-E}-\\sqrt{V_0-E}=0$',
+    params: [
+      {
+        key: 'V0',
+        label: 'V₀',
+        meaning: 'Well depth. 10 → one even root near 8.59; 20 → first even near 6.11.',
+        min: 10,
+        max: 20,
+        step: 10,
+        default: 10,
+      },
+      {
+        key: 'Emark',
+        label: 'E mark',
+        meaning: 'Highlight this trial energy on the curve (compare to the root).',
+        min: 0.5,
+        max: 19.5,
+        step: 0.1,
+        default: 8.6,
+      },
+    ],
+    example(v) {
+      const V0 = Math.floor(clamp(v.V0, 10, 20)) >= 15 ? 20 : 10;
+      const root = V0 === 10 ? 8.5927852752 : 6.1084670175;
+      return `V₀=${V0}: even root ≈ ${root.toFixed(4)}. Slide E mark across a sign-change bracket to see g flip.`;
+    },
+    compute(v) {
+      const V0 = Math.floor(clamp(v.V0, 10, 20)) >= 15 ? 20 : 10;
+      const Emark = clamp(v.Emark, 0.5, V0 - 0.05);
+      const gEven = (E) => {
+        if (E <= 0 || E >= V0) {
+          return NaN;
+        }
+        const ke = Math.sqrt(E);
+        const kappa = Math.sqrt(V0 - E);
+        const s = Math.sin(kappa);
+        if (Math.abs(s) < 1e-12) {
+          return NaN;
+        }
+        return (ke * Math.cos(kappa)) / s - kappa;
+      };
+      // Prefer a bracket known to trap the first even root.
+      let a = V0 === 10 ? 8.0 : 5.5;
+      let b = V0 === 10 ? 8.8 : 7.0;
+      let fa = gEven(a);
+      const eps = 1e-12;
+      while ((b - a) / 2 > eps) {
+        const m = 0.5 * (a + b);
+        const fm = gEven(m);
+        if (fa * fm <= 0) {
+          b = m;
+        } else {
+          a = m;
+          fa = fm;
+        }
+      }
+      const root = 0.5 * (a + b);
+      const series = [];
+      const lo = 0.2;
+      const hi = V0 - 0.05;
+      const nPts = 120;
+      for (let i = 0; i <= nPts; i += 1) {
+        const E = lo + ((hi - lo) * i) / nPts;
+        const y = gEven(E);
+        if (!Number.isFinite(y) || Math.abs(y) > 40) {
+          continue;
+        }
+        series.push({
+          x: E,
+          y,
+          highlight: Math.abs(E - Emark) < (hi - lo) / nPts || Math.abs(E - root) < 0.04,
+        });
+      }
+      const gMark = gEven(Emark);
+      return {
+        chartType: 'line',
+        yLabel: 'g(E) vs E',
+        series,
+        stats: [
+          {label: 'V₀', value: String(V0)},
+          {label: 'E_B', value: root.toFixed(10)},
+          {label: 'g(E_B)', value: Math.abs(gEven(root)).toExponential(2)},
+          {label: 'g(mark)', value: Number.isFinite(gMark) ? fmt(gMark, 4) : 'pole'},
+        ],
+        note: 'Zeros of g are even bound energies. Skip neighborhoods of sin√(V₀−E)=0 (poles). V₀=20 also has a higher even root near ~18.36.',
+      };
+    },
+  },
+
+  newtonRaphson: {
+    id: 'newtonRaphson',
+    title: 'Newton–Raphson (tangent update)',
+    subtitle: 'Δx = −f/f′; watch |Δx| drop much faster than bisection’s half-width',
+    formula: '$\\Delta x=-\\dfrac{f(x_0)}{f\'(x_0)},\\quad x\\leftarrow x_0+\\Delta x$',
+    params: [
+      {
+        key: 'fn',
+        label: 'f',
+        meaning: '0: x³−x−2 from 1.5. 1: even well g(E), V₀=10 from 8.5. 2: cos(x) from 1.0.',
+        min: 0,
+        max: 2,
+        step: 1,
+        default: 0,
+      },
+      {
+        key: 'steps',
+        label: 'Newton steps N',
+        meaning: 'How many updates to show. Near a root, |Δx| falls roughly quadratically.',
+        min: 1,
+        max: 12,
+        step: 1,
+        default: 5,
+      },
+    ],
+    example(v) {
+      const N = Math.max(1, Math.floor(v.steps));
+      const which = Math.floor(clamp(v.fn, 0, 2));
+      const names = ['x³−x−2', 'g(E) well', 'cos x'];
+      return `N=${N} Newton steps on ${names[which]}. Compare the |Δx| curve with bisection’s W/2ᴺ.`;
+    },
+    compute(v) {
+      const which = Math.floor(clamp(v.fn, 0, 2));
+      const N = Math.max(1, Math.floor(v.steps));
+      const dx = 1e-6;
+      const specs = [
+        {
+          f: (x) => x * x * x - x - 2,
+          x0: 1.5,
+          root: 1.5213797068,
+          clip: null,
+        },
+        {
+          f: (E) => {
+            const ke = Math.sqrt(E);
+            const kappa = Math.sqrt(10 - E);
+            const s = Math.sin(kappa);
+            if (Math.abs(s) < 1e-12) {
+              return NaN;
+            }
+            return (ke * Math.cos(kappa)) / s - kappa;
+          },
+          x0: 8.5,
+          root: 8.5927852752,
+          clip: [0.05, 9.95],
+        },
+        {
+          f: (x) => Math.cos(x),
+          x0: 1.0,
+          root: Math.PI / 2,
+          clip: null,
+        },
+      ];
+      const {f, x0, root, clip} = specs[which];
+      let x = x0;
+      const history = [];
+      for (let i = 0; i < N; i += 1) {
+        const fx = f(x);
+        const fp = (f(x + dx) - fx) / dx;
+        const step = -fx / (Math.abs(fp) < 1e-18 ? 1e-18 : fp);
+        history.push({n: i + 1, x, fx, step: Math.abs(step)});
+        x = x + step;
+        if (clip) {
+          x = Math.min(Math.max(x, clip[0]), clip[1]);
+        }
+      }
+      const series = history.map((h) => ({
+        x: h.n,
+        y: Math.log10(h.step + 1e-18),
+        highlight: h.n === N,
+      }));
+      return {
+        chartType: 'line',
+        yLabel: 'log₁₀ |Δx| vs Newton step',
+        series,
+        stats: [
+          {label: 'x₀', value: fmt(x0, 4)},
+          {label: 'x_N', value: fmt(x, 8)},
+          {label: '|x_N−root|', value: Math.abs(x - root).toExponential(2)},
+          {label: '|f(x_N)|', value: Math.abs(f(x)).toExponential(2)},
+        ],
+        note: 'Fast when the guess sits where f is nearly linear. Flat f′ or a bad start → use backtracking or warm up with bisection.',
+      };
+    },
+  },
+
+  magnetizationSearch: {
+    id: 'magnetizationSearch',
+    title: 'Mean-field magnetization m(t)',
+    subtitle: 'Root-find m − tanh(m/t) = 0; spontaneous m > 0 only for t < 1',
+    formula: '$m=\\tanh(m/t),\\quad f(m,t)=m-\\tanh(m/t)$',
+    params: [
+      {
+        key: 't',
+        label: 't = T/Tc',
+        meaning: 'Reduced temperature. Below 1: ordered branch; at/above 1: m=0 only.',
+        min: 0.1,
+        max: 1.5,
+        step: 0.05,
+        default: 0.5,
+      },
+      {
+        key: 'view',
+        label: 'view',
+        meaning: '0: residual f(m) at this t. 1: full m(t) curve with a mark at this t.',
+        min: 0,
+        max: 1,
+        step: 1,
+        default: 1,
+      },
+    ],
+    example(v) {
+      const t = clamp(v.t, 0.1, 1.5);
+      if (t >= 1) {
+        return `t=${t.toFixed(2)} ≥ 1: only m=0 (paramagnetic).`;
+      }
+      return `t=${t.toFixed(2)} < 1: nontrivial root of f(m,t)=0 is the spontaneous magnetization.`;
+    },
+    compute(v) {
+      const t = clamp(v.t, 0.1, 1.5);
+      const view = Math.floor(clamp(v.view, 0, 1));
+      const resid = (m, tt) => m - Math.tanh(m / tt);
+      const bisect = (tt) => {
+        if (tt >= 1) {
+          return 0;
+        }
+        let a = 1e-4;
+        let b = 1;
+        let fa = resid(a, tt);
+        for (let i = 0; i < 80; i += 1) {
+          const mid = 0.5 * (a + b);
+          const fm = resid(mid, tt);
+          if (fa * fm <= 0) {
+            b = mid;
+          } else {
+            a = mid;
+            fa = fm;
+          }
+        }
+        return 0.5 * (a + b);
+      };
+      const mStar = bisect(t);
+      if (view === 0) {
+        const series = [];
+        for (let i = 0; i <= 100; i += 1) {
+          const m = i / 100;
+          const y = t < 1e-9 ? m : resid(m, t);
+          if (!Number.isFinite(y) || Math.abs(y) > 5) {
+            continue;
+          }
+          series.push({
+            x: m,
+            y,
+            highlight: Math.abs(m - mStar) < 0.02 || m === 0,
+          });
+        }
+        return {
+          chartType: 'line',
+          yLabel: 'f(m,t) vs m',
+          series,
+          stats: [
+            {label: 't', value: t.toFixed(2)},
+            {label: 'm*', value: mStar.toFixed(6)},
+            {label: 'f(m*)', value: Math.abs(resid(mStar, Math.max(t, 1e-9))).toExponential(2)},
+          ],
+          note: 'm=0 is always a root. For t<1 a second crossing gives spontaneous order.',
+        };
+      }
+      const series = [];
+      for (let i = 1; i <= 40; i += 1) {
+        const ti = (1.5 * i) / 40;
+        const mi = bisect(ti);
+        series.push({
+          x: ti,
+          y: mi,
+          highlight: Math.abs(ti - t) < 0.04,
+        });
+      }
+      return {
+        chartType: 'line',
+        yLabel: 'm(t) vs t',
+        series,
+        stats: [
+          {label: 't mark', value: t.toFixed(2)},
+          {label: 'm(t)', value: mStar.toFixed(6)},
+          {label: 'Tc', value: 't=1'},
+        ],
+        note: 'Ordered branch falls smoothly toward 0 as t→1⁻, then stays at 0 above Tc.',
+      };
+    },
+  },
+
+  harmonicEulerRk: {
+    id: 'harmonicEulerRk',
+    title: 'Euler vs RK2 vs analytic (harmonic)',
+    subtitle: 'Fixed-step errors on x″=−ω²x with ω=2π, x(0)=0, v(0)=1',
+    formula: '$x(t)=A\\sin(\\omega t),\\quad A=1/\\omega$',
+    params: [
+      {
+        key: 'logh',
+        label: 'log₁₀ h',
+        meaning: 'Step size for marching to t=0.25. Smaller h reduces truncation; too small eventually hits round-off.',
+        min: -3,
+        max: -1,
+        step: 0.1,
+        default: -2,
+      },
+    ],
+    example(v) {
+      const h = 10 ** clamp(v.logh, -3, -1);
+      return `March to t=0.25 with h=${h.toPrecision(3)}. Compare Euler / RK2 displacement to A=1/(2π).`;
+    },
+    compute(v) {
+      const logh = clamp(v.logh, -3, -1);
+      const hNow = 10 ** logh;
+      const omega = 2 * Math.PI;
+      const k = omega * omega;
+      const A = 1 / omega;
+      const tEnd = 0.25;
+      const analytic = A * Math.sin(omega * tEnd);
+
+      const integrate = (method, h) => {
+        let x = 0;
+        let vel = 1;
+        const n = Math.max(1, Math.round(tEnd / h));
+        const hh = tEnd / n;
+        for (let i = 0; i < n; i += 1) {
+          if (method === 'euler') {
+            const a = -k * x;
+            x += hh * vel;
+            vel += hh * a;
+          } else {
+            const f = (xx, vv) => [vv, -k * xx];
+            const [f0, f1] = f(x, vel);
+            const k1x = hh * f0;
+            const k1v = hh * f1;
+            const [g0, g1] = f(x + 0.5 * k1x, vel + 0.5 * k1v);
+            x += hh * g0;
+            vel += hh * g1;
+          }
+        }
+        return x;
+      };
+
+      const series = [];
+      for (let lh = -3; lh <= -1.001; lh += 0.1) {
+        const h = 10 ** lh;
+        const xe = integrate('euler', h);
+        series.push({
+          x: lh,
+          y: Math.log10(Math.abs(xe - analytic) + 1e-16),
+          highlight: Math.abs(lh - logh) < 0.06,
+        });
+      }
+      const xE = integrate('euler', hNow);
+      const xR = integrate('rk2', hNow);
+      return {
+        chartType: 'line',
+        yLabel: 'log₁₀ |x_Euler(0.25) − analytic| vs log₁₀ h',
+        series,
+        stats: [
+          {label: 'h', value: hNow.toExponential(2)},
+          {label: 'analytic', value: analytic.toFixed(10)},
+          {label: 'Euler x', value: xE.toFixed(10)},
+          {label: 'RK2 x', value: xR.toFixed(10)},
+          {label: '|RK2−A|', value: Math.abs(xR - analytic).toExponential(2)},
+        ],
+        note: 'RK2 sits much closer to A sin(ωt) than Euler at the same h. Labs lock h=0.01.',
+      };
+    },
+  },
+
+  sawtoothFourierSum: {
+    id: 'sawtoothFourierSum',
+    title: 'Sawtooth Fourier partial sum',
+    subtitle: 'Odd ramp y=2t/T on (−T/2,T/2); bn=2(−1)^{n+1}/(nπ)',
+    formula: '$y_N(t)=\\sum_{n=1}^{N}\\dfrac{2(-1)^{n+1}}{n\\pi}\\sin(n\\omega t)$',
+    params: [
+      {
+        key: 'N',
+        label: 'N (last harmonic)',
+        meaning: 'Truncate after harmonic N. Larger N sharpens corners but keeps Gibbs overshoot near jumps.',
+        min: 1,
+        max: 40,
+        step: 1,
+        default: 4,
+      },
+      {
+        key: 'tfrac',
+        label: 't / T',
+        meaning: 'Sample time within one period. At t/T=0.5 the series sits at the jump midpoint (0).',
+        min: 0,
+        max: 1,
+        step: 0.01,
+        default: 0.25,
+      },
+    ],
+    example(v) {
+      const N = Math.round(clamp(v.N, 1, 40));
+      const tf = clamp(v.tfrac, 0, 1);
+      return `Partial sum with N=${N} at t/T=${tf.toFixed(2)}. True odd ramp on (−1/2,1/2) is y=2(t/T) when |t/T|<1/2.`;
+    },
+    compute(v) {
+      const N = Math.max(1, Math.round(clamp(v.N, 1, 40)));
+      const tf = clamp(v.tfrac, 0, 1);
+      const pi = Math.PI;
+      const partial = (wt, nMax) => {
+        let s = 0;
+        for (let n = 1; n <= nMax; n += 1) {
+          const bn = ((2 / (n * pi)) * ((-1) ** (n + 1)));
+          s += bn * Math.sin(n * wt);
+        }
+        return s;
+      };
+      const trueOdd = (u) => {
+        // u = t/T in [0,1); map to (−0.5,0.5]
+        let x = u;
+        if (x > 0.5) x -= 1;
+        if (Math.abs(x - 0.5) < 1e-12 || Math.abs(x + 0.5) < 1e-12) return 0;
+        return 2 * x;
+      };
+      const series = [];
+      for (let i = 0; i <= 100; i += 1) {
+        const u = i / 100;
+        const wt = 2 * pi * u;
+        series.push({
+          x: u,
+          y: partial(wt, N),
+          highlight: Math.abs(u - tf) < 0.008,
+        });
+      }
+      const wtSample = 2 * pi * tf;
+      const yN = partial(wtSample, N);
+      const yTrue = trueOdd(tf);
+      const b1 = 2 / pi;
+      return {
+        chartType: 'line',
+        yLabel: `y_N(t) vs t/T (N=${N})`,
+        series,
+        stats: [
+          {label: 'N', value: String(N)},
+          {label: 't/T', value: tf.toFixed(2)},
+          {label: 'y_N', value: yN.toFixed(10)},
+          {label: 'true ramp', value: yTrue.toFixed(10)},
+          {label: '|y_N−true|', value: Math.abs(yN - yTrue).toExponential(2)},
+          {label: 'b₁', value: b1.toFixed(10)},
+        ],
+        note: 'At t/T=1/2 every sin(nπ)=0 → y_N=0 (jump midpoint). Near the jump, raise N to see Gibbs ringing.',
+      };
+    },
+  },
+
+  dftNyquistAlias: {
+    id: 'dftNyquistAlias',
+    title: 'Sampling rate vs Nyquist / aliasing',
+    subtitle: 'Compare sin(πt/2) and sin(2πt) under stride sampling',
+    formula: '$s=1/h,\\quad f_{\\mathrm{Nyq}}=s/2$',
+    params: [
+      {
+        key: 'h',
+        label: 'sample stride h',
+        meaning: 'Time between samples. Large h → low s → aliasing risk for high-f tones.',
+        min: 0.25,
+        max: 2,
+        step: 0.25,
+        default: 2,
+      },
+    ],
+    example(v) {
+      const h = clamp(v.h, 0.25, 2);
+      const s = 1 / h;
+      return `Sampling rate s=${s.toFixed(2)}; Nyquist=${(s / 2).toFixed(2)}. High tone f=1; low tone f=0.25.`;
+    },
+    compute(v) {
+      const h = clamp(v.h, 0.25, 2);
+      const s = 1 / h;
+      const nyq = s / 2;
+      const fLo = 0.25;
+      const fHi = 1.0;
+      const series = [];
+      for (let i = 0; i <= 80; i += 1) {
+        const t = (i / 80) * 8;
+        series.push({
+          x: t,
+          y: Math.sin(2 * Math.PI * fLo * t),
+          highlight: Math.abs((t / h) - Math.round(t / h)) < 1e-9 || Math.abs(t % h) < 1e-9,
+        });
+      }
+      // sample max |hi-lo| on the grid
+      let maxDiff = 0;
+      const samples = [];
+      for (let t = 0; t <= 8 + 1e-9; t += h) {
+        const lo = Math.sin(2 * Math.PI * fLo * t);
+        const hi = Math.sin(2 * Math.PI * fHi * t);
+        maxDiff = Math.max(maxDiff, Math.abs(hi - lo));
+        samples.push({t, lo, hi});
+      }
+      const aliases = fHi > nyq;
+      return {
+        chartType: 'line',
+        yLabel: 'sin(2π·0.25·t) continuous (samples highlighted near grid)',
+        series,
+        stats: [
+          {label: 'h', value: h.toFixed(2)},
+          {label: 's', value: s.toFixed(4)},
+          {label: 'Nyquist', value: nyq.toFixed(4)},
+          {label: 'f_hi', value: fHi.toFixed(2)},
+          {label: 'f_hi > Nyq?', value: aliases ? 'yes (alias risk)' : 'no'},
+          {label: 'max |hi−lo| on grid', value: maxDiff.toExponential(2)},
+          {label: '# samples in [0,8]', value: String(samples.length)},
+        ],
+        note: 'At h=2, s=0.5 and Nyquist=0.25: the f=1 tone sits far above Nyquist and can impersonate lower bins.',
+      };
+    },
+  },
+
+  rcFilterGain: {
+    id: 'rcFilterGain',
+    title: 'RC lowpass / highpass |H(ω)|',
+    subtitle: 'τ=RC; compare |1/(1+iωτ)| vs |iωτ/(1+iωτ)|',
+    formula: '$|H_{\\mathrm{lp}}|=1/\\sqrt{1+(\\omega\\tau)^2}$',
+    params: [
+      {
+        key: 'logwt',
+        label: 'log₁₀(ωτ)',
+        meaning: 'Dimensionless frequency. ωτ=1 is the corner (|H_lp|=1/√2).',
+        min: -2,
+        max: 2,
+        step: 0.1,
+        default: 0,
+      },
+    ],
+    example(v) {
+      const wt = 10 ** clamp(v.logwt, -2, 2);
+      return `At ωτ=${wt.toPrecision(3)}, compare lowpass and highpass magnitudes.`;
+    },
+    compute(v) {
+      const logwt = clamp(v.logwt, -2, 2);
+      const wtNow = 10 ** logwt;
+      const series = [];
+      for (let lw = -2; lw <= 2.001; lw += 0.1) {
+        const wt = 10 ** lw;
+        const lp = 1 / Math.sqrt(1 + wt * wt);
+        series.push({
+          x: lw,
+          y: lp,
+          highlight: Math.abs(lw - logwt) < 0.06,
+        });
+      }
+      const lp = 1 / Math.sqrt(1 + wtNow * wtNow);
+      const hp = Math.abs(wtNow) / Math.sqrt(1 + wtNow * wtNow);
+      return {
+        chartType: 'line',
+        yLabel: '|H_lp| vs log₁₀(ωτ)',
+        series,
+        stats: [
+          {label: 'ωτ', value: wtNow.toExponential(2)},
+          {label: '|H_lp|', value: lp.toFixed(10)},
+          {label: '|H_hp|', value: hp.toFixed(10)},
+          {label: '|H_lp|²', value: (lp * lp).toFixed(10)},
+        ],
+        note: 'Labs lock ωτ=1 → |H_lp|=|H_hp|=1/√2 ≈ 0.7071067812.',
+      };
+    },
+  },
+
+  fftCostScaling: {
+    id: 'fftCostScaling',
+    title: 'DFT vs FFT operation count',
+    subtitle: 'Compare N² to N log₂ N',
+    formula: '$N^{2}\\ \\text{vs}\\ N\\log_2 N$',
+    params: [
+      {
+        key: 'logN',
+        label: 'log₂ N',
+        meaning: 'Transform length N=2^{log₂ N} (radix-2 friendly).',
+        min: 4,
+        max: 16,
+        step: 1,
+        default: 10,
+      },
+    ],
+    example(v) {
+      const L = Math.round(clamp(v.logN, 4, 16));
+      const N = 2 ** L;
+      return `N=${N}: naive ~N² vs FFT ~N log₂ N.`;
+    },
+    compute(v) {
+      const L = Math.max(4, Math.min(16, Math.round(clamp(v.logN, 4, 16))));
+      const series = [];
+      for (let ell = 4; ell <= 16; ell += 1) {
+        const N = 2 ** ell;
+        const ratio = N / ell;
+        series.push({
+          x: ell,
+          y: Math.log10(ratio),
+          highlight: ell === L,
+        });
+      }
+      const N = 2 ** L;
+      const naive = N * N;
+      const fft = N * L;
+      return {
+        chartType: 'line',
+        yLabel: 'log₁₀(N² / (N log₂ N)) vs log₂ N',
+        series,
+        stats: [
+          {label: 'N', value: String(N)},
+          {label: 'N²', value: naive.toExponential(2)},
+          {label: 'N log₂ N', value: fft.toExponential(2)},
+          {label: 'ratio', value: (naive / fft).toFixed(1)},
+        ],
+        note: 'At N=1024 (log₂ N=10) the ratio is 102.4 — locked in the lab.',
+      };
+    },
+  },
+
+  uncertaintyPacket: {
+    id: 'uncertaintyPacket',
+    title: 'N-cycle burst: Δt Δω',
+    subtitle: 'Δt = N·2π/ω₀, Δω = ω₀/N → product ≳ 2π',
+    formula: '$\\Delta t\\,\\Delta\\omega \\gtrsim 2\\pi$',
+    params: [
+      {
+        key: 'N',
+        label: 'N (cycles)',
+        meaning: 'Number of oscillations in the sine burst before it is zeroed.',
+        min: 2,
+        max: 20,
+        step: 1,
+        default: 6,
+      },
+      {
+        key: 'omega0',
+        label: 'ω₀',
+        meaning: 'Carrier frequency of the burst.',
+        min: 2,
+        max: 12,
+        step: 0.5,
+        default: 5,
+      },
+    ],
+    example(v) {
+      const N = Math.round(clamp(v.N, 2, 20));
+      const w0 = clamp(v.omega0, 2, 12);
+      return `Burst of N=${N} cycles at ω₀=${w0}. Compare Δt, Δω, and their product to 2π.`;
+    },
+    compute(v) {
+      const N = Math.max(2, Math.round(clamp(v.N, 2, 20)));
+      const w0 = clamp(v.omega0, 2, 12);
+      const dt = (N * 2 * Math.PI) / w0;
+      const dw = w0 / N;
+      const prod = dt * dw;
+      const series = [];
+      for (let n = 2; n <= 20; n += 1) {
+        series.push({
+          x: n,
+          y: (n * 2 * Math.PI) / w0,
+          highlight: n === N,
+        });
+      }
+      return {
+        chartType: 'line',
+        yLabel: 'Δt vs N (fixed ω₀)',
+        series,
+        stats: [
+          {label: 'N', value: String(N)},
+          {label: 'ω₀', value: w0.toFixed(2)},
+          {label: 'Δt', value: dt.toFixed(10)},
+          {label: 'Δω', value: dw.toFixed(10)},
+          {label: 'Δt Δω', value: prod.toFixed(10)},
+          {label: '2π', value: (2 * Math.PI).toFixed(10)},
+          {label: 'C', value: (prod / (2 * Math.PI)).toFixed(10)},
+        ],
+        note: 'Labs lock N=6, ω₀=5 → product = 2π and C=1 for this width definition.',
+      };
+    },
+  },
+
+  waveletScaleFreq: {
+    id: 'waveletScaleFreq',
+    title: 'Wavelet scale ↔ frequency',
+    subtitle: 'ω = 2π/s ; small s is high frequency / fine detail',
+    formula: '$\\omega=2\\pi/s$',
+    params: [
+      {
+        key: 'logs',
+        label: 'log₁₀ s',
+        meaning: 'Scale of the daughter. Negative log ⇒ s<1 ⇒ higher ω.',
+        min: -1,
+        max: 1,
+        step: 0.1,
+        default: 0,
+      },
+    ],
+    example(v) {
+      const s = 10 ** clamp(v.logs, -1, 1);
+      const w = (2 * Math.PI) / s;
+      return `s=${s.toPrecision(3)} maps to ω=${w.toPrecision(3)} (and period 2π/ω=${s.toPrecision(3)}).`;
+    },
+    compute(v) {
+      const logs = clamp(v.logs, -1, 1);
+      const sNow = 10 ** logs;
+      const series = [];
+      for (let ls = -1; ls <= 1.001; ls += 0.1) {
+        const s = 10 ** ls;
+        series.push({
+          x: ls,
+          y: Math.log10((2 * Math.PI) / s),
+          highlight: Math.abs(ls - logs) < 0.06,
+        });
+      }
+      const w = (2 * Math.PI) / sNow;
+      return {
+        chartType: 'line',
+        yLabel: 'log₁₀ ω vs log₁₀ s',
+        series,
+        stats: [
+          {label: 's', value: sNow.toFixed(6)},
+          {label: 'ω', value: w.toFixed(10)},
+          {label: '1/√s', value: (1 / Math.sqrt(sNow)).toFixed(10)},
+        ],
+        note: 'Labs lock s=2 → ω=π and ω=π → s=2.',
+      };
+    },
+  },
+
+  daub4Coeffs: {
+    id: 'daub4Coeffs',
+    title: 'Daub4 filter taps',
+    subtitle: 'c₀…c₃ from orthogonality + vanishing moments',
+    formula: '$c_0=(1+\\sqrt{3})/(4\\sqrt{2}),\\ \\ldots$',
+    params: [
+      {
+        key: 'which',
+        label: 'coefficient index 0–3',
+        meaning: 'Which Daub4 tap to highlight.',
+        min: 0,
+        max: 3,
+        step: 1,
+        default: 0,
+      },
+    ],
+    example(v) {
+      const i = Math.round(clamp(v.which, 0, 3));
+      return `Show Daub4 c_${i} and the sum-of-squares / vanishing-moment checks.`;
+    },
+    compute(v) {
+      const i = Math.max(0, Math.min(3, Math.round(clamp(v.which, 0, 3))));
+      const s3 = Math.sqrt(3);
+      const s2 = Math.sqrt(2);
+      const c = [
+        (1 + s3) / (4 * s2),
+        (3 + s3) / (4 * s2),
+        (3 - s3) / (4 * s2),
+        (1 - s3) / (4 * s2),
+      ];
+      const series = c.map((val, idx) => ({
+        x: idx,
+        y: val,
+        highlight: idx === i,
+      }));
+      const sumsq = c.reduce((a, b) => a + b * b, 0);
+      const Hones = c[3] - c[2] + c[1] - c[0];
+      const Hramp = 0 * c[3] - 1 * c[2] + 2 * c[1] - 3 * c[0];
+      return {
+        chartType: 'line',
+        yLabel: 'cᵢ vs index',
+        series,
+        stats: [
+          {label: `c_${i}`, value: c[i].toFixed(10)},
+          {label: 'Σ c²', value: sumsq.toFixed(10)},
+          {label: 'H·[1,1,1,1]', value: Hones.toFixed(10)},
+          {label: 'H·[0,1,2,3]', value: Hramp.toFixed(10)},
+          {label: 'L·[1,1,1,1]', value: (c[0] + c[1] + c[2] + c[3]).toFixed(10)},
+        ],
+        note: 'Labs lock c0≈0.4829629131, Σc²=1, H on ramp≈0, L on ones=√2.',
+      };
+    },
+  },
+  pca2dDemo: {
+    id: 'pca2dDemo',
+    title: '2D PCA: λ₁ share',
+    subtitle: 'For a 2×2 covariance, slide corr / scales → fraction of variance in PC₁',
+    formula: '$C=\\tfrac1{N-1}XX^{T},\\quad \\lambda_1/(\\lambda_1+\\lambda_2)$',
+    params: [
+      {
+        key: 'sx',
+        label: 'σₓ',
+        meaning: 'Std. deviation along x (√Var x).',
+        min: 0.4,
+        max: 2,
+        step: 0.1,
+        default: 0.8,
+      },
+      {
+        key: 'sy',
+        label: 'σᵧ',
+        meaning: 'Std. deviation along y.',
+        min: 0.4,
+        max: 2,
+        step: 0.1,
+        default: 0.85,
+      },
+      {
+        key: 'rho',
+        label: 'ρ = corr(x,y)',
+        meaning: 'Correlation; cov = ρ σₓ σᵧ.',
+        min: -0.95,
+        max: 0.95,
+        step: 0.05,
+        default: 0.9,
+      },
+    ],
+    example(v) {
+      const sx = clamp(v.sx, 0.4, 2);
+      const sy = clamp(v.sy, 0.4, 2);
+      const rho = clamp(v.rho, -0.95, 0.95);
+      return `C = [[σₓ², ρσₓσᵧ],[…, σᵧ²]] with σₓ=${fmt(sx, 2)}, σᵧ=${fmt(sy, 2)}, ρ=${fmt(rho, 2)}.`;
+    },
+    compute(v) {
+      const sx = clamp(v.sx, 0.4, 2);
+      const sy = clamp(v.sy, 0.4, 2);
+      const rho = clamp(v.rho, -0.95, 0.95);
+      const a = sx * sx;
+      const c = sy * sy;
+      const b = rho * sx * sy;
+      const tr = a + c;
+      const disc = Math.sqrt(Math.max(0, tr * tr - 4 * (a * c - b * b)));
+      const l1 = (tr + disc) / 2;
+      const l2 = (tr - disc) / 2;
+      const share = l1 / (l1 + l2 + 1e-30);
+      const series = [];
+      for (let r = -0.95; r <= 0.951; r += 0.05) {
+        const bb = r * sx * sy;
+        const d = Math.sqrt(Math.max(0, tr * tr - 4 * (a * c - bb * bb)));
+        const L1 = (tr + d) / 2;
+        const L2 = (tr - d) / 2;
+        series.push({
+          x: r,
+          y: L1 / (L1 + L2 + 1e-30),
+          highlight: Math.abs(r - rho) < 0.03,
+        });
+      }
+      return {
+        chartType: 'line',
+        yLabel: 'λ₁ / (λ₁+λ₂) vs ρ',
+        series,
+        stats: [
+          {label: 'Var x', value: a.toFixed(10)},
+          {label: 'cov', value: b.toFixed(10)},
+          {label: 'Var y', value: c.toFixed(10)},
+          {label: 'λ₁', value: l1.toFixed(10)},
+          {label: 'λ₂', value: l2.toFixed(10)},
+          {label: 'λ₁ share', value: share.toFixed(10)},
+        ],
+        note: 'Smith demo (labs): λ₁≈1.284, λ₂≈0.049, share ≈ 96%. High |ρ| → most power in PC₁.',
+      };
+    },
+  },
+  nnSigmoidNeuron: {
+    id: 'nnSigmoidNeuron',
+    title: 'Neuron: Σ → sigmoid',
+    subtitle: 'y = σ(w₁x₁ + w₂x₂ + b) — slide weights and inputs',
+    formula: '$y=\\sigma(w_1 x_1+w_2 x_2+b),\\quad \\sigma(z)=1/(1+e^{-z})$',
+    params: [
+      {
+        key: 'w1',
+        label: 'w₁',
+        meaning: 'Weight on first input.',
+        min: -2,
+        max: 2,
+        step: 0.1,
+        default: -1,
+      },
+      {
+        key: 'w2',
+        label: 'w₂',
+        meaning: 'Weight on second input.',
+        min: -2,
+        max: 2,
+        step: 0.1,
+        default: 1,
+      },
+      {
+        key: 'b',
+        label: 'bias b',
+        meaning: 'Additive bias before the activation.',
+        min: -2,
+        max: 2,
+        step: 0.1,
+        default: 0,
+      },
+      {
+        key: 'x1',
+        label: 'x₁',
+        meaning: 'First input.',
+        min: -5,
+        max: 15,
+        step: 0.5,
+        default: 12,
+      },
+      {
+        key: 'x2',
+        label: 'x₂',
+        meaning: 'Second input.',
+        min: -5,
+        max: 15,
+        step: 0.5,
+        default: 8,
+      },
+    ],
+    example(v) {
+      const z = v.w1 * v.x1 + v.w2 * v.x2 + v.b;
+      return `Σ=${fmt(z, 3)} → σ(Σ). Try the hand check w=(-1,1), x=(12,8), b=0 → Σ=-4.`;
+    },
+    compute(v) {
+      const w1 = clamp(v.w1, -2, 2);
+      const w2 = clamp(v.w2, -2, 2);
+      const b = clamp(v.b, -2, 2);
+      const x1 = clamp(v.x1, -5, 15);
+      const x2 = clamp(v.x2, -5, 15);
+      const z = w1 * x1 + w2 * x2 + b;
+      const y = 1 / (1 + Math.exp(-z));
+      const series = [];
+      for (let t = -6; t <= 6.01; t += 0.25) {
+        series.push({
+          x: t,
+          y: 1 / (1 + Math.exp(-t)),
+          highlight: Math.abs(t - z) < 0.2,
+        });
+      }
+      return {
+        chartType: 'line',
+        yLabel: 'σ(z) vs z',
+        series,
+        stats: [
+          {label: 'Σ', value: z.toFixed(10)},
+          {label: 'y=σ(Σ)', value: y.toFixed(10)},
+          {label: 'σ′(Σ)', value: (y * (1 - y)).toFixed(10)},
+        ],
+        note: 'Labs lock Σ=-4 for the textbook hand check; σ(0)=0.5.',
+      };
+    },
+  },
+  nnLossSgd: {
+    id: 'nnLossSgd',
+    title: 'SGD: one weight step',
+    subtitle: 'w ← w − η ∂ℒ/∂w — watch the update size',
+    formula: '$w^{\\mathrm{new}}=w-\\eta\\,\\partial\\mathcal{L}/\\partial w$',
+    params: [
+      {
+        key: 'w',
+        label: 'w',
+        meaning: 'Current weight.',
+        min: -2,
+        max: 2,
+        step: 0.05,
+        default: 1,
+      },
+      {
+        key: 'grad',
+        label: '∂ℒ/∂w',
+        meaning: 'Loss gradient w.r.t. this weight.',
+        min: -0.1,
+        max: 0.1,
+        step: 0.005,
+        default: 0.0215,
+      },
+      {
+        key: 'eta',
+        label: 'η',
+        meaning: 'Learning rate.',
+        min: 0.05,
+        max: 2,
+        step: 0.05,
+        default: 0.5,
+      },
+    ],
+    example(v) {
+      return `Step Δw = −η·grad = ${fmt(-v.eta * v.grad, 4)}.`;
+    },
+    compute(v) {
+      const w = clamp(v.w, -2, 2);
+      const g = clamp(v.grad, -0.1, 0.1);
+      const eta = clamp(v.eta, 0.05, 2);
+      const wNew = w - eta * g;
+      const series = [];
+      for (let e = 0.05; e <= 2.001; e += 0.05) {
+        series.push({
+          x: e,
+          y: w - e * g,
+          highlight: Math.abs(e - eta) < 0.03,
+        });
+      }
+      return {
+        chartType: 'line',
+        yLabel: 'w_new vs η',
+        series,
+        stats: [
+          {label: 'w', value: w.toFixed(10)},
+          {label: '∂ℒ/∂w', value: g.toFixed(10)},
+          {label: 'η', value: eta.toFixed(10)},
+          {label: 'w_new', value: wNew.toFixed(10)},
+          {label: 'Δw', value: (-eta * g).toFixed(10)},
+        ],
+        note: 'Lab lock: w=1, η=0.5, grad≈0.02147 → w_new≈0.9893.',
+      };
+    },
+  },
+  nnMassExcess: {
+    id: 'nnMassExcess',
+    title: 'Nuclear mass excess',
+    subtitle: 'Δ = (M − A) × 931.494028 MeV/c² — slide M for fixed A',
+    formula: '$\\Delta=(M-A)\\times 931.494028$',
+    params: [
+      {
+        key: 'M',
+        label: 'M (u)',
+        meaning: 'Atomic mass in Daltons.',
+        min: 1.0,
+        max: 7.1,
+        step: 0.001,
+        default: 1.008,
+      },
+      {
+        key: 'A',
+        label: 'A',
+        meaning: 'Mass number (integer-ish).',
+        min: 1,
+        max: 7,
+        step: 1,
+        default: 1,
+      },
+    ],
+    example(v) {
+      const d = (v.M - v.A) * 931.494028;
+      return `M=${fmt(v.M, 6)} u, A=${Math.round(v.A)} → Δ≈${fmt(d, 4)} MeV/c².`;
+    },
+    compute(v) {
+      const M = clamp(v.M, 1.0, 7.1);
+      const A = Math.round(clamp(v.A, 1, 7));
+      const factor = 931.494028;
+      const excess = (M - A) * factor;
+      const series = [];
+      for (let a = 1; a <= 7; a += 1) {
+        const approxM = a + excess / factor;
+        series.push({
+          x: a,
+          y: (approxM - a) * factor,
+          highlight: a === A,
+        });
+      }
+      // Better series: excess vs A at fixed (M-A) offset using current excess
+      const offset = M - A;
+      const series2 = [];
+      for (let a = 1; a <= 7; a += 1) {
+        series2.push({
+          x: a,
+          y: offset * factor,
+          highlight: a === A,
+        });
+      }
+      return {
+        chartType: 'line',
+        yLabel: 'Δ (MeV/c²) at current (M−A)',
+        series: series2,
+        stats: [
+          {label: 'M (u)', value: M.toFixed(10)},
+          {label: 'A', value: String(A)},
+          {label: 'M−A', value: (M - A).toFixed(10)},
+          {label: 'Δ (MeV/c²)', value: excess.toFixed(10)},
+        ],
+        note: 'Labs lock ¹H: M=1.007827032 → Δ≈7.2908335650 MeV/c².',
+      };
+    },
+  },
+  nnKmeans1d: {
+    id: 'nnKmeans1d',
+    title: '1D k-means assign',
+    subtitle: 'Slide a mass between three centroids — watch the nearest label',
+    formula: '$\\mathrm{label}=\\arg\\min_j (x-c_j)^2$',
+    params: [
+      {
+        key: 'x',
+        label: 'mass x',
+        meaning: 'Particle mass (MeV/c²).',
+        min: 0,
+        max: 1700,
+        step: 10,
+        default: 140,
+      },
+      {
+        key: 'c0',
+        label: 'c₀',
+        meaning: 'Centroid 0.',
+        min: 0,
+        max: 400,
+        step: 10,
+        default: 100,
+      },
+      {
+        key: 'c1',
+        label: 'c₁',
+        meaning: 'Centroid 1.',
+        min: 200,
+        max: 900,
+        step: 10,
+        default: 600,
+      },
+      {
+        key: 'c2',
+        label: 'c₂',
+        meaning: 'Centroid 2.',
+        min: 800,
+        max: 1700,
+        step: 20,
+        default: 1200,
+      },
+    ],
+    example(v) {
+      const cs = [v.c0, v.c1, v.c2];
+      let best = 0;
+      let bestD = Infinity;
+      for (let i = 0; i < 3; i += 1) {
+        const d = (v.x - cs[i]) ** 2;
+        if (d < bestD) {
+          bestD = d;
+          best = i;
+        }
+      }
+      return `x=${fmt(v.x, 1)} → nearest centroid index ${best} (d²=${fmt(bestD, 1)}).`;
+    },
+    compute(v) {
+      const x = clamp(v.x, 0, 1700);
+      const cs = [clamp(v.c0, 0, 400), clamp(v.c1, 200, 900), clamp(v.c2, 800, 1700)];
+      let best = 0;
+      let bestD = Infinity;
+      for (let i = 0; i < 3; i += 1) {
+        const d = (x - cs[i]) ** 2;
+        if (d < bestD) {
+          bestD = d;
+          best = i;
+        }
+      }
+      const series = cs.map((c, i) => ({
+        x: c,
+        y: (x - c) ** 2,
+        highlight: i === best,
+      }));
+      return {
+        chartType: 'line',
+        yLabel: '(x−c)² vs centroid location',
+        series,
+        stats: [
+          {label: 'x', value: x.toFixed(10)},
+          {label: 'label', value: String(best)},
+          {label: 'min d²', value: bestD.toFixed(10)},
+          {label: 'c₀', value: cs[0].toFixed(10)},
+          {label: 'c₁', value: cs[1].toFixed(10)},
+          {label: 'c₂', value: cs[2].toFixed(10)},
+        ],
+        note: 'Labs: init (100,600,1200); electron → label 0; then update c₀≈89.42.',
+      };
+    },
+  },
+  nnDenseLinear: {
+    id: 'nnDenseLinear',
+    title: 'Dense units=1 map',
+    subtitle: 'y = w x + b — slide w, b, x (Keras linear layer)',
+    formula: '$y=wx+b$',
+    params: [
+      {
+        key: 'w',
+        label: 'w',
+        meaning: 'Kernel weight.',
+        min: -100,
+        max: 600,
+        step: 10,
+        default: 450,
+      },
+      {
+        key: 'b',
+        label: 'b',
+        meaning: 'Bias.',
+        min: -100,
+        max: 100,
+        step: 5,
+        default: -35,
+      },
+      {
+        key: 'x',
+        label: 'x (e.g. r)',
+        meaning: 'Scalar input (distance).',
+        min: 0,
+        max: 2.5,
+        step: 0.1,
+        default: 1,
+      },
+    ],
+    example(v) {
+      return `y=${fmt(v.w * v.x + v.b, 2)} for Hubble-style v≈w r+b.`;
+    },
+    compute(v) {
+      const w = clamp(v.w, -100, 600);
+      const b = clamp(v.b, -100, 100);
+      const x = clamp(v.x, 0, 2.5);
+      const y = w * x + b;
+      const series = [];
+      for (let t = 0; t <= 2.5001; t += 0.1) {
+        series.push({
+          x: t,
+          y: w * t + b,
+          highlight: Math.abs(t - x) < 0.06,
+        });
+      }
+      return {
+        chartType: 'line',
+        yLabel: 'y vs x',
+        series,
+        stats: [
+          {label: 'w', value: w.toFixed(10)},
+          {label: 'b', value: b.toFixed(10)},
+          {label: 'x', value: x.toFixed(10)},
+          {label: 'y', value: y.toFixed(10)},
+        ],
+        note: 'Lab lock example: w=448.52048, b=-34.726036, x=1 → y=413.794444.',
+      };
+    },
+  },
+  qcBlochAmps: {
+    id: 'qcBlochAmps',
+    title: 'Bloch amplitudes',
+    subtitle: 'u=cos(θ/2), |v|=sin(θ/2) — slide θ',
+    formula: '$|\\psi\\rangle=\\cos(\\theta/2)|0\\rangle+e^{i\\phi}\\sin(\\theta/2)|1\\rangle$',
+    params: [
+      {
+        key: 'theta',
+        label: 'θ (rad)',
+        meaning: 'Polar Bloch angle.',
+        min: 0,
+        max: Math.PI,
+        step: 0.05,
+        default: Math.PI / 2,
+      },
+    ],
+    example(v) {
+      const th = clamp(v.theta, 0, Math.PI);
+      return `θ=${fmt(th, 2)} → |u|=${fmt(Math.cos(th / 2), 3)}, |v|=${fmt(Math.sin(th / 2), 3)}.`;
+    },
+    compute(v) {
+      const th = clamp(v.theta, 0, Math.PI);
+      const u = Math.cos(th / 2);
+      const vv = Math.sin(th / 2);
+      const series = [];
+      for (let t = 0; t <= Math.PI + 1e-9; t += 0.05) {
+        series.push({
+          x: t,
+          y: Math.cos(t / 2),
+          highlight: Math.abs(t - th) < 0.04,
+        });
+      }
+      return {
+        chartType: 'line',
+        yLabel: 'cos(θ/2) vs θ',
+        series,
+        stats: [
+          {label: 'θ', value: th.toFixed(10)},
+          {label: 'cos(θ/2)', value: u.toFixed(10)},
+          {label: 'sin(θ/2)', value: vv.toFixed(10)},
+          {label: '|u|²+|v|²', value: (u * u + vv * vv).toFixed(10)},
+        ],
+        note: 'Labs: θ=π/2 → both amplitudes ≈ 0.7071067812.',
+      };
+    },
+  },
+  qcSeparability: {
+    id: 'qcSeparability',
+    title: 'Two-qubit separability',
+    subtitle: '|wz − xy| — zero iff product state',
+    formula: '$\\text{separable}\\iff wz=xy$',
+    params: [
+      {
+        key: 'w',
+        label: 'w (|00⟩)',
+        meaning: 'Amplitude of |00⟩.',
+        min: -1,
+        max: 1,
+        step: 0.05,
+        default: 0.7071,
+      },
+      {
+        key: 'x',
+        label: 'x (|01⟩)',
+        meaning: 'Amplitude of |01⟩.',
+        min: -1,
+        max: 1,
+        step: 0.05,
+        default: 0,
+      },
+      {
+        key: 'y',
+        label: 'y (|10⟩)',
+        meaning: 'Amplitude of |10⟩.',
+        min: -1,
+        max: 1,
+        step: 0.05,
+        default: 0,
+      },
+      {
+        key: 'z',
+        label: 'z (|11⟩)',
+        meaning: 'Amplitude of |11⟩.',
+        min: -1,
+        max: 1,
+        step: 0.05,
+        default: 0.7071,
+      },
+    ],
+    example(v) {
+      const m = Math.abs(v.w * v.z - v.x * v.y);
+      return `|wz−xy|=${fmt(m, 4)} → ${m < 1e-6 ? 'separable' : 'entangled'}.`;
+    },
+    compute(v) {
+      const w = clamp(v.w, -1, 1);
+      const x = clamp(v.x, -1, 1);
+      const y = clamp(v.y, -1, 1);
+      const z = clamp(v.z, -1, 1);
+      const meas = Math.abs(w * z - x * y);
+      const series = [];
+      for (let t = -1; t <= 1.001; t += 0.05) {
+        series.push({
+          x: t,
+          y: Math.abs(w * t - x * y),
+          highlight: Math.abs(t - z) < 0.04,
+        });
+      }
+      return {
+        chartType: 'line',
+        yLabel: '|w z − x y| vs z',
+        series,
+        stats: [
+          {label: 'w', value: w.toFixed(10)},
+          {label: 'x', value: x.toFixed(10)},
+          {label: 'y', value: y.toFixed(10)},
+          {label: 'z', value: z.toFixed(10)},
+          {label: '|wz−xy|', value: meas.toFixed(10)},
+        ],
+        note: 'Bell β₀₀ defaults → measure 0.5. Product |00⟩ → 0.',
+      };
+    },
+  },
+  qcHadamard: {
+    id: 'qcHadamard',
+    title: 'Hadamard on |0⟩/|1⟩',
+    subtitle: 'Slide which basis state → |+⟩ or |−⟩ amplitudes',
+    formula: '$H=\\frac1{\\sqrt2}\\begin{bmatrix}1&1\\\\1&-1\\end{bmatrix}$',
+    params: [
+      {
+        key: 'ket',
+        label: 'input (0=|0⟩, 1=|1⟩)',
+        meaning: 'Which computational basis state to transform.',
+        min: 0,
+        max: 1,
+        step: 1,
+        default: 0,
+      },
+    ],
+    example(v) {
+      const k = Math.round(clamp(v.ket, 0, 1));
+      return k === 0
+        ? 'H|0⟩ = (|0⟩+|1⟩)/√2'
+        : 'H|1⟩ = (|0⟩−|1⟩)/√2';
+    },
+    compute(v) {
+      const k = Math.round(clamp(v.ket, 0, 1));
+      const s = 1 / Math.SQRT2;
+      const a0 = s;
+      const a1 = k === 0 ? s : -s;
+      const series = [
+        {x: 0, y: a0, highlight: true},
+        {x: 1, y: a1, highlight: true},
+      ];
+      return {
+        chartType: 'line',
+        yLabel: 'amplitude vs basis index',
+        series,
+        stats: [
+          {label: 'input', value: k === 0 ? '|0⟩' : '|1⟩'},
+          {label: 'amp |0⟩', value: a0.toFixed(10)},
+          {label: 'amp |1⟩', value: a1.toFixed(10)},
+          {label: 'H₀₀', value: s.toFixed(10)},
+          {label: 'H₁₁', value: (-s).toFixed(10)},
+        ],
+        note: 'Labs lock H₀₀≈0.7071067812 and H₁₁≈−0.7071067812.',
+      };
+    },
+  },
+  qcHalfAdder: {
+    id: 'qcHalfAdder',
+    title: 'Half-adder sum & carry',
+    subtitle: 'Slide two bits → XOR sum and AND carry',
+    formula: '$\\mathrm{sum}=q_0\\oplus q_1,\\;\\mathrm{carry}=q_0\\cdot q_1$',
+    params: [
+      {
+        key: 'q0',
+        label: 'q0 (0 or 1)',
+        meaning: 'First addend bit.',
+        min: 0,
+        max: 1,
+        step: 1,
+        default: 1,
+      },
+      {
+        key: 'q1',
+        label: 'q1 (0 or 1)',
+        meaning: 'Second addend bit.',
+        min: 0,
+        max: 1,
+        step: 1,
+        default: 1,
+      },
+    ],
+    example(v) {
+      const a = Math.round(clamp(v.q0, 0, 1));
+      const b = Math.round(clamp(v.q1, 0, 1));
+      return `${a}+${b} → sum ${a ^ b}, carry ${a & b}`;
+    },
+    compute(v) {
+      const a = Math.round(clamp(v.q0, 0, 1));
+      const b = Math.round(clamp(v.q1, 0, 1));
+      const sum = a ^ b;
+      const carry = a & b;
+      return {
+        chartType: 'line',
+        yLabel: 'bit value',
+        series: [
+          {x: 0, y: sum, highlight: true},
+          {x: 1, y: carry, highlight: true},
+        ],
+        stats: [
+          {label: 'q0', value: String(a)},
+          {label: 'q1', value: String(b)},
+          {label: 'sum (XOR)', value: String(sum)},
+          {label: 'carry (AND)', value: String(carry)},
+        ],
+        note: 'Quantum: Toffoli → carry line, then CNOT → sum line.',
+      };
+    },
+  },
+  qcGroverIters: {
+    id: 'qcGroverIters',
+    title: 'Grover iteration estimate',
+    subtitle: 'Slide N → π√N/4 optimal rounds',
+    formula: '$t\\approx\\dfrac{\\pi}{4}\\sqrt{N}$',
+    params: [
+      {
+        key: 'N',
+        label: 'N (database size)',
+        meaning: 'Number of unsorted items (power of two ideal).',
+        min: 4,
+        max: 256,
+        step: 4,
+        default: 16,
+      },
+    ],
+    example(v) {
+      const N = Math.max(1, v.N);
+      const t = (Math.PI / 4) * Math.sqrt(N);
+      return `N=${N} → t≈${t.toFixed(2)} (round ${Math.round(t)})`;
+    },
+    compute(v) {
+      const N = Math.max(1, clamp(v.N, 4, 256));
+      const t = (Math.PI / 4) * Math.sqrt(N);
+      const series = [];
+      for (let n = 4; n <= 256; n += 4) {
+        series.push({
+          x: n,
+          y: (Math.PI / 4) * Math.sqrt(n),
+          highlight: Math.abs(n - N) < 2,
+        });
+      }
+      return {
+        chartType: 'line',
+        yLabel: 't ≈ π√N/4',
+        series,
+        stats: [
+          {label: 'N', value: String(N)},
+          {label: 't', value: t.toFixed(10)},
+          {label: 'round(t)', value: String(Math.round(t))},
+          {label: '1/√N', value: (1 / Math.sqrt(N)).toFixed(10)},
+        ],
+        note: 'Labs: N=16 → round(t)=3.',
+      };
+    },
+  },
+  fourierGaussianPair: {
+    id: 'fourierGaussianPair',
+    title: 'Gaussian ↔ Gaussian FT pair',
+    subtitle: 'Narrower in t ⇒ wider in ω (and vice versa)',
+    formula: '$y(t)=e^{-a t^2}\\;\\longleftrightarrow\\; Y(\\omega)\\propto e^{-\\omega^2/(4a)}/\\sqrt{a}$',
+    params: [
+      {
+        key: 'a',
+        label: 'a (time-domain width)',
+        meaning: 'Larger a → sharper pulse in t, broader spectrum in ω.',
+        min: 0.2,
+        max: 4,
+        step: 0.1,
+        default: 1,
+      },
+    ],
+    example(v) {
+      const a = clamp(v.a, 0.2, 4);
+      return `a=${a.toFixed(2)}: time FWHM shrinks as √(1/a); spectrum widens.`;
+    },
+    compute(v) {
+      const a = clamp(v.a, 0.2, 4);
+      const series = [];
+      for (let i = 0; i <= 80; i += 1) {
+        const t = -4 + (8 * i) / 80;
+        const y = Math.exp(-a * t * t);
+        series.push({x: t, y, highlight: Math.abs(t) < 0.05});
+      }
+      const y0 = 1;
+      const Y0 = Math.sqrt(Math.PI / a);
+      return {
+        chartType: 'line',
+        yLabel: 'y(t)=exp(−a t²) vs t',
+        series,
+        stats: [
+          {label: 'a', value: a.toFixed(10)},
+          {label: 'y(0)', value: y0.toFixed(10)},
+          {label: '∝ Y(0)', value: Y0.toFixed(10)},
+          {label: 'time scale 1/√a', value: (1 / Math.sqrt(a)).toFixed(10)},
+        ],
+        note: 'FT of a Gaussian is a Gaussian. Slide a to feel the uncertainty tradeoff.',
+      };
+    },
+  },
+  softOscillatorPeriod: {
+    id: 'softOscillatorPeriod',
+    title: 'Soft oscillator period vs amplitude',
+    subtitle: 'F=−kx(1−αx); larger A softens restoring force',
+    formula: '$F=-kx(1-\\alpha x),\\quad V\\approx\\tfrac12 kx^2-\\tfrac13 k\\alpha x^3$',
+    params: [
+      {
+        key: 'A',
+        label: 'amplitude A',
+        meaning: 'Release from rest at x=A. Soft spring: period grows with A.',
+        min: 0.1,
+        max: 0.9,
+        step: 0.05,
+        default: 0.4,
+      },
+      {
+        key: 'alpha',
+        label: 'α (softness)',
+        meaning: 'α=0 recovers harmonic. Keep Aα < 1 so force still restores near start.',
+        min: 0,
+        max: 0.8,
+        step: 0.05,
+        default: 0.3,
+      },
+    ],
+    example(v) {
+      const A = clamp(v.A, 0.1, 0.9);
+      const al = clamp(v.alpha, 0, 0.8);
+      return `A=${A.toFixed(2)}, α=${al.toFixed(2)} (Aα=${(A * al).toFixed(2)}).`;
+    },
+    compute(v) {
+      const A = clamp(v.A, 0.1, 0.9);
+      const alpha = clamp(v.alpha, 0, 0.8);
+      const k = 1;
+      const m = 1;
+      const h = 0.002;
+      let x = A;
+      let vel = 0;
+      let t = 0;
+      let crossings = 0;
+      let tCross = [];
+      let prev = x;
+      const series = [];
+      const tMax = 40;
+      while (t < tMax && crossings < 4) {
+        const f = (xx) => (-k * xx * (1 - alpha * xx)) / m;
+        const a0 = f(x);
+        const xMid = x + 0.5 * h * vel;
+        const vMid = vel + 0.5 * h * a0;
+        const a1 = f(xMid);
+        x += h * vMid;
+        vel += h * a1;
+        t += h;
+        if (series.length < 200 && Math.floor(t / 0.05) > series.length) {
+          series.push({x: t, y: x, highlight: false});
+        }
+        if (prev > 0 && x <= 0 && vel < 0) {
+          // not used
+        }
+        if (prev < 0 && x >= 0 && vel > 0) {
+          crossings += 1;
+          tCross.push(t);
+        }
+        prev = x;
+      }
+      let T = 2 * Math.PI;
+      if (tCross.length >= 2) T = tCross[1] - tCross[0];
+      const Th = 2 * Math.PI * Math.sqrt(m / k);
+      return {
+        chartType: 'line',
+        yLabel: 'x(t) soft oscillator',
+        series: series.map((p, i) => ({...p, highlight: i === 0})),
+        stats: [
+          {label: 'A', value: A.toFixed(10)},
+          {label: 'α', value: alpha.toFixed(10)},
+          {label: 'T measured', value: T.toFixed(10)},
+          {label: 'T harmonic', value: Th.toFixed(10)},
+          {label: 'T/T₀', value: (T / Th).toFixed(10)},
+        ],
+        note: 'α=0 ⇒ T≈T₀. Soft α + larger A stretches the period.',
+      };
+    },
+  },
+  odeEnergyDrift: {
+    id: 'odeEnergyDrift',
+    title: 'Energy drift: Euler vs RK2',
+    subtitle: 'Harmonic oscillator; watch |E−E₀| after fixed time',
+    formula: '$E=\\tfrac12 v^2+\\tfrac12\\omega^2 x^2$',
+    params: [
+      {
+        key: 'logh',
+        label: 'log₁₀ h',
+        meaning: 'Step size. Smaller h cuts truncation error.',
+        min: -3,
+        max: -1,
+        step: 0.1,
+        default: -2,
+      },
+    ],
+    example(v) {
+      const h = 10 ** clamp(v.logh, -3, -1);
+      return `Integrate to t=2 with h=${h.toPrecision(3)}; compare energy errors.`;
+    },
+    compute(v) {
+      const logh = clamp(v.logh, -3, -1);
+      const h = 10 ** logh;
+      const omega = 2 * Math.PI;
+      const k = omega * omega;
+      const tEnd = 2;
+      const integrate = (method) => {
+        let x = 0;
+        let vel = 1;
+        const n = Math.max(1, Math.round(tEnd / h));
+        const hh = tEnd / n;
+        for (let i = 0; i < n; i += 1) {
+          if (method === 'euler') {
+            const a = -k * x;
+            x += hh * vel;
+            vel += hh * a;
+          } else {
+            const f = (xx, vv) => [vv, -k * xx];
+            const [f0, f1] = f(x, vel);
+            const [g0, g1] = f(x + 0.5 * hh * f0, vel + 0.5 * hh * f1);
+            x += hh * g0;
+            vel += hh * g1;
+          }
+        }
+        return 0.5 * vel * vel + 0.5 * k * x * x;
+      };
+      const E0 = 0.5;
+      const eE = Math.abs(integrate('euler') - E0);
+      const eR = Math.abs(integrate('rk2') - E0);
+      const series = [];
+      for (let lh = -3; lh <= -1.001; lh += 0.1) {
+        const hh = 10 ** lh;
+        let x = 0;
+        let vel = 1;
+        const n = Math.max(1, Math.round(tEnd / hh));
+        const step = tEnd / n;
+        for (let i = 0; i < n; i += 1) {
+          const a = -k * x;
+          x += step * vel;
+          vel += step * a;
+        }
+        const E = 0.5 * vel * vel + 0.5 * k * x * x;
+        series.push({
+          x: lh,
+          y: Math.log10(Math.abs(E - E0) + 1e-16),
+          highlight: Math.abs(lh - logh) < 0.06,
+        });
+      }
+      return {
+        chartType: 'line',
+        yLabel: 'log₁₀ |E_Euler−E₀| vs log₁₀ h',
+        series,
+        stats: [
+          {label: 'h', value: h.toExponential(2)},
+          {label: '|ΔE| Euler', value: eE.toExponential(3)},
+          {label: '|ΔE| RK2', value: eR.toExponential(3)},
+          {label: 'E₀', value: E0.toFixed(10)},
+        ],
+        note: 'Energy is a diagnostic, not a degree of freedom. RK2 usually drifts far less than Euler.',
+      };
+    },
+  },
+  stftWindowTradeoff: {
+    id: 'stftWindowTradeoff',
+    title: 'STFT window: time vs frequency blur',
+    subtitle: 'Wider window → sharper Δf, blurrier Δt',
+    formula: '$\\Delta t\\,\\Delta f\\gtrsim \\mathrm{const}$',
+    params: [
+      {
+        key: 'W',
+        label: 'window width W (samples)',
+        meaning: 'Longer window averages over more time but resolves closer frequencies.',
+        min: 8,
+        max: 128,
+        step: 8,
+        default: 32,
+      },
+    ],
+    example(v) {
+      const W = Math.round(clamp(v.W, 8, 128));
+      return `W=${W}: Δt∼W, Δf∼1/W (schematic units).`;
+    },
+    compute(v) {
+      const W = Math.round(clamp(v.W, 8, 128));
+      const dt = W;
+      const df = 1 / W;
+      const series = [];
+      for (let w = 8; w <= 128; w += 4) {
+        series.push({
+          x: w,
+          y: 1 / w,
+          highlight: Math.abs(w - W) < 2,
+        });
+      }
+      return {
+        chartType: 'line',
+        yLabel: 'schematic Δf ∼ 1/W vs W',
+        series,
+        stats: [
+          {label: 'W', value: String(W)},
+          {label: 'Δt ∼', value: dt.toFixed(10)},
+          {label: 'Δf ∼', value: df.toFixed(10)},
+          {label: 'Δt·Δf', value: (dt * df).toFixed(10)},
+        ],
+        note: 'Product stays O(1). Choose W for the feature lifetime you care about.',
+      };
+    },
+  },
+  autocorrLagPeak: {
+    id: 'autocorrLagPeak',
+    title: 'Noisy sinusoid autocorrelation',
+    subtitle: 'A(τ) peaks at lags multiple of the hidden period',
+    formula: '$A(\\tau)=\\langle y(t)y(t+\\tau)\\rangle$',
+    params: [
+      {
+        key: 'period',
+        label: 'true period T',
+        meaning: 'Hidden sinusoid period. Autocorr should revive near τ=T,2T,…',
+        min: 8,
+        max: 40,
+        step: 1,
+        default: 20,
+      },
+      {
+        key: 'noise',
+        label: 'noise σ',
+        meaning: 'Gaussian noise std. Larger σ buries the signal in y(t) but A(τ) often still shows T.',
+        min: 0,
+        max: 2,
+        step: 0.1,
+        default: 0.8,
+      },
+    ],
+    example(v) {
+      return `T=${Math.round(v.period)}, σ=${Number(v.noise).toFixed(1)}`;
+    },
+    compute(v) {
+      const T = Math.round(clamp(v.period, 8, 40));
+      const sigma = clamp(v.noise, 0, 2);
+      const N = 400;
+      const y = [];
+      let seed = 1234567 + T * 100 + Math.round(sigma * 100);
+      const rand = () => {
+        seed = (seed * 1664525 + 1013904223) % 4294967296;
+        return seed / 4294967296;
+      };
+      for (let i = 0; i < N; i += 1) {
+        const n = sigma * (rand() + rand() + rand() + rand() - 2);
+        y.push(Math.sin((2 * Math.PI * i) / T) + n);
+      }
+      const mean = y.reduce((a, b) => a + b, 0) / N;
+      const yc = y.map((v) => v - mean);
+      const maxLag = Math.min(120, N - 1);
+      const series = [];
+      let bestLag = 1;
+      let bestA = -Infinity;
+      for (let tau = 0; tau <= maxLag; tau += 1) {
+        let s = 0;
+        let c = 0;
+        for (let i = 0; i + tau < N; i += 1) {
+          s += yc[i] * yc[i + tau];
+          c += 1;
+        }
+        const A = s / c;
+        series.push({x: tau, y: A, highlight: tau === T});
+        if (tau > 3 && A > bestA) {
+          bestA = A;
+          bestLag = tau;
+        }
+      }
+      return {
+        chartType: 'line',
+        yLabel: 'A(τ) vs lag τ',
+        series,
+        stats: [
+          {label: 'T', value: String(T)},
+          {label: 'σ', value: sigma.toFixed(10)},
+          {label: 'A(T)', value: (series[T]?.y ?? 0).toFixed(10)},
+          {label: 'argmax A (τ>3)', value: String(bestLag)},
+        ],
+        note: 'Noise wrecks the raw trace; autocorrelation still hints at T.',
+      };
+    },
+  },
+  shorPhaseToPeriod: {
+    id: 'shorPhaseToPeriod',
+    title: 'QPE phase → period candidate',
+    subtitle: 'φ = s/2ᵗ ≈ S/T; continued-fraction denominator',
+    formula: '$\\phi\\approx S/T$',
+    params: [
+      {
+        key: 'phi',
+        label: 'measured φ',
+        meaning: 'Phase from QPE (0–1). Classic demo: 0.25 → T=4.',
+        min: 0,
+        max: 0.95,
+        step: 0.05,
+        default: 0.25,
+      },
+      {
+        key: 'N',
+        label: 'N to factor',
+        meaning: 'limit_denominator(N) bound.',
+        min: 15,
+        max: 35,
+        step: 2,
+        default: 15,
+      },
+    ],
+    example(v) {
+      return `φ=${Number(v.phi).toFixed(2)}, N=${Math.round(v.N)}`;
+    },
+    compute(v) {
+      const phi = clamp(v.phi, 0, 0.95);
+      const N = Math.round(clamp(v.N, 15, 35));
+      // continued fraction approx
+      const approx = (x, maxDen) => {
+        let a0 = Math.floor(x);
+        let p0 = 1;
+        let q0 = 0;
+        let p1 = a0;
+        let q1 = 1;
+        let frac = x - a0;
+        for (let i = 0; i < 12; i += 1) {
+          if (Math.abs(frac) < 1e-12) break;
+          const inv = 1 / frac;
+          const a = Math.floor(inv);
+          const p = a * p1 + p0;
+          const q = a * q1 + q0;
+          if (q > maxDen) break;
+          p0 = p1;
+          q0 = q1;
+          p1 = p;
+          q1 = q;
+          frac = inv - a;
+        }
+        return {num: p1, den: q1};
+      };
+      const {num, den} = approx(phi, N);
+      const series = [];
+      for (let i = 0; i <= 20; i += 1) {
+        const ph = i / 20;
+        const ap = approx(ph, N);
+        series.push({
+          x: ph,
+          y: ap.den,
+          highlight: Math.abs(ph - phi) < 0.03,
+        });
+      }
+      return {
+        chartType: 'line',
+        yLabel: 'continued-fraction denominator vs φ',
+        series,
+        stats: [
+          {label: 'φ', value: phi.toFixed(10)},
+          {label: 'S/T ≈', value: `${num}/${den}`},
+          {label: 'T candidate', value: String(den)},
+          {label: 'N', value: String(N)},
+        ],
+        note: 'φ=0.25 → 1/4. Then gcd(a^{T/2}±1, N) for factors.',
+      };
+    },
+  },
+  matrixMulFlops: {
+    id: 'matrixMulFlops',
+    title: 'Dense matmul flop count',
+    subtitle: 'Slide n → ~2n³ flops for n×n × n×n',
+    formula: '$\\mathrm{flops}\\approx 2n^3$',
+    params: [
+      {
+        key: 'n',
+        label: 'n (matrix size)',
+        meaning: 'Square matrices C=AB. Leading term 2n³ multiply-adds.',
+        min: 2,
+        max: 64,
+        step: 1,
+        default: 16,
+      },
+    ],
+    example(v) {
+      const n = Math.round(clamp(v.n, 2, 64));
+      return `n=${n} → ≈${(2 * n ** 3).toLocaleString()} flops (leading term).`;
+    },
+    compute(v) {
+      const n = Math.round(clamp(v.n, 2, 64));
+      const flops = 2 * n * n * n;
+      const series = [];
+      for (let k = 2; k <= 64; k += 1) {
+        series.push({
+          x: k,
+          y: Math.log10(2 * k * k * k),
+          highlight: k === n,
+        });
+      }
+      return {
+        chartType: 'line',
+        yLabel: 'log₁₀(2n³) vs n',
+        series,
+        stats: [
+          {label: 'n', value: String(n)},
+          {label: '2n³', value: String(flops)},
+          {label: 'n² (memory order)', value: String(n * n)},
+          {label: 'flops / n²', value: (flops / (n * n)).toFixed(10)},
+        ],
+        note: 'Stride / cache decide wall time; flop count sets the work lower bound.',
+      };
+    },
+  },
+  opencvHistBins: {
+    id: 'opencvHistBins',
+    title: 'RGB histogram bin count',
+    subtitle: 'Per-channel bins; 256³ is the full 8-bit cube',
+    formula: '$N_{\\mathrm{bins}}=b^3\\;\\text{(joint RGB)}$',
+    params: [
+      {
+        key: 'b',
+        label: 'bins per channel',
+        meaning: 'Classic 8-bit images use b=256 for a full hist. Joint RGB uses b³ cells.',
+        min: 2,
+        max: 256,
+        step: 2,
+        default: 16,
+      },
+    ],
+    example(v) {
+      const b = Math.round(clamp(v.b, 2, 256));
+      return `b=${b} → joint cells ${b ** 3}; per-channel length ${b}.`;
+    },
+    compute(v) {
+      const b = Math.round(clamp(v.b, 2, 256));
+      const series = [];
+      for (let k = 2; k <= 64; k += 2) {
+        series.push({
+          x: k,
+          y: Math.log10(k * k * k),
+          highlight: k === b || (b > 64 && k === 64),
+        });
+      }
+      return {
+        chartType: 'line',
+        yLabel: 'log₁₀(b³) vs bins/channel (to 64)',
+        series,
+        stats: [
+          {label: 'b', value: String(b)},
+          {label: 'per-channel bins', value: String(b)},
+          {label: 'joint b³', value: String(b * b * b)},
+          {label: '8-bit full cube', value: String(256 ** 3)},
+        ],
+        note: 'Labs often lock 256³ = 16,777,216 for the full RGB cube.',
+      };
+    },
+  },
+  nnLayerParams: {
+    id: 'nnLayerParams',
+    title: 'Dense layer parameter count',
+    subtitle: 'weights + biases for Dense(in→out)',
+    formula: '$n_{\\mathrm{params}}=n_{\\mathrm{in}}n_{\\mathrm{out}}+n_{\\mathrm{out}}$',
+    params: [
+      {
+        key: 'nin',
+        label: 'n_in',
+        meaning: 'Incoming features / previous layer width.',
+        min: 1,
+        max: 64,
+        step: 1,
+        default: 4,
+      },
+      {
+        key: 'nout',
+        label: 'n_out',
+        meaning: 'Units in this Dense layer.',
+        min: 1,
+        max: 64,
+        step: 1,
+        default: 8,
+      },
+    ],
+    example(v) {
+      const a = Math.round(clamp(v.nin, 1, 64));
+      const b = Math.round(clamp(v.nout, 1, 64));
+      return `${a}→${b}: ${a * b + b} params.`;
+    },
+    compute(v) {
+      const nin = Math.round(clamp(v.nin, 1, 64));
+      const nout = Math.round(clamp(v.nout, 1, 64));
+      const w = nin * nout;
+      const bias = nout;
+      const series = [];
+      for (let o = 1; o <= 32; o += 1) {
+        series.push({
+          x: o,
+          y: nin * o + o,
+          highlight: o === nout || (nout > 32 && o === 32),
+        });
+      }
+      return {
+        chartType: 'line',
+        yLabel: `params vs n_out (n_in=${nin})`,
+        series,
+        stats: [
+          {label: 'n_in', value: String(nin)},
+          {label: 'n_out', value: String(nout)},
+          {label: 'weights', value: String(w)},
+          {label: 'biases', value: String(bias)},
+          {label: 'total', value: String(w + bias)},
+        ],
+        note: 'Deep nets sum this over layers. Labs lock small Dense counts.',
       };
     },
   },
@@ -2583,12 +5305,16 @@ function gaussLegendreNW(N) {
 
 /** Chapter LCG floats in [0,1): r ← (1103515245 r + 12345) % 2³¹. */
 function lcgFloatSeq(seed, N) {
-  let r = seed;
-  const M = 2147483648;
+  // BigInt keeps the chapter LCG exact: Number loses bits once 1103515245*r exceeds 2^53.
+  let r = BigInt(seed | 0);
+  const M = 2147483648n;
+  const a = 1103515245n;
+  const c = 12345n;
   const out = new Array(N);
+  const mNum = 2147483648;
   for (let i = 0; i < N; i += 1) {
-    r = (1103515245 * r + 12345) % M;
-    out[i] = r / M;
+    r = (a * r + c) % M;
+    out[i] = Number(r) / mNum;
   }
   return out;
 }

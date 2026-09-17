@@ -1,0 +1,215 @@
+---
+sidebar_position: 116
+title: 12.5 QC programming with Cirq
+sidebar_label: '12.5 Cirq circuits'
+---
+
+# 12.5 An intro to QC programming
+
+> **Source:** Ideas from *Computational Physics* (Landau, Páez, Bordeianu), §12.5–12.5.1. **Original sketches** — do **not** paste textbook `Hadamard.py` / `CirqSwap.py` dumps. Continues [12.4b](./12-04b-logic-gates-labs). Labs: [12.5b](./12-05b-qc-programming-labs).
+
+Qubits and gates become **circuits** (programs). [Cirq](https://quantumai.google/cirq) is a Python library for writing, simulating, and optimizing those circuits. Graded work on this site uses **pure-Python amplitude / bit locks** (no Cirq in the sandbox). Run the sketches below in a local conda/venv when you want the real simulator.
+
+## Install (local)
+
+```bash
+python -m pip install --upgrade pip
+python -m pip install cirq
+# or: conda install -c conda-forge cirq
+```
+
+## First circuit: Hadamard on $|0\rangle$
+
+```python
+# hadamard_sketch.py — structure only (run locally with Cirq)
+import cirq
+
+circuit = cirq.Circuit()
+q = cirq.GridQubit(0, 0)
+circuit.append(cirq.H(q))
+sim = cirq.Simulator()
+print(circuit)
+print(sim.simulate(circuit))  # ≈ 0.707|0⟩ + 0.707|1⟩
+```
+
+Matches
+
+$$
+H|0\rangle=\tfrac1{\sqrt2}(|0\rangle+|1\rangle).
+$$
+
+### Two Hadamards = identity
+
+$H^2=I$. Append a second `cirq.H(a)` on a `NamedQubit('a')`; the statevector returns to $|0\rangle$.
+
+### X then H → $|-\rangle$
+
+`X` maps $|0\rangle\to|1\rangle$; then `H` yields $\tfrac1{\sqrt2}(|0\rangle-|1\rangle)$, an eigenstate of $X$ with eigenvalue $-1$.
+
+## Measure: X, Z, H + shots
+
+Measurement is **not** unitary. Append `cirq.measure(a, key='result')`, then `sim.run(circuit, repetitions=1000)` and plot a histogram. Ideal amplitudes after $X\,Z\,H$ on $|0\rangle$ are equal magnitude ($\pm 1/\sqrt2$), so counts of $0$ and $1$ each sit near $500$ (noise → slight tilt — Figure 12.3).
+
+![Figure 12.3 — measurement histogram sketch.](/img/computational-physics/fig-12-3-xzhm-histogram.svg)
+
+## Two qubits: LineQubit, SWAP, CNOT
+
+```python
+q0, q1 = cirq.LineQubit.range(2)
+circuit.append(cirq.X(q0))   # |10⟩ if start |00⟩
+circuit.append(cirq.Z(q1))   # phase only on |1⟩ of q1
+# expected state |10⟩
+```
+
+![X on q0, Z on q1 → |10⟩.](/img/computational-physics/fig-12-5-x-z-circuit.svg)
+
+**SWAP** exchanges the two lines: after $X$ on q0 you get $|01\rangle$.
+
+![Then SWAP → |01⟩.](/img/computational-physics/fig-12-5-swap-circuit.svg)
+
+**CNOT**(control=`q0`, target=`q1`): with $|10\rangle$ input, flips the target → $|11\rangle$.
+
+## Three qubits: Toffoli
+
+```python
+q0, q1, q2 = cirq.LineQubit.range(3)
+circuit.append(cirq.X(q0))
+circuit.append(cirq.Toffoli(q0, q1, q2))  # flips q2 only if q0=q1=1
+```
+
+With only q0 flipped, controls are not both $1$, so the target stays put (e.g. $|100\rangle$ or $|101\rangle$ depending on q2’s prep). Flip both controls to see $T|110\rangle=|111\rangle$.
+
+## 12.5.1 Half and full adders
+
+### Half-adder (sum + carry)
+
+Classical: sum $=q0\oplus q1$, carry $=q0\cdot q1$. Quantum recipe on three lines (q2 starts at $|0\rangle$):
+
+1. **Toffoli**(q0, q1, q2) → write carry into q2  
+2. **CNOT**(q0, q1) → write sum into q1  
+
+![Half-adder circuit.](/img/computational-physics/fig-12-5-half-adder.svg)
+
+### Lab: wire the half-adder
+
+<NodeLab
+  id="cp-125-half-adder-wire"
+  mode="wiring"
+  height={320}
+  nodes={[
+    {
+      id: 'in',
+      position: {x: 20, y: 100},
+      data: {title: 'inputs', variant: 'table', rows: [{text: 'q0,q1', badge: 'in'}]},
+    },
+    {
+      id: 'tof',
+      position: {x: 200, y: 40},
+      data: {title: 'Toffoli', variant: 'table', rows: [{text: '→ carry q2', badge: 'U'}]},
+    },
+    {
+      id: 'cx',
+      position: {x: 200, y: 180},
+      data: {title: 'CNOT', variant: 'table', rows: [{text: '→ sum q1', badge: 'U'}]},
+    },
+    {
+      id: 'out',
+      position: {x: 420, y: 100},
+      data: {
+        title: 'out',
+        variant: 'table',
+        rows: [
+          {text: 'sum', badge: 'q1'},
+          {text: 'carry', badge: 'q2'},
+        ],
+      },
+    },
+  ]}
+  edges={[]}
+  solution={{
+    requiredEdges: [
+      {
+        source: 'in',
+        sourceHandle: ['row-0-left', 'row-0-right'],
+        target: 'tof',
+        targetHandle: ['row-0-left', 'row-0-right'],
+        label: 'inputs → Toffoli',
+      },
+      {
+        source: 'in',
+        sourceHandle: ['row-0-left', 'row-0-right'],
+        target: 'cx',
+        targetHandle: ['row-0-left', 'row-0-right'],
+        label: 'inputs → CNOT',
+      },
+      {
+        source: 'tof',
+        sourceHandle: ['row-0-left', 'row-0-right'],
+        target: 'out',
+        targetHandle: ['row-1-left', 'row-1-right'],
+        label: 'carry → q2',
+      },
+      {
+        source: 'cx',
+        sourceHandle: ['row-0-left', 'row-0-right'],
+        target: 'out',
+        targetHandle: ['row-0-left', 'row-0-right'],
+        label: 'sum → q1',
+      },
+    ],
+  }}
+/>
+
+Check truth table: $1+1$ → sum $0$, carry $1$; $1+0$ and $0+1$ → sum $1$, carry $0$.
+
+### Full adder
+
+A full adder folds in a carry-in. One Cirq-shaped skeleton (four qubits): cascade Toffoli / CNOT so that after prep of `q0,q1,Cin` the sum and `Cout` match classical binary addition. Fill the table in labs for all four input pairs (Cin fixed or varied).
+
+| q0 | q1 | Cin | Sum | Cout |
+| --- | --- | --- | --- | --- |
+| $\|0\rangle$ | $\|0\rangle$ | … | … | … |
+| $\|0\rangle$ | $\|1\rangle$ | … | … | … |
+| $\|1\rangle$ | $\|0\rangle$ | … | … | … |
+| $\|1\rangle$ | $\|1\rangle$ | … | … | … |
+
+## Takeaway
+
+| Goal | Cirq idea |
+| --- | --- |
+| Superposition | `H` on `GridQubit` / `NamedQubit` |
+| $H^2=I$ | two `H` on same line |
+| Statistics | `measure` + `run(..., repetitions=)` |
+| Entangle / flip | `CNOT`, `SWAP`, `Toffoli` |
+| Add | Toffoli carry + CNOT sum |
+
+<FormulaExplorerTabs preset="qcHalfAdder" />
+
+<GuidedChoiceExplanation preset="qc-cirq-circuits" />
+
+<MultipleChoice
+  id="cp-125-cirq"
+  title="Cirq / adders"
+  questions={[
+    {
+      prompt: 'Two Hadamard gates on |0⟩ yield…',
+      choices: ['|0⟩ again (H²=I)', '|1⟩ only', '|β₀₀⟩', 'a non-unitary measure'],
+      answer: 0,
+      why: 'H is involutory on this space.',
+    },
+    {
+      prompt: 'After X on q0 from |00⟩, then SWAP, the state is…',
+      choices: ['|01⟩', '|10⟩', '|11⟩', '|00⟩'],
+      answer: 0,
+      why: 'X→|10⟩; SWAP↔|01⟩.',
+    },
+    {
+      prompt: 'Half-adder carry is written by…',
+      choices: ['Toffoli into a |0⟩ line', 'H alone', 'measure only', 'Z on both lines'],
+      answer: 0,
+      why: 'CCNOT implements AND into the target.',
+    },
+  ]}
+/>
+
+Next: [12.5b Cirq labs](./12-05b-qc-programming-labs) · [12.6 IBM Quantum](./12-06-ibm-quantum).

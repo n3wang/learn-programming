@@ -1,0 +1,133 @@
+---
+sidebar_position: 125
+title: 12.10 Shor factoring
+sidebar_label: '12.10 Shor'
+---
+
+# 12.10 Shor’s factoring algorithm
+
+> **Source:** Ideas from *Computational Physics* (Landau, Páez, Bordeianu), §12.10. Original wording — **no** `Amod15` / Qiskit dump. Continues [12.9b](./12-09b-grover-labs). Labs: [12.10b](./12-10b-shor-labs).
+
+RSA-style cryptology leans on the hardness of factoring large integers. **Shor’s algorithm** finds nontrivial factors of $N$ in (believed) polynomial time on a fault-tolerant quantum computer by reducing factoring to **period finding**.
+
+## Classical outline
+
+1. Pick random $1<r<N$.  
+2. $K=\gcd(r,N)$; if $K\neq 1$, $K$ is a factor — done.  
+3. Find the smallest period $T$ of $f(x)=r^x\bmod N$.  
+4. If $T$ is odd or $r^{T/2}\equiv-1\pmod N$, retry with a new $r$.  
+5. Else $\gcd(r^{T/2}\pm 1,\,N)$ yields nontrivial factors.
+
+Example toy: $N=15$. A successful run might draw $r=8$, read phase $0.25$ ⇒ $T=4$, then recover factors **3** and **5**.
+
+## Modular multiplication unitary
+
+A unitary $U$ (for $r$ coprime to $N$) multiplies the computational register by $r$ mod $N$. Eigenstates $|u_S\rangle$ carry eigenvalues $e^{2\pi i S/T}$; estimating that phase reveals $S/T$. Pick $U|y\rangle$ and the $T=1/\phi$ reading among lookalikes in the guided card below.
+
+## Phase estimation
+
+For unitary $U|u\rangle=e^{2\pi i\phi}|u\rangle$, a **$t$-qubit** control register plus Hadamards and controlled-$U^{2^j}$ kicks phases onto the controls. An **inverse QFT** then reads an integer $s\approx 2^t\phi$, so $\phi\approx s/2^t$.
+
+![Figure 12.13 — phase estimation.](/img/computational-physics/fig-12-13-phase-est.svg)
+
+## Period finding → factors
+
+Prepare the target register in $|1\rangle=\frac1{\sqrt T}\sum_S|u_S\rangle$. Phase estimation samples $\phi=S/T$; **continued fractions** recover denominator $T$. Then apply the gcd steps above.
+
+Local Qiskit sketches combine `qpe`, a modular-multiply block (e.g. for $N=15$), and classical post-processing — APIs change; keep the math, update imports from current docs. Graded labs lock $\gcd$, periods, and the $N=15$ factors without calling IBM.
+
+### Lab: wire phase-est skeleton
+
+<NodeLab
+  id="cp-1210-qpe-wire"
+  mode="wiring"
+  height={280}
+  nodes={[
+    {
+      id: 'h',
+      position: {x: 20, y: 80},
+      data: {title: 'H on t', variant: 'table', rows: [{text: 'controls', badge: 'U'}]},
+    },
+    {
+      id: 'cu',
+      position: {x: 200, y: 80},
+      data: {title: 'c-U^{2^j}', variant: 'table', rows: [{text: 'kickback', badge: 'U'}]},
+    },
+    {
+      id: 'iqft',
+      position: {x: 380, y: 80},
+      data: {title: 'QFT⁻¹', variant: 'table', rows: [{text: 'read φ', badge: 'U'}]},
+    },
+    {
+      id: 'out',
+      position: {x: 540, y: 80},
+      data: {title: 's / 2ᵗ', variant: 'table', rows: [{text: 'phase', badge: 'out'}]},
+    },
+  ]}
+  edges={[]}
+  solution={{
+    requiredEdges: [
+      {
+        source: 'h',
+        sourceHandle: ['row-0-left', 'row-0-right'],
+        target: 'cu',
+        targetHandle: ['row-0-left', 'row-0-right'],
+        label: 'H → controlled-U',
+      },
+      {
+        source: 'cu',
+        sourceHandle: ['row-0-left', 'row-0-right'],
+        target: 'iqft',
+        targetHandle: ['row-0-left', 'row-0-right'],
+        label: 'kickback → IQFT',
+      },
+      {
+        source: 'iqft',
+        sourceHandle: ['row-0-left', 'row-0-right'],
+        target: 'out',
+        targetHandle: ['row-0-left', 'row-0-right'],
+        label: 'IQFT → phase',
+      },
+    ],
+  }}
+/>
+
+## Takeaway
+
+| Step | Tool |
+| --- | --- |
+| Random $r$, gcd | classical |
+| Period of $r^x\bmod N$ | QPE + modular $U$ |
+| $T\to$ factors | $\gcd(r^{T/2}\pm1,N)$ |
+| QFT link | inverse QFT inside QPE |
+
+<FormulaExplorerTabs preset="shorPhaseToPeriod" />
+
+<GuidedChoiceExplanation preset="qc-shor" />
+
+<MultipleChoice
+  id="cp-1210-shor"
+  title="Shor"
+  questions={[
+    {
+      prompt: 'Shor reduces factoring mainly to…',
+      choices: ['period finding for rˣ mod N', 'sorting a list', 'Grover only', 'classical trial division alone'],
+      answer: 0,
+      why: 'Then gcd(r^{T/2}±1, N).',
+    },
+    {
+      prompt: 'Inverse QFT appears in…',
+      choices: ['quantum phase estimation', 'only classical gcd', 'Grover diffuser', 'half-adder carry'],
+      answer: 0,
+      why: 'Reads the phase register.',
+    },
+    {
+      prompt: 'For N=15 with r=8 and T=4, gcd(r²−1,N) is…',
+      choices: ['3', '1', '15', '8'],
+      answer: 0,
+      why: 'gcd(63,15)=3; companion factor 5.',
+    },
+  ]}
+/>
+
+Next: [12.10b Shor labs](./12-10b-shor-labs).

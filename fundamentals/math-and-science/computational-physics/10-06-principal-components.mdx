@@ -1,0 +1,147 @@
+---
+sidebar_position: 83
+title: 10.6 Principal components analysis
+sidebar_label: '10.6 PCA'
+---
+
+# 10.6 Part II: Principal components analysis
+
+> **Source:** Ideas from *Computational Physics* (Landau, Páez, Bordeianu), §10.6. Rewritten in original wording. Continues [10.5b](./10-05b-dwt-labs). Next: [10.6b](./10-06b-pca-labs).
+
+## Why PCA after Fourier / wavelets
+
+Fourier bases are infinite, correlated, and awkward to truncate. Wavelets compress 1D / image-like signals well but are a poor fit for **huge, unlabeled, multivariate** tables (stellar spectra, EEG arrays, faces, ocean fields). **PCA** rotates the measurement axes into **principal components** that point along directions of maximal variance (“power”) in dataspace — unsupervised dimensionality reduction, or equivalently: extract the dominant dynamics in a noisy, redundant cloud.
+
+Same idea as principal axes for rigid-body inertia: choose coordinates where the description is simplest.
+
+## Iris warm-up
+
+Four features (cm): sepal length/width, petal length/width. A short set of samples (subset of the classic iris table) is enough to practice means, variances, and covariances before full eigen-PCA.
+
+## Data space $\mathcal{R}^M$
+
+![Figure 10.13 — multiple detectors on a beam.](/img/computational-physics/fig-10-13-detectors.svg)
+
+At each instant, $M$ observables form one sample vector (e.g. eight coordinates from four detectors’ $(x,y)$). Thousands of times × many channels ⇒ enormous $N\times M$ tables, often noisy and correlated across detectors.
+
+## Variance and SNR
+
+For a scalar channel with $N$ samples,
+
+$$
+\bar z=\frac1N\sum_i z_i,\qquad
+\sigma^2(z)=\mathrm{Var}(z)=\frac1{N-1}\sum_i(z_i-\bar z)^2.
+$$
+
+Signal-to-noise ratio
+
+$$
+\mathrm{SNR}=\frac{\sigma_{\mathrm{signal}}^2}{\sigma_{\mathrm{noise}}^2}.
+$$
+
+PCA’s working hypothesis: **largest variance ≈ most interesting dynamics**; orthogonal residual directions may be noise or weaker modes.
+
+![Figure 10.14 — PC₁ along max variance; PC₂ secondary; right: projected cloud.](/img/computational-physics/fig-10-14-pca-axes.svg)
+
+## Covariance matrix
+
+Center channels $a_i=a_i'-\bar a$, $b_i=b_i'-\bar b$. Pick the sample covariance and the matrix form $C=\mathbf X\mathbf X^{T}/(N-1)$ among lookalikes.
+
+<GuidedChoiceExplanation preset="pca-variance-covariance" />
+
+Positive cov ⇒ channels tend to move together; large |cov| ⇒ redundancy; zero ⇒ uncorrelated (for this linear measure). Stack $M$ centered detector rows into an $M\times N$ matrix $\mathbf X$ (row = all times for one channel; column = one time across channels).
+
+- Diagonal $C_{ii}$: variances of individual channels.
+- Off-diagonal $C_{ij}$: correlations between channels $i$ and $j$.
+- $C$ is square, symmetric, and positive semidefinite.
+
+## PCA pipeline (2D demo)
+
+![Figures 10.15–16 — cloud, eigenvectors, PCA coordinates.](/img/computational-physics/fig-10-15-16-pca-demo.svg)
+
+Classic steps (Smith-style $N=10$ points in the labs):
+
+1. **Enter** the $N\times 2$ (or $M\times N$) table.
+2. **Center** each feature (subtract column/row means).
+3. **Build** $C$ (for 2D: $\mathrm{var}\,x$, $\mathrm{cov}(x,y)$, $\mathrm{var}\,y$).
+4. **Eigendecompose** $C$: eigenvalues $\lambda_1\ge\lambda_2\ge\cdots$ and orthonormal eigenvectors $\mathbf{PC}_1,\mathbf{PC}_2,\ldots$. The largest $\lambda$ is the principal direction — often most of the power ($\lambda_1/(\sum\lambda)$).
+5. **Project**: form a feature matrix $F$ whose columns (or rows) are the kept PCs; compute $X^{\mathrm{PCA}}=F^{T} X^{T}$ (convention: match your layout). Keeping only $\mathbf{PC}_1$ collapses the cloud onto a line; two PCs recover a rotated plane.
+
+### Demonstration numbers (2D)
+
+For the Smith cloud (labs table), after centering you should recover something like
+
+$$
+C\approx\begin{bmatrix}0.6166&0.6154\\0.6154&0.7166\end{bmatrix},
+\quad
+\lambda_1\approx 1.284,\quad
+\lambda_2\approx 0.049,
+\quad
+\frac{\lambda_1}{\lambda_1+\lambda_2}\approx 96\%,
+$$
+
+with unit $\mathbf{PC}_1\approx(-0.678,-0.735)$ (sign is conventional — flip both components together). $\mathbf{PC}_2$ is orthogonal and carries the leftover few percent. Projecting a centered sample $\mathbf r$ is the score $\mathbf{PC}_1\cdot\mathbf r$ (and optionally $\mathbf{PC}_2\cdot\mathbf r$).
+
+Iris remains your open problem: same pipeline in $M=4$. Chaotic-pendulum phase-space samples (Chapter 8) make a nice physics follow-on — store $\sim 10$ cycles past transients and PCA the $(\theta,\omega)$ (or higher) table.
+
+## Takeaway
+
+1. Center features.
+2. Form $C=\frac1{N-1}XX^{T}$.
+3. Eigendecompose → ordered PCs.
+4. Project onto the top $k$ PCs (drop small-$\lambda$ “noise” directions).
+
+<FormulaExplorerTabs preset="pca2dDemo" />
+
+<MultipleChoice
+  id="cp-106-pca"
+  title="PCA and covariance"
+  questions={[
+    {
+      prompt: 'With centered X (M×N), the covariance matrix is…',
+      choices: [
+        'C = XXᵀ / (N−1)',
+        'C = X + Xᵀ',
+        'C = N X only',
+        'C = diag(1) always',
+      ],
+      answer: 0,
+      why: 'Outer-product form of all pairwise covs.',
+    },
+    {
+      prompt: 'Off-diagonal Cᵢⱼ measures…',
+      choices: [
+        'correlation between channels i and j',
+        'only the time index',
+        'bit-reversal order',
+        'Nyquist frequency',
+      ],
+      answer: 0,
+      why: 'cov of detector i with detector j.',
+    },
+    {
+      prompt: 'PC₁ is the eigenvector of C with…',
+      choices: [
+        'the largest eigenvalue (max variance direction)',
+        'the smallest eigenvalue only',
+        'λ = 0 always',
+        'no connection to C',
+      ],
+      answer: 0,
+      why: 'Order by λ; largest = principal component.',
+    },
+    {
+      prompt: 'Projecting onto only PC₁…',
+      choices: [
+        'places all points on a 1D line in feature space',
+        'requires labels',
+        'increases dimension',
+        'deletes the covariance matrix',
+      ],
+      answer: 0,
+      why: 'Rank-1 feature matrix F₁.',
+    },
+  ]}
+/>
+
+Next: [10.6b PCA labs](./10-06b-pca-labs).

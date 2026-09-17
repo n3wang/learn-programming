@@ -1,0 +1,127 @@
+---
+sidebar_position: 95
+title: 11.5 ML software (Part II)
+sidebar_label: '11.5 ML software'
+---
+
+# 11.5 Part II: Machine learning software
+
+> **Source:** Ideas from *Computational Physics* (Landau, Páez, Bordeianu), §11.4. Rewritten in original wording — install steps summarized; **no** full conda cookbook dump. Continues [11.4b](./11-04b-graphical-deep-net-labs). Next: [11.5b](./11-05b-ml-software-labs).
+
+Part I built neurons by hand. Part II uses industrial stacks — especially **TensorFlow** (Google Brain; TF2 since 2019) and friends — for deeper nets. Preprocessing often dominates wall-clock time. Nets shine on **large** problems (e.g. exoplanet images); tiny pedagogy may not need a TPU.
+
+## Tensors as multi-index arrays
+
+TensorFlow’s computational model is a **dataflow graph**: nodes = ops, edges = multidimensional arrays (**tensors**), NumPy-compatible.
+
+| Term | Meaning |
+| --- | --- |
+| Size | Total number of elements |
+| Axis / dimension | One index direction |
+| Rank 0 | Scalar (shape `()`) |
+| Rank 1 | Vector |
+| Rank 2 | Matrix |
+| Rank $N$ | $N$ indices |
+| Shape | Length along each axis, e.g. `(2,3)` |
+| dtype | `float32`, `float64`, `int32`, `bool`, … |
+
+Example physics check: mass number $A=Z+N$. With $Z=1$, $N=2$ (tritium) you expect $A=3$ — a rank-0 integer tensor in TF-speak.
+
+![Figure 11.5 — stacked dense layers as a dataflow of tensors.](/img/computational-physics/fig-11-5-deep-net.svg)
+
+## TF tensors vs NumPy (mental model)
+
+Treat a TF tensor as a **NumPy ndarray with a device and a graph of ops attached**. Elementwise `+`, `@`, and broadcasting feel the same; the differences that bite beginners are:
+
+| Habit from NumPy | In TensorFlow 2 |
+| --- | --- |
+| Eager `print(arr)` | Eager works too — but `tf.function` may freeze a graph |
+| In-place `a[i] = …` | Prefer new tensors / `tf.Variable.assign` |
+| Always host RAM | Ops may run on **GPU**; host↔device copies cost |
+| `float64` default | Many TF recipes default to **`float32`** |
+
+Conversion bridges: `tf.convert_to_tensor(np_arr)` and `tensor.numpy()`. For the isotope / Hubble toys in this chapter, NumPy alone is enough; use TF when you want autodiff (`GradientTape`) or a Dense stack that matches production notebooks.
+
+## When a GPU helps (and when it does not)
+
+A GPU pays off when **many parallel multiply-adds** dominate — large batches, wide Dense layers, convolutions on images. It does **not** help much when:
+
+- the dataset fits in a few thousand rows and you train for seconds,
+- preprocessing (CSV parse, Python loops) is the bottleneck,
+- you only evaluate a handful of scalar tensors once.
+
+Rule of thumb for this course: develop on CPU; move to GPU only if a real exoplanet / image job spends most of its time inside `model.fit`. Cloud TPUs are the same idea at larger scale — skip them for pedagogy.
+
+## Local install sketch (outside this sandbox)
+
+On your machine (not graded here):
+
+1. Python + Jupyter (e.g. via Anaconda / conda).
+2. Create/activate an environment.
+3. `conda install -c conda-forge tensorflow` (or the current official pip/conda recipe).
+4. In a notebook: `import tensorflow as tf` then `print(tf.__version__)` — want **2.x**, not 1.x.
+
+Cloud TPUs exist for heavy jobs; you will not need them for the isotope / Hubble toys.
+
+## Sklearn in one line
+
+**scikit-learn** (`pip install scikit-learn`) supplies classifiers, regressors, clusterers, and **preprocessing** helpers. It prefers **2D column layouts** (`reshape(-1,1)`) for single features — different from a casual 1D NumPy vector, but efficient for sparse data.
+
+## Takeaway
+
+| Tool | Role |
+| --- | --- |
+| TensorFlow | Deep nets; tensor graphs; autodiff |
+| NumPy | Host array math TF builds on / mirrors |
+| GPU / TPU | Worth it for large batch / conv jobs — not tiny toys |
+| scikit-learn | Classical ML + preprocessing / poly features |
+| Jupyter | Interactive exploration |
+
+Next lessons compute nuclear / Hubble quantities with **pure Python locks** that mirror TF/`sklearn` workflows, then sketch `GradientTape` and poly regression.
+
+<FormulaExplorerTabs preset="nnDenseLinear" />
+
+<GuidedChoiceExplanation preset="nn-tf-tensors" />
+
+<MultipleChoice
+  id="cp-115-tf"
+  title="ML software"
+  questions={[
+    {
+      prompt: 'A TensorFlow tensor of shape () is…',
+      choices: ['a scalar (rank 0)', 'always a 4D image', 'only a string', 'forbidden'],
+      answer: 0,
+      why: 'Empty shape = single value.',
+    },
+    {
+      prompt: 'Mass number A given Z and N is…',
+      choices: ['A = Z + N', 'A = Z − N', 'A = Z·N', 'A = Z only'],
+      answer: 0,
+      why: 'Protons + neutrons.',
+    },
+    {
+      prompt: 'scikit-learn single-feature inputs are often…',
+      choices: [
+        'reshaped to a 2D column (-1, 1)',
+        'required to be strings',
+        'rank-0 only',
+        'JPEG files only',
+      ],
+      answer: 0,
+      why: 'Column layout for transformers / regressors.',
+    },
+    {
+      prompt: 'For this course’s sandbox drills we…',
+      choices: [
+        'reimplement the arithmetic in pure Python (no TF runtime)',
+        'must call a live TPU',
+        'forbid printing floats',
+        'skip physics checks',
+      ],
+      answer: 0,
+      why: 'Stdout locks; install TF locally for notebooks.',
+    },
+  ]}
+/>
+
+Next: [11.5b ML software labs](./11-05b-ml-software-labs).

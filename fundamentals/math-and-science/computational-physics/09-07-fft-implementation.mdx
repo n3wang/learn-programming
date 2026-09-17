@@ -1,0 +1,120 @@
+---
+sidebar_position: 70
+title: 9.6 FFT implementation
+sidebar_label: '9.6 FFT implementation'
+---
+
+# 9.6 FFT implementation
+
+> **Source:** Ideas from *Computational Physics* (Landau, Páez, Bordeianu), §9.6–9.7. Rewritten in original wording — **no textbook Fortran/Python listing dumps**. Continues [9.5b](./09-06b-fft-labs). Next: [9.6b](./09-07b-fft-implementation-labs).
+
+## Power-of-two length
+
+Classic radix-2 FFTs want $N=2^n$ samples. If your record length is not a power of two, **extend** it to the next $2^n$ (repeat a prefix, or zero-pad — both change the implied period). Because a DFT always treats the window as periodic, concatenating early samples just starts that period a little sooner; zeros assume “signal ended.”
+
+## A concrete walk-through ($N=16$)
+
+Assign complex probes
+
+$$
+y_m=m+mi,\qquad m=0,\ldots,15
+$$
+
+($16=2^4$ points ⇒ **four** butterfly stages after a bit-reversal shuffle). Store each sample as $(\mathrm{Re},\mathrm{Im})$. Many codes flatten to a length-$2N$ real buffer for contiguous access; that is a memory layout choice, not new mathematics.
+
+**Pipeline:**
+
+1. Bit-reverse permute the $N$ complex samples (or accept bit-reversed output).
+2. For $s=1..\log_2 N$: run butterflies of span $2^s$ with twiddles $Z=e^{\mp 2\pi i/2^s}$.
+3. Optionally multiply by the chapter’s $1/\sqrt{2\pi}$ (and $1/N$ on the inverse path) so that FFT$\circ$iFFT recovers $y$.
+
+The DC bin without the physics factor is simply $\sum_m y_m$. For (9.78),
+
+$$
+Y_0^{\mathrm{(unnorm)}}=\sum_{m=0}^{15}(m+mi)=120+120i,
+$$
+
+and with $1/\sqrt{2\pi}$ both real and imaginary parts become $120/\sqrt{2\pi}$.
+
+## Original sketch (structure only)
+
+```python
+# fft_sketch.py — educational structure (original; not a textbook dump)
+# Require N == 2**n. data: list of complex length N.
+
+def bitrev_permute(data):
+    ...  # swap i <-> reverse_bits(i)
+
+def fft_inplace(data, inverse=False):
+    bitrev_permute(data)
+    sign = +1 if inverse else -1
+    length = 2
+    while length <= N:
+        # butterflies of this span; twiddle = exp(sign*2πi/length)
+        ...
+        length *= 2
+    if inverse:
+        for k in range(N):
+            data[k] /= N
+    # optional: scale by 1/sqrt(2π) for physics FT convention
+```
+
+Call a trusted library FFT for production work; implement a tiny $N=8$ or $N=16$ once so bit-reversal and butterflies stop feeling magical.
+
+## §9.7 Assessment checklist
+
+1. Run your FFT on $y_m=m+mi$ (or any §9.3 test tone) and **read** the bins.
+2. Inverse-transform; check $\|y_{\mathrm{out}}-y_{\mathrm{in}}\|$ (with consistent norms, they match; proportional is the minimum bar).
+3. Same signal through a direct $\mathcal{O}(N^2)$ DFT: compare **precision** and **wall time** as $N$ grows.
+
+<FormulaExplorerTabs preset="fftCostScaling" />
+
+<GuidedChoiceExplanation preset="fft-implementation-roundtrip" />
+
+<MultipleChoice
+  id="cp-96-fft-impl"
+  title="FFT implementation"
+  questions={[
+    {
+      prompt: 'Radix-2 FFTs require N to be…',
+      choices: [
+        'a power of 2',
+        'prime only',
+        'odd only',
+        'exactly 10',
+      ],
+      answer: 0,
+      why: 'Each stage halves the problem; N=2^n.',
+    },
+    {
+      prompt: 'For N=16, the number of butterfly stages is…',
+      choices: ['4', '16', '8', '1'],
+      answer: 0,
+      why: 'log₂ 16 = 4.',
+    },
+    {
+      prompt: 'Unnormalized Y₀ for y_m=m+mi (m=0..15) is…',
+      choices: [
+        '120+120i',
+        '0',
+        '1+i',
+        '16 only',
+      ],
+      answer: 0,
+      why: 'Sum of 0..15 is 120 for both Re and Im.',
+    },
+    {
+      prompt: 'A minimal FFT assessment should…',
+      choices: [
+        'round-trip with iFFT and compare timings to a DFT',
+        'only print N',
+        'skip bit reversal forever',
+        'avoid complex numbers',
+      ],
+      answer: 0,
+      why: 'Correctness (round-trip) + cost (vs N² DFT).',
+    },
+  ]}
+/>
+
+Next: [9.6b FFT implementation labs](./09-07b-fft-implementation-labs).

@@ -1,32 +1,69 @@
-/** Control variates: estimate residual ∫(f−g) when J=∫g is known. */
+/** Control variates: pick the right equation at each derivation step. */
 
 export default {
-  title: 'Monte Carlo variance reduction',
-  lead: 'When f is peaked, uniform samples waste effort — track f with a known g.',
+  title: 'Control-variate derivation',
+  lead:
+    'One sentence, one equation — at each step pick the formula that matches (lookalikes included).',
   steps: [
     {
       caption:
-        'Rapidly varying $f$ (e.g. a narrow Gaussian on a wide interval) leaves most uniform draws where $f\\approx 0$. Error still $\\sim 1/\\sqrt{N}$, but each sample teaches little.',
+        'Pick a comparison function $g$ that tracks $f$ closely. Which closeness condition do we require?',
+      ask: 'Which equation encodes “$g$ tracks $f$”?',
+      choices: [
+        {label: '$|f(x)-g(x)|\\le\\varepsilon$', ok: true},
+        {label: '$|f(x)+g(x)|\\le\\varepsilon$', ok: false},
+        {label: '$|f(x)\\cdot g(x)|\\le\\varepsilon$', ok: false},
+      ],
     },
     {
-      ask: 'A control variate rewrites $I=\\int f$ as…',
+      ask: 'And $g$ must have a known exact integral. That known piece is…',
       choices: [
-        {label: '$\\int(f-g)+J$ with $J=\\int g$ known', ok: true},
-        {label: 'Simpson on random LCG nodes', ok: false},
-        {label: 'rejection under a box of height $f$', ok: false},
+        {label: '$J=\\displaystyle\\int_a^b g(x)\\,\\mathrm{d}x$', ok: true},
+        {label: '$J=\\displaystyle\\int_a^b f(x)\\,\\mathrm{d}x$', ok: false},
+        {label: '$J=\\displaystyle\\int_a^b \\bigl(f(x)-g(x)\\bigr)\\,\\mathrm{d}x$', ok: false},
       ],
       caption:
-        'Monte Carlo only averages the residual $f-g$. Choose $g$ so $|f-g|\\le\\varepsilon$ and $\\mathrm{Var}(f-g)<\\mathrm{Var}(f)$.',
+        'Exact $J$ will carry the bulk of the answer; Monte Carlo only cleans up the leftover.',
     },
     {
-      ask: 'On $[0,1]$, $f=e^{-x}$ with $g=1-x$ uses $J=$…',
+      ask: 'Rewrite the target $I=\\int_a^b f$ as a small correction plus the known piece:',
       choices: [
-        {label: '$1/2$', ok: true},
-        {label: '$1-e^{-1}$', ok: false},
-        {label: '$0$', ok: false},
+        {
+          label: '$I=\\displaystyle\\int_a^b\\bigl(f-g\\bigr)+J$',
+          ok: true,
+        },
+        {
+          label: '$I=\\displaystyle\\int_a^b\\bigl(f+g\\bigr)-J$',
+          ok: false,
+        },
+        {
+          label: '$I=J-\\displaystyle\\int_a^b\\bigl(f-g\\bigr)$',
+          ok: false,
+        },
+      ],
+      caption: 'Identity: $\\int f=\\int(f-g)+\\int g$.',
+    },
+    {
+      ask: 'Estimate only the residual by uniform Monte Carlo on $[a,b]$:',
+      choices: [
+        {
+          label:
+            '$I\\simeq\\dfrac{b-a}{N}\\sum_{i=1}^{N}\\bigl(f(x_i)-g(x_i)\\bigr)+J$',
+          ok: true,
+        },
+        {
+          label:
+            '$I\\simeq\\dfrac{b-a}{N}\\sum_{i=1}^{N} f(x_i)\\quad\\text{(ignore $g$ and $J$)}$',
+          ok: false,
+        },
+        {
+          label:
+            '$I\\simeq\\dfrac{b-a}{N}\\sum_{i=1}^{N}\\bigl(f(x_i)+g(x_i)\\bigr)-J$',
+          ok: false,
+        },
       ],
       caption:
-        'Labs compare plain $(1/N)\\sum e^{-x}$ to $(1/N)\\sum(e^{-x}-(1-x))+1/2$ on the same LCG stream.',
+        'On $[0,1]$ the prefactor $b-a$ is $1$. Pays off when $\\mathrm{Var}(f-g)<\\mathrm{Var}(f)$ — e.g. $f=e^{-x}$, $g=1-x$, $J=1/2$.',
     },
   ],
 };

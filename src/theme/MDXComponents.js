@@ -8,6 +8,7 @@ import ProblemSet, {Problem, NumericProblemSet, NumericProblem} from '@site/src/
 import ExerciseSet, {Exercise} from '@site/src/components/ExerciseSet';
 import TranslatableParagraph from '@site/src/components/Translate/TranslatableParagraph';
 import BlockArrowScroll from '@site/src/components/BlockArrowScroll';
+import LessonFigure from '@site/src/components/LessonFigure';
 import {lazyMdxComponent} from '@site/src/components/lazyMdxComponent';
 import {lazySimulators} from '@site/src/components/interactive/lazySimulators';
 
@@ -87,5 +88,6 @@ export default {
     MediaLibrary,
     StudentWorkGallery,
     BlockArrowScroll,
+    LessonFigure,
     p: TranslatableParagraph,
 };

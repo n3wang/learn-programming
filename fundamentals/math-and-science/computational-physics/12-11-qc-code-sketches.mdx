@@ -1,0 +1,186 @@
+---
+sidebar_position: 127
+title: 12.11 QC code sketches
+sidebar_label: '12.11 QC sketches'
+---
+
+# 12.11 Quantum-computing code sketches
+
+> **Source:** Structural ideas from *Computational Physics* (Landau, Páez, Bordeianu), §12.11 listings. **Original sketches only** — do **not** paste `Entangle.py`, `QFT4.py`, `QFTn.py`, `OracleSim.py`, `OracleIBM.py`, or `Shor.py`. Continues [12.10b](./12-10b-shor-labs). Labs: [12.11b](./12-11b-qc-code-labs).
+
+Graded locks live in [12.1b](./12-01b-dirac-notation-labs)–[12.10b](./12-10b-shor-labs). This page maps **how local notebook pieces fit**. Qiskit / Cirq / IBM tokens stay on your machine.
+
+## Dipole Hamiltonian (NumPy, local)
+
+Two-spin dipole piece $\propto XX+YY+ZZ-3ZZ$ on $\mathbb C^4$. Build the $4\times 4$ matrix, `eig`, then optionally rotate $H$ into the eigenbasis (should look diagonal up to numerics).
+
+```python
+# dipole_h_sketch.py — original structure (local NumPy)
+# XX = [[0,0,0,1],[0,0,1,0],[0,1,0,0],[1,0,0,0]]
+# YY, ZZ similarly; H = XX + YY + ZZ - 3*ZZ
+# es, ev = numpy.linalg.eig(H)
+# Check Bell-like columns for degenerate subspace (see §12.3)
+```
+
+Pure-Python entry locks: [12.3b](./12-03b-entanglement-labs).
+
+## QFT₄ circuit (Qiskit, local)
+
+Two qubits: `H` on qubit 1, controlled-phase $\pm\pi/2$, `H` on qubit 0, `SWAP`. Export the unitary with `Operator` and compare to the analytic $\mathrm{QFT}_4$ matrix ([12.8](./12-08-qft)).
+
+```python
+# qft4_sketch.py — structure
+# qc = QuantumCircuit(2)
+# qc.h(1); qc.cp(±pi/2, 0, 1); qc.h(0); qc.swap(0, 1)
+# print(Operator(qc).data)  # match §12.8 matrix to ~1e-3
+```
+
+## $n$-qubit QFT
+
+Loop: for $i = n-1,\ldots,0$: Hadamard on $i$, then controlled phases onto earlier qubits; optional bit-reversal SWAPs. Diff against the library `QFT(n)` gate — max abs entry error should be $\sim 0$ for small $n$.
+
+```python
+# qft_n_sketch.py — structure
+# for i in reversed(range(n)):
+#     qc.h(i)
+#     for j in range(i):
+#         qc.cp(angle / 2**(i-j-1), j, i)
+# swaps for bit reverse unless skip_swap
+```
+
+## Grover: oracle + diffuser + driver
+
+**Oracle** for marked $\omega\in\{0,\ldots,15\}$: $X$ on bits that should be $0$, multi-controlled $X$ with $H$ sandwich on the target (phase kick), undo $X$s.
+
+**Diffuser:** $H^{\otimes n}$, $X^{\otimes n}$, multi-controlled $Z$ (via $H$–MCX–$H$), undo $X$ and $H$.
+
+**Driver:** $H^{\otimes 4}$, then $R\approx\pi\sqrt{N}/4$ rounds of oracle($\omega$) + diffuser (use $N=16$, not $n=4$, in the square root), `measure_all`, simulator histogram. IBM path: transpile to a live backend — expect a noisier peak ([12.9](./12-09-grover)).
+
+```python
+# grover_sketch.py — structure
+# qc.h(range(4))
+# R = ceil(pi * sqrt(16) / 4)   # ← N=16 items
+# for _ in range(R):
+#     qc.append(oracle(9), range(4))
+#     qc.append(diffuser(4), range(4))
+# qc.measure_all()
+# # simulator vs IBM: same circuit, different backend
+```
+
+### Lab: wire sketch pipeline
+
+<NodeLab
+  id="cp-1211-sketch-pipe"
+  mode="wiring"
+  height={280}
+  nodes={[
+    {
+      id: 'ent',
+      position: {x: 20, y: 80},
+      data: {title: 'dipole H', variant: 'table', rows: [{text: 'NumPy eig', badge: '§12.3'}]},
+    },
+    {
+      id: 'qft',
+      position: {x: 180, y: 80},
+      data: {title: 'QFTₙ', variant: 'table', rows: [{text: 'circuit', badge: '§12.8'}]},
+    },
+    {
+      id: 'gr',
+      position: {x: 340, y: 80},
+      data: {title: 'Grover', variant: 'table', rows: [{text: 'O + Uψ', badge: '§12.9'}]},
+    },
+    {
+      id: 'sh',
+      position: {x: 500, y: 80},
+      data: {title: 'Shor', variant: 'table', rows: [{text: 'QPE+mod', badge: '§12.10'}]},
+    },
+  ]}
+  edges={[]}
+  solution={{
+    requiredEdges: [
+      {
+        source: 'ent',
+        sourceHandle: ['row-0-left', 'row-0-right'],
+        target: 'qft',
+        targetHandle: ['row-0-left', 'row-0-right'],
+        label: 'basis → transforms',
+      },
+      {
+        source: 'qft',
+        sourceHandle: ['row-0-left', 'row-0-right'],
+        target: 'gr',
+        targetHandle: ['row-0-left', 'row-0-right'],
+        label: 'gates → search',
+      },
+      {
+        source: 'gr',
+        sourceHandle: ['row-0-left', 'row-0-right'],
+        target: 'sh',
+        targetHandle: ['row-0-left', 'row-0-right'],
+        label: 'oracles → factoring',
+      },
+    ],
+  }}
+/>
+
+## Shor: `amod15` + QPE (local)
+
+Modular-multiply gadgets for $a\in\{2,4,7,8,11,13,14\}$ via SWAPs / $X$s; phase-estimation register with controlled-$U^{2^j}$ and **inverse QFT**; classical `Fraction.limit_denominator` → period $r$; `gcd(a^{r/2}\pm1,\,15)`.
+
+```python
+# shor15_sketch.py — structure
+# while not done:
+#     a = random in 2..14; k = gcd(a, 15)
+#     if k != 1: factor k
+#     else: phase = qpe([amod15(a, 2**j) for j in range(t)])
+#           r = continued_fraction_denominator(phase)
+#           if r even: gcd(a**(r//2)±1, 15)
+```
+
+Never hard-code IBM API tokens in the repo.
+
+## Visualization note
+
+Book listings mix Aer, `plot_histogram`, and provider package names that **change**. Keep the circuit math; update imports from current Qiskit / IBM docs. This course grades **stdout locks**, not PNG histograms.
+
+## Takeaway
+
+| Sketch | Section |
+| --- | --- |
+| Dipole $H$ + `eig` | [12.3](./12-03-entanglement) |
+| QFT₄ / QFTₙ | [12.8](./12-08-qft) |
+| Oracle + diffuser + IBM | [12.9](./12-09-grover) |
+| `amod15` + QPE | [12.10](./12-10-shor) |
+
+<FormulaExplorerTabs preset="qcHadamard" />
+
+<FormulaExplorerTabs preset="qcGroverIters" />
+
+<GuidedChoiceExplanation preset="qc-code-sketches" />
+
+<MultipleChoice
+  id="cp-1211-sketches"
+  title="QC sketches"
+  questions={[
+    {
+      prompt: 'Grover’s π√·/4 should use…',
+      choices: ['N=2ⁿ (search space)', 'only the qubit count n under the root', 'always √2', 'shot count'],
+      answer: 0,
+      why: 'Four qubits ⇒ N=16.',
+    },
+    {
+      prompt: 'QFT₄ sketch ends with…',
+      choices: ['SWAP', 'Toffoli', 'measure only', 'k-means'],
+      answer: 0,
+      why: 'Bit-reversal / wire order.',
+    },
+    {
+      prompt: 'IBM tokens belong in…',
+      choices: ['local secrets, not git', 'the MDX lesson body', 'SVG files', 'commit messages'],
+      answer: 0,
+      why: 'Account security.',
+    },
+  ]}
+/>
+
+Next: [12.11b QC sketch labs](./12-11b-qc-code-labs).

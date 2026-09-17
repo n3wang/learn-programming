@@ -1,29 +1,127 @@
-/** Miller downward recursion for spherical Bessel. */
+/** Spherical Bessel seeds, recurrence, Miller downward — pick the equation. */
 
 export default {
-  title: 'Downward j_ℓ',
-  lead: 'You need $j_{\\ell}(x)$ for many $\\ell$ at fixed $x$. Upward recurrence from $j_0,j_1$ looks easy — and then dies.',
+  title: 'Downward $j_\\ell$',
+  lead:
+    'Seeds, three-term recurrence, then Miller rescale. Pick the matching equation at each step.',
   steps: [
     {
-      caption: 'Both $j_{\\ell}$ and $n_{\\ell}$ obey the same three-term recurrence. Finite precision mixes a speck of $n_{\\ell}$ into every upward step.',
+      ask: 'The regular seed $j_0(x)$ is…',
+      choices: [
+        {label: '$\\displaystyle j_0=\\frac{\\sin x}{x}$', ok: true},
+        {label: '$\\displaystyle j_0=-\\frac{\\cos x}{x}$', ok: false},
+        {label: '$\\displaystyle j_0=\\frac{\\sin x}{x^{2}}-\\frac{\\cos x}{x}$', ok: false},
+      ],
+      caption: 'That last lookalike is actually $j_1$.',
     },
     {
-      ask: 'Why does upward recurrence fail once $j_{\\ell}$ is much smaller than $n_{\\ell}$?',
+      ask: 'The next regular seed $j_1(x)$ is…',
       choices: [
-        {label: 'Subtractive cancellation: large − large → small, then small − small with huge relative error', ok: true},
-        {label: 'IEEE double cannot store $\\sin x$', ok: false},
-        {label: 'The recurrence is only valid for even $\\ell$', ok: false},
+        {
+          label: '$\\displaystyle j_1=\\frac{\\sin x}{x^{2}}-\\frac{\\cos x}{x}$',
+          ok: true,
+        },
+        {
+          label: '$\\displaystyle j_1=\\frac{\\sin x}{x^{2}}+\\frac{\\cos x}{x}$',
+          ok: false,
+        },
+        {
+          label: '$\\displaystyle j_1=-\\frac{\\cos x}{x^{2}}-\\frac{\\sin x}{x}$',
+          ok: false,
+        },
       ],
-      caption: 'You are manufacturing a tiny $j_{\\ell}$ from nearly equal large numbers — classic cancellation into Neumann garbage.',
+      caption: 'Irregular seeds flip trig and signs.',
     },
     {
-      ask: 'Miller’s fix is to…',
+      ask: 'The irregular seed $n_0(x)$ is…',
       choices: [
-        {label: 'start at large $L$ with arbitrary seeds, recur downward, then rescale so $j_0=\\sin x/x$', ok: true},
-        {label: 'always use upward but with quadruple precision only', ok: false},
-        {label: 'replace $j_{\\ell}$ by $n_{\\ell}$ for $\\ell>2$', ok: false},
+        {label: '$\\displaystyle n_0=-\\frac{\\cos x}{x}$', ok: true},
+        {label: '$\\displaystyle n_0=\\frac{\\cos x}{x}$', ok: false},
+        {label: '$\\displaystyle n_0=\\frac{\\sin x}{x}$', ok: false},
       ],
-      caption: 'Downward steps add small → larger, so errors shrink. Absolute scale is fixed by the known $j_0$.',
+    },
+    {
+      ask: 'And $n_1(x)$ is…',
+      choices: [
+        {
+          label: '$\\displaystyle n_1=-\\frac{\\cos x}{x^{2}}-\\frac{\\sin x}{x}$',
+          ok: true,
+        },
+        {
+          label: '$\\displaystyle n_1=-\\frac{\\cos x}{x^{2}}+\\frac{\\sin x}{x}$',
+          ok: false,
+        },
+        {
+          label: '$\\displaystyle n_1=\\frac{\\sin x}{x^{2}}-\\frac{\\cos x}{x}$',
+          ok: false,
+        },
+      ],
+      caption: 'Both $j_\\ell$ and $n_\\ell$ obey the same three-term recurrence.',
+    },
+    {
+      ask: 'Upward recurrence from $\\ell-1,\\ell$ to $\\ell+1$ is…',
+      choices: [
+        {
+          label:
+            '$\\displaystyle j_{\\ell+1}=\\frac{2\\ell+1}{x}j_\\ell-j_{\\ell-1}$',
+          ok: true,
+        },
+        {
+          label:
+            '$\\displaystyle j_{\\ell+1}=\\frac{2\\ell+1}{x}j_\\ell+j_{\\ell-1}$',
+          ok: false,
+        },
+        {
+          label:
+            '$\\displaystyle j_{\\ell+1}=\\frac{2\\ell-1}{x}j_\\ell-j_{\\ell-1}$',
+          ok: false,
+        },
+      ],
+      caption:
+        'Upward eventually subtracts large − large → tiny $j_\\ell$, mixing in Neumann pollution $j_\\ell^{(c)}=j_\\ell+\\epsilon\\,n_\\ell$.',
+    },
+    {
+      ask: 'Downward recurrence (Miller direction) rearranges to…',
+      choices: [
+        {
+          label:
+            '$\\displaystyle j_{\\ell-1}=\\frac{2\\ell+1}{x}j_\\ell-j_{\\ell+1}$',
+          ok: true,
+        },
+        {
+          label:
+            '$\\displaystyle j_{\\ell-1}=\\frac{2\\ell+1}{x}j_\\ell+j_{\\ell+1}$',
+          ok: false,
+        },
+        {
+          label:
+            '$\\displaystyle j_{\\ell-1}=\\frac{2\\ell-1}{x}j_\\ell-j_{\\ell+1}$',
+          ok: false,
+        },
+      ],
+      caption: 'Start at large $L$ with arbitrary seeds; errors shrink walking downward.',
+    },
+    {
+      ask: 'After downward recursion, renormalize so $j_0$ matches the analytic seed:',
+      choices: [
+        {
+          label:
+            '$\\displaystyle j_\\ell^{\\mathrm{N}}=j_\\ell^{c}\\,\\frac{j_0^{\\mathrm{anal}}}{j_0^{c}},\\quad j_0^{\\mathrm{anal}}=\\frac{\\sin x}{x}$',
+          ok: true,
+        },
+        {
+          label:
+            '$\\displaystyle j_\\ell^{\\mathrm{N}}=j_\\ell^{c}\\,\\frac{j_0^{c}}{j_0^{\\mathrm{anal}}}$',
+          ok: false,
+        },
+        {
+          label:
+            '$\\displaystyle j_\\ell^{\\mathrm{N}}=j_\\ell^{c}-j_0^{\\mathrm{anal}}$',
+          ok: false,
+        },
+      ],
+      caption:
+        'Relative $\\ell$-dependence is stable; absolute scale comes from $j_0=\\sin x/x$.',
     },
   ],
 };

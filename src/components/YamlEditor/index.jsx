@@ -219,7 +219,13 @@ export default function YamlEditor({
             <HelpModal open={help === 'hint'} title="Hint" onClose={closeHelp}>
                 {hint}
             </HelpModal>
-            <HelpModal open={help === 'solution'} title="Solution" code onClose={closeHelp}>
+            <HelpModal
+                open={help === 'solution'}
+                title="Solution"
+                code
+                lang="yaml"
+                onClose={closeHelp}
+            >
                 {solution}
             </HelpModal>
         </div>

@@ -1,0 +1,90 @@
+---
+sidebar_position: 68
+title: 9.5 Fast Fourier transform
+sidebar_label: '9.5 Fast Fourier transform'
+---
+
+# 9.5 Fast Fourier transform
+
+> **Source:** Ideas from *Computational Physics* (Landau, Páez, Bordeianu), §9.5. Rewritten in original wording — no textbook code dumps. Continues [9.4c](./09-05b-filters-sinc-labs). Next: [9.5b](./09-06b-fft-labs).
+
+## Why $N^2$ hurts
+
+The DFT
+
+$$
+Y_n=\frac{1}{\sqrt{2\pi}}\sum_{k=0}^{N-1} Z^{nk} y_k,\qquad Z=e^{-2\pi i/N}
+$$
+
+needs a complex multiply for each $(n,k)$ pair — about $N^2$ work. At $N\sim10^3$ that is the difference between a coffee break and an overnight job. Cooley–Tukey (and earlier rediscoveries) reuse the **periodicity of $Z^{nk}$** to cut the cost to roughly $N\log_2 N$.
+
+## Divide, butterfly, conquer
+
+Split the data into halves, transform each half, combine. Each stage of length $N$ costs $O(N)$ butterflies; $\log_2 N$ stages $\Rightarrow O(N\log N)$. Pick the butterfly map $(y_p,y_q)\mapsto(y_p\pm Z y_q)$ and the bit-reversal consequence among lookalikes.
+
+<GuidedChoiceExplanation preset="fft-butterfly-bitrev" />
+
+![Figure 9.8 — butterfly operation.](/img/computational-physics/fig-9-8-butterfly.svg)
+
+For $N=8$, powers of $Z$ collapse to four independent values ($Z^0..Z^3$ and sign flips). Grouping $y_p\pm y_q$ before multiplying by $Z$ removes redundant work — 24 complex multiplies in a staged butterfly network versus 64 in the naive sum.
+
+## Bit reversal
+
+With $b=\log_2 N$ bits, reverse the bits of each index $0..N-1$ (table below for $N=8$).
+
+| dec | bits ($N=8$) | reversed | dec′ |
+| --- | --- | --- | --- |
+| 0 | 000 | 000 | 0 |
+| 1 | 001 | 100 | 4 |
+| 2 | 010 | 010 | 2 |
+| 3 | 011 | 110 | 6 |
+| 4 | 100 | 001 | 1 |
+| 5 | 101 | 101 | 5 |
+| 6 | 110 | 011 | 3 |
+| 7 | 111 | 111 | 7 |
+
+Same idea with 4 bits for $N=16$ (first half of reversed indices are even). Production FFTs hide this shuffle; you should still know it exists when comparing hand butterflies to library `fft`.
+
+## Practice stance
+
+Prefer a trusted FFT for production spectra. Implement a tiny radix-2 butterfly / bit-reverse once so the $N\log N$ story is visceral — then call libraries. Pair with §9.4 filters: FFT → multiply by $H(\omega)$ → iFFT is the fast convolution route.
+
+<FormulaExplorerTabs preset="fftCostScaling" />
+
+<MultipleChoice
+  id="cp-95-fft"
+  title="FFT"
+  questions={[
+    {
+      prompt: 'Naive DFT cost scales as…',
+      choices: ['N²', 'N', 'log N', 'constant'],
+      answer: 0,
+      why: 'Every (n,k) pair multiplies.',
+    },
+    {
+      prompt: 'Radix-2 FFT cost scales roughly as…',
+      choices: ['N log₂ N', 'N³', '2^N', 'N!'],
+      answer: 0,
+      why: 'log₂ N butterfly stages of O(N) each.',
+    },
+    {
+      prompt: 'A butterfly with twiddle Z produces…',
+      choices: [
+        'y_p±Z y_q from the pair (y_p, y_q)',
+        'only y_p y_q products',
+        'bit reversal alone',
+        'a real-only transform always',
+      ],
+      answer: 0,
+      why: 'Sum and difference wings with a shared twiddle.',
+    },
+    {
+      prompt: 'Bit reversal of index 1 with 3 bits is…',
+      choices: ['4', '1', '7', '0'],
+      answer: 0,
+      why: '001 → 100 → 4.',
+    },
+  ]}
+/>
+
+Next: [9.5b FFT labs](./09-06b-fft-labs).

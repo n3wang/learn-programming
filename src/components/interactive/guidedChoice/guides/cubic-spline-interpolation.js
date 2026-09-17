@@ -1,38 +1,94 @@
-/** Cubic spline interpolation: piecewise cubics matched in value, slope, curvature. */
+/** Cubic spline: matching conditions and panel integral — pick the equations. */
 
 export default {
-  title: 'Cubic spline interpolation',
-  lead: 'Instead of one high-degree polynomial for the whole table, fit a different cubic in each interval — and glue them together smoothly.',
+  title: 'Cubic spline matching and quadrature',
+  lead:
+    'Piecewise cubics glued by value, slope, and curvature. Pick the matching equation at each step.',
   steps: [
     {
-      caption: 'On $[x_i,x_{i+1}]$: $g_i(x)=g_i+g_i\'(x-x_i)+\\tfrac12 g_i\'\'(x-x_i)^2+\\tfrac16 g_i\'\'\'(x-x_i)^3$. Matching value, first, and second derivatives at each shared node keeps the curve and its curvature continuous.',
+      ask: 'On $[x_i,x_{i+1}]$ the Taylor cubic about the left node is…',
+      choices: [
+        {
+          label:
+            '$\\displaystyle g_i(x)=g_i+g_i\'(x-x_i)+\\tfrac12 g_i\'\'(x-x_i)^{2}+\\tfrac16 g_i\'\'\'(x-x_i)^{3}$',
+          ok: true,
+        },
+        {
+          label:
+            '$\\displaystyle g_i(x)=g_i+g_i\'(x-x_i)+\\tfrac12 g_i\'\'(x-x_i)^{2}$ (no cubic term)',
+          ok: false,
+        },
+        {
+          label:
+            '$\\displaystyle g_i(x)=g_i+g_i\'(x-x_i)+\\tfrac16 g_i\'\'(x-x_i)^{2}+\\tfrac12 g_i\'\'\'(x-x_i)^{3}$',
+          ok: false,
+        },
+      ],
+      caption:
+        'Higher than third derivatives vanish for a cubic. The task is to recover $g_i\',g_i\'\',g_i\'\'\'$ from the tabulated $g_i$.',
     },
     {
-      ask: 'What makes a "natural" cubic spline natural?',
+      ask: 'Value matching at a shared node requires…',
       choices: [
-        {label: 'the second derivative is set to zero at both endpoints', ok: true},
-        {label: 'the first derivative is set to zero at both endpoints', ok: false},
-        {label: 'all third derivatives are zero everywhere', ok: false},
+        {
+          label: '$\\displaystyle g_i(x_{i+1})=g_{i+1}(x_{i+1})$',
+          ok: true,
+        },
+        {
+          label: '$\\displaystyle g_i(x_{i+1})=g_{i+1}(x_i)$',
+          ok: false,
+        },
+        {
+          label: '$\\displaystyle g_i\'(x_{i+1})=g_{i+1}\'\'(x_{i+1})$',
+          ok: false,
+        },
       ],
-      caption: 'It mimics a flexible drafting spline whose ends are unconstrained, so curvature vanishes there.',
+      caption:
+        'Slope and curvature matching at interiors: $g_{i-1}\'(x_i)=g_i\'(x_i)$ and $g_{i-1}\'\'(x_i)=g_i\'\'(x_i)$.',
     },
     {
-      ask: 'Compared with one high-degree Lagrange polynomial through all the data, a cubic spline fit is typically…',
+      ask: 'A common closure for the third derivative from adjacent second derivatives is…',
       choices: [
-        {label: 'smoother and less prone to wild oscillation between nodes, since each piece is low-degree', ok: true},
-        {label: 'identical, since both pass through every data point', ok: false},
-        {label: 'worse, because splines cannot be differentiated', ok: false},
+        {
+          label:
+            '$\\displaystyle g_i\'\'\'\\simeq\\dfrac{g_{i+1}\'\'-g_i\'\'}{x_{i+1}-x_i}$',
+          ok: true,
+        },
+        {
+          label:
+            '$\\displaystyle g_i\'\'\'\\simeq\\dfrac{g_{i+1}\'\'+g_i\'\'}{x_{i+1}-x_i}$',
+          ok: false,
+        },
+        {
+          label:
+            '$\\displaystyle g_i\'\'\'\\simeq\\dfrac{g_{i+1}\'-g_i\'}{x_{i+1}-x_i}$',
+          ok: false,
+        },
       ],
-      caption: 'Splines can be safely differentiated and integrated piece by piece — useful when, e.g., a potential needs to be turned into a force.',
+      caption:
+        'Interior matching alone gives $N-2$ equations for $N$ unknown second derivatives — endpoints need boundary data (natural: $g\'\'(a)=g\'\'(b)=0$).',
     },
     {
-      ask: 'Integrating a spline fit over an interval is done by…',
+      ask: 'Integrating one cubic panel analytically yields the antiderivative evaluation…',
       choices: [
-        {label: 'integrating each cubic piece analytically and summing over intervals', ok: true},
-        {label: 'summing the tabulated $g_i$ values directly', ok: false},
-        {label: 'switching to Gaussian quadrature — splines cannot be integrated', ok: false},
+        {
+          label:
+            '$\\displaystyle\\int_{x_i}^{x_{i+1}}g\\simeq\\Bigl[g_i x+\\tfrac12 g_i\' x^{2}+\\tfrac16 g_i\'\' x^{3}+\\tfrac1{24}g_i\'\'\' x^{4}\\Bigr]_{x_i}^{x_{i+1}}$',
+          ok: true,
+        },
+        {
+          label:
+            '$\\displaystyle\\int_{x_i}^{x_{i+1}}g\\simeq\\Bigl[g_i x+\\tfrac12 g_i\' x^{2}+\\tfrac12 g_i\'\' x^{3}+\\tfrac16 g_i\'\'\' x^{4}\\Bigr]_{x_i}^{x_{i+1}}$',
+          ok: false,
+        },
+        {
+          label:
+            '$\\displaystyle\\int_{x_i}^{x_{i+1}}g\\simeq\\bigl[g_i\'\'\' x\\bigr]_{x_i}^{x_{i+1}}$',
+          ok: false,
+        },
       ],
-      caption: 'Each cubic term integrates in closed form; this is about as good as it gets when g is known only at tabulated points.',
+      caption:
+        'Sum consecutive panels for a multi-interval integral. When $g$ is known only at nodes, this is about as accurate as tabulated quadrature gets; if you can evaluate $g$ freely, prefer Gauss.',
     },
   ],
 };

@@ -585,4 +585,807 @@ export const FORMULAS = [
     ],
     href: '/fundamentals/math-and-science/computational-physics/05-06-mean-value-nd',
   },
+  {
+    id: 'formula-mc-control-variate',
+    kind: 'formula',
+    title: 'Control-variate Monte Carlo',
+    formula:
+      '$I=\\displaystyle\\int(f-g)+J,\\quad J=\\int g,\\quad I\\simeq\\dfrac{1}{N}\\sum\\bigl(f(x_i)-g(x_i)\\bigr)+J$',
+    description:
+      'Estimate only the residual when g tracks f and J is known. Goal: Var(f−g) < Var(f). Calibration: f=e^{-x}, g=1−x, J=1/2 on [0,1].',
+    explorer: 'mcControlVariate',
+    tex: 'I = int(f-g) + J',
+    texAlts: [
+      'control variate Monte Carlo',
+      '(1/N) sum (f-g) + J',
+      'Var(f-g) < Var(f)',
+    ],
+    href: '/fundamentals/math-and-science/computational-physics/05-07-mc-variance-reduction',
+  },
+  {
+    id: 'formula-mc-importance',
+    kind: 'formula',
+    title: 'Importance-sampling estimator',
+    formula:
+      '$I=\\displaystyle\\int w\\,\\dfrac{f}{w}=\\Biggl\\langle\\dfrac{f}{w}\\Biggr\\rangle,\\quad x\\sim w$',
+    description:
+      'Sample from weight w∝f to flatten f/w. von Neumann rejection draws x~w by accepting throws under the curve inside a box of height w₀.',
+    explorer: 'mcRejection',
+    tex: 'I = <f/w> with x ~ w',
+    texAlts: [
+      'importance sampling',
+      'average f over w',
+      'von Neumann rejection',
+    ],
+    href: '/fundamentals/math-and-science/computational-physics/05-08-importance-sampling',
+  },
+  {
+    id: 'formula-square-well-even',
+    kind: 'formula',
+    title: 'Even square-well matching residual',
+    formula:
+      '$g(E)=\\sqrt{E}\\,\\cot\\sqrt{V_0-E}-\\sqrt{V_0-E}=0\\quad(\\hbar=1,\\,2m=1,\\,a=1)$',
+    description:
+      'Equivalent to √(V₀−E) tan√(V₀−E)=√E. For V₀=10 the even bound energy on [8.0, 8.8] is E_B≈8.5927852752.',
+    explorer: 'squareWellEven',
+    tex: 'g(E)=\\sqrt{E}\\cot\\sqrt{V_0-E}-\\sqrt{V_0-E}',
+    texAlts: [
+      'sqrt(E) cot sqrt(V0-E) - sqrt(V0-E) = 0',
+      'sqrt(V0-E) tan sqrt(V0-E) = sqrt(E)',
+      'even square well bound energy',
+    ],
+    href: '/fundamentals/math-and-science/computational-physics/06-01-quantum-bound-states',
+  },
+  {
+    id: 'formula-bisection-midpoint',
+    kind: 'formula',
+    title: 'Bisection midpoint update',
+    formula:
+      '$x=\\dfrac{x_{-}+x_{+}}{2},\\quad \\text{keep the half with }f(x_{-})f(x)<0$',
+    description:
+      'Each step halves a sign-change bracket. After N steps width → W/2ᴺ (linear convergence).',
+    explorer: 'bisectionSearch',
+    tex: 'x=(x_-+x_+)/2',
+    texAlts: [
+      'bisection midpoint',
+      'interval halving',
+      'keep signed half',
+    ],
+    href: '/fundamentals/math-and-science/computational-physics/06-02-bisection-search',
+  },
+  {
+    id: 'formula-newton-correction',
+    kind: 'formula',
+    title: 'Newton–Raphson correction',
+    formula: '$\\Delta x=-\\dfrac{f(x_0)}{f\'(x_0)},\\quad x\\leftarrow x_0+\\Delta x$',
+    description:
+      'Zero of the local linear model. Use analytic f′ or a forward difference. Backtrack (halve Δx) if |f| grows.',
+    explorer: 'newtonRaphson',
+    tex: '\\Delta x=-f(x_0)/f\'(x_0)',
+    texAlts: [
+      'Delta x = -f/f\'',
+      'newton raphson update',
+      'tangent intercept root',
+    ],
+    href: '/fundamentals/math-and-science/computational-physics/06-03-newton-raphson',
+  },
+  {
+    id: 'formula-magnetization-reduced',
+    kind: 'formula',
+    title: 'Reduced magnetization self-consistency',
+    formula: '$m=\\tanh\\!\\left(\\dfrac{m}{t}\\right),\\quad f(m,t)=m-\\tanh(m/t)$',
+    description:
+      'Weiss mean-field in reduced units. Root-find f at fixed t; spontaneous m>0 only for t<1. At t=0.5, m≈0.957504.',
+    explorer: 'magnetizationSearch',
+    tex: 'm=\\tanh(m/t)',
+    texAlts: [
+      'm = tanh(m/t)',
+      'f(m,t)=m-tanh(m/t)',
+      'mean field magnetization',
+    ],
+    href: '/fundamentals/math-and-science/computational-physics/06-04-magnetization-search',
+  },
+  {
+    id: 'formula-hyperfine-splitting',
+    kind: 'formula',
+    title: 'Hyperfine singlet–triplet splitting',
+    formula: '$\\Delta E=W-(-3W)=4W$',
+    description:
+      'For V=W σe·σp in the product basis, eigenvalues are W (×3, triplet) and −3W (singlet). The gap is 4W (21 cm / 1420 MHz in lab units).',
+    tex: '\\Delta E=4W',
+    texAlts: [
+      'Delta E = 4W',
+      'W - (-3W) = 4W',
+      'hyperfine splitting',
+    ],
+    href: '/fundamentals/math-and-science/computational-physics/07-04-hyperfine',
+  },
+  {
+    id: 'formula-cos-from-sin',
+    kind: 'formula',
+    title: 'Cosine from sine (±sqrt)',
+    formula: '$c=\\pm\\sqrt{1-s^{2}},\\quad s=\\sin\\theta,\\;c=\\cos\\theta$',
+    description:
+      'Identity reduction for nonlinear statics. Prefer +sqrt when geometry needs cos>0; the minus sign is another branch.',
+    tex: 'c=\\pm\\sqrt{1-s^2}',
+    texAlts: [
+      'cos = ±sqrt(1-sin^2)',
+      'c = +sqrt(1-s^2)',
+      'trigonometric identity branch',
+    ],
+    href: '/fundamentals/math-and-science/computational-physics/07-03-string-problem',
+  },
+  {
+    id: 'formula-soft-anharmonic-force',
+    kind: 'formula',
+    title: 'Soft anharmonic restoring force',
+    formula: '$F=-kx(1-\\alpha x)\\quad\\text{from }V\\approx\\tfrac12 kx^{2}(1-\\tfrac23\\alpha x)$',
+    description:
+      'Cubic correction to a harmonic well. Restoring only while x<1/α; beyond that the force can flip and the orbit may unbound.',
+    tex: 'F=-kx(1-\\alpha x)',
+    texAlts: [
+      'F = -kx(1-alpha x)',
+      'V ≈ ½kx²(1−⅔αx)',
+      'soft anharmonic spring',
+    ],
+    href: '/fundamentals/math-and-science/computational-physics/08-01-nonlinear-oscillators',
+  },
+  {
+    id: 'formula-power-law-oscillator',
+    kind: 'formula',
+    title: 'Power-law oscillator force',
+    formula: '$V=\\dfrac{k}{p}|x|^{p},\\quad F=-k x^{p-1}\\ (p\\ \\text{even})$',
+    description:
+      'Even wells with odd-power restoring force. Only p=2 is harmonic (isochronous); other p have amplitude-dependent periods.',
+    tex: 'F=-k x^{p-1}',
+    texAlts: [
+      'F = -k x^{p-1}',
+      'V = k|x|^p / p',
+      'power law oscillator',
+    ],
+    href: '/fundamentals/math-and-science/computational-physics/08-01-nonlinear-oscillators',
+  },
+  {
+    id: 'formula-ode-dynamic-form',
+    kind: 'formula',
+    title: 'Dynamic form for Newton ODEs',
+    formula: '$y^{(0)}=x,\\; y^{(1)}=v,\\quad \\dot y^{(0)}=y^{(1)},\\; \\dot y^{(1)}=F/m$',
+    description:
+      'Rewrite x″=F/m as a first-order system for Euler/RK steppers. Example: (x,v)=(0.5,0.2), F=−x ⇒ (f0,f1)=(0.2,−0.5).',
+    tex: '\\dot y^{(0)}=y^{(1)},\\ \\dot y^{(1)}=F/m',
+    texAlts: [
+      'dy0/dt = y1, dy1/dt = F/m',
+      'y0=x, y1=v',
+      'first order system mechanics',
+    ],
+    href: '/fundamentals/math-and-science/computational-physics/08-02-ode-form-and-review',
+  },
+  {
+    id: 'formula-euler-step',
+    kind: 'formula',
+    title: 'Forward Euler step',
+    formula: '$\\mathbf y_{n+1}=\\mathbf y_n+h\\,\\mathbf f(t_n,\\mathbf y_n)$',
+    description:
+      'Local truncation O(h²). Uses only the left-endpoint slope. Harmonic lab: one step from (0,1) with h=0.01 → (0.01,1).',
+    explorer: 'harmonicEulerRk',
+    tex: 'y_{n+1}=y_n+h f(t_n,y_n)',
+    texAlts: [
+      'y ← y + h f',
+      'forward Euler',
+      'Euler ODE step',
+    ],
+    href: '/fundamentals/math-and-science/computational-physics/08-03-ode-algorithms',
+  },
+  {
+    id: 'formula-rk2-midpoint',
+    kind: 'formula',
+    title: 'Midpoint RK2 step',
+    formula:
+      '$k_1=hf(t,y),\\; k_2=hf(t+h/2,y+k_1/2),\\; y\\leftarrow y+k_2$',
+    description:
+      'Sample the slope at a tentative midpoint, then take a full step. One-step lab lock: (0.0100000000, 0.9980260791).',
+    explorer: 'harmonicEulerRk',
+    tex: 'y \\leftarrow y + k_2,\\ k_2=h f(t+h/2,y+k_1/2)',
+    texAlts: [
+      'RK2 midpoint',
+      'k1=hf, k2=hf(mid), y+=k2',
+      'improved Euler midpoint',
+    ],
+    href: '/fundamentals/math-and-science/computational-physics/08-03-ode-algorithms',
+  },
+  {
+    id: 'formula-critical-damping',
+    kind: 'formula',
+    title: 'Critical viscous damping',
+    formula: '$b_{\\mathrm{crit}}=2m\\omega_0,\\quad \\omega_0=\\sqrt{k/m}$',
+    description:
+      'Underdamped for b<b_crit (rings), overdamped for b>b_crit. With m=1, ω0=1 → b_crit=2.',
+    tex: 'b_{crit}=2m\\omega_0',
+    texAlts: [
+      'b = 2 m omega0',
+      'critical damping',
+      'under over damped',
+    ],
+    href: '/fundamentals/math-and-science/computational-physics/08-05-friction-resonance',
+  },
+  {
+    id: 'formula-beat-frequency',
+    kind: 'formula',
+    title: 'Beat frequency (driven oscillator)',
+    formula: '$f_{\\mathrm{beat}}=\\dfrac{|\\omega-\\omega_0|}{2\\pi}$',
+    description:
+      'Interference of nearby drive and natural frequencies. For ω=2π·1.1 and ω0=2π, f_beat=0.1.',
+    tex: 'f_{beat}=|\\omega-\\omega_0|/(2\\pi)',
+    texAlts: [
+      'beat frequency |ω−ω0|/(2π)',
+      'f_beat = 0.1 for 10% detuning',
+      'beats driven oscillator',
+    ],
+    href: '/fundamentals/math-and-science/computational-physics/08-05-friction-resonance',
+  },
+  {
+    id: 'formula-fourier-series',
+    kind: 'formula',
+    title: 'Fourier series (known period)',
+    formula:
+      '$y=\\dfrac{a_0}{2}+\\sum_{n=1}^{\\infty}(a_n\\cos n\\omega t+b_n\\sin n\\omega t),\\ \\omega=2\\pi/T$',
+    description:
+      'Trigonometric least-squares expansion of a period-T signal. Intensity at harmonic n scales as a_n²+b_n².',
+    explorer: 'sawtoothFourierSum',
+    tex: 'y=a_0/2+\\sum(a_n\\cos n\\omega t+b_n\\sin n\\omega t)',
+    texAlts: [
+      'Fourier series a_n b_n',
+      'omega = 2 pi / T',
+      'harmonic expansion period T',
+    ],
+    href: '/fundamentals/math-and-science/computational-physics/09-01-fourier-series',
+  },
+  {
+    id: 'formula-sawtooth-bn',
+    kind: 'formula',
+    title: 'Sawtooth sine coefficients',
+    formula: '$b_n=\\dfrac{2}{n\\pi}(-1)^{n+1}$',
+    description:
+      'Odd sawtooth on (−T/2,T/2). Pure sine series; |b_n|∝1/n. Lab locks: b1=0.6366197724, b2=−0.3183098862.',
+    explorer: 'sawtoothFourierSum',
+    tex: 'b_n=2(-1)^{n+1}/(n\\pi)',
+    texAlts: [
+      'b_n = 2 (-1)^{n+1} / (n pi)',
+      'sawtooth Fourier bn',
+      'odd ramp sine series',
+    ],
+    href: '/fundamentals/math-and-science/computational-physics/09-01-fourier-series',
+  },
+  {
+    id: 'formula-fourier-transform-pair',
+    kind: 'formula',
+    title: 'Fourier transform pair (physics norm)',
+    formula:
+      '$Y(\\omega)=\\int y(t)\\dfrac{e^{-i\\omega t}}{\\sqrt{2\\pi}}\\,\\mathrm{d}t,\\quad y(t)=\\int Y(\\omega)\\dfrac{e^{i\\omega t}}{\\sqrt{2\\pi}}\\,\\mathrm{d}\\omega$',
+    description:
+      'Continuous spectrum for nonperiodic signals. Power spectrum is |Y|²; consistency uses 2π δ(ω′−ω).',
+    explorer: 'fourierGaussianPair',
+    tex: 'Y(\\omega)=\\int y(t) e^{-i\\omega t}/\\sqrt{2\\pi}\\,dt',
+    texAlts: [
+      'Fourier transform 1/sqrt(2pi)',
+      'inverse Fourier transform',
+      'power spectrum |Y|^2',
+    ],
+    href: '/fundamentals/math-and-science/computational-physics/09-02-fourier-transforms',
+  },
+  {
+    id: 'formula-dft-sum',
+    kind: 'formula',
+    title: 'Discrete Fourier transform',
+    formula:
+      '$Y_n=\\dfrac{1}{\\sqrt{2\\pi}}\\sum_{k=0}^{N-1} y_k e^{-2\\pi i kn/N},\\quad \\omega_n=n\\dfrac{2\\pi}{Nh}$',
+    description:
+      'Trapezoid FT on a period-T=Nh window. Sampling rate s=1/h; Nyquist s/2. Lab lock Re Y1≈1.5957691216 for cos bin.',
+    explorer: 'dftNyquistAlias',
+    tex: 'Y_n=(1/\\sqrt{2\\pi})\\sum y_k e^{-2\\pi i kn/N}',
+    texAlts: [
+      'DFT sum',
+      'omega_n = n 2pi / (N h)',
+      'Nyquist s/2',
+    ],
+    href: '/fundamentals/math-and-science/computational-physics/09-03-discrete-fourier-transforms',
+  },
+  {
+    id: 'formula-autocorr-power',
+    kind: 'formula',
+    title: 'Autocorrelation → power spectrum',
+    formula: '$A(\\omega)=\\sqrt{2\\pi}\\,|S(\\omega)|^2$',
+    description:
+      'FT of the autocorrelation of a noisy measurement approximates the pure-signal power spectrum when noise is uncorrelated.',
+    tex: 'A(\\omega)=\\sqrt{2\\pi}|S(\\omega)|^2',
+    texAlts: [
+      'autocorrelation power spectrum',
+      'A = sqrt(2pi) |S|^2',
+      'noise reduction correlation',
+    ],
+    href: '/fundamentals/math-and-science/computational-physics/09-04-noise-filtering',
+  },
+  {
+    id: 'formula-convolution-theorem-filter',
+    kind: 'formula',
+    title: 'Convolution theorem (filtering)',
+    formula: '$g=f*h \\quad\\Rightarrow\\quad G(\\omega)=\\sqrt{2\\pi}\\,F(\\omega)H(\\omega)$',
+    description:
+      'Linear filters multiply spectra. RC: H_lp=1/(1+iωτ), H_hp=iωτ/(1+iωτ). At ωτ=1, |H|=1/√2.',
+    explorer: 'rcFilterGain',
+    tex: 'G=\\sqrt{2\\pi} F H',
+    texAlts: [
+      'convolution theorem filter',
+      'G = sqrt(2pi) F H',
+      'lowpass highpass RC',
+    ],
+    href: '/fundamentals/math-and-science/computational-physics/09-05-filters-and-sinc',
+  },
+  {
+    id: 'formula-hamming-sinc',
+    kind: 'formula',
+    title: 'Hamming-windowed sinc kernel',
+    formula:
+      '$h[i]\\,w[i],\\quad w[i]=0.54-0.46\\cos(2\\pi i/M)$',
+    description:
+      'Truncate ideal sinc lowpass, taper with Hamming to reduce Gibbs. Center limit of unnormalized kernel is 2πω_c.',
+    tex: 'w[i]=0.54-0.46\\cos(2\\pi i/M)',
+    texAlts: [
+      'Hamming window',
+      'windowed sinc filter',
+      'w = 0.54 - 0.46 cos',
+    ],
+    href: '/fundamentals/math-and-science/computational-physics/09-05-filters-and-sinc',
+  },
+  {
+    id: 'formula-fft-cost',
+    kind: 'formula',
+    title: 'FFT complexity',
+    formula: '$\\mathrm{DFT}\\sim N^{2},\\quad \\mathrm{FFT}\\sim N\\log_2 N$',
+    description:
+      'Butterfly stages reuse twiddles. N=1024 → roughly 100× fewer multiplies. Bit-reverse restores natural bin order.',
+    explorer: 'fftCostScaling',
+    tex: 'FFT \\sim N\\log_2 N',
+    texAlts: [
+      'FFT N log N',
+      'Cooley Tukey',
+      'butterfly bit reversal',
+    ],
+    href: '/fundamentals/math-and-science/computational-physics/09-06-fft',
+  },
+  {
+    id: 'formula-fft-probe-dc',
+    kind: 'formula',
+    title: 'FFT probe DC (unnormalized)',
+    formula: '$y_m=m+mi\\ (m=0..15)\\ \\Rightarrow\\ Y_0=\\sum y_m=120+120i$',
+    description:
+      'N=16=2^4 needs 4 butterfly stages. Physics scale: Y0/√(2π) ≈ 47.8730736482(1+i). Assess with iFFT round-trip vs DFT timing.',
+    tex: 'Y_0=\\sum_{m=0}^{15}(m+mi)=120+120i',
+    texAlts: [
+      'ym = m + m i',
+      'FFT DC sum',
+      'N=16 four stages',
+    ],
+    href: '/fundamentals/math-and-science/computational-physics/09-07-fft-implementation',
+  },
+  {
+    id: 'formula-mexican-hat',
+    kind: 'formula',
+    title: 'Mexican-hat mother wavelet',
+    formula: '$\\Psi(t)=\\bigl(1-t^{2}/\\sigma^{2}\\bigr)e^{-t^{2}/(2\\sigma^{2})}$',
+    description:
+      'Second derivative of a Gaussian. At σ=1, t=0 → Ψ=1. Scale/translate to build daughters for time–frequency analysis.',
+    tex: '\\Psi(t)=(1-t^2/\\sigma^2)e^{-t^2/(2\\sigma^2)}',
+    texAlts: [
+      'Mexican hat wavelet',
+      'Morlet and Haar mothers',
+      'daughter wavelet scale translate',
+    ],
+    href: '/fundamentals/math-and-science/computational-physics/10-01-wavelet-analysis',
+  },
+  {
+    id: 'formula-fourier-uncertainty',
+    kind: 'formula',
+    title: 'Fourier uncertainty (wave packets)',
+    formula: '$\\Delta t\\,\\Delta\\omega \\gtrsim 2\\pi$',
+    description:
+      'N-cycle burst: Δt=N·2π/ω0, Δω=ω0/N. Product equals 2π for that width definition; C=ΔtΔω/(2π).',
+    explorer: 'uncertaintyPacket',
+    tex: '\\Delta t \\Delta\\omega \\gtrsim 2\\pi',
+    texAlts: [
+      'uncertainty principle Fourier',
+      'Delta t Delta omega',
+      'wave packet width',
+    ],
+    href: '/fundamentals/math-and-science/computational-physics/10-02-wave-packets-uncertainty',
+  },
+  {
+    id: 'formula-stft',
+    kind: 'formula',
+    title: 'Short-time Fourier transform',
+    formula:
+      '$Y^{(\\mathrm{ST})}(\\omega,\\tau)=\\int \\dfrac{e^{i\\omega t}}{\\sqrt{2\\pi}} w(t-\\tau) y(t)\\,\\mathrm{d}t$',
+    description:
+      'Slide a localized window; spectrogram over (ω,τ). Fixed width ⇒ fixed Δt–Δω tradeoff; wavelets vary scale.',
+    tex: 'Y(ST)(\\omega,\\tau)=\\int e^{i\\omega t}/\\sqrt{2\\pi}\\, w(t-\\tau) y(t)\\,dt',
+    texAlts: [
+      'short time Fourier transform',
+      'STFT spectrogram',
+      'windowed Fourier transform',
+    ],
+    href: '/fundamentals/math-and-science/computational-physics/10-03-short-time-fourier',
+  },
+  {
+    id: 'formula-cwt',
+    kind: 'formula',
+    title: 'Continuous wavelet transform',
+    formula:
+      '$Y(s,\\tau)=\\int \\psi_{s,\\tau}^*(t) y(t)\\,\\mathrm{d}t,\\quad \\psi_{s,\\tau}=s^{-1/2}\\Psi((t-\\tau)/s)$',
+    description:
+      'Overlap with scaled/translated mothers. ω=2π/s. Small s resolves fine detail. Zero-mean mothers with vanishing moments preferred.',
+    explorer: 'waveletScaleFreq',
+    tex: 'Y(s,\\tau)=\\int \\psi_{s,\\tau}^*(t) y(t)\\,dt',
+    texAlts: [
+      'continuous wavelet transform',
+      'omega = 2 pi / s',
+      'daughter wavelet 1/sqrt(s)',
+    ],
+    href: '/fundamentals/math-and-science/computational-physics/10-04-wavelet-transforms',
+  },
+  {
+    id: 'formula-daub4',
+    kind: 'formula',
+    title: 'Daubechies-4 filter taps',
+    formula:
+      '$c_0=\\dfrac{1+\\sqrt{3}}{4\\sqrt{2}},\\; c_1=\\dfrac{3+\\sqrt{3}}{4\\sqrt{2}},\\; c_2=\\dfrac{3-\\sqrt{3}}{4\\sqrt{2}},\\; c_3=\\dfrac{1-\\sqrt{3}}{4\\sqrt{2}}$',
+    description:
+      'Orthogonal L/H pair with vanishing moments on constants and linears. Σc²=1; H·ramp≈0; pyramid ↓2 multiresolution.',
+    explorer: 'daub4Coeffs',
+    tex: 'c_0=(1+\\sqrt{3})/(4\\sqrt{2})',
+    texAlts: [
+      'Daubechies 4',
+      'Daub4 filter coefficients',
+      'DWT pyramid lowpass highpass',
+    ],
+    href: '/fundamentals/math-and-science/computational-physics/10-05-discrete-wavelet-transforms',
+  },
+  {
+    id: 'formula-sample-covariance',
+    kind: 'formula',
+    title: 'Sample covariance matrix',
+    formula:
+      '$\\mathrm{cov}(A,B)=\\dfrac1{N-1}\\sum a_i b_i,\\quad C=\\dfrac1{N-1}\\mathbf X\\mathbf X^{T}$',
+    description:
+      'Center features first. Diagonal of C = variances; off-diagonal = channel correlations. Eigenvectors of C are principal components; eigenvalues are variances along those axes.',
+    explorer: 'pca2dDemo',
+    tex: 'C=\\frac1{N-1}XX^{T}',
+    texAlts: [
+      'sample covariance',
+      'PCA covariance matrix XX^T',
+      'principal components eigenvalues',
+    ],
+    href: '/fundamentals/math-and-science/computational-physics/10-06-principal-components',
+  },
+  {
+    id: 'formula-nn-sigmoid-neuron',
+    kind: 'formula',
+    title: 'AI neuron with logistic activation',
+    formula:
+      '$y=f(w_1 x_1+w_2 x_2+b),\\quad f(z)=\\dfrac{1}{1+e^{-z}}$',
+    description:
+      'Weighted sum plus bias, then a smooth activation. Logistic σ∈(0,1); tanh∈(-1,1); ReLU=max(0,x). Learnable params = weights and biases.',
+    explorer: 'nnSigmoidNeuron',
+    tex: 'y=\\sigma(w\\cdot x+b)',
+    texAlts: [
+      'perceptron sigmoid neuron',
+      'logistic activation neural network',
+      'weighted sum bias',
+    ],
+    href: '/fundamentals/math-and-science/computational-physics/11-02-simple-neural-network',
+  },
+  {
+    id: 'formula-nn-mse-sgd',
+    kind: 'formula',
+    title: 'MSE Loss and SGD update',
+    formula:
+      '$\\mathcal{L}=\\dfrac1N\\sum(y^{c}-y^{p})^{2},\\quad w\\leftarrow w-\\eta\\dfrac{\\partial\\mathcal{L}}{\\partial w}$',
+    description:
+      'Train by lowering mean squared error. Backprop supplies ∂ℒ/∂w via the chain rule; η is the learning rate. For logistic f, f′=f(1−f).',
+    explorer: 'nnLossSgd',
+    tex: 'w\\leftarrow w-\\eta\\partial\\mathcal{L}/\\partial w',
+    texAlts: [
+      'MSE loss backpropagation',
+      'stochastic gradient descent neural net',
+      'learning rate eta',
+    ],
+    href: '/fundamentals/math-and-science/computational-physics/11-03-training-backprop',
+  },
+  {
+    id: 'formula-nn-mass-excess',
+    kind: 'formula',
+    title: 'Nuclear mass excess',
+    formula: '$\\Delta=(M-A)\\,\\mathrm{u}\\times 931.494028\\,\\mathrm{MeV}/c^{2}$',
+    description:
+      'Convert the Dalton difference between atomic mass M and mass number A into energy units. Used as a TensorFlow / notebook sanity check.',
+    explorer: 'nnMassExcess',
+    tex: '\\Delta=(M-A)\\times 931.494028',
+    texAlts: [
+      'mass excess MeV',
+      'Dalton to MeV conversion nuclear',
+      'hydrogen isotope mass excess',
+    ],
+    href: '/fundamentals/math-and-science/computational-physics/11-06-tensorflow-sklearn-examples',
+  },
+  {
+    id: 'formula-nn-kmeans-assign',
+    kind: 'formula',
+    title: 'k-means assignment',
+    formula: '$\\mathrm{label}(x)=\\arg\\min_j\\|x-c_j\\|^2,\\quad c_j\\leftarrow\\mathrm{mean}\\{x:\\mathrm{label}=j\\}$',
+    description:
+      'Unsupervised clustering: assign points to nearest centroids, then replace centroids by cluster means until stable. Inertia = within-cluster sum of squares.',
+    explorer: 'nnKmeans1d',
+    tex: 'c_j\\leftarrow\\mathrm{mean}(\\mathrm{cluster}_j)',
+    texAlts: [
+      'k-means centroid update',
+      'Lloyd algorithm clustering',
+      'unsupervised particle mass clusters',
+    ],
+    href: '/fundamentals/math-and-science/computational-physics/11-07-ml-clustering',
+  },
+  {
+    id: 'formula-nn-dense-linear',
+    kind: 'formula',
+    title: 'Keras Dense units=1',
+    formula: '$y=wx+b\\quad(\\texttt{Dense(units=1)})$',
+    description:
+      'A single fully connected unit with linear activation is ordinary linear regression — used as a Keras Hubble toy before deeper stacks.',
+    explorer: 'nnDenseLinear',
+    tex: 'y=wx+b',
+    texAlts: [
+      'keras dense linear layer',
+      'fully connected units equals one',
+      'Hubble fit dense',
+    ],
+    href: '/fundamentals/math-and-science/computational-physics/11-08-keras-deep-learning',
+  },
+  {
+    id: 'formula-nn-rgb-tones',
+    kind: 'formula',
+    title: '8-bit RGB tone space',
+    formula: '$256^{3}=16{,}777{,}216\\ \\text{colors},\\quad \\text{hist: counts in bins }0\\ldots255$',
+    description:
+      'One byte per channel. Per-channel histograms (OpenCV calcHist) compare ripe vs green fruit; frame differences drop static backgrounds.',
+    tex: '256^3=16777216',
+    texAlts: [
+      'RGB 256 levels histogram',
+      'OpenCV calcHist',
+      'background subtraction frame difference',
+    ],
+    href: '/fundamentals/math-and-science/computational-physics/11-09-opencv-image-processing',
+  },
+  {
+    id: 'formula-qc-bloch',
+    kind: 'formula',
+    title: 'Bloch-sphere qubit',
+    formula:
+      '$|\\psi\\rangle=\\cos(\\theta/2)|0\\rangle+e^{i\\phi}\\sin(\\theta/2)|1\\rangle,\\quad |u|^{2}+|v|^{2}=1$',
+    description:
+      'Pure single-qubit states as directions on the Bloch sphere. θ=0 → |0⟩; θ=π → |1⟩.',
+    explorer: 'qcBlochAmps',
+    tex: '|\\psi\\rangle=\\cos(\\theta/2)|0\\rangle+e^{i\\phi}\\sin(\\theta/2)|1\\rangle',
+    texAlts: [
+      'Bloch sphere qubit',
+      'qubit normalization',
+      'computational basis |0> |1>',
+    ],
+    href: '/fundamentals/math-and-science/computational-physics/12-02-qubits',
+  },
+  {
+    id: 'formula-qc-separability',
+    kind: 'formula',
+    title: 'Two-qubit separability',
+    formula: '$|\\Psi\\rangle=[w,x,y,z]^{T}\\text{ separable}\\iff wz=xy$',
+    description:
+      'Product states satisfy wz=xy. Bell states fail the test and are entangled. Pauli X,Y,Z act as single-qubit gates.',
+    explorer: 'qcSeparability',
+    tex: 'wz=xy',
+    texAlts: [
+      'Bell state entanglement',
+      'separable tensor product',
+      'two qubit amplitudes',
+    ],
+    href: '/fundamentals/math-and-science/computational-physics/12-03-entanglement',
+  },
+  {
+    id: 'formula-qc-hadamard',
+    kind: 'formula',
+    title: 'Hadamard gate',
+    formula: '$H=\\dfrac1{\\sqrt2}\\begin{bmatrix}1&1\\\\1&-1\\end{bmatrix},\\quad H|0\\rangle=|+\\rangle$',
+    description:
+      'Maps Z-eigenstates to X-eigenstates and creates equal superpositions. Pair with CNOT to build Bell |β₀₀⟩.',
+    explorer: 'qcHadamard',
+    tex: 'H=\\frac1{\\sqrt2}\\begin{bmatrix}1&1\\\\1&-1\\end{bmatrix}',
+    texAlts: [
+      'Hadamard matrix',
+      'quantum NOT X gate',
+      'CNOT controlled not',
+    ],
+    href: '/fundamentals/math-and-science/computational-physics/12-04-logic-gates',
+  },
+  {
+    id: 'formula-qc-half-adder',
+    kind: 'formula',
+    title: 'Quantum half-adder bits',
+    formula: '$\\mathrm{sum}=q_0\\oplus q_1,\\quad \\mathrm{carry}=q_0 q_1$',
+    description:
+      'Toffoli writes carry; CNOT writes XOR sum. Same truth table as classical half-adder.',
+    explorer: 'qcHalfAdder',
+    tex: '\\mathrm{sum}=q_0\\oplus q_1',
+    texAlts: [
+      'half adder XOR AND',
+      'Toffoli carry CNOT sum',
+      'quantum full adder',
+    ],
+    href: '/fundamentals/math-and-science/computational-physics/12-05-qc-programming',
+  },
+  {
+    id: 'formula-qc-qft4',
+    kind: 'formula',
+    title: 'QFT₄ matrix / Z₄',
+    formula: '$Z_4=e^{-i\\pi/2}=-i,\\quad \\mathrm{QFT}_4[0,0]=\\tfrac12$',
+    description:
+      'Two-qubit QFT: Hadamards, controlled P(π/2), SWAP. Links DFT phases to gate circuits.',
+    explorer: 'qcHadamard',
+    tex: 'Z_4=e^{-i\\pi/2}=-i',
+    texAlts: [
+      'quantum Fourier transform',
+      'QFT4 matrix',
+      'phase gate P(pi/2)',
+    ],
+    href: '/fundamentals/math-and-science/computational-physics/12-08-qft',
+  },
+  {
+    id: 'formula-qc-grover-iters',
+    kind: 'formula',
+    title: 'Grover iteration count',
+    formula: '$t\\approx\\dfrac{\\pi}{4}\\sqrt{N}$',
+    description:
+      'Optimal number of oracle+diffuser rounds before measuring the marked state.',
+    explorer: 'qcGroverIters',
+    tex: 't\\approx\\frac{\\pi}{4}\\sqrt{N}',
+    texAlts: [
+      'Grover search iterations',
+      'oracle diffuser amplify',
+      'pi sqrt N over 4',
+    ],
+    href: '/fundamentals/math-and-science/computational-physics/12-09-grover',
+  },
+  {
+    id: 'formula-soft-oscillator',
+    kind: 'formula',
+    title: 'Soft oscillator force',
+    formula: '$F=-kx(1-\\alpha x)$',
+    description:
+      'Amplitude-dependent period: larger Aα softens the restoring force and stretches T.',
+    explorer: 'softOscillatorPeriod',
+    tex: 'F=-kx(1-\\alpha x)',
+    texAlts: [
+      'soft spring nonlinear oscillator',
+      'period vs amplitude',
+      'anharmonic force law',
+    ],
+    href: '/fundamentals/math-and-science/computational-physics/08-04-nonlinear-oscillation-solutions',
+  },
+  {
+    id: 'formula-ode-energy',
+    kind: 'formula',
+    title: 'Oscillator energy diagnostic',
+    formula: '$E=\\dfrac12 v^2+\\dfrac12\\omega^2 x^2$',
+    description:
+      'Conserved for the exact harmonic flow; numerical |E−E₀| diagnoses Euler vs RK2 drift.',
+    explorer: 'odeEnergyDrift',
+    tex: 'E=\\frac12 v^2+\\frac12\\omega^2 x^2',
+    texAlts: [
+      'mechanical energy oscillator',
+      'Euler RK2 energy drift',
+      'ODE accuracy check',
+    ],
+    href: '/fundamentals/math-and-science/computational-physics/08-03-ode-algorithms',
+  },
+  {
+    id: 'formula-stft-window',
+    kind: 'formula',
+    title: 'STFT window tradeoff',
+    formula: '$\\Delta t\\,\\Delta f\\gtrsim \\mathrm{const}$',
+    description:
+      'Wider STFT window sharpens frequency bins but blurs onset time.',
+    explorer: 'stftWindowTradeoff',
+    tex: '\\Delta t\\Delta f\\gtrsim const',
+    texAlts: [
+      'short time Fourier window',
+      'spectrogram resolution tradeoff',
+      'time frequency uncertainty',
+    ],
+    href: '/fundamentals/math-and-science/computational-physics/10-03-short-time-fourier',
+  },
+  {
+    id: 'formula-autocorr-lag',
+    kind: 'formula',
+    title: 'Autocorrelation lag peaks',
+    formula: '$A(\\tau)=\\langle y(t)y(t+\\tau)\\rangle$',
+    description:
+      'Hidden period T appears as peaks of A(τ) near τ=T,2T,… even when noise hides the raw sinusoid.',
+    explorer: 'autocorrLagPeak',
+    tex: 'A(\\tau)=\\langle y(t)y(t+\\tau)\\rangle',
+    texAlts: [
+      'autocorrelation function',
+      'noise filtering period',
+      'power spectrum Wiener',
+    ],
+    href: '/fundamentals/math-and-science/computational-physics/09-04-noise-filtering',
+  },
+  {
+    id: 'formula-shor-phase-period',
+    kind: 'formula',
+    title: 'QPE phase to period',
+    formula: '$\\phi\\approx S/T$',
+    description:
+      'Continued fractions turn a measured phase into period candidate T for Shor post-processing.',
+    explorer: 'shorPhaseToPeriod',
+    tex: '\\phi\\approx S/T',
+    texAlts: [
+      'quantum phase estimation period',
+      'continued fraction Shor',
+      'factoring phase readout',
+    ],
+    href: '/fundamentals/math-and-science/computational-physics/12-10-shor',
+  },
+  {
+    id: 'formula-matrix-mul-flops',
+    kind: 'formula',
+    title: 'Dense matrix-multiply flops',
+    formula: '$\\mathrm{flops}\\approx 2n^{3}$',
+    description:
+      'Leading flop count for C=AB with n×n dense matrices. Memory is O(n²); wall time also depends on cache and stride.',
+    explorer: 'matrixMulFlops',
+    tex: 'flops\\approx 2n^3',
+    texAlts: [
+      '2n^3 matrix multiply',
+      'dense matmul flop count',
+      'n by n times n by n',
+    ],
+    href: '/fundamentals/math-and-science/computational-physics/07-05-matrix-speed',
+  },
+  {
+    id: 'formula-opencv-hist-bins',
+    kind: 'formula',
+    title: 'RGB histogram bin count',
+    formula: '$N_{\\mathrm{bins}}=b^{3}\\;\\text{(joint RGB)}$',
+    description:
+      'Per-channel length is b; a joint RGB histogram has b³ cells. Full 8-bit images often use b=256 ⇒ 256³ = 16,777,216.',
+    explorer: 'opencvHistBins',
+    tex: 'N_{bins}=b^3',
+    texAlts: [
+      'RGB histogram bins',
+      'joint color cube b cubed',
+      '256^3 OpenCV hist',
+    ],
+    href: '/fundamentals/math-and-science/computational-physics/11-09-opencv-image-processing',
+  },
+  {
+    id: 'formula-nn-layer-params',
+    kind: 'formula',
+    title: 'Dense layer parameter count',
+    formula: '$n_{\\mathrm{params}}=n_{\\mathrm{in}}n_{\\mathrm{out}}+n_{\\mathrm{out}}$',
+    description:
+      'Weights plus biases for a Dense(in→out) layer. Sum over layers for the whole net’s trainable size.',
+    explorer: 'nnLayerParams',
+    tex: 'n_{params}=n_{in}n_{out}+n_{out}',
+    texAlts: [
+      'dense layer params',
+      'weights plus biases',
+      'in times out plus out',
+    ],
+    href: '/fundamentals/math-and-science/computational-physics/11-04-graphical-deep-net',
+  },
 ];
