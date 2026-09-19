@@ -49,6 +49,65 @@ import proveThirdDerivInflection from './prove-third-deriv-inflection';
 import proveEvenOddDecomp from './prove-even-odd-decomp';
 import proveSymmetryEvenOdd from './prove-symmetry-even-odd';
 import proveConcavityTheorem from './prove-concavity-theorem';
+import radiansArcLength from './radians-arc-length';
+import unitCircleSinCos from './unit-circle-sin-cos';
+import trigBasicIdentities from './trig-basic-identities';
+import trigAdditionFormulas from './trig-addition-formulas';
+import trigDoubleHalf from './trig-double-half';
+import trigPolarLaws from './trig-polar-laws';
+import limSinTheta from './lim-sin-theta';
+import deriveSinCos from './derive-sin-cos';
+import trigAmpPeriod from './trig-amp-period';
+import trigOtherDerivatives from './trig-other-derivatives';
+import angleBetweenCurves from './angle-between-curves';
+import proveLimSinTheta from './prove-lim-sin-theta';
+import proveDxSin from './prove-dx-sin';
+import proveDxTanSec from './prove-dx-tan-sec';
+import proveSecFromIdentity from './prove-sec-from-identity';
+import proveTanPeriodDiff from './prove-tan-period-diff';
+import trigRelatedRates from './trig-related-rates';
+import sketchSinPlusCos from './sketch-sin-plus-cos';
+import arcsinDefinition from './arcsin-definition';
+import deriveArcsin from './derive-arcsin';
+import arccosArctan from './arccos-arctan';
+import invTrigOther from './inv-trig-other';
+import proveDxArcsec from './prove-dx-arcsec';
+import proveArcsinArccos from './prove-arcsin-arccos';
+import muralViewingAngle from './mural-viewing-angle';
+import proveArctanArccot from './prove-arctan-arccot';
+import proveInvTrigDerivs from './prove-inv-trig-derivs';
+import invTrigIdentities from './inv-trig-identities';
+import lightIlluminationMax from './light-illumination-max';
+import rectilinearVelocity from './rectilinear-velocity';
+import freeFallGravity from './free-fall-gravity';
+import circularMotionOmega from './circular-motion-omega';
+import analyzeRectilinearS from './analyze-rectilinear-s';
+import speedVsVelocity from './speed-vs-velocity';
+import freeFallPeakImpact from './free-fall-peak-impact';
+import proveSpeedSigns from './prove-speed-signs';
+import relatedRatesMethod from './related-rates-method';
+import slidingLadder from './sliding-ladder';
+import sphereRelatedRates from './sphere-related-rates';
+import coneFunnelRates from './cone-funnel-rates';
+import shipsDistanceRates from './ships-distance-rates';
+import linearApproxDifferential from './linear-approx-differential';
+import differentialRules from './differential-rules';
+import newtonSqrt3 from './newton-sqrt3';
+import approxCbrtSin from './approx-cbrt-sin';
+import cubeVolumeDifferential from './cube-volume-differential';
+import computeDy from './compute-dy';
+import dydxFromDifferentials from './dydx-from-differentials';
+import newtonPolyTrig from './newton-poly-trig';
+import errorDifferentials from './error-differentials';
+import newtonFailures from './newton-failures';
+import exportImportRiskMap from './export-import-risk-map';
+import exportRiskControls from './export-risk-controls';
+import tradeInstitutions from './trade-institutions';
+import provePiMinus from './prove-pi-minus';
+import provePolarRect from './prove-polar-rect';
+import proveLawsCosSin from './prove-laws-cos-sin';
+import proveCosUMinusV from './prove-cos-u-minus-v';
+import deriveSpecialAngles from './derive-special-angles';
 import absoluteExtremaTable from './absolute-extrema-table';
 import extrapolatedDiff from './extrapolated-diff';
 import richardsonCancelH2 from './richardson-cancel-h2';
@@ -204,6 +263,65 @@ const GUIDES = {
   'prove-even-odd-decomp': proveEvenOddDecomp,
   'prove-symmetry-even-odd': proveSymmetryEvenOdd,
   'prove-concavity-theorem': proveConcavityTheorem,
+  'radians-arc-length': radiansArcLength,
+  'unit-circle-sin-cos': unitCircleSinCos,
+  'trig-basic-identities': trigBasicIdentities,
+  'trig-addition-formulas': trigAdditionFormulas,
+  'trig-double-half': trigDoubleHalf,
+  'trig-polar-laws': trigPolarLaws,
+  'lim-sin-theta': limSinTheta,
+  'derive-sin-cos': deriveSinCos,
+  'trig-amp-period': trigAmpPeriod,
+  'trig-other-derivatives': trigOtherDerivatives,
+  'angle-between-curves': angleBetweenCurves,
+  'prove-lim-sin-theta': proveLimSinTheta,
+  'prove-dx-sin': proveDxSin,
+  'prove-dx-tan-sec': proveDxTanSec,
+  'prove-sec-from-identity': proveSecFromIdentity,
+  'prove-tan-period-diff': proveTanPeriodDiff,
+  'trig-related-rates': trigRelatedRates,
+  'sketch-sin-plus-cos': sketchSinPlusCos,
+  'arcsin-definition': arcsinDefinition,
+  'derive-arcsin': deriveArcsin,
+  'arccos-arctan': arccosArctan,
+  'inv-trig-other': invTrigOther,
+  'prove-dx-arcsec': proveDxArcsec,
+  'prove-arcsin-arccos': proveArcsinArccos,
+  'mural-viewing-angle': muralViewingAngle,
+  'prove-arctan-arccot': proveArctanArccot,
+  'prove-inv-trig-derivs': proveInvTrigDerivs,
+  'inv-trig-identities': invTrigIdentities,
+  'light-illumination-max': lightIlluminationMax,
+  'rectilinear-velocity': rectilinearVelocity,
+  'free-fall-gravity': freeFallGravity,
+  'circular-motion-omega': circularMotionOmega,
+  'analyze-rectilinear-s': analyzeRectilinearS,
+  'speed-vs-velocity': speedVsVelocity,
+  'free-fall-peak-impact': freeFallPeakImpact,
+  'prove-speed-signs': proveSpeedSigns,
+  'related-rates-method': relatedRatesMethod,
+  'sliding-ladder': slidingLadder,
+  'sphere-related-rates': sphereRelatedRates,
+  'cone-funnel-rates': coneFunnelRates,
+  'ships-distance-rates': shipsDistanceRates,
+  'linear-approx-differential': linearApproxDifferential,
+  'differential-rules': differentialRules,
+  'newton-sqrt3': newtonSqrt3,
+  'approx-cbrt-sin': approxCbrtSin,
+  'cube-volume-differential': cubeVolumeDifferential,
+  'compute-dy': computeDy,
+  'dydx-from-differentials': dydxFromDifferentials,
+  'newton-poly-trig': newtonPolyTrig,
+  'error-differentials': errorDifferentials,
+  'newton-failures': newtonFailures,
+  'export-import-risk-map': exportImportRiskMap,
+  'export-risk-controls': exportRiskControls,
+  'trade-institutions': tradeInstitutions,
+  'prove-pi-minus': provePiMinus,
+  'prove-polar-rect': provePolarRect,
+  'prove-laws-cos-sin': proveLawsCosSin,
+  'prove-cos-u-minus-v': proveCosUMinusV,
+  'derive-special-angles': deriveSpecialAngles,
   'absolute-extrema-table': absoluteExtremaTable,
   'extrapolated-diff': extrapolatedDiff,
   'richardson-cancel-h2': richardsonCancelH2,

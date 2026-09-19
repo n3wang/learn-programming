@@ -756,4 +756,345 @@ export const PROBLEMS = [
     sample: 'asymptotes',
     href: '/fundamentals/math-and-science/calculus/15b-curve-sketching-practice',
   },
+  {
+    id: 'problem-deg-rad-convert',
+    kind: 'problem',
+    title: 'Convert degrees ↔ radians',
+    description:
+      'Scale by π/180 or 180/π; reduce angles into $[0,2π)$ by adding/subtracting full turns.',
+    sample: 'radians-arc-length',
+    href: '/fundamentals/math-and-science/calculus/16b-trigonometry-practice',
+  },
+  {
+    id: 'problem-polar-rect',
+    kind: 'problem',
+    title: 'Polar ↔ rectangular coordinates',
+    description:
+      'Use $x=r\\cos\\theta$, $y=r\\sin\\theta$ and $r=\\sqrt{x^{2}+y^{2}}$ with quadrant-correct $\\theta$.',
+    sample: 'prove-polar-rect',
+    href: '/fundamentals/math-and-science/calculus/16b-trigonometry-practice',
+  },
+  {
+    id: 'problem-trig-key-limits',
+    kind: 'problem',
+    title: 'Apply lim (sin θ)/θ',
+    description:
+      'Recognize forms that rewrite to $\\sin\\theta/\\theta$ or $(1-\\cos\\theta)/\\theta$; keep angles in radians.',
+    sample: 'prove-lim-sin-theta',
+    href: '/fundamentals/math-and-science/calculus/17b-trig-diff-practice',
+  },
+  {
+    id: 'problem-amp-period-wave',
+    kind: 'problem',
+    title: 'Read amplitude / period / frequency',
+    description:
+      'From $y=A\\sin(bx)$ or $A\\cos(bx)$, extract $|A|$, $p=2\\pi/b$, and $f=b$; sketch one period.',
+    sample: 'trig-amp-period',
+    href: '/fundamentals/math-and-science/calculus/17b-trig-diff-practice',
+  },
+  {
+    id: 'problem-angle-between-curves',
+    kind: 'problem',
+    title: 'Angle between curves at an intersection',
+    description:
+      'Find $P$, slopes $m_1,m_2$, then $\\tan\\phi=|(m_2-m_1)/(1+m_1 m_2)|$ (or conclude perpendicular).',
+    sample: 'angle-between-curves',
+    href: '/fundamentals/math-and-science/calculus/17b-trig-diff-practice',
+  },
+  {
+    id: 'problem-dx-sin-proof',
+    kind: 'problem',
+    title: 'Prove Dₓ(sin x) = cos x',
+    description:
+      'Difference quotient → addition formula → apply lim (sin Δx)/Δx = 1 and lim (cos Δx−1)/Δx = 0.',
+    sample: 'prove-dx-sin',
+    href: '/fundamentals/math-and-science/calculus/17b-trig-diff-practice',
+  },
+  {
+    id: 'problem-dx-tan-sec',
+    kind: 'problem',
+    title: 'Prove tan′ and sec′ formulas',
+    description:
+      'Quotient rule on sin/cos for sec²; reciprocal/chain on 1/cos for tan·sec (or differentiate tan²+1=sec²).',
+    sample: 'prove-dx-tan-sec',
+    href: '/fundamentals/math-and-science/calculus/17b-trig-diff-practice',
+  },
+  {
+    id: 'problem-trig-limits-rewrite',
+    kind: 'problem',
+    title: 'Rewrite trig limits via sin u / u',
+    description:
+      'Factor constants so each factor is (sin u)/u or u/(sin u); also (tan x)/x = (sin x)/x · sec x.',
+    sample: 'lim-sin-theta',
+    href: '/fundamentals/math-and-science/calculus/17b-trig-diff-practice',
+  },
+  {
+    id: 'problem-trig-related-rates',
+    kind: 'problem',
+    title: 'Related rates with cot / csc',
+    description:
+      'Relate geometry (x = h cot θ), differentiate in t, plug special angles (csc 30°=2).',
+    sample: 'trig-related-rates',
+    href: '/fundamentals/math-and-science/calculus/17b-trig-diff-practice',
+  },
+  {
+    id: 'problem-sketch-sin-plus-cos',
+    kind: 'problem',
+    title: 'Sketch sin x + cos x',
+    description:
+      'Crits where tan x = 1; classify with f″=−(sin+cos); inflections where tan x = −1.',
+    sample: 'sketch-sin-plus-cos',
+    href: '/fundamentals/math-and-science/calculus/17b-trig-diff-practice',
+  },
+  {
+    id: 'problem-arcsin-eval',
+    kind: 'problem',
+    title: 'Evaluate arcsin / arccos / arctan',
+    description:
+      'Match special values to the correct range; use oddness for negatives.',
+    sample: 'arcsin-definition',
+    href: '/fundamentals/math-and-science/calculus/18-inverse-trig-functions',
+  },
+  {
+    id: 'problem-dx-arcsin',
+    kind: 'problem',
+    title: 'Derive (arcsin)′',
+    description:
+      'Implicit differentiation of sin y = x; pick +√(1−x²) on [−π/2, π/2].',
+    sample: 'derive-arcsin',
+    href: '/fundamentals/math-and-science/calculus/18-inverse-trig-functions',
+  },
+  {
+    id: 'problem-dx-arcsec',
+    kind: 'problem',
+    title: 'Prove (sec⁻¹)′',
+    description:
+      'From sec y = x get tan y sec y · y′ = 1; tan y = +√(x²−1) on the chosen range.',
+    sample: 'prove-dx-arcsec',
+    href: '/fundamentals/math-and-science/calculus/18b-inverse-trig-practice',
+  },
+  {
+    id: 'problem-arcsin-plus-arccos',
+    kind: 'problem',
+    title: 'arcsin + arccos = π/2',
+    description:
+      'Show the derivative is 0, then evaluate at x=0 to name the constant.',
+    sample: 'prove-arcsin-arccos',
+    href: '/fundamentals/math-and-science/calculus/18b-inverse-trig-practice',
+  },
+  {
+    id: 'problem-mural-viewing',
+    kind: 'problem',
+    title: 'Maximize mural viewing angle',
+    description:
+      'θ = arctan(12x/(x²+108)); critical point x=6√3 ≈ 10.4 ft.',
+    sample: 'mural-viewing-angle',
+    href: '/fundamentals/math-and-science/calculus/18b-inverse-trig-practice',
+  },
+  {
+    id: 'problem-arctan-plus-arccot',
+    kind: 'problem',
+    title: 'arctan + arccot = π/2',
+    description: 'Derivative vanishes; evaluate at 0.',
+    sample: 'prove-arctan-arccot',
+    href: '/fundamentals/math-and-science/calculus/18b-inverse-trig-practice',
+  },
+  {
+    id: 'problem-light-illumination',
+    kind: 'problem',
+    title: 'Maximize edge illumination',
+    description:
+      'I = kx/(x²+R²)^{3/2} over a circular plot; critical height R/√2.',
+    sample: 'light-illumination-max',
+    href: '/fundamentals/math-and-science/calculus/18b-inverse-trig-practice',
+  },
+  {
+    id: 'problem-rectilinear-va',
+    kind: 'problem',
+    title: 'Find v and a from s(t)',
+    description:
+      'Differentiate position for velocity; differentiate again for acceleration; interpret signs and turns.',
+    sample: 'rectilinear-velocity',
+    href: '/fundamentals/math-and-science/calculus/19-rectilinear-circular-motion',
+  },
+  {
+    id: 'problem-free-fall',
+    kind: 'problem',
+    title: 'Free-fall with s₀ and v₀',
+    description:
+      'Use v = v₀−32t and s = s₀+v₀t−16t² (upward +) to find height, time of peak, or impact.',
+    sample: 'free-fall-peak-impact',
+    href: '/fundamentals/math-and-science/calculus/19b-motion-practice',
+  },
+  {
+    id: 'problem-total-distance-motion',
+    kind: 'problem',
+    title: 'Total distance with direction changes',
+    description:
+      'Find times where v=0 and s has an extremum; sum |Δs| between consecutive checkpoints.',
+    sample: 'analyze-rectilinear-s',
+    href: '/fundamentals/math-and-science/calculus/19b-motion-practice',
+  },
+  {
+    id: 'problem-speed-vs-velocity',
+    kind: 'problem',
+    title: 'When speed increases',
+    description:
+      'Compare signs of v and a: same sign ⇒ speeding up; opposite ⇒ slowing down. Prove via S=|v|.',
+    sample: 'prove-speed-signs',
+    href: '/fundamentals/math-and-science/calculus/19b-motion-practice',
+  },
+  {
+    id: 'problem-sliding-ladder',
+    kind: 'problem',
+    title: 'Sliding ladder related rates',
+    description:
+      'From x²+y²=L² get x x′+y y′=0; solve for y′ at a given x and x′.',
+    sample: 'sliding-ladder',
+    href: '/fundamentals/math-and-science/calculus/20-related-rates',
+  },
+  {
+    id: 'problem-sphere-surface-rate',
+    kind: 'problem',
+    title: 'Sphere volume → surface rate',
+    description:
+      'From dV/dt get dr/dt, then dS/dt = 8πr dr/dt (or −4/r when dV/dt=−2).',
+    sample: 'sphere-related-rates',
+    href: '/fundamentals/math-and-science/calculus/20b-related-rates-practice',
+  },
+  {
+    id: 'problem-cone-funnel',
+    kind: 'problem',
+    title: 'Conical funnel / sand pile',
+    description:
+      'Similar triangles → V(h) or V(r); differentiate; plug the instant.',
+    sample: 'cone-funnel-rates',
+    href: '/fundamentals/math-and-science/calculus/20b-related-rates-practice',
+  },
+  {
+    id: 'problem-ships-distance',
+    kind: 'problem',
+    title: 'Two ships distance rate',
+    description:
+      'Write D² from coordinates; D′ = (…)/D; sign tells approaching vs separating.',
+    sample: 'ships-distance-rates',
+    href: '/fundamentals/math-and-science/calculus/20b-related-rates-practice',
+  },
+  {
+    id: 'problem-linear-approx-sqrt',
+    kind: 'problem',
+    title: 'Linear approximation (square root)',
+    description:
+      'Pick nearby easy x and Δx; use f(x+Δx)≈f(x)+f′(x)Δx for f=√x.',
+    sample: 'linear-approx-differential',
+    href: '/fundamentals/math-and-science/calculus/21-differentials-newtons-method',
+  },
+  {
+    id: 'problem-differential-rules',
+    kind: 'problem',
+    title: 'Differential df and algebra',
+    description:
+      'Identify df=f′Δx, dx=Δx, and product/quotient differential rules.',
+    sample: 'differential-rules',
+    href: '/fundamentals/math-and-science/calculus/21-differentials-newtons-method',
+  },
+  {
+    id: 'problem-newton-sqrt3',
+    kind: 'problem',
+    title: "Newton's method for √3",
+    description:
+      'From f(x)=x²−3 get xₙ₊₁=(xₙ²+3)/(2xₙ); iterate from a seed.',
+    sample: 'newton-sqrt3',
+    href: '/fundamentals/math-and-science/calculus/21-differentials-newtons-method',
+  },
+  {
+    id: 'problem-approx-cbrt-sin',
+    kind: 'problem',
+    title: 'Linear approx — cube root & sine',
+    description:
+      'Nearby easy base + Δx; keep trig Δx in radians (π/180 per degree).',
+    sample: 'approx-cbrt-sin',
+    href: '/fundamentals/math-and-science/calculus/21b-differentials-newtons-practice',
+  },
+  {
+    id: 'problem-cube-volume-pct',
+    kind: 'problem',
+    title: 'Percent change via differentials',
+    description:
+      'For V=x³ and Δx=0.01x, ΔV≈0.03x³ (about 3%).',
+    sample: 'cube-volume-differential',
+    href: '/fundamentals/math-and-science/calculus/21b-differentials-newtons-practice',
+  },
+  {
+    id: 'problem-compute-dy',
+    kind: 'problem',
+    title: 'Compute the differential dy',
+    description:
+      'Chain / quotient / trig: write dy = (…) dx.',
+    sample: 'compute-dy',
+    href: '/fundamentals/math-and-science/calculus/21b-differentials-newtons-practice',
+  },
+  {
+    id: 'problem-dydx-differentials',
+    kind: 'problem',
+    title: 'dy/dx from differentials',
+    description:
+      'd(both sides); collect dy and dx; form the ratio.',
+    sample: 'dydx-from-differentials',
+    href: '/fundamentals/math-and-science/calculus/21b-differentials-newtons-practice',
+  },
+  {
+    id: 'problem-newton-poly-trig',
+    kind: 'problem',
+    title: 'Newton on polynomial / trig equations',
+    description:
+      'Sketch for a seed; iterate; use even/odd symmetry when present.',
+    sample: 'newton-poly-trig',
+    href: '/fundamentals/math-and-science/calculus/21b-differentials-newtons-practice',
+  },
+  {
+    id: 'problem-error-differentials',
+    kind: 'problem',
+    title: 'Error estimates via differentials',
+    description:
+      'Propagate Δx through f′(x)Δx: areas, volumes, pV, inverse-square, etc.',
+    sample: 'error-differentials',
+    href: '/fundamentals/math-and-science/calculus/21b-differentials-newtons-practice',
+  },
+  {
+    id: 'problem-newton-failures',
+    kind: 'problem',
+    title: "When Newton's method fails",
+    description:
+      'f′(xₙ)=0, vertical tangents, or iterates that leave the basin (e.g. x↦−2x for x^{1/3}).',
+    sample: 'newton-failures',
+    href: '/fundamentals/math-and-science/calculus/21b-differentials-newtons-practice',
+  },
+  {
+    id: 'problem-export-import-risk-map',
+    kind: 'problem',
+    title: 'Export–import risk map',
+    description:
+      'Match transport, non-payment, quality, and documentary failures to the right control.',
+    sample: 'export-import-risk-map',
+    href: '/fundamentals/international-business/export-import/01-introduction-to-export-import',
+  },
+  {
+    id: 'problem-export-risk-controls',
+    kind: 'problem',
+    title: 'Match export risk to a control',
+    description:
+      'Culture/spec ambiguity, quality before payment, and transit loss each need a different instrument.',
+    sample: 'export-risk-controls',
+    href: '/fundamentals/international-business/export-import/01-introduction-to-export-import',
+  },
+  {
+    id: 'problem-trade-institutions',
+    kind: 'problem',
+    title: 'Trade institutions at a glance',
+    description:
+      'ICC (UCP/Incoterms), UNCITRAL (CISG), WTO (government rules) — who owns which layer.',
+    sample: 'trade-institutions',
+    href: '/fundamentals/international-business/export-import/01-introduction-to-export-import',
+  },
 ];

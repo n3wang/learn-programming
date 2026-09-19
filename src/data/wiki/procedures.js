@@ -1331,4 +1331,175 @@ export const PROCEDURES = [
       why: 'Derivatives → extrema/mono → concavity/asymptotes → polish with intercepts and special points.',
     },
   },
+  {
+    id: 'proc-degree-radian',
+    kind: 'procedure',
+    title: 'Convert degrees ↔ radians',
+    description:
+      'Multiply degrees by π/180 to get radians; multiply radians by 180/π to get degrees. Memorize the special angles 30°, 45°, 60°, 90°, …',
+    href: '/fundamentals/math-and-science/calculus/16-review-of-trigonometry',
+    order: {
+      prompt: 'Order a degree→radian conversion (top = first).',
+      items: [
+        'Simplify the multiple of π when the angle is a standard special angle',
+        'Write the angle in degrees',
+        'Multiply by π/180',
+        'Check against the unit-circle table if applicable',
+      ],
+      order: [1, 2, 0, 3],
+      why: 'Start from degrees → scale by π/180 → simplify → verify.',
+    },
+  },
+  {
+    id: 'proc-sketch-a-sin-bx',
+    kind: 'procedure',
+    title: 'Sketch y = A sin(bx)',
+    description:
+      'Read amplitude $|A|$, period $2\\pi/b$, frequency $b$; mark zeros, peaks, and troughs over one period; then repeat.',
+    href: '/fundamentals/math-and-science/calculus/17-diff-trig-functions',
+    order: {
+      prompt: 'Order a sketch of $A\\sin(bx)$ (top = first).',
+      items: [
+        'Repeat the wave by periodicity',
+        'Compute amplitude $|A|$, period $2\\pi/b$, and frequency $b$',
+        'On one period, mark intercepts and max/min heights $\\pm|A|$',
+        'Draw the smooth sine-shaped arc through those landmarks',
+      ],
+      order: [1, 2, 3, 0],
+      why: 'Parameters → landmarks on one period → draw → tile.',
+    },
+  },
+  {
+    id: 'proc-angle-between-curves',
+    kind: 'procedure',
+    title: 'Angle between two curves',
+    description:
+      'At an intersection, find tangent slopes $m_1,m_2$; if $1+m_1 m_2=0$ the angle is $\\pi/2$; otherwise $\\tan\\phi=|(m_2-m_1)/(1+m_1 m_2)|$ and take the acute $\\phi$.',
+    href: '/fundamentals/math-and-science/calculus/17-diff-trig-functions',
+    order: {
+      prompt: 'Order the angle-between-curves workflow (top = first).',
+      items: [
+        'If $1+m_1 m_2=0$, report $\\phi=\\pi/2$; else compute $\\tan\\phi$ and the acute $\\phi$',
+        'Find an intersection point $P$',
+        'Compute tangent slopes $m_1=f\'(P)$ and $m_2=g\'(P)$',
+        'Recall inclination: slope $=\\tan\\alpha$',
+      ],
+      order: [1, 3, 2, 0],
+      why: 'Intersection → slopes (via inclination) → tan formula / perpendicular check.',
+    },
+  },
+  {
+    id: 'proc-inv-trig-eval',
+    kind: 'procedure',
+    title: 'Evaluate inverse trig at special values',
+    description:
+      'Ask which angle in the function’s range has the given trig value; use the unit-circle table and odd/even properties.',
+    href: '/fundamentals/math-and-science/calculus/18-inverse-trig-functions',
+    order: {
+      prompt: 'Order an arcsin evaluation (top = first).',
+      items: [
+        'Confirm the answer lies in $[-\\pi/2,\\pi/2]$',
+        'Recall a special angle whose sine equals the input',
+        'Apply oddness if the input is negative',
+        'Write the exact radian answer',
+      ],
+      order: [1, 2, 0, 3],
+      why: 'Table → sign → verify range → write answer.',
+    },
+  },
+  {
+    id: 'proc-free-fall-setup',
+    kind: 'procedure',
+    title: 'Set up a free-fall problem',
+    description:
+      'Choose upward +; identify $s_0,v_0$; use $v=v_0-32t$ and $s=s_0+v_0t-16t^{2}$ (ft, s); solve for the unknown time or height.',
+    href: '/fundamentals/math-and-science/calculus/19-rectilinear-circular-motion',
+    order: {
+      prompt: 'Order a free-fall setup (top = first).',
+      items: [
+        'Solve with $v=v_0-32t$ and/or $s=s_0+v_0t-16t^{2}$',
+        'Fix the positive direction (usually upward) and ground $s=0$',
+        'Read off initial data $s_0$ and $v_0$ (signs!)',
+        'Note $a=-32$ ft/s²',
+      ],
+      order: [1, 3, 2, 0],
+      why: 'Axis → a → initials → formulas.',
+    },
+  },
+  {
+    id: 'proc-related-rates',
+    kind: 'procedure',
+    title: 'Solve a related-rates problem',
+    description:
+      'Figure → variables → relating equation → differentiate in t → substitute the instant → interpret the sign.',
+    href: '/fundamentals/math-and-science/calculus/20-related-rates',
+    order: {
+      prompt: 'Order the related-rates workflow (top = first).',
+      items: [
+        'Interpret the sign of the unknown rate',
+        'Draw and assign variables; write a relating equation',
+        'Differentiate with respect to $t$',
+        'Substitute the given instant and solve',
+      ],
+      order: [1, 2, 3, 0],
+      why: 'Setup → d/dt → plug → interpret.',
+    },
+  },
+  {
+    id: 'proc-newton-calculus',
+    kind: 'procedure',
+    title: "Apply Newton's method (calculus)",
+    description:
+      'Pick a seed near a root of f=0; iterate x ← x − f(x)/f′(x) until digits stabilize; watch for f′≈0.',
+    href: '/fundamentals/math-and-science/calculus/21-differentials-newtons-method',
+    order: {
+      prompt: 'Order a Newton iteration workflow (top = first).',
+      items: [
+        'Stop when successive iterates agree to the desired digits',
+        'Choose x₀ near a suspected root with f′(x₀)≠0',
+        'Compute x₁ = x₀ − f(x₀)/f′(x₀)',
+        'Repeat the update from the new guess',
+      ],
+      order: [1, 2, 3, 0],
+      why: 'Seed → first step → iterate → stop.',
+    },
+  },
+  {
+    id: 'proc-linear-approx',
+    kind: 'procedure',
+    title: 'Linear approximation with differentials',
+    description:
+      'Pick easy nearby x and Δx; evaluate f and f′; use f(x+Δx)≈f(x)+f′(x)Δx.',
+    href: '/fundamentals/math-and-science/calculus/21-differentials-newtons-method',
+    order: {
+      prompt: 'Order a linear-approximation workflow (top = first).',
+      items: [
+        'Form f(x)+f′(x)Δx as the estimate',
+        'Choose a nearby base point where f is easy',
+        'Compute f(x) and f′(x)',
+        'Identify Δx = target − base',
+      ],
+      order: [1, 3, 2, 0],
+      why: 'Base → Δx → derivative data → estimate.',
+    },
+  },
+  {
+    id: 'proc-documentary-sale-checklist',
+    kind: 'procedure',
+    title: 'Brief a documentary sale',
+    description:
+      'Before quoting: map risks, lock the sale terms, list required documents, and verify the counterparty.',
+    href: '/fundamentals/international-business/export-import/01-introduction-to-export-import',
+    order: {
+      prompt: 'Order a pre-deal documentary checklist (top = first).',
+      items: [
+        'List B/L / payment / insurance docs the deal will require',
+        'Verify counterparty credentials before committing capital',
+        'Name the main cross-border risks for this route and buyer',
+        'Agree the master sale terms (who ships, pays, and when risk passes)',
+      ],
+      order: [2, 3, 0, 1],
+      why: 'Risks → contract → document pack → KYC.',
+    },
+  },
 ];

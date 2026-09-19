@@ -325,6 +325,10 @@ export default async function createConfig() {
                 to: '/fundamentals/finance/intro',
                 label: 'Finance',
               },
+              {
+                to: '/fundamentals/international-business/intro',
+                label: 'International Business',
+              },
             ],
           },
           ...(minimalPreset

@@ -647,4 +647,151 @@ export const THEOREMS = [
       why: 'Hypotheses → mono of f″ → sign flip → inflection.',
     },
   },
+  {
+    id: 'thm-dx-sin',
+    kind: 'theorem',
+    title: 'Derivative of sine',
+    statement:
+      '$D_x(\\sin x)=\\cos x$. Consequently $D_x(\\cos x)=-\\sin x$ via $\\cos x=\\sin(\\pi/2-x)$ and the Chain Rule.',
+    description:
+      'Expand $\\sin(x+h)$ with an addition formula; the difference quotient splits into pieces controlled by $\\sin h/h\\to 1$ and $(1-\\cos h)/h\\to 0$ (radians).',
+    href: '/fundamentals/math-and-science/calculus/17-diff-trig-functions',
+    order: {
+      prompt: 'Order the argument for $D_x(\\sin x)=\\cos x$ (top = first).',
+      items: [
+        'Take $h\\to 0$ using $\\sin h/h\\to 1$ and $(1-\\cos h)/h\\to 0$',
+        'Write the difference quotient $[\\sin(x+h)-\\sin x]/h$',
+        'Expand $\\sin(x+h)$ with an addition formula and regroup',
+        'Conclude the limit equals $\\cos x$',
+      ],
+      order: [1, 2, 0, 3],
+      why: 'Definition → expand → apply key limits → identify cos x.',
+    },
+  },
+  {
+    id: 'thm-tan-period-pi',
+    kind: 'theorem',
+    title: 'Tangent has period π',
+    statement:
+      '$\\tan(x+\\pi)=\\tan x$ and $\\cot(x+\\pi)=\\cot x$. Both are odd: $\\tan(-x)=-\\tan x$.',
+    description:
+      'Adding $\\pi$ flips the signs of both $\\sin$ and $\\cos$, so their ratio is unchanged. Period $\\pi$ (not $2\\pi$) is why one fundamental domain for $\\tan$ is $(-\\pi/2,\\pi/2)$.',
+    href: '/fundamentals/math-and-science/calculus/17-diff-trig-functions',
+    order: {
+      prompt: 'Order why $\\tan$ has period $\\pi$ (top = first).',
+      items: [
+        'Conclude the ratio $\\sin/\\cos$ is unchanged ⇒ period divides $\\pi$',
+        'Note $\\sin(x+\\pi)=-\\sin x$ and $\\cos(x+\\pi)=-\\cos x$',
+        'Form $\\tan(x+\\pi)=\\sin(x+\\pi)/\\cos(x+\\pi)$',
+        'Check that no smaller positive universal period works for all $x$',
+      ],
+      order: [2, 1, 0, 3],
+      why: 'Write tan(x+π) → both flip sign → ratio same → π is fundamental.',
+    },
+  },
+  {
+    id: 'thm-dx-arcsin',
+    kind: 'theorem',
+    title: 'Derivative of arcsin',
+    statement:
+      'For $|x|<1$, $D_x(\\arcsin x)=1/\\sqrt{1-x^{2}}$. Likewise $D_x(\\arccos x)=-1/\\sqrt{1-x^{2}}$ and $D_x(\\arctan x)=1/(1+x^{2})$ for all real $x$.',
+    description:
+      'Implicit differentiation of $\\sin y=x$ (resp. $\\cos y=x$, $\\tan y=x$) plus the sign of cosine (or $1+\\tan^{2}$) on the chosen range.',
+    href: '/fundamentals/math-and-science/calculus/18-inverse-trig-functions',
+    order: {
+      prompt: 'Order the arcsin′ argument (top = first).',
+      items: [
+        'Conclude $y\'=1/\\sqrt{1-x^{2}}$',
+        'Write $\\sin y=x$ and differentiate: $\\cos y\\,y\'=1$',
+        'Use $\\cos y=\\sqrt{1-x^{2}}$ on $[-\\pi/2,\\pi/2]$',
+        'Set $y=\\arcsin x$',
+      ],
+      order: [3, 1, 2, 0],
+      why: 'Define y → differentiate → pick +cos → simplify.',
+    },
+  },
+  {
+    id: 'thm-velocity-is-derivative',
+    kind: 'theorem',
+    title: 'Velocity is ds/dt',
+    statement:
+      'For rectilinear motion $s=f(t)$, the instantaneous velocity is $v=f\'(t)$. Acceleration is $a=v\'=f\'\'(t)$. Speed is $|v|$.',
+    description:
+      'Average velocity $(f(t+\\Delta t)-f(t))/\\Delta t$ becomes the derivative as $\\Delta t\\to 0$. Sign of $v$ is direction along the line.',
+    href: '/fundamentals/math-and-science/calculus/19-rectilinear-circular-motion',
+    order: {
+      prompt: 'Order the velocity definition (top = first).',
+      items: [
+        'Take $\\Delta t\\to 0$ to get $v=f\'(t)$',
+        'Form the average velocity $\\Delta s/\\Delta t$',
+        'Interpret $\\mathrm{sign}(v)$ as direction; $|v|$ as speed',
+        'Write position $s=f(t)$',
+      ],
+      order: [3, 1, 0, 2],
+      why: 'Position → average → limit → interpret.',
+    },
+  },
+  {
+    id: 'thm-related-rates-diff',
+    kind: 'theorem',
+    title: 'Related rates via d/dt',
+    statement:
+      'If quantities related by an identity $F(x(t),y(t),\\ldots)=C$ for all $t$ in an interval, then differentiating in $t$ relates their rates $dx/dt,\\,dy/dt,\\ldots$.',
+    description:
+      'The Chain Rule turns a static geometric constraint into a linear relation among the instantaneous rates. Evaluate at a specific time only after differentiating.',
+    href: '/fundamentals/math-and-science/calculus/20-related-rates',
+    order: {
+      prompt: 'Order a related-rates argument (top = first).',
+      items: [
+        'Plug the specific instant and solve for the unknown rate',
+        'Write the relating equation among the variables',
+        'Differentiate both sides with respect to $t$',
+        'Name the changing quantities and known rates',
+      ],
+      order: [3, 1, 2, 0],
+      why: 'Variables → equation → d/dt → plug & solve.',
+    },
+  },
+  {
+    id: 'thm-linear-approx',
+    kind: 'theorem',
+    title: 'Tangent-line approximation',
+    statement:
+      'If $f$ is differentiable at $x$, then $f(x+\\Delta x)=f(x)+f\'(x)\\Delta x+o(\\Delta x)$ as $\\Delta x\\to 0$; equivalently $\\Delta y\\sim df=f\'(x)\\,dx$.',
+    description:
+      'The differential is the rise along the tangent. The true change $\\Delta y$ matches $df$ more closely for smaller $\\Delta x$.',
+    href: '/fundamentals/math-and-science/calculus/21-differentials-newtons-method',
+    order: {
+      prompt: 'Order the linear-approximation idea (top = first).',
+      items: [
+        'Conclude $f(x+\\Delta x)\\approx f(x)+f\'(x)\\Delta x$',
+        'Recall $f\'(x)=\\lim \\Delta y/\\Delta x$',
+        'For small $\\Delta x$, replace $\\Delta y/\\Delta x$ by $f\'(x)$',
+        'Identify $\\Delta y=f(x+\\Delta x)-f(x)$',
+      ],
+      order: [3, 1, 2, 0],
+      why: 'Define Δy → limit → replace ratio → rearrange.',
+    },
+  },
+  {
+    id: 'thm-newton-tangent',
+    kind: 'theorem',
+    title: "Newton's method from the tangent",
+    statement:
+      'If $f\'(x_n)\\neq 0$, the $x$-intercept of the tangent to $y=f(x)$ at $x_n$ is $x_{n+1}=x_n-f(x_n)/f\'(x_n)$.',
+    description:
+      'Iterating often converges quickly near a simple root, but can fail if $f\'\\approx 0$ or the seed is poor.',
+    href: '/fundamentals/math-and-science/calculus/21-differentials-newtons-method',
+    order: {
+      prompt: 'Order the Newton tangent argument (top = first).',
+      items: [
+        'Solve for the intercept $x_{n+1}=x_n-f(x_n)/f\'(x_n)$',
+        'Write the tangent: $y-f(x_n)=f\'(x_n)(x-x_n)$',
+        'Set $y=0$ at the axis intercept',
+        'Assume $f\'(x_n)\\neq 0$',
+      ],
+      order: [1, 2, 3, 0],
+      why: 'Tangent → y=0 → f′≠0 → solve.',
+    },
+  },
 ];

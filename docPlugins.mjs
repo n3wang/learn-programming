@@ -32,6 +32,7 @@ export const FUNDAMENTALS_FOLDERS = [
   'data-science',
   'electronics',
   'finance',
+  'international-business',
   'game-engine-development',
   'graphics',
   'math-and-science',
