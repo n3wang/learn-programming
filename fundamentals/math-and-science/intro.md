@@ -11,23 +11,23 @@ The quantitative bedrock underneath everything else in this library — the math
 
 Single-variable tools that show up everywhere: extrema, Rolle, the Mean Value Theorem (Law of the Mean), and reading increasing/decreasing behavior from $f'$.
 
-- [13. Law of the Mean · Increasing and Decreasing](/fundamentals/math-and-science/calculus/13-law-of-the-mean) — relative extrema, Rolle, MVT geometry, monotone from $f'$, with explorers and drills.
+- [13. Law of the Mean · Increasing and Decreasing](/fundamentals/math-and-science/calculus/law-of-the-mean) — relative extrema, Rolle, MVT geometry, monotone from $f'$, with explorers and drills.
 - [13b. Law of the Mean — Practice](/fundamentals/math-and-science/calculus/13b-law-of-the-mean-practice) — EquationWorksheet drills + guided proofs (Rolle, MVT, monotone, extended mean).
-- [14. Maximum and Minimum Values](/fundamentals/math-and-science/calculus/14-maximum-minimum-values) — critical numbers, first/second derivative tests, absolute extrema on $[a,b]$.
+- [14. Maximum and Minimum Values](/fundamentals/math-and-science/calculus/maximum-minimum-values) — critical numbers, first/second derivative tests, absolute extrema on $[a,b]$.
 - [14b. Max/Min — Practice](/fundamentals/math-and-science/calculus/14b-maximum-minimum-practice) — EquationWorksheet drills + guided proofs (domain extrema, tests, applied optimization).
-- [15. Curve Sketching · Concavity · Symmetry](/fundamentals/math-and-science/calculus/15-curve-sketching) — $f''$ cup/cap, inflection, asymptotes, even/odd, sketching checklist.
+- [15. Curve Sketching · Concavity · Symmetry](/fundamentals/math-and-science/calculus/curve-sketching) — $f''$ cup/cap, inflection, asymptotes, even/odd, sketching checklist.
 - [15b. Curve Sketching — Practice](/fundamentals/math-and-science/calculus/15b-curve-sketching-practice) — concavity/inflection drills, tangents, cubic & rational sketches.
-- [16. Review of Trigonometry](/fundamentals/math-and-science/calculus/16-review-of-trigonometry) — radians, unit-circle sine/cosine, addition formulas, double/half-angle, triangle laws.
+- [16. Review of Trigonometry](/fundamentals/math-and-science/calculus/review-of-trigonometry) — radians, unit-circle sine/cosine, addition formulas, double/half-angle, triangle laws.
 - [16b. Trig Review — Practice](/fundamentals/math-and-science/calculus/16b-trigonometry-practice) — convert, arc length, evaluate, polar, proofs of addition / triangle laws.
-- [17. Differentiation of Trig Functions](/fundamentals/math-and-science/calculus/17-diff-trig-functions) — $(\sin x)'=\cos x$, chain rule, amplitude/period, related-rate angles.
+- [17. Differentiation of Trig Functions](/fundamentals/math-and-science/calculus/diff-trig-functions) — $(\sin x)'=\cos x$, chain rule, amplitude/period, related-rate angles.
 - [17b. Trig Derivatives — Practice](/fundamentals/math-and-science/calculus/17b-trig-diff-practice) — differentiate, evaluate, applications.
-- [18. Inverse Trig Functions](/fundamentals/math-and-science/calculus/18-inverse-trig-functions) — ranges, derivatives, algebraic identities.
+- [18. Inverse Trig Functions](/fundamentals/math-and-science/calculus/inverse-trig-functions) — ranges, derivatives, algebraic identities.
 - [18b. Inverse Trig — Practice](/fundamentals/math-and-science/calculus/18b-inverse-trig-practice) — evaluate and differentiate arcsin/arccos/arctan.
-- [19. Rectilinear & Circular Motion](/fundamentals/math-and-science/calculus/19-rectilinear-circular-motion) — $v=ds/dt$, $a=dv/dt$, free fall, circular $\omega$.
+- [19. Rectilinear & Circular Motion](/fundamentals/math-and-science/calculus/rectilinear-circular-motion) — $v=ds/dt$, $a=dv/dt$, free fall, circular $\omega$.
 - [19b. Motion — Practice](/fundamentals/math-and-science/calculus/19b-motion-practice) — path analysis, total distance, free-fall drills.
-- [20. Related Rates](/fundamentals/math-and-science/calculus/20-related-rates) — link rates via geometry; sliding ladder.
+- [20. Related Rates](/fundamentals/math-and-science/calculus/related-rates) — link rates via geometry; sliding ladder.
 - [20b. Related Rates — Practice](/fundamentals/math-and-science/calculus/20b-related-rates-practice) — balloons, funnels, ships, shadows, troughs.
-- [21. Differentials · Newton's Method](/fundamentals/math-and-science/calculus/21-differentials-newtons-method) — linear approx, $df$, Newton root finding.
+- [21. Differentials · Newton's Method](/fundamentals/math-and-science/calculus/differentials-newtons-method) — linear approx, $df$, Newton root finding.
 - [21b. Differentials · Newton — Practice](/fundamentals/math-and-science/calculus/21b-differentials-newtons-practice) — cube roots, $dy$, implicit $dy/dx$, Newton.
 
 ## Computational Physics

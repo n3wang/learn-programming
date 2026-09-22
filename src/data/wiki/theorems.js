@@ -592,7 +592,7 @@ export const THEOREMS = [
       'If $f\'\'>0$ on $(a,b)$, the graph of $f$ is concave upward there; if $f\'\'<0$, it is concave downward.',
     description:
       'Intuitively: cup vs cap. More precisely, the graph lies above (resp. below) its tangent lines on a neighborhood of each point when $f\'\'>0$ (resp. $f\'\'<0$).',
-    href: '/fundamentals/math-and-science/calculus/15-curve-sketching',
+    href: '/fundamentals/math-and-science/calculus/curve-sketching',
     order: {
       prompt: 'Order the concavity argument (top = first).',
       items: [
@@ -613,7 +613,7 @@ export const THEOREMS = [
       'If the graph has an inflection at $x_0$, $f\'\'$ exists nearby, and $f\'\'$ is continuous at $x_0$, then $f\'\'(x_0)=0$. The converse fails (e.g. $x^4$ at $0$).',
     description:
       'Inflection means concavity changes, so $f\'\'$ changes sign. A continuous sign change must hit zero. Checking $f\'\'=0$ alone is not enough — verify the sign change.',
-    href: '/fundamentals/math-and-science/calculus/15-curve-sketching',
+    href: '/fundamentals/math-and-science/calculus/curve-sketching',
     order: {
       prompt: 'Order the inflection checklist (top = first).',
       items: [
@@ -655,7 +655,7 @@ export const THEOREMS = [
       '$D_x(\\sin x)=\\cos x$. Consequently $D_x(\\cos x)=-\\sin x$ via $\\cos x=\\sin(\\pi/2-x)$ and the Chain Rule.',
     description:
       'Expand $\\sin(x+h)$ with an addition formula; the difference quotient splits into pieces controlled by $\\sin h/h\\to 1$ and $(1-\\cos h)/h\\to 0$ (radians).',
-    href: '/fundamentals/math-and-science/calculus/17-diff-trig-functions',
+    href: '/fundamentals/math-and-science/calculus/diff-trig-functions',
     order: {
       prompt: 'Order the argument for $D_x(\\sin x)=\\cos x$ (top = first).',
       items: [
@@ -676,7 +676,7 @@ export const THEOREMS = [
       '$\\tan(x+\\pi)=\\tan x$ and $\\cot(x+\\pi)=\\cot x$. Both are odd: $\\tan(-x)=-\\tan x$.',
     description:
       'Adding $\\pi$ flips the signs of both $\\sin$ and $\\cos$, so their ratio is unchanged. Period $\\pi$ (not $2\\pi$) is why one fundamental domain for $\\tan$ is $(-\\pi/2,\\pi/2)$.',
-    href: '/fundamentals/math-and-science/calculus/17-diff-trig-functions',
+    href: '/fundamentals/math-and-science/calculus/diff-trig-functions',
     order: {
       prompt: 'Order why $\\tan$ has period $\\pi$ (top = first).',
       items: [
@@ -697,7 +697,7 @@ export const THEOREMS = [
       'For $|x|<1$, $D_x(\\arcsin x)=1/\\sqrt{1-x^{2}}$. Likewise $D_x(\\arccos x)=-1/\\sqrt{1-x^{2}}$ and $D_x(\\arctan x)=1/(1+x^{2})$ for all real $x$.',
     description:
       'Implicit differentiation of $\\sin y=x$ (resp. $\\cos y=x$, $\\tan y=x$) plus the sign of cosine (or $1+\\tan^{2}$) on the chosen range.',
-    href: '/fundamentals/math-and-science/calculus/18-inverse-trig-functions',
+    href: '/fundamentals/math-and-science/calculus/inverse-trig-functions',
     order: {
       prompt: 'Order the arcsin′ argument (top = first).',
       items: [
@@ -718,7 +718,7 @@ export const THEOREMS = [
       'For rectilinear motion $s=f(t)$, the instantaneous velocity is $v=f\'(t)$. Acceleration is $a=v\'=f\'\'(t)$. Speed is $|v|$.',
     description:
       'Average velocity $(f(t+\\Delta t)-f(t))/\\Delta t$ becomes the derivative as $\\Delta t\\to 0$. Sign of $v$ is direction along the line.',
-    href: '/fundamentals/math-and-science/calculus/19-rectilinear-circular-motion',
+    href: '/fundamentals/math-and-science/calculus/rectilinear-circular-motion',
     order: {
       prompt: 'Order the velocity definition (top = first).',
       items: [
@@ -739,7 +739,7 @@ export const THEOREMS = [
       'If quantities related by an identity $F(x(t),y(t),\\ldots)=C$ for all $t$ in an interval, then differentiating in $t$ relates their rates $dx/dt,\\,dy/dt,\\ldots$.',
     description:
       'The Chain Rule turns a static geometric constraint into a linear relation among the instantaneous rates. Evaluate at a specific time only after differentiating.',
-    href: '/fundamentals/math-and-science/calculus/20-related-rates',
+    href: '/fundamentals/math-and-science/calculus/related-rates',
     order: {
       prompt: 'Order a related-rates argument (top = first).',
       items: [
@@ -760,7 +760,7 @@ export const THEOREMS = [
       'If $f$ is differentiable at $x$, then $f(x+\\Delta x)=f(x)+f\'(x)\\Delta x+o(\\Delta x)$ as $\\Delta x\\to 0$; equivalently $\\Delta y\\sim df=f\'(x)\\,dx$.',
     description:
       'The differential is the rise along the tangent. The true change $\\Delta y$ matches $df$ more closely for smaller $\\Delta x$.',
-    href: '/fundamentals/math-and-science/calculus/21-differentials-newtons-method',
+    href: '/fundamentals/math-and-science/calculus/differentials-newtons-method',
     order: {
       prompt: 'Order the linear-approximation idea (top = first).',
       items: [
@@ -781,7 +781,7 @@ export const THEOREMS = [
       'If $f\'(x_n)\\neq 0$, the $x$-intercept of the tangent to $y=f(x)$ at $x_n$ is $x_{n+1}=x_n-f(x_n)/f\'(x_n)$.',
     description:
       'Iterating often converges quickly near a simple root, but can fail if $f\'\\approx 0$ or the seed is poor.',
-    href: '/fundamentals/math-and-science/calculus/21-differentials-newtons-method',
+    href: '/fundamentals/math-and-science/calculus/differentials-newtons-method',
     order: {
       prompt: 'Order the Newton tangent argument (top = first).',
       items: [

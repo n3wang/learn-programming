@@ -1318,7 +1318,7 @@ export const PROCEDURES = [
     title: 'Curve-sketching checklist',
     description:
       'Compute $y\',y\'\'$; classify critical numbers; mono and concavity intervals; check inflection; asymptotes; end behavior; intercepts; corners/cusps; oblique asymptotes.',
-    href: '/fundamentals/math-and-science/calculus/15-curve-sketching',
+    href: '/fundamentals/math-and-science/calculus/curve-sketching',
     order: {
       prompt: 'Order a standard sketching workflow (top = first).',
       items: [
@@ -1337,7 +1337,7 @@ export const PROCEDURES = [
     title: 'Convert degrees ↔ radians',
     description:
       'Multiply degrees by π/180 to get radians; multiply radians by 180/π to get degrees. Memorize the special angles 30°, 45°, 60°, 90°, …',
-    href: '/fundamentals/math-and-science/calculus/16-review-of-trigonometry',
+    href: '/fundamentals/math-and-science/calculus/review-of-trigonometry',
     order: {
       prompt: 'Order a degree→radian conversion (top = first).',
       items: [
@@ -1356,7 +1356,7 @@ export const PROCEDURES = [
     title: 'Sketch y = A sin(bx)',
     description:
       'Read amplitude $|A|$, period $2\\pi/b$, frequency $b$; mark zeros, peaks, and troughs over one period; then repeat.',
-    href: '/fundamentals/math-and-science/calculus/17-diff-trig-functions',
+    href: '/fundamentals/math-and-science/calculus/diff-trig-functions',
     order: {
       prompt: 'Order a sketch of $A\\sin(bx)$ (top = first).',
       items: [
@@ -1375,7 +1375,7 @@ export const PROCEDURES = [
     title: 'Angle between two curves',
     description:
       'At an intersection, find tangent slopes $m_1,m_2$; if $1+m_1 m_2=0$ the angle is $\\pi/2$; otherwise $\\tan\\phi=|(m_2-m_1)/(1+m_1 m_2)|$ and take the acute $\\phi$.',
-    href: '/fundamentals/math-and-science/calculus/17-diff-trig-functions',
+    href: '/fundamentals/math-and-science/calculus/diff-trig-functions',
     order: {
       prompt: 'Order the angle-between-curves workflow (top = first).',
       items: [
@@ -1394,7 +1394,7 @@ export const PROCEDURES = [
     title: 'Evaluate inverse trig at special values',
     description:
       'Ask which angle in the function’s range has the given trig value; use the unit-circle table and odd/even properties.',
-    href: '/fundamentals/math-and-science/calculus/18-inverse-trig-functions',
+    href: '/fundamentals/math-and-science/calculus/inverse-trig-functions',
     order: {
       prompt: 'Order an arcsin evaluation (top = first).',
       items: [
@@ -1413,7 +1413,7 @@ export const PROCEDURES = [
     title: 'Set up a free-fall problem',
     description:
       'Choose upward +; identify $s_0,v_0$; use $v=v_0-32t$ and $s=s_0+v_0t-16t^{2}$ (ft, s); solve for the unknown time or height.',
-    href: '/fundamentals/math-and-science/calculus/19-rectilinear-circular-motion',
+    href: '/fundamentals/math-and-science/calculus/rectilinear-circular-motion',
     order: {
       prompt: 'Order a free-fall setup (top = first).',
       items: [
@@ -1432,7 +1432,7 @@ export const PROCEDURES = [
     title: 'Solve a related-rates problem',
     description:
       'Figure → variables → relating equation → differentiate in t → substitute the instant → interpret the sign.',
-    href: '/fundamentals/math-and-science/calculus/20-related-rates',
+    href: '/fundamentals/math-and-science/calculus/related-rates',
     order: {
       prompt: 'Order the related-rates workflow (top = first).',
       items: [
@@ -1451,7 +1451,7 @@ export const PROCEDURES = [
     title: "Apply Newton's method (calculus)",
     description:
       'Pick a seed near a root of f=0; iterate x ← x − f(x)/f′(x) until digits stabilize; watch for f′≈0.',
-    href: '/fundamentals/math-and-science/calculus/21-differentials-newtons-method',
+    href: '/fundamentals/math-and-science/calculus/differentials-newtons-method',
     order: {
       prompt: 'Order a Newton iteration workflow (top = first).',
       items: [
@@ -1470,7 +1470,7 @@ export const PROCEDURES = [
     title: 'Linear approximation with differentials',
     description:
       'Pick easy nearby x and Δx; evaluate f and f′; use f(x+Δx)≈f(x)+f′(x)Δx.',
-    href: '/fundamentals/math-and-science/calculus/21-differentials-newtons-method',
+    href: '/fundamentals/math-and-science/calculus/differentials-newtons-method',
     order: {
       prompt: 'Order a linear-approximation workflow (top = first).',
       items: [
@@ -1489,7 +1489,7 @@ export const PROCEDURES = [
     title: 'Brief a documentary sale',
     description:
       'Before quoting: map risks, lock the sale terms, list required documents, and verify the counterparty.',
-    href: '/fundamentals/international-business/export-import/01-introduction-to-export-import',
+    href: '/fundamentals/international-business/export-import/introduction-to-export-import',
     order: {
       prompt: 'Order a pre-deal documentary checklist (top = first).',
       items: [

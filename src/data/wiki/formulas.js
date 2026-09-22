@@ -1398,7 +1398,7 @@ export const FORMULAS = [
     explorer: 'degreeRadianConvert',
     tex: 's=r\\theta',
     texAlts: ['s = r theta', 'arc length equals radius times radians'],
-    href: '/fundamentals/math-and-science/calculus/16-review-of-trigonometry',
+    href: '/fundamentals/math-and-science/calculus/review-of-trigonometry',
   },
   {
     id: 'formula-trig-pythagorean',
@@ -1410,7 +1410,7 @@ export const FORMULAS = [
     explorer: 'unitCircleValues',
     tex: '\\sin^{2}\\theta+\\cos^{2}\\theta=1',
     texAlts: ['sin^2 + cos^2 = 1', 'sine squared plus cosine squared'],
-    href: '/fundamentals/math-and-science/calculus/16-review-of-trigonometry',
+    href: '/fundamentals/math-and-science/calculus/review-of-trigonometry',
   },
   {
     id: 'formula-cos-u-minus-v',
@@ -1422,7 +1422,7 @@ export const FORMULAS = [
     explorer: 'trigAdditionExplorer',
     tex: '\\cos(u-v)=\\cos u\\cos v+\\sin u\\sin v',
     texAlts: ['cos(u-v)', 'cosine difference formula'],
-    href: '/fundamentals/math-and-science/calculus/16-review-of-trigonometry',
+    href: '/fundamentals/math-and-science/calculus/review-of-trigonometry',
   },
   {
     id: 'formula-law-of-cosines',
@@ -1434,7 +1434,7 @@ export const FORMULAS = [
     explorer: 'trigDoubleHalfExplorer',
     tex: 'c^{2}=a^{2}+b^{2}-2ab\\cos\\theta',
     texAlts: ['law of cosines', 'c^2 = a^2 + b^2 - 2ab cos'],
-    href: '/fundamentals/math-and-science/calculus/16-review-of-trigonometry',
+    href: '/fundamentals/math-and-science/calculus/review-of-trigonometry',
   },
   {
     id: 'formula-lim-sin-theta',
@@ -1446,7 +1446,7 @@ export const FORMULAS = [
     explorer: 'limSinThetaExplorer',
     tex: '\\lim_{\\theta\\to 0}\\frac{\\sin\\theta}{\\theta}=1',
     texAlts: ['lim sin theta / theta = 1', 'sine over theta limit'],
-    href: '/fundamentals/math-and-science/calculus/17-diff-trig-functions',
+    href: '/fundamentals/math-and-science/calculus/diff-trig-functions',
   },
   {
     id: 'formula-dx-sin-cos',
@@ -1458,7 +1458,7 @@ export const FORMULAS = [
     explorer: 'trigDerivValuesExplorer',
     tex: '(\\sin x)\'=\\cos x,\\ (\\cos x)\'=-\\sin x',
     texAlts: ['derivative of sine is cosine', 'Dx sin = cos'],
-    href: '/fundamentals/math-and-science/calculus/17-diff-trig-functions',
+    href: '/fundamentals/math-and-science/calculus/diff-trig-functions',
   },
   {
     id: 'formula-amp-period-freq',
@@ -1470,7 +1470,7 @@ export const FORMULAS = [
     explorer: 'ampPeriodFreqExplorer',
     tex: 'p=2\\pi/b,\\ f=b,\\ \\mathrm{amp}=|A|',
     texAlts: ['period 2pi/b', 'amplitude abs A frequency b'],
-    href: '/fundamentals/math-and-science/calculus/17-diff-trig-functions',
+    href: '/fundamentals/math-and-science/calculus/diff-trig-functions',
   },
   {
     id: 'formula-dx-tan-sec',
@@ -1482,7 +1482,7 @@ export const FORMULAS = [
     explorer: 'trigDerivValuesExplorer',
     tex: '(\\tan x)\'=\\sec^{2}x,\\ (\\sec x)\'=\\tan x\\sec x',
     texAlts: ['derivative of tan is sec squared', 'Dx sec = tan sec'],
-    href: '/fundamentals/math-and-science/calculus/17-diff-trig-functions',
+    href: '/fundamentals/math-and-science/calculus/diff-trig-functions',
   },
   {
     id: 'formula-dx-arcsin',
@@ -1494,7 +1494,7 @@ export const FORMULAS = [
     explorer: 'invTrigDerivExplorer',
     tex: '(\\arcsin x)\'=\\frac{1}{\\sqrt{1-x^{2}}}',
     texAlts: ['derivative of arcsin', '1 over square root 1 minus x squared'],
-    href: '/fundamentals/math-and-science/calculus/18-inverse-trig-functions',
+    href: '/fundamentals/math-and-science/calculus/inverse-trig-functions',
   },
   {
     id: 'formula-dx-arccos',
@@ -1506,7 +1506,7 @@ export const FORMULAS = [
     explorer: 'invTrigDerivExplorer',
     tex: '(\\arccos x)\'=-\\frac{1}{\\sqrt{1-x^{2}}}',
     texAlts: ['derivative of arccos', 'negative arcsin derivative'],
-    href: '/fundamentals/math-and-science/calculus/18-inverse-trig-functions',
+    href: '/fundamentals/math-and-science/calculus/inverse-trig-functions',
   },
   {
     id: 'formula-dx-arctan',
@@ -1518,7 +1518,7 @@ export const FORMULAS = [
     explorer: 'invTrigDerivExplorer',
     tex: '(\\arctan x)\'=\\frac{1}{1+x^{2}}',
     texAlts: ['derivative of arctan', '1 over 1 plus x squared'],
-    href: '/fundamentals/math-and-science/calculus/18-inverse-trig-functions',
+    href: '/fundamentals/math-and-science/calculus/inverse-trig-functions',
   },
   {
     id: 'formula-free-fall-s',
@@ -1530,7 +1530,7 @@ export const FORMULAS = [
     explorer: 'freeFallExplorer',
     tex: 's=s_0+v_0 t-16t^{2}',
     texAlts: ['free fall position', 's0 + v0 t - 16 t squared'],
-    href: '/fundamentals/math-and-science/calculus/19-rectilinear-circular-motion',
+    href: '/fundamentals/math-and-science/calculus/rectilinear-circular-motion',
   },
   {
     id: 'formula-velocity-acceleration',
@@ -1542,7 +1542,7 @@ export const FORMULAS = [
     explorer: 'freeFallExplorer',
     tex: 'v=\\frac{ds}{dt},\\ a=\\frac{dv}{dt}',
     texAlts: ['v = ds/dt', 'a = dv/dt'],
-    href: '/fundamentals/math-and-science/calculus/19-rectilinear-circular-motion',
+    href: '/fundamentals/math-and-science/calculus/rectilinear-circular-motion',
   },
   {
     id: 'formula-angular-velocity',
@@ -1554,7 +1554,7 @@ export const FORMULAS = [
     explorer: 'circularMotionExplorer',
     tex: '\\omega=\\frac{d\\theta}{dt},\\ \\alpha=\\frac{d\\omega}{dt}',
     texAlts: ['omega = d theta / dt', 'angular acceleration'],
-    href: '/fundamentals/math-and-science/calculus/19-rectilinear-circular-motion',
+    href: '/fundamentals/math-and-science/calculus/rectilinear-circular-motion',
   },
   {
     id: 'formula-ladder-related-rates',
@@ -1566,7 +1566,7 @@ export const FORMULAS = [
     explorer: 'ladderRelatedRates',
     tex: 'x\\frac{dx}{dt}+y\\frac{dy}{dt}=0',
     texAlts: ['related rates ladder', 'x x-dot + y y-dot = 0'],
-    href: '/fundamentals/math-and-science/calculus/20-related-rates',
+    href: '/fundamentals/math-and-science/calculus/related-rates',
   },
   {
     id: 'formula-sphere-volume-surface-rates',
@@ -1600,7 +1600,7 @@ export const FORMULAS = [
     explorer: 'linearApproximation',
     tex: 'f(x+\\Delta x)\\approx f(x)+f\'(x)\\Delta x',
     texAlts: ['linear approximation', 'f(x+dx) approx f + f\' dx', 'differential approximation'],
-    href: '/fundamentals/math-and-science/calculus/21-differentials-newtons-method',
+    href: '/fundamentals/math-and-science/calculus/differentials-newtons-method',
   },
   {
     id: 'formula-differential-df',
@@ -1611,7 +1611,7 @@ export const FORMULAS = [
       'With $dx=\\Delta x$. Then $df/dx=f\'(x)$ when $dx\\neq 0$.',
     tex: 'df=f\'(x)\\,dx',
     texAlts: ['df = f\'(x) dx', 'differential'],
-    href: '/fundamentals/math-and-science/calculus/21-differentials-newtons-method',
+    href: '/fundamentals/math-and-science/calculus/differentials-newtons-method',
   },
   {
     id: 'formula-newton-method-calculus',
@@ -1623,6 +1623,6 @@ export const FORMULAS = [
     explorer: 'newtonSqrt3',
     tex: 'x_{n+1}=x_n-\\frac{f(x_n)}{f\'(x_n)}',
     texAlts: ['newton method', 'x = x - f/f\'', "newton's iteration"],
-    href: '/fundamentals/math-and-science/calculus/21-differentials-newtons-method',
+    href: '/fundamentals/math-and-science/calculus/differentials-newtons-method',
   },
 ];

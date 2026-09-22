@@ -158,9 +158,6 @@ function fundamentalsPlugin() {
     routeBasePath: 'fundamentals',
     remarkPlugins: [remarkMath],
     rehypePlugins: [rehypeKatex],
-    // Keep "13-law-of-the-mean", "03-01-errors", "01-introduction-…" in URLs.
-    // Default stripping broke relative/absolute links that use the filename.
-    numberPrefixParser: false,
     sidebarItemsGenerator: fundamentalsSidebarItemsGenerator,
     ...(exclude ? {exclude} : {}),
   });

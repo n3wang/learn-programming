@@ -853,7 +853,7 @@ export const PROBLEMS = [
     description:
       'Match special values to the correct range; use oddness for negatives.',
     sample: 'arcsin-definition',
-    href: '/fundamentals/math-and-science/calculus/18-inverse-trig-functions',
+    href: '/fundamentals/math-and-science/calculus/inverse-trig-functions',
   },
   {
     id: 'problem-dx-arcsin',
@@ -862,7 +862,7 @@ export const PROBLEMS = [
     description:
       'Implicit differentiation of sin y = x; pick +√(1−x²) on [−π/2, π/2].',
     sample: 'derive-arcsin',
-    href: '/fundamentals/math-and-science/calculus/18-inverse-trig-functions',
+    href: '/fundamentals/math-and-science/calculus/inverse-trig-functions',
   },
   {
     id: 'problem-dx-arcsec',
@@ -915,7 +915,7 @@ export const PROBLEMS = [
     description:
       'Differentiate position for velocity; differentiate again for acceleration; interpret signs and turns.',
     sample: 'rectilinear-velocity',
-    href: '/fundamentals/math-and-science/calculus/19-rectilinear-circular-motion',
+    href: '/fundamentals/math-and-science/calculus/rectilinear-circular-motion',
   },
   {
     id: 'problem-free-fall',
@@ -951,7 +951,7 @@ export const PROBLEMS = [
     description:
       'From x²+y²=L² get x x′+y y′=0; solve for y′ at a given x and x′.',
     sample: 'sliding-ladder',
-    href: '/fundamentals/math-and-science/calculus/20-related-rates',
+    href: '/fundamentals/math-and-science/calculus/related-rates',
   },
   {
     id: 'problem-sphere-surface-rate',
@@ -987,7 +987,7 @@ export const PROBLEMS = [
     description:
       'Pick nearby easy x and Δx; use f(x+Δx)≈f(x)+f′(x)Δx for f=√x.',
     sample: 'linear-approx-differential',
-    href: '/fundamentals/math-and-science/calculus/21-differentials-newtons-method',
+    href: '/fundamentals/math-and-science/calculus/differentials-newtons-method',
   },
   {
     id: 'problem-differential-rules',
@@ -996,7 +996,7 @@ export const PROBLEMS = [
     description:
       'Identify df=f′Δx, dx=Δx, and product/quotient differential rules.',
     sample: 'differential-rules',
-    href: '/fundamentals/math-and-science/calculus/21-differentials-newtons-method',
+    href: '/fundamentals/math-and-science/calculus/differentials-newtons-method',
   },
   {
     id: 'problem-newton-sqrt3',
@@ -1005,7 +1005,7 @@ export const PROBLEMS = [
     description:
       'From f(x)=x²−3 get xₙ₊₁=(xₙ²+3)/(2xₙ); iterate from a seed.',
     sample: 'newton-sqrt3',
-    href: '/fundamentals/math-and-science/calculus/21-differentials-newtons-method',
+    href: '/fundamentals/math-and-science/calculus/differentials-newtons-method',
   },
   {
     id: 'problem-approx-cbrt-sin',
@@ -1077,7 +1077,7 @@ export const PROBLEMS = [
     description:
       'Match transport, non-payment, quality, and documentary failures to the right control.',
     sample: 'export-import-risk-map',
-    href: '/fundamentals/international-business/export-import/01-introduction-to-export-import',
+    href: '/fundamentals/international-business/export-import/introduction-to-export-import',
   },
   {
     id: 'problem-export-risk-controls',
@@ -1086,7 +1086,7 @@ export const PROBLEMS = [
     description:
       'Culture/spec ambiguity, quality before payment, and transit loss each need a different instrument.',
     sample: 'export-risk-controls',
-    href: '/fundamentals/international-business/export-import/01-introduction-to-export-import',
+    href: '/fundamentals/international-business/export-import/introduction-to-export-import',
   },
   {
     id: 'problem-trade-institutions',
@@ -1095,6 +1095,6 @@ export const PROBLEMS = [
     description:
       'ICC (UCP/Incoterms), UNCITRAL (CISG), WTO (government rules) — who owns which layer.',
     sample: 'trade-institutions',
-    href: '/fundamentals/international-business/export-import/01-introduction-to-export-import',
+    href: '/fundamentals/international-business/export-import/introduction-to-export-import',
   },
 ];

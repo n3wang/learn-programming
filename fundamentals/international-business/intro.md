@@ -10,7 +10,7 @@ Trade across borders is a **systems** problem: contracts, documents, money, tran
 ## Tracks
 
 ### Export–Import practice
-- [1. Introduction to export–import](./export-import/01-introduction-to-export-import) — commercial sales, risk map, documentary sales, culture, institutions, WTO
+- [1. Introduction to export–import](./export-import/introduction-to-export-import) — commercial sales, risk map, documentary sales, culture, institutions, WTO
 - *Later:* sale contracts & Incoterms · payment (L/Cs) · carriage & bills of lading · insurance · disputes · distribution / IP / e-commerce
 
 ### How we build lessons here
