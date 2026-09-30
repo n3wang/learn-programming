@@ -1,0 +1,132 @@
+---
+sidebar_position: 1
+title: 市场表格与 on_tick 钩子
+sidebar_label: '1. 市场表格与钩子'
+---
+
+# 1. 市场表格与 `on_tick` 钩子
+
+**不是你**去拨时钟。框架按每个模拟 tick 循环，并调用你的函数一次，传入当前上市公司快照和你的账户状态。
+
+前几关不需要计算机背景：多数解法就是几行 `if market.tick == …`。而且**起始代码往往已经写好，只是有小错误**（买错代码、卖错时刻）——找到并改对即可。
+
+## 钩子约定
+
+```python
+def on_tick(market_data, user_data):
+    ...
+```
+
+| 参数 | 含义 |
+| --- | --- |
+| `market_data` | 类似 DataFrame 的表：本 tick **每一家公司一行** |
+| `user_data` | 你的账户字典：cash、positions、equity、history、tick、dividends_received 等 |
+
+全局对象 **`market`** 已经注入。用它来查询和交易（不要自己写时间循环）。
+
+### `market_data` 列
+
+| 列名 | 含义 |
+| --- | --- |
+| `company_name` | 公司名称 |
+| `industry` | 行业（如 Metals、Energy、ETF、Income） |
+| `market_cap` | 市值（早期关卡可为固定） |
+| `ticker_price` | 本 tick 成交价 |
+| `ticker` | 传给 `market.buy` / `market.sell` 的代码 |
+| `dividend_per_tick` | 每持有 1 股、每个 `on_tick` 后发的现金股息（玩具模型，常为 0） |
+| `description` | 简短说明 |
+
+后期规则关才需要像 pandas 一样遍历：
+
+```python
+for _, row in market_data.iterrows():
+    ticker = row["ticker"]
+    price = float(row["ticker_price"])
+```
+
+### `user_data` 键
+
+| 键 | 含义 |
+| --- | --- |
+| `cash` | 可用现金（**实时**——买卖与分红都会更新） |
+| `positions` | `{ticker: qty}` 持仓 |
+| `equity` | 与 `market.total_equity()` 相同 — 现金 + 股票市值 |
+| `stock_value` | 仅持仓市值 |
+| `history` | 成交、分红、ETF 定义记录 |
+| `tick` | 当前 tick（与 `market.tick` 相同） |
+| `dividends_received` | 累计已收股息 |
+| `etfs` | 已知 ETF 配方 |
+
+`user_data` 是**实时视图**：`user_data["cash"]` 始终读当前 `market.cash`。
+
+## 财富方法
+
+```python
+market.cash                 # 实时现金
+market.stock_value()        # 持仓市值合计
+market.total_equity()       # 现金 + 持仓市值（= market.equity()）
+user_data["equity"]         # 与 total_equity() 相同
+```
+
+## 交易 API
+
+成交发生在**当前 tick** 的 `ticker_price`。没有时间参数——若要在 tick 5 行动，先判断 `market.tick == 5` 再买卖。
+
+```python
+market.can_buy("GOLD")       # 现金够买 1 股？
+market.can_buy("GOLD", 3)    # 现金够买 3 股？
+market.buy("GOLD")           # 买 1 股
+market.buy("GOLD", 5)        # 买 5 股
+
+market.can_sell("GOLD")
+market.can_sell("GOLD", 2)
+market.sell("GOLD")
+market.sell("GOLD", qty=2)
+```
+
+若 `can_buy` / `can_sell` 为假，买卖会变成空操作（并打印 `WARN`）。
+
+## 股息（玩具模型）
+
+若 `dividend_per_tick > 0`，在你的 `on_tick` 返回后框架自动执行：
+
+`cash += 持股数量 × dividend_per_tick`
+
+会更新 **`market.cash`** 和 **`user_data["cash"]`**，无需你调用分红函数。下一 tick 打印 `user_data["cash"]` 时已包含这些入账。
+
+## ETF
+
+**已上市 ETF**（如 `CMDY`）：在 Data 页可见，价格为成分加权。用普通 `buy` / `sell` 交易。
+
+**自己设计：**
+
+```python
+market.define_etf("MYETF", {"GOLD": 0.6, "CORN": 0.4})  # 权重之和约为 1
+market.buy("MYETF")
+```
+
+定义后，该代码会出现在 `market_data` 中，`industry == "ETF"`，价格每 tick 按权重更新。
+
+## 最小例子
+
+择时买卖：
+
+```python
+def on_tick(market_data, user_data):
+    if market.tick == 5 and market.can_buy("GOLD"):
+        market.buy("GOLD")
+    if market.tick == 12 and market.can_sell("GOLD"):
+        market.sell("GOLD")
+```
+
+持股吃息（现金会自动增加）：
+
+```python
+def on_tick(market_data, user_data):
+    if market.tick == 0 and market.can_buy("DIVY", 5):
+        market.buy("DIVY", 5)
+    print("CASH=%.4f" % user_data["cash"])
+    print("EQUITY=%.4f" % market.total_equity())
+```
+
+打开练习页的 **Data** 标签查看 `companies` 与 `timeline`，然后去做 [交易模拟练习](/fundamentals/finance/commodities/trading-sim-practice)。

@@ -1,34 +1,38 @@
 ---
 sidebar_position: 1
-title: Finance
+title: 金融
 ---
 
-# Finance
+# 金融
 
-Financial literacy through an engineer's lens — the math, models, and reasoning behind how money grows, how markets price risk, and how the algorithms in quantitative finance actually work under the hood. This section treats finance as an applied, quantitative subject, not a black box.
+用工程师的视角学金融——钱如何增值、市场如何为风险定价，以及量化金融里的算法在底层如何工作。本栏目把金融当作可计算、可练习的应用学科，而不是黑箱。
 
-## Planned Topics
+## 现已上线
 
-### Personal Finance Fundamentals
-- Time value of money, compound interest — interactive calculator
-- Budgeting, saving, and the cost of debt
-- Reading a paycheck, taxes 101
+### [大宗商品交易模拟](/fundamentals/finance/commodities/market-tables-and-hook)
 
-### Financial Statements
-- The balance sheet, income statement, and cash flow statement
-- Reading a company's 10-K like an engineer reads a spec
-- Basic ratio analysis
+用 Python 练习按 tick 推进的市场：实现 `on_tick(market_data, user_data)`，查看公司表格，用 `market.buy` / `market.can_buy` 交易。先看 [API 课](/fundamentals/finance/commodities/market-tables-and-hook)，再做 [分级练习](/fundamentals/finance/commodities/trading-sim-practice)。
 
-### Corporate Finance and Investing
-- Risk vs. return, diversification, and the efficient frontier
-- Stocks, bonds, and index funds — what you're actually buying
-- Net present value and discounted cash flow
+前几关起始代码已经写好，但有**小错误**（买错股票、卖错时刻）——找到并改对即可。
 
-### Quantitative Finance
-- Options pricing intuition (Black-Scholes, from first principles)
-- Modeling with Monte Carlo simulation
-- Programming for finance: backtesting a simple strategy
+## 计划中的主题
 
----
+### 个人理财基础
+- 货币时间价值、复利 — 交互计算器
+- 预算、储蓄与负债成本
+- 读懂工资单、税务入门
 
-*Pages coming soon — check back or contribute a page using the template.*
+### 财务报表
+- 资产负债表、利润表、现金流量表
+- 像读规格书一样读 10-K
+- 基本比率分析
+
+### 公司金融与投资
+- 风险与收益、分散化、有效前沿
+- 股票、债券、指数基金
+- 净现值与现金流折现
+
+### 量化金融
+- 期权定价直觉（从第一性原理看 Black-Scholes）
+- 蒙特卡洛模拟建模
+- 金融编程：回测简单策略（见上方大宗商品交易模拟）

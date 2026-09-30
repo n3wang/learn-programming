@@ -306,6 +306,10 @@ export default async function createConfig() {
             position: 'left',
             items: [
               {
+                to: '/fundamentals/finance/intro',
+                label: '金融',
+              },
+              {
                 to: '/fundamentals/computer-engineering/virtualization/cpu-pipeline',
                 label: 'CS Fundamentals',
               },
@@ -320,10 +324,6 @@ export default async function createConfig() {
               {
                 to: '/fundamentals/electronics/intro',
                 label: 'Electronics',
-              },
-              {
-                to: '/fundamentals/finance/intro',
-                label: 'Finance',
               },
               {
                 to: '/fundamentals/international-business/intro',

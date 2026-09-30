@@ -21,6 +21,12 @@ const SqlChapter8Exercise = lazyMdxComponent(() =>
 const CodingCh9Exercise = lazyMdxComponent(() =>
     import('@site/src/components/CodeExercise/ch9/CodingCh9Exercise'),
 );
+const TradingSimExercise = lazyMdxComponent(() =>
+    import('@site/src/components/TradingSimExercise'),
+);
+const TradingSimLevel = lazyMdxComponent(() =>
+    import('@site/src/components/TradingSimExercise/TradingSimLevel'),
+);
 const YamlEditor = lazyMdxComponent(() => import('@site/src/components/YamlEditor'));
 const GraphChallenge = lazyMdxComponent(() => import('@site/src/components/GraphChallenge'));
 const OutputChallenge = lazyMdxComponent(() => import('@site/src/components/OutputChallenge'));
@@ -61,6 +67,8 @@ export default {
     SqlExercise,
     SqlChapter8Exercise,
     CodingCh9Exercise,
+    TradingSimExercise,
+    TradingSimLevel,
     JournalAnswer,
     GuidedLab,
     LabStep,

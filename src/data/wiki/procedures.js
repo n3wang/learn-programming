@@ -1502,4 +1502,61 @@ export const PROCEDURES = [
       why: 'Risks → contract → document pack → KYC.',
     },
   },
+  {
+    id: 'proc-trading-on-tick',
+    kind: 'procedure',
+    title: '处理一个市场 tick',
+    description:
+      '每个 tick 框架调用 on_tick(market_data, user_data)。阅读表格与账户，用 can_buy/can_sell 探测，再在本 tick 价格买卖——循环由框架推进。',
+    href: '/fundamentals/finance/commodities/market-tables-and-hook',
+    order: {
+      prompt: '排出一次 on_tick 流程（最上为最先）。',
+      items: [
+        '若探测通过则调用 market.buy / market.sell',
+        '阅读 market_data 行与 user_data（cash、positions、tick）',
+        '让框架进入下一个 tick',
+        '用 market.can_buy / can_sell 检查代码与数量',
+      ],
+      order: [1, 3, 0, 2],
+      why: '查看 → 探测 → 交易 → 框架推进。',
+    },
+  },
+  {
+    id: 'proc-trading-market-buy-sell',
+    kind: 'procedure',
+    title: '用 market API 买卖',
+    description:
+      'market.buy(ticker, qty=1) 与 market.sell(ticker, qty=1) 按当前 tick 价格成交。can_buy / can_sell 先检查现金与持仓。没有时间参数——时机由你的钩子跑在哪个 tick 决定。',
+    href: '/fundamentals/finance/commodities/market-tables-and-hook',
+    order: {
+      prompt: '排出一次安全买入（最上为最先）。',
+      items: [
+        '调用 market.buy(ticker) 或 market.buy(ticker, qty)',
+        '如策略需要，用 user_data 确认现金与权益',
+        '用 market.can_buy(ticker, qty) 按本 tick 价格检查',
+        '从 market_data 确定代码（以及可选数量）',
+      ],
+      order: [3, 2, 0, 1],
+      why: '选代码 → can_buy → buy → 可选检查账户。',
+    },
+  },
+  {
+    id: 'proc-trading-dividends-etf',
+    kind: 'procedure',
+    title: '收股息或交易 ETF',
+    description:
+      '股息股持有期间每 tick 自动入账现金。上市 ETF 像股票买卖；自定义篮子用 define_etf 再买卖新代码。',
+    href: '/fundamentals/finance/commodities/market-tables-and-hook',
+    order: {
+      prompt: '排出简单的股息/ETF 操作（最上为最先）。',
+      items: [
+        '持有（股息进现金）或在选定 tick 卖出 ETF',
+        '当 market.tick 符合计划时买入股息股或 ETF',
+        '在 Data 页查看 dividend_per_tick / ETF 说明',
+        '可选：买自定义篮子前先 market.define_etf(...)',
+      ],
+      order: [2, 3, 1, 0],
+      why: '看 Data → 可选 define_etf → 按 tick 买入 → 持有或卖出。',
+    },
+  },
 ];
