@@ -13,6 +13,16 @@ Trade across borders is a **systems** problem: contracts, documents, money, tran
 - [1. Introduction to export–import](./export-import/introduction-to-export-import) — commercial sales, risk map, documentary sales, culture, institutions, WTO
 - *Later:* sale contracts & Incoterms · payment (L/Cs) · carriage & bills of lading · insurance · disputes · distribution / IP / e-commerce
 
+### Inventory optimization
+- [1. Inventory policies and replenishment](./inventory-optimization/inventory-policies) — continuous and periodic review, reorder points, order-up-to levels, and fixed order quantities
+- [2. How much should I order?](./inventory-optimization/how-much-should-i-order) — deterministic cost model, EOQ, sensitivity, and extensions
+- [3. When should I order?](./inventory-optimization/when-should-i-order) — lead time, periodic review, inventory targets, and review-calendar choices
+- [4. Safety stocks](./inventory-optimization/safety-stocks) — service measures, Normal-demand buffers, and aggregation assumptions
+- [5. Inventory policies with safety stock](./inventory-optimization/policies-with-safety-stock) — apply stochastic buffers, analyze inventory components, and design policy simulations
+- [6. Inventory policy simulation lab](./inventory-optimization/inventory-policy-simulation-lab) — calculate policy settings, simulate lost-sales behavior, and classify stock snapshots in Python
+- [7. Beyond Normality](./inventory-optimization/beyond-normality) — diagnose skew, fit gamma demand, and model gamma risk-period shortages
+- [8. Multi-Echelon Inventory Optimization](./inventory-optimization/multi-echelon-inventory) — coordinate serial-network buffers and convert local to echelon targets
+
 ### How we build lessons here
 1. **Outline** topics from reputable public sources (CISG text, ICC Incoterms® summaries you paraphrase, UCP concepts, your own notes).
 2. **Rewrite** in teaching voice — never paste handbook chapters or long case excerpts.

@@ -1,0 +1,206 @@
+---
+sidebar_position: 6
+title: Inventory Policy Simulation Lab
+sidebar_label: '6. Simulation lab'
+---
+
+# 6. Inventory Policy Simulation Lab
+
+The earlier chapters derived policy settings under clear assumptions. In this lab, turn those settings into executable Python and inspect a small, reproducible demand trace. The data is deliberately supplied rather than randomly sampled: that makes timing and expected outputs easy to verify before you experiment with random demand.
+
+The exercises use Python's standard library only. They focus on three practical tasks:
+
+1. Calculate continuous and periodic safety-stock targets.
+2. Simulate an $(R,S)$ policy with a fixed lead time and lost sales.
+3. Classify current on-hand against policy inventory reference levels.
+
+## Check the model before coding
+
+<MultipleChoice
+  id="ib-inventory-simulation-lab-concepts"
+  title="Simulation assumptions and timing"
+  questions={[
+    {
+      prompt: 'With fixed lead time L = 4 periods, which protection period is used by an (R, S) policy reviewed every R = 3 periods?',
+      choices: ['4 periods', '3 periods', '7 periods', '12 periods'],
+      answer: 2,
+      why: 'Periodic review can wait R periods for the next order opportunity, then wait L more for delivery: L + R = 7.',
+      whyWrong: 'Continuous review uses L alone. Periodic review adds the wait to the next review, so use L + R.',
+    },
+    {
+      prompt: 'On hand is 30, on order is 12, and backorders are 5. What is inventory position?',
+      choices: ['13', '25', '37', '47'],
+      answer: 2,
+      why: 'Inventory position = on hand + on order - backorders = 30 + 12 - 5 = 37.',
+      whyWrong: 'Include pipeline orders and subtract outstanding backorders; do not use on-hand alone.',
+    },
+    {
+      prompt: 'An order is placed at the end of period 2 with L = 1 full intervening period. Under this lab timing convention, when is it available?',
+      choices: ['At the start of period 3', 'At the start of period 4', 'At the end of period 4', 'At the start of period 2'],
+      answer: 1,
+      why: 'Period 3 is spent in transit, so receipt occurs at the start of period 4.',
+      whyWrong: 'The convention includes one full period in transit after placement; it arrives at the start of period 4.',
+    },
+    {
+      prompt: 'In the lost-sales simulator, what happens to demand that exceeds on-hand stock?',
+      choices: [
+        'It remains as a negative balance and is filled by a later receipt.',
+        'It is counted as unfilled demand but does not become a future obligation.',
+        'It is added to the in-transit pipeline.',
+        'It changes the service target automatically.',
+      ],
+      answer: 1,
+      why: 'Lost demand is recorded as unfilled for service metrics, while on-hand is floored at zero and no backlog is carried.',
+      whyWrong: 'A negative net balance that a later shipment clears is a backorder model, not lost sales.',
+    },
+    {
+      prompt: 'At a periodic review, why must the order calculation include outstanding pipeline orders in inventory position?',
+      choices: [
+        'To avoid ordering again for units that are already scheduled to arrive.',
+        'To count pipeline units as current on-hand stock.',
+        'To convert lost sales into backorders.',
+        'To increase safety stock by the review period.',
+      ],
+      answer: 0,
+      why: 'An order already in transit contributes to inventory position, so it reduces the shortfall to the order-up-to target.',
+      whyWrong: 'Pipeline stock is not physically available yet, but it is included in inventory position to prevent duplicate replenishment.',
+    },
+  ]}
+/>
+
+## Start with the protection-period targets
+
+Given per-period mean demand $\mu$, standard deviation $\sigma$, lead time $L$, review interval $R$, and service factor $z$, calculate:
+
+$$
+SS_{s,Q}=z\sigma\sqrt{L},\qquad s=\mu L+SS_{s,Q}
+$$
+
+$$
+SS_{R,S}=z\sigma\sqrt{L+R},\qquad S=\mu(L+R)+SS_{R,S}
+$$
+
+Use the demand and time units consistently. The test data supplies $z$ directly, so the exercise can focus on translating the policy equations into code.
+
+| Case | Mean demand / period | Demand SD / period | $L$ | $R$ | $z$ |
+|---|---:|---:|---:|---:|---:|
+| A | 40 | 13.6 | 4 | 1 | 1.645 |
+| B | 100 | 10 | 4 | 5 | 1.0 |
+
+<CodeExercise
+  lang="python"
+  title="Calculate policy targets"
+  prompt={`Implement policy_targets(mu, sigma, lead_time, review_period, z). Return (ss_continuous, reorder_point, ss_periodic, order_up_to), in that order. Do not round inside the function.`}
+  starter={`import math\n\ndef policy_targets(mu, sigma, lead_time, review_period, z):\n    # Return the two safety stocks and their full inventory thresholds.\n    pass\n`}
+  wrapSuffix={`\nimport sys\nmu, sigma, lead_time, review_period, z = map(float, sys.stdin.read().split())\nvalues = policy_targets(mu, sigma, lead_time, review_period, z)\nprint('|'.join(f'{value:.1f}' for value in values))\n`}
+  tests={[
+    {name: 'Case A: five-day periodic window', stdin: '40 13.6 4 1 1.645', equals: '44.7|204.7|50.0|250.0'},
+    {name: 'Case B: longer review interval', stdin: '100 10 4 5 1.0', equals: '20.0|420.0|30.0|930.0'},
+  ]}
+  hint="Use math.sqrt for each risk-period duration. The reorder point adds mean demand over L; the periodic target adds mean demand over L + R."
+  solution={`import math\n\ndef policy_targets(mu, sigma, lead_time, review_period, z):\n    ss_continuous = z * sigma * math.sqrt(lead_time)\n    reorder_point = mu * lead_time + ss_continuous\n    protection_period = lead_time + review_period\n    ss_periodic = z * sigma * math.sqrt(protection_period)\n    order_up_to = mu * protection_period + ss_periodic\n    return ss_continuous, reorder_point, ss_periodic, order_up_to\n`}
+/>
+
+## Simulate a periodic-review policy
+
+Use this six-period demand trace to test the order/receipt timing. The policy reviews every $R=2$ periods, targets $S=8$ units of inventory position, and has lead time $L=1$ period. Start with 8 units on hand and no pipeline stock. Unfilled demand is **lost**, not backordered.
+
+| Period | Demand, trace A | Demand, trace B |
+|---:|---:|---:|
+| 1 | 3 | 2 |
+| 2 | 7 | 2 |
+| 3 | 2 | 2 |
+| 4 | 6 | 2 |
+| 5 | 1 | 2 |
+| 6 | 4 | 2 |
+
+Use these timing rules:
+
+- Receive any shipment due at the start of a period, then satisfy as much demand as on-hand stock allows.
+- At the end of every second period, order $\max(0,S-\text{inventory position})$.
+- Inventory position is on-hand plus outstanding pipeline orders; lost sales are not subtracted as backorders.
+- An order placed at the end of period $t$ with $L=1$ becomes available at the start of period $t+2$, after one full intervening period in transit.
+- A cycle is a block of $R$ periods. A cycle is successful only if every period in it has no stockout; period service counts individual no-stockout periods.
+
+### Rank the simulation loop
+
+Put the steps in order for one run of the periodic policy.
+
+<MultipleChoice
+  id="ib-inventory-simulation-lab-rank"
+  title="Run one simulated period"
+  questions={[
+    {
+      type: 'order',
+      prompt: 'Order the recurring simulation steps, starting from a prepared demand series and initialized inventory state.',
+      items: [
+        'Receive any shipment due at the start of the current period.',
+        'Apply current demand to on-hand stock and record fulfilled and unfilled units.',
+        'Record whether the period had a stockout.',
+        'At a review boundary, calculate inventory position and the order quantity.',
+        'Schedule any new order to arrive after the stated lead-time convention.',
+      ],
+      why: 'Receipts change available stock before demand; service outcomes follow demand, and review orders create future receipts.',
+      whyWrong: 'Keep current receipts and demand before the review decision. A new order belongs in the future pipeline, not current on-hand.',
+    },
+  ]}
+/>
+
+Implement `simulate_rs(demands, lead_time, review_period, target)`. Begin with `target` units on hand and no pipeline stock. Unfilled demand is **lost**, not backordered.
+
+<CodeExercise
+  lang="python"
+  title="Simulate (R, S) with lost sales"
+  prompt={`Implement simulate_rs(demands, lead_time, review_period, target) using the timing rules above. Return period service percent, cycle service percent, and fill rate percent, in that order. Demand length will be a multiple of review_period.`}
+  starter={`def simulate_rs(demands, lead_time, review_period, target):\n    # Track on-hand, due receipts, fulfilled units, and stockout flags.\n    pass\n`}
+  wrapSuffix={`\nimport sys\ntokens = list(map(int, sys.stdin.read().split()))\nlead_time, review_period, target = tokens[:3]\ndemands = tokens[3:]\nmetrics = simulate_rs(demands, lead_time, review_period, target)\nprint('|'.join(f'{value:.1f}' for value in metrics))\n`}
+  tests={[
+    {name: 'Trace A: stockouts across two cycles', stdin: '1 2 8 3 7 2 6 1 4', equals: '66.7|33.3|82.6'},
+    {name: 'Trace B: stable demand', stdin: '1 2 8 2 2 2 2 2 2', equals: '100.0|100.0|100.0'},
+    {name: 'Outstanding pipeline prevents a duplicate order', stdin: '3 2 8 3 7 2 6 1 4 1 8', equals: '37.5|0.0|50.0'},
+    {name: 'Zero-demand periods count toward period service', stdin: '1 2 0 0 1 0 0', equals: '75.0|50.0|0.0'},
+    {name: 'Lost demand is not served by a later receipt', stdin: '1 2 2 0 5 0 0', equals: '75.0|50.0|40.0'},
+  ]}
+  hint="Represent future receipts with a list indexed by period. At review, include all outstanding receipts in inventory position, then schedule the new order for period_index + lead_time + 1."
+  solution={`def simulate_rs(demands, lead_time, review_period, target):\n    horizon = len(demands)\n    arrivals = [0] * (horizon + lead_time + 1)\n    on_hand = target\n    fulfilled_total = 0\n    demand_total = sum(demands)\n    stockouts = []\n\n    for period, demand in enumerate(demands):\n        on_hand += arrivals[period]\n        fulfilled = min(on_hand, demand)\n        on_hand -= fulfilled\n        fulfilled_total += fulfilled\n        stockouts.append(fulfilled < demand)\n\n        if (period + 1) % review_period == 0:\n            inventory_position = on_hand + sum(arrivals[period + 1:])\n            order_qty = max(0, target - inventory_position)\n            arrivals[period + lead_time + 1] += order_qty\n\n    period_service = 100 * sum(not stockout for stockout in stockouts) / horizon\n    cycles = [stockouts[start:start + review_period] for start in range(0, horizon, review_period)]\n    cycle_service = 100 * sum(not any(cycle) for cycle in cycles) / len(cycles)\n    fill_rate = 100 * fulfilled_total / demand_total if demand_total else 100.0\n    return period_service, cycle_service, fill_rate\n`}
+/>
+
+## Classify an inventory snapshot
+
+The values below are policy-analysis inputs. They are not all observations from the six-period traces above. For this exercise, the routine on-hand band runs from safety stock through safety stock plus maximum cycle stock. For continuous review, maximum cycle stock is $Q$; for periodic review it is $\mu R$.
+
+| Policy | Safety stock | $Q$ | $\mu$ | $R$ | Current on-hand |
+|---|---:|---:|---:|---:|---:|
+| Continuous $(s,Q)$ | 44.7 | 40 | 40 | 1 | 30 |
+| Periodic $(R,S)$ | 50 | N/A | 40 | 1 | 65 |
+
+Implement `stock_zone(on_hand, safety_stock, maximum_cycle_stock)`. Return `shortage` at or below zero, `below safety` for a positive balance below safety stock, `within cycle band` through the upper reference, and `above cycle range` beyond it. This is a diagnostic label, not an order trigger; ordering decisions still use the policy's inventory-position rule.
+
+<CodeExercise
+  lang="python"
+  title="Classify on-hand stock"
+  prompt={`Implement stock_zone(on_hand, safety_stock, maximum_cycle_stock) using the boundary rules in the prompt. Return exactly one of: shortage, below safety, within cycle band, above cycle range.`}
+  starter={`def stock_zone(on_hand, safety_stock, maximum_cycle_stock):\n    # Check boundaries from most severe to least severe.\n    pass\n`}
+  wrapSuffix={`\nimport sys\non_hand, safety_stock, maximum_cycle_stock = map(float, sys.stdin.read().split())\nprint(stock_zone(on_hand, safety_stock, maximum_cycle_stock))\n`}
+  tests={[
+    {name: 'Below safety reference', stdin: '30 44.7 40', equals: 'below safety'},
+    {name: 'At safety reference', stdin: '50 50 40', equals: 'within cycle band'},
+    {name: 'At upper reference', stdin: '90 50 40', equals: 'within cycle band'},
+    {name: 'Above upper reference', stdin: '90.1 50 40', equals: 'above cycle range'},
+    {name: 'No on-hand stock', stdin: '0 50 40', equals: 'shortage'},
+    {name: 'Negative net position is a shortage', stdin: '-1 50 40', equals: 'shortage'},
+  ]}
+  hint="Use an if/elif chain in the order: on_hand <= 0, then below safety, then at or below safety_stock + maximum_cycle_stock, otherwise above range."
+  solution={`def stock_zone(on_hand, safety_stock, maximum_cycle_stock):\n    if on_hand <= 0:\n        return 'shortage'\n    if on_hand < safety_stock:\n        return 'below safety'\n    if on_hand <= safety_stock + maximum_cycle_stock:\n        return 'within cycle band'\n    return 'above cycle range'\n`}
+/>
+
+## Key takeaways
+
+- Check inventory position and expected stock components separately; pipeline is not on-hand stock.
+- Keep each policy's protection period and order rule explicit.
+- Simulation results depend on receipt timing, review timing, and lost-sales versus backorder treatment.
+- Data tables make a run inspectable; multiple deterministic tests catch timing and boundary errors before random demand is introduced.
+
+**Previous:** [Inventory Policies with Safety Stock](./policies-with-safety-stock).
+
+**Next:** [Beyond Normality](./beyond-normality) — assess skewed demand and gamma-based inventory buffers.

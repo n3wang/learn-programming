@@ -654,11 +654,12 @@ export default function MultipleChoice({
         ) : null}
         {state.status === 'wrong' ? (
           <TranslatableParagraph className={styles.why}>
-            {kind === 'multi'
-              ? 'Not quite — adjust your selections and try again.'
-              : kind === 'order'
-                ? 'Not quite — reorder and try again.'
-                : 'Not quite. Try a different option.'}
+            {q.whyWrong ||
+              (kind === 'multi'
+                ? 'Not quite — adjust your selections and try again.'
+                : kind === 'order'
+                  ? 'Not quite — reorder and try again.'
+                  : 'Not quite. Try a different option.')}
           </TranslatableParagraph>
         ) : null}
       </div>

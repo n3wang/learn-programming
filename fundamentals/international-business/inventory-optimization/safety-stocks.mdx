@@ -1,0 +1,249 @@
+---
+sidebar_position: 4
+title: Safety Stocks
+sidebar_label: '4. Safety stocks'
+---
+
+# 4. Safety Stocks
+
+So far, the inventory models treated demand and supplier timing as predictable. Real demand varies, and suppliers do not always arrive exactly on schedule. A **safety stock** is a planned buffer against that uncertainty. It is not a substitute for diagnosing a poor forecast, unreliable process, or unrealistic lead-time assumption.
+
+This chapter starts with one source of uncertainty: normally distributed demand over a known protection period. It uses a specified **cycle service level** as the target. Later models can add uncertain lead time, discrete demand, and economic service-level choices.
+
+## Choose the service measure first
+
+“Service level” can refer to different events and denominators. Define the metric before choosing a target or comparing software results.
+
+| Measure | What is counted? | Example interpretation |
+|---|---|---|
+| **Cycle service level** $\alpha$ | Replenishment cycles with no stockout, divided by cycles | Chance that available inventory covers demand until the next replenishment |
+| **Period service level** $\alpha_p$ | Time periods with no stockout, divided by periods | Share of days or weeks in which every demand unit was available |
+| **Fill rate** $\beta$ | Demand units supplied immediately from stock, divided by total demand units | Share of requested units customers receive without waiting |
+| **Client service / OTIF** | Complete customer orders delivered on time and in full, divided by orders | Share of orders that meet the agreed delivery promise |
+
+These measures are not interchangeable, and there is no universal ranking that holds for every measurement window and customer mix. A business can have a high unit fill rate while still missing many small orders, or a strong cycle service rate while having a poor result on an unusually busy day.
+
+### A short service-score example
+
+A shop begins each day with 6 units of a limited-release product. On day one, customers request 10 units; 6 are supplied immediately. The next day, demand is 1 unit and is fully supplied.
+
+- **Fill rate:** $7/11 \approx 63.6\%$ of units were filled immediately.
+- **Period service:** day one had a stockout and day two did not; over these two days, $1/2=50\%$ of periods had no stockout.
+- **Cycle service:** if each day is one replenishment cycle, one of the two cycles had no stockout, also $50\%$ here.
+- **OTIF:** cannot be inferred without defining customer orders and whether each whole order arrived on time.
+
+The numbers happen to match for period and cycle service in this two-day example. That does not make the definitions identical. Change the cycle length, bucket size, or customer-order mix and the measurements can diverge.
+
+## Model demand with a Normal distribution
+
+Let demand in one time bucket have mean $\mu_d$ units and standard deviation $\sigma_d$ units. The first model assumes:
+
+$$
+d \sim \mathcal{N}(\mu_d,\sigma_d^2)
+$$
+
+The mean describes the expected demand; the standard deviation describes its spread. From $n$ observations $d_t$, estimate the spread with the sample standard deviation:
+
+$$
+s_d = \sqrt{\frac{\sum_{t=1}^{n}(d_t-\bar d)^2}{n-1}}
+$$
+
+The Normal assumption is a useful first model, not a claim that real demand is continuous or perfectly bell-shaped. It can assign probability to negative demand, which is especially concerning when the mean is small relative to the standard deviation. Inspect the data and check whether the approximation is reasonable for the item and horizon.
+
+For $X \sim \mathcal{N}(\mu,\sigma^2)$, the density is:
+
+$$
+f_X(x)=\frac{1}{\sigma\sqrt{2\pi}}\exp\left(-\frac{(x-\mu)^2}{2\sigma^2}\right)
+$$
+
+The cumulative distribution function gives the probability of demand being at or below a threshold $x$:
+
+$$
+F_X(x)=P(X\le x)
+$$
+
+For a standard Normal variable $Z\sim\mathcal{N}(0,1)$, write its CDF as $\Phi(z)$. Its inverse $\Phi^{-1}(\alpha)$ returns the threshold that leaves probability $\alpha$ below it. A density height is not itself a probability; probability is area under the curve.
+
+## Turn a cycle service target into safety stock
+
+Suppose the inventory at the start of a protection period must cover one bucket of demand, and management chooses cycle service target $\alpha$. Set the inventory threshold to the $\alpha$ quantile of demand:
+
+$$
+\iota = F^{-1}(\alpha;\mu_d,\sigma_d)
+      = \mu_d + z_\alpha\sigma_d,
+\qquad z_\alpha=\Phi^{-1}(\alpha)
+$$
+
+The mean demand $\mu_d$ is the expected-use portion of the threshold. The amount above it is safety stock:
+
+$$
+SS = z_\alpha\sigma_d
+$$
+
+For a 95% cycle service target, $z_\alpha\approx1.645$. If mean demand is 100 units per period and standard deviation is 25, the target is approximately $100+1.645(25)=141.1$ units, of which about 41.1 units are safety stock.
+
+<FormulaExplorer preset="inventorySafetyStock" />
+
+The service factor grows nonlinearly as the target approaches 100%. Moving from 90% to 95% requires a smaller additional buffer than moving from 95% to 99%. A 100% target would require an unbounded threshold in this continuous Normal model; operationally, every chosen target still carries residual risk.
+
+## Match the variability to the protection period
+
+The demand standard deviation must correspond to the same time bucket used by the protection period. If the replenishment lead time is $L$ buckets under continuous review, then under independent, identically distributed bucket demand:
+
+$$
+ROP = L\mu_d + z_\alpha\sigma_d\sqrt{L}
+$$
+
+The safety-stock portion is $z_\alpha\sigma_d\sqrt{L}$. For periodic review every $R$ buckets, the protection window includes both the wait until the next review and supplier lead time. With fixed lead time and the same independence assumption:
+
+$$
+S = (L+R)\mu_d + z_\alpha\sigma_d\sqrt{L+R}
+$$
+
+Here $S$ is an order-up-to target for inventory position. The square-root term is not a generic time conversion; it follows from adding variances of independent periods:
+
+$$
+\sum_{t=1}^{\tau} d_t \sim \mathcal{N}(\tau\mu_d,\tau\sigma_d^2),
+\qquad \sigma_\tau=\sigma_d\sqrt{\tau},
+\qquad SS=z_\alpha\sigma_d\sqrt{\tau}
+$$
+
+For four independent weeks with weekly standard deviation 25 units, the four-week standard deviation is $25\sqrt{4}=50$ units, not 100. At a 95% cycle service target, the corresponding safety stock is about $1.645(50)=82.3$ units.
+
+<FormulaExplorer preset="inventoryAggregatedSafetyStock" />
+
+### Forecast errors as the variability input
+
+If the mean demand forecast already reflects trends and seasonality, safety stock can be based on forecast error rather than raw demand variation. Define error as forecast minus actual demand, $e_t=f_t-d_t$. When the forecast is unbiased, the error mean is near zero; use the standard deviation of those errors at the same bucket size as the protection window:
+
+$$
+SS=z_\alpha\sigma_e
+$$
+
+For multiple independent buckets, scale by $\sqrt{\tau}$ as above. A biased forecast should be corrected rather than hidden by inflating the safety factor.
+
+## Independence and correlation matter
+
+The square-root rule assumes demand in different buckets is independent. If high-demand periods tend to follow high-demand periods, the variance over the protection window is larger than $\tau\sigma_d^2$; the simple rule can understate the buffer. Negative correlation can have the opposite effect. Prefer forecast errors measured at the same time aggregation as the actual lead time and review interval, and test the aggregation assumption before relying on it.
+
+Correlation also matters when combining related products or markets. For two demand streams $X$ and $Y$:
+
+$$
+\mathrm{Var}(X+Y)=\sigma_X^2+\sigma_Y^2+2\rho\sigma_X\sigma_Y
+$$
+
+For example, if two color variants have standard deviations of 25 and 75 units and correlation $\rho=0.5$, the combined standard deviation is:
+
+$$
+\sqrt{25^2+75^2+2(0.5)(25)(75)}\approx90.1
+$$
+
+Assuming independence would give about 79.1 units instead, understating the combined variation in this example. Pooling demand does not make correlation disappear.
+
+<FormulaExplorer preset="inventoryCorrelatedDemand" />
+
+## Practice: select, calculate, and explain
+
+### Concept check
+
+<MultipleChoice
+  id="ib-safety-stock-concepts"
+  title="Service levels and safety stock"
+  questions={[
+    {
+      prompt: 'Which metric is the fraction of requested units supplied immediately from on-hand stock?',
+      choices: ['Cycle service level', 'Period service level', 'Fill rate', 'OTIF'],
+      answer: 2,
+      why: 'Fill rate uses units filled immediately divided by total units demanded.',
+      whyWrong: 'Look at the denominator: fill rate counts demand units, cycle/period service count windows without a stockout, and OTIF counts complete orders.',
+    },
+    {
+      prompt: 'Across two days, 7 of 11 demand units are filled immediately, and all demand is available on 1 of the 2 days. What are the fill rate and period service?',
+      choices: ['63.6% and 50%', '50% and 63.6%', '63.6% and 63.6%', '100% and 50%'],
+      answer: 0,
+      why: 'Fill rate is 7/11 = 63.6%; period service is 1/2 = 50%.',
+      whyWrong: 'Fill rate counts units (7 of 11); period service counts stockout-free periods (1 of 2).',
+    },
+    {
+      prompt: 'For Normal demand with mean 100 and standard deviation 25, what safety stock gives 95% cycle service for one period? Use z = 1.645.',
+      choices: ['25 units', '41.1 units', '100 units', '141.1 units'],
+      answer: 1,
+      why: 'Safety stock is zσ = 1.645(25) = 41.125 units; the total target would be about 141.1.',
+      whyWrong: 'Safety stock is only the buffer above mean demand: multiply z by σ. Add the mean only to get the full inventory threshold.',
+    },
+    {
+      prompt: 'Weekly demand has standard deviation 25 units. Assuming independent weeks, what is the standard deviation over four weeks?',
+      choices: ['25 units', '50 units', '100 units', '625 units'],
+      answer: 1,
+      why: 'Variances add: σ₄ = 25√4 = 50 units.',
+      whyWrong: 'Add variances, then take a square root: 25√4. Do not multiply standard deviation directly by four.',
+    },
+    {
+      prompt: 'The Normal density f(x) at one exact demand value is…',
+      choices: [
+        'the probability of exactly that continuous value',
+        'a height; probability over a range is the area under the curve',
+        'always the same as the CDF at x',
+        'the cycle service level for every inventory target',
+      ],
+      answer: 1,
+      why: 'For a continuous variable, probability is area over an interval; the PDF value is a density, not a point probability.',
+      whyWrong: 'A PDF height can exceed a probability. Integrate the density over a range to obtain probability.',
+    },
+    {
+      prompt: 'Two product demands have standard deviations 25 and 75, with correlation 0.5. What is the combined standard deviation, approximately?',
+      choices: ['79.1', '90.1', '100.0', '125.0'],
+      answer: 1,
+      why: 'The covariance term gives variance 25² + 75² + 2(0.5)(25)(75) = 8,125; its square root is about 90.1.',
+      whyWrong: 'Include the covariance term 2ρσXσY before taking the square root. Ignoring correlation gives about 79.1.',
+    },
+    {
+      prompt: 'Which condition justifies στ = σd√τ for demand aggregated over τ periods?',
+      choices: [
+        'The period demands are independent and have the same variance.',
+        'The demand mean is zero.',
+        'The inventory policy uses a fixed order quantity.',
+        'The service target is exactly 95%.',
+      ],
+      answer: 0,
+      why: 'Independent period variances add to τσd², so the aggregate standard deviation is σd√τ.',
+      whyWrong: 'The square-root aggregation follows from adding equal independent variances; autocorrelation changes the aggregate variance.',
+    },
+  ]}
+/>
+
+### Rank the safety-stock calculation
+
+Put the planning steps in order for a Normal-demand protection period with a specified cycle service target.
+
+<MultipleChoice
+  id="ib-safety-stock-rank"
+  title="Calculate a protection-period buffer"
+  questions={[
+    {
+      type: 'order',
+      prompt: 'The target is cycle service level α; τ periods of demand protect the inventory position.',
+      items: [
+        'Confirm α is the intended cycle-service metric and define the protection window τ.',
+        'Estimate per-period mean μd and standard deviation σd from data at a matching time bucket.',
+        'Aggregate the mean to μτ = τμd and standard deviation to στ = σd√τ under independence.',
+        'Convert α to zα = Φ⁻¹(α), then calculate SS = zαστ.',
+        'Add safety stock to expected protection-period demand to set the reorder point or order-up-to target.',
+      ],
+      why: 'Define the service event and horizon, estimate matching demand variation, calculate στ under the independence assumption, then use zα to find the buffer and inventory threshold.',
+      whyWrong: 'Keep the aggregate standard deviation στ distinct from the per-period σd: calculate στ=σd√τ before multiplying it by zα.',
+    },
+  ]}
+/>
+
+## Takeaways
+
+- Name the service metric before setting its target; cycle service, period service, fill rate, and OTIF have different denominators.
+- For a Normal protection-period demand with cycle target $\alpha$, use $SS=z_\alpha\sigma_\tau$ and add it to expected demand.
+- Under independent, equal-variance buckets, $\sigma_\tau=\sigma_d\sqrt{\tau}$; correlated demand needs a covariance-aware model.
+- Align demand or forecast-error variability with the actual protection-period bucket.
+- Treat the Normal distribution and fixed-lead-time assumptions as model choices to validate, not facts guaranteed by the supply chain.
+
+**Previous:** [When Should I Order?](./when-should-i-order).
+
+**Next:** [Inventory Policies with Safety Stock](./policies-with-safety-stock) — apply buffers to continuous and periodic replenishment.

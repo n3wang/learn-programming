@@ -1,0 +1,266 @@
+---
+sidebar_position: 5
+title: Inventory Policies with Safety Stock
+sidebar_label: '5. Policies with safety stock'
+---
+
+import {INVENTORY_POLICY_SEED, INVENTORY_POLICY_TABLES} from '@site/src/components/SqlExercise/inventoryPolicySeed';
+
+# 5. Inventory Policies with Safety Stock
+
+Chapter 4 calculated a buffer for demand over a protection period. A safety-stock number alone is not an operating rule: a supply chain also needs to know **when it may order**, **how much it orders**, and **which inventory measure controls the decision**.
+
+This chapter applies the Normal-demand, fixed-lead-time model to two policies: continuous review with a fixed order quantity $(s,Q)$ and periodic review with an order-up-to target $(R,S)$. It then uses the policy equations to analyze stock components and to outline a simulation for cases that are harder to solve analytically.
+
+## Define the protection period
+
+Let demand in one bucket have mean $\mu_d$ and standard deviation $\sigma_d$. Let $L$ be the fixed supplier lead time and $R$ the interval between scheduled reviews, both measured in the same buckets. For a chosen cycle service target $\alpha$, let $z_\alpha=\Phi^{-1}(\alpha)$.
+
+If bucket demands are independent and have equal variance, demand over a protection window of $x_\tau$ periods has mean $\mu_dx_\tau$ and standard deviation $\sigma_d\sqrt{x_\tau}$. The buffer is:
+
+$$
+SS(x_\tau)=z_\alpha\sigma_d\sqrt{x_\tau}
+$$
+
+The protection window is the time during which demand can consume stock before the next replenishment opportunity is available. It differs by policy.
+
+## Continuous review with a fixed batch: $(s,Q)$
+
+With continuous review, the inventory position can trigger an order at any time. Once an order is placed, the supplier lead time $L$ is the remaining exposure window. The safety stock and reorder point are:
+
+$$
+SS_{s,Q}=z_\alpha\sigma_d\sqrt{L},
+\qquad
+s=\mu_dL+SS_{s,Q}
+$$
+
+When the inventory position reaches $s$, order the fixed batch $Q$. A baseline batch can come from the EOQ model in [Chapter 2](./how-much-should-i-order), but this does not mean EOQ has optimized shortage costs or the service target. The reorder point includes expected lead-time demand plus its safety buffer.
+
+Reducing lead time lowers both expected pipeline inventory and the demand-uncertainty buffer. With all else fixed, halving $L$ multiplies this safety stock by $1/\sqrt{2}$, not by one half.
+
+## Periodic review with an order-up-to target: $(R,S)$
+
+With periodic review, a planner who has just reviewed stock must wait until the next review opportunity and then still wait for delivery. The protection period is therefore $L+R$, giving:
+
+$$
+SS_{R,S}=z_\alpha\sigma_d\sqrt{L+R},
+\qquad
+S=\mu_d(L+R)+SS_{R,S}
+$$
+
+At each review, calculate the inventory position and order the positive shortfall to $S$:
+
+$$
+Q_{review}=\max(0,S-\text{inventory position})
+$$
+
+The target is an inventory-position level, not an amount of physical stock expected to sit on the shelf. Compared with $(s,Q)$, increasing the review interval also lengthens the protection period and increases the required safety stock.
+
+<FormulaExplorer preset="inventoryPolicySafetyStock" />
+
+### What about the review interval?
+
+In a deterministic EOQ model, an interval can be derived from the EOQ by dividing batch size by demand. Under stochastic demand, changing $R$ also changes the safety stock needed for the $L+R$ protection window. The deterministic interval is a useful starting point, but it does not by itself minimize total cost with stochastic demand. Round practical schedules carefully, and optimize the service/cost trade-off using a model that includes the buffer.
+
+## A periodic review with a fixed batch: $(R,s,Q)$
+
+Some operations review on a fixed schedule and can order only standard batches, for example a full case or truckload. If demand has crossed reorder point $s$ by the time of review, the inventory position may already be below $s$. This amount is called the **undershoot**. Its value depends on demand since the previous review and is random under stochastic demand.
+
+That undershoot changes how much protection the threshold actually provides. Applying the $(R,S)$ or $(s,Q)$ formula unchanged does not fully optimize an $(R,s,Q)$ policy. For realistic demand, pack-size, and supplier constraints, simulation is often a more practical way to compare candidate settings.
+
+## Analyze the inventory, not just the target
+
+Keep four quantities distinct:
+
+| Component | Meaning | Baseline measure |
+|---|---|---|
+| **Safety stock** | Buffer for demand variability over the policy's protection period | $SS_{s,Q}$ or $SS_{R,S}$ |
+| **Cycle stock** | Stock used to cover expected demand between replenishments | Average is $Q/2$ for $(s,Q)$ or $\mu_dR/2$ for $(R,S)$ |
+| **In-transit stock** | Units moving through the supplier lead time | Average is $\mu_dL$ |
+| **On-hand stock** | Physical units available at the location, before subtracting commitments | Typically safety stock plus cycle stock on average |
+
+For a steady $(R,S)$ policy, the maximum replenishment during one review interval is about $\mu_dR$, so the routine on-hand cycle range is approximately from $SS_{R,S}$ to $SS_{R,S}+\mu_dR$. Its average cycle stock is only half the range, $\mu_dR/2$. In-transit units are separate; do not add them to an on-hand threshold.
+
+These are theoretical reference levels, not hard bounds. Actual on-hand stock can fall below safety stock during a demand spike, and startup or policy changes can place it outside the routine cycle range.
+
+### Worked stock analysis
+
+A periodic-review item has mean demand of 40 units per day, lead time $L=4$ days, review period $R=1$ day, and a 95% cycle-service target. Suppose the demand variation produces about 50 units of safety stock for the five-day protection window.
+
+- Expected demand over lead time and review window: $40(4+1)=200$ units.
+- Order-up-to target: $S=200+50=250$ units of inventory position.
+- Average cycle stock: $40(1)/2=20$ units; maximum routine cycle stock is about 40.
+- Average in-transit stock: $40(4)=160$ units.
+- Average on-hand stock: about $50+20=70$ units, not 250.
+
+If current physical on-hand is 30, it is 20 units below the safety-stock reference. The pipeline may still contain stock, so inspect on-hand, in-transit, and the inventory position separately before deciding whether to expedite or place an additional order.
+
+<FormulaExplorer preset="inventoryStockAnalysis" />
+
+## Simulate the policy you actually run
+
+Analytical formulas answer questions under assumptions. A simulation can test how a candidate policy behaves when demand is sampled period by period, when shortages become backorders or lost sales, or when the policy has an undershoot. A useful simulation should make its assumptions visible and record more than one service metric.
+
+For a periodic $(R,S)$ simulation, a planner can:
+
+1. Specify the demand distribution, time bucket, lead time, review period, service target, and shortage treatment.
+2. Generate demand for each period and initialize on-hand stock and the in-transit pipeline.
+3. Receive shipments due at the start of a period, then apply that period's demand.
+4. Record stockout events, fulfilled units, backorders or lost sales, and inventory levels.
+5. At each review, calculate inventory position and order $\max(0,S-\text{position})$ for delivery after $L$ periods.
+6. Discard initialization/warm-up periods and compare cycle service, period service, fill rate, average on-hand, and backlog across many runs.
+
+The shortage rule changes the outcome. Under **backorders**, unfilled demand remains owed and later receipts can serve it; net inventory can become negative. Under **lost sales**, unmet demand disappears and physical on-hand cannot be negative. Do not compare policies simulated under different shortage rules as if their service results were directly comparable.
+
+Normal demand can also generate negative values when variability is large relative to the mean. Clipping simulated demand at zero creates a truncated distribution and changes its mean and service results. Record this choice; for highly variable or discrete demand, consider a distribution that better fits the observations.
+
+### SQL practice: analyze simulation output
+
+These exercises query a small deterministic snapshot of simulation results. They practice the analysis step after a simulation has run; they do not generate random demand or replace a period-by-period simulator. Open the **Data** tab to inspect the simulation rows and policy settings.
+
+<ExerciseSet>
+  <SqlExercise
+    title="Compare service metrics by policy"
+    prompt={`Using inventory_simulation, return one row per policy with fill_rate_pct (units fulfilled / units demanded), period_service_pct (periods with fulfilled = demand), and cycle_service_pct (cycles with no stockout). Round all percentages to one decimal and order by policy.`}
+    seed={INVENTORY_POLICY_SEED}
+    tables={INVENTORY_POLICY_TABLES}
+    starter={`-- Return policy, fill_rate_pct, period_service_pct, cycle_service_pct\n`}
+    hint="Aggregate unit and period metrics by policy. In a separate CTE, mark each cycle as stockout-free only when every period in that cycle fulfilled all demand."
+    solution={`WITH period_metrics AS (\n  SELECT\n    policy,\n    ROUND(100.0 * SUM(fulfilled) / SUM(demand), 1) AS fill_rate_pct,\n    ROUND(100.0 * SUM(CASE WHEN fulfilled = demand THEN 1 ELSE 0 END) / COUNT(*), 1) AS period_service_pct\n  FROM inventory_simulation\n  GROUP BY policy\n),\ncycle_results AS (\n  SELECT policy, cycle_id, MIN(CASE WHEN fulfilled = demand THEN 1 ELSE 0 END) AS no_stockout\n  FROM inventory_simulation\n  GROUP BY policy, cycle_id\n),\ncycle_metrics AS (\n  SELECT policy, ROUND(100.0 * AVG(no_stockout), 1) AS cycle_service_pct\n  FROM cycle_results\n  GROUP BY policy\n)\nSELECT p.policy, p.fill_rate_pct, p.period_service_pct, c.cycle_service_pct\nFROM period_metrics p\nJOIN cycle_metrics c ON c.policy = p.policy\nORDER BY p.policy;`}
+    tests={[{name: 'service metrics', equals: 'continuous|88.9|50.0|0.0\nperiodic|100.0|100.0|100.0'}]}
+  />
+  <SqlExercise
+    title="Decompose expected inventory"
+    prompt={`Using policy_settings, return policy, average_cycle_stock, mean_in_transit, and expected_average_on_hand. For continuous review, cycle stock is order_qty / 2; for periodic review, it is mean_demand * review_period / 2. Expected average on-hand is safety_stock + average_cycle_stock. Round quantities to one decimal and order by policy.`}
+    seed={INVENTORY_POLICY_SEED}
+    tables={INVENTORY_POLICY_TABLES}
+    starter={`-- Keep on-hand and in-transit components separate\n`}
+    hint="Use CASE to select the cycle-stock formula by policy. Pipeline inventory uses mean demand times lead time, not the review interval."
+    solution={`SELECT\n  policy,\n  ROUND(CASE\n    WHEN policy = 'continuous' THEN order_qty / 2.0\n    ELSE mean_demand * review_period / 2.0\n  END, 1) AS average_cycle_stock,\n  ROUND(mean_demand * lead_time, 1) AS mean_in_transit,\n  ROUND(safety_stock + CASE\n    WHEN policy = 'continuous' THEN order_qty / 2.0\n    ELSE mean_demand * review_period / 2.0\n  END, 1) AS expected_average_on_hand\nFROM policy_settings\nORDER BY policy;`}
+    tests={[{name: 'inventory components', equals: 'continuous|20.0|160.0|64.7\nperiodic|20.0|160.0|70.0'}]}
+  />
+  <SqlExercise
+    title="Classify current on-hand stock"
+    prompt={`Using policy_settings, return policy, current_on_hand, and stock_zone. A current balance at or below zero is 'shortage'; a positive balance below safety_stock is 'below safety'; otherwise classify balances through safety_stock plus the maximum cycle stock as 'within cycle band'; larger balances are 'above cycle range'. For continuous review, maximum cycle stock is order_qty; for periodic review, it is mean_demand * review_period. Order by policy.`}
+    seed={INVENTORY_POLICY_SEED}
+    tables={INVENTORY_POLICY_TABLES}
+    starter={`-- Compute the policy-specific maximum cycle stock before classifying\n`}
+    hint="A CTE can calculate maximum_cycle_stock first. Then use an ordered CASE expression so shortage and below-safety conditions are checked before the upper band."
+    solution={`WITH components AS (\n  SELECT\n    policy,\n    current_on_hand,\n    safety_stock,\n    CASE\n      WHEN policy = 'continuous' THEN order_qty\n      ELSE mean_demand * review_period\n    END AS maximum_cycle_stock\n  FROM policy_settings\n)\nSELECT\n  policy,\n  current_on_hand,\n  CASE\n    WHEN current_on_hand <= 0 THEN 'shortage'\n    WHEN current_on_hand < safety_stock THEN 'below safety'\n    WHEN current_on_hand <= safety_stock + maximum_cycle_stock THEN 'within cycle band'\n    ELSE 'above cycle range'\n  END AS stock_zone\nFROM components\nORDER BY policy;`}
+    tests={[{name: 'stock zones', equals: 'continuous|30|below safety\nperiodic|65|within cycle band'}]}
+  />
+  <SqlExercise
+    title="Rank periods by unmet demand"
+    prompt={`For each policy and period, calculate unfilled_units = demand - fulfilled. Add severity_rank using RANK() within each policy, with the largest shortfall ranked first. Return policy, period, unfilled_units, severity_rank; preserve ties and order by policy, severity_rank, then period.`}
+    seed={INVENTORY_POLICY_SEED}
+    tables={INVENTORY_POLICY_TABLES}
+    starter={`-- Use a window function partitioned by policy\n`}
+    hint="Calculate the shortfall in a CTE, then apply RANK() OVER (PARTITION BY policy ORDER BY unfilled_units DESC). Keep zero-shortfall rows so ties remain visible."
+    solution={`WITH period_shortfalls AS (\n  SELECT\n    policy,\n    period,\n    demand - fulfilled AS unfilled_units\n  FROM inventory_simulation\n),\nranked_periods AS (\n  SELECT\n    policy,\n    period,\n    unfilled_units,\n    RANK() OVER (PARTITION BY policy ORDER BY unfilled_units DESC) AS severity_rank\n  FROM period_shortfalls\n)\nSELECT policy, period, unfilled_units, severity_rank\nFROM ranked_periods\nORDER BY policy, severity_rank, period;`}
+    tests={[{name: 'shortfall ranking and ties', equals: 'continuous|4|3|1\ncontinuous|2|2|2\ncontinuous|1|0|3\ncontinuous|3|0|3\nperiodic|1|0|1\nperiodic|2|0|1\nperiodic|3|0|1\nperiodic|4|0|1'}]}
+  />
+</ExerciseSet>
+
+## Practice: apply and analyze
+
+### Concept check
+
+<MultipleChoice
+  id="ib-policy-safety-stock-concepts"
+  title="Safety stock in inventory policies"
+  questions={[
+    {
+      prompt: 'Which protection period is used for safety stock in a continuous-review $(s,Q)$ policy with fixed lead time?',
+      choices: ['L', 'R', 'L + R', 'Q / demand per period'],
+      answer: 0,
+      why: 'A continuous review can trigger an order immediately, leaving only supplier lead time L.',
+      whyWrong: 'R is the wait to a scheduled review. Continuous review has no planned review wait, so the risk period is L.',
+    },
+    {
+      prompt: 'For mean demand 40/day, L = 4 days, R = 1 day, and safety stock 50, what is the periodic order-up-to target?',
+      choices: ['210 units', '200 units', '250 units', '290 units'],
+      answer: 2,
+      why: 'S = mean demand over L + R plus safety stock = 40(5) + 50 = 250 units.',
+      whyWrong: 'The target covers five days of expected demand (200) plus the 50-unit safety buffer.',
+    },
+    {
+      prompt: 'For the same periodic policy, which set of component values is correct?',
+      choices: [
+        'Average cycle 40, maximum cycle 20, transit 160',
+        'Average cycle 20, maximum cycle 40, transit 160',
+        'Average cycle 20, maximum cycle 40, transit 200',
+        'Average cycle 50, maximum cycle 90, transit 160',
+      ],
+      answer: 1,
+      why: 'Average cycle stock is dR/2 = 20, maximum cycle stock is about dR = 40, and mean pipeline stock is dL = 160.',
+      whyWrong: 'Average cycle stock is half the review-cycle demand; transit stock uses lead time only and is not part of on-hand stock.',
+    },
+    {
+      prompt: 'For mean demand 40/day, sigma 13.6/day, lead time 4 days, and 95% cycle service (z = 1.645), what is the continuous-review reorder point?',
+      choices: ['160 units', '200 units', '204.7 units', '250 units'],
+      answer: 2,
+      why: 'Safety stock is 1.645(13.6)sqrt(4) = 44.7; add mean lead-time demand 40(4) = 160 to get about 204.7.',
+      whyWrong: 'The continuous risk window is L=4 days, so add the lead-time mean 160 to z sigma sqrt(L), about 44.7.',
+    },
+    {
+      prompt: 'Why is a periodic $(R,s,Q)$ policy harder to optimize analytically than $(R,S)$?',
+      choices: [
+        'It has no safety stock.',
+        'The threshold may be crossed between reviews, creating a random undershoot before the order is placed.',
+        'The fixed batch makes demand deterministic.',
+        'It never uses inventory position.',
+      ],
+      answer: 1,
+      why: 'At a scheduled review, inventory can already be below s; the amount below the trigger depends on the random demand since the previous review.',
+      whyWrong: 'The challenge is the random gap between crossing s and observing stock at the next review, not the absence of a buffer or inventory position.',
+    },
+    {
+      prompt: 'In a lost-sales simulation, what happens to demand that cannot be filled from on-hand stock?',
+      choices: [
+        'It remains in the backlog for the next receipt.',
+        'It disappears from future obligations; on-hand stock does not go negative.',
+        'It is counted as in-transit inventory.',
+        'It automatically increases the order-up-to level.',
+      ],
+      answer: 1,
+      why: 'Lost sales are unmet orders that do not remain as obligations; backorder simulations instead carry them forward.',
+      whyWrong: 'Carrying unmet units forward describes backorders. In a lost-sales model those units are not served later.',
+    },
+  ]}
+/>
+
+### Rank the periodic-policy simulation
+
+Put these steps in order for a periodic $(R,S)$ simulation with fixed lead time.
+
+<MultipleChoice
+  id="ib-policy-safety-stock-simulation-rank"
+  title="Simulate an (R, S) policy"
+  questions={[
+    {
+      type: 'order',
+      prompt: 'Set up a period-by-period simulation and estimate service and inventory performance.',
+      items: [
+        'Specify demand, lead time, review interval, target S, warm-up length, and backorder or lost-sales behavior.',
+        'Generate the demand stream and initialize on-hand inventory and shipments already in the pipeline.',
+        'For each period, receive due shipments, apply demand, and record stockout and fulfillment outcomes.',
+        'At each review, calculate inventory position, order the shortfall to S, and schedule receipt after L periods.',
+        'Discard warm-up periods and summarize cycle service, period service, fill rate, average stock, and backlog.',
+      ],
+      why: 'Define the model first, initialize its state, advance demand and receipts, place review orders, then score steady-state results.',
+      whyWrong: 'The simulation needs explicit rules before time advances; each period updates inventory, review decisions schedule future receipts, and metrics are computed after warm-up.',
+    },
+  ]}
+/>
+
+## Takeaways
+
+- For $(s,Q)$, protect demand over lead time $L$; for $(R,S)$, protect demand over $L+R$.
+- Keep expected demand, safety stock, average cycle stock, maximum cycle range, and pipeline stock distinct.
+- The deterministic EOQ is a batch-size benchmark; stochastic service requirements make review-period optimization more involved.
+- Periodic fixed-batch policies can have random undershoot, making simulation useful.
+- Match simulation shortage rules and service metrics to the actual business before comparing results.
+
+**Previous:** [Safety Stocks](./safety-stocks).
+
+**Next:** [Inventory Policy Simulation Lab](./inventory-policy-simulation-lab) — implement policy targets and simulate a seeded demand trace.

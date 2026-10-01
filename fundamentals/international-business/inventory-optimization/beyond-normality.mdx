@@ -1,0 +1,379 @@
+---
+sidebar_position: 7
+title: Beyond Normality
+sidebar_label: '7. Beyond normality'
+---
+
+# 7. Beyond Normality
+
+Normal demand is a useful starting point, but it can be a poor description of some inventory items. Demand is often nonnegative and right-skewed: most periods are ordinary, with occasional unusually large orders. A Normal model is symmetric and assigns some probability to negative demand.
+
+This chapter introduces the gamma distribution as one practical alternative. We will fit its parameters from demand summaries, account for a known minimum-demand offset, aggregate independent periods, and connect the distribution's upper tail to inventory targets and expected shortages. These are model-building tools, not an automatic rule that gamma is always better.
+
+## Diagnose the shape before choosing a model
+
+Consider this synthetic monthly sales sample for one item:
+
+| Month | Units |
+|---|---:|
+| Jan | 68 |
+| Feb | 73 |
+| Mar | 75 |
+| Apr | 76 |
+| May | 78 |
+| Jun | 79 |
+| Jul | 80 |
+| Aug | 81 |
+| Sep | 82 |
+| Oct | 84 |
+| Nov | 92 |
+| Dec | 112 |
+
+The sample mean is about 81.7 units and the median is 79.5; the large December value pulls the mean upward. A fitted Normal curve may understate the chance of a large positive demand and may assign probability below zero. This does not establish that gamma is the correct model; it tells us to inspect the data, business calendar, and candidate distributions.
+
+For observations $x_1,\ldots,x_n$, the population-moment skewness is:
+
+$$
+\gamma_1 = \frac{\frac{1}{n}\sum_{i=1}^n(x_i-\bar{x})^3}{\left(\frac{1}{n}\sum_{i=1}^n(x_i-\bar{x})^2\right)^{3/2}}
+$$
+
+Positive skew indicates a longer right tail, zero skew indicates symmetry in the third moment, and negative skew indicates a longer left tail. Different libraries use different sample corrections; state which convention is used when comparing values. Skewness alone does not describe the entire distribution.
+
+### Why inspect normality?
+
+Two common mismatches matter for inventory:
+
+- **Support:** an ordinary Normal distribution permits negative values. Clipping simulated values at zero changes the distribution and its mean; it is not a neutral implementation detail.
+- **Tail shape:** Normal demand is symmetric around its mean. A right-skewed item can have more unusually high demand than a Normal model predicts, which matters when setting a high service target.
+
+Returns should usually be modeled as a separate flow unless the business can truly use a return to satisfy a future customer demand. Do not casually treat returns as negative demand.
+
+## Fit a gamma distribution by moments
+
+Use the shape-scale parameterization $X\sim\Gamma(k,\theta)$, where $k>0$ is the shape and $\theta>0$ is the scale. Its moments are:
+
+$$
+\mu=k\theta,\qquad \sigma^2=k\theta^2,\qquad \gamma_1=\frac{2}{\sqrt{k}}
+$$
+
+Matching a positive mean $\mu$ and standard deviation $\sigma$ gives:
+
+$$
+k=\frac{\mu^2}{\sigma^2},\qquad \theta=\frac{\sigma^2}{\mu},\qquad \gamma_1=\frac{2\sigma}{\mu}
+$$
+
+Unlike the ordinary Normal distribution, gamma demand is supported on nonnegative values. Larger variation relative to the mean yields smaller $k$ and a more pronounced right tail. Be explicit about the software convention: some libraries use **scale** $\theta$, while others use a rate $1/\theta$.
+
+<FormulaExplorer preset="inventoryGammaShape" />
+
+The explorer shows the gamma density on its nonnegative support and reports a moment-matched Normal model's probability below zero. It is a visual comparison of support and shape, not a goodness-of-fit test.
+
+### A known minimum or baseline demand
+
+If demand never falls below a credible operational baseline $d_{min}$, model:
+
+$$
+D=d_{min}+X,\qquad X\sim\Gamma(k',\theta')
+$$
+
+Fit the gamma component to the excess-demand mean $\mu'=\mu-d_{min}$ and the original standard deviation $\sigma$:
+
+$$
+k'=\frac{(\mu-d_{min})^2}{\sigma^2},\qquad
+\theta'=\frac{\sigma^2}{\mu-d_{min}},\qquad
+\gamma'_1=\frac{2\sigma}{\mu-d_{min}}
+$$
+
+This requires $\mu>d_{min}$ and $\sigma>0$. The floor should have a business or data-generating reason. Choosing the observed sample minimum automatically can overfit a small sample; validate the offset on new periods and compare tail behavior.
+
+## Aggregate demand over a policy risk period
+
+Let period demands be independent and identically distributed gamma variables with the same scale $\theta$. The sum of $\tau$ periods is also gamma:
+
+$$
+\sum_{t=1}^{\tau}X_t\sim\Gamma(\tau k,\theta)
+$$
+
+For a demand floor $d_{min}$ per period:
+
+$$
+D_\tau=\tau d_{min}+\Gamma(\tau k',\theta'),\qquad
+\mu_\tau=\tau\mu,\qquad
+\sigma_\tau=\sqrt{\tau}\,\sigma
+$$
+
+For continuous review, use $\tau=L$; for periodic review, use $\tau=L+R$. The risk-period safety stock for cycle service target $\alpha$ is the gamma quantile minus the expected demand:
+
+$$
+\iota=F^{-1}_{D_\tau}(\alpha),\qquad SS=\iota-\mu_\tau
+$$
+
+Here $\iota$ is the reorder point $s$ or order-up-to level $S$, depending on the policy. In general this quantile requires a numerical library or table. SciPy's `scipy.stats.gamma.ppf(alpha, a=shape, loc=offset, scale=scale)` uses shape, location, and scale in that order. The lesson's Python exercises below avoid relying on SciPy by using precomputed CDF inputs where appropriate.
+
+The exact sum result requires independent gamma variables with a common scale. If the period distributions have different scales, are correlated, or have changing parameters, the sum is not generally gamma; moment-matching another gamma is an approximation that should be validated.
+
+### Worked risk-period target with an offset
+
+Suppose weekly demand has mean 800 units, standard deviation 200, and a justified floor of 400. The gamma component has excess mean $\mu'=800-400=400$, shape $k'=400^2/200^2=4$, and scale $\theta'=200^2/400=100$. For a five-week protection period, its shape is $5(4)=20$, its scale remains 100, and the offset is $5(400)=2{,}000$ units.
+
+If a numerical gamma quantile calculation gives the 95th percentile of $\Gamma(20,100)$ as 2,787.92, the total inventory threshold is $2{,}000+2{,}787.92=4{,}787.92$ units. Expected five-week demand is $5(800)=4{,}000$, so the implied safety stock is about 788 units. The quantile here is illustrative; calculate it with a trusted distribution implementation and validate the chosen demand model on observed data.
+
+## From cycle service to expected shortage
+
+Cycle service asks whether demand exceeds the inventory threshold at all. Fill rate asks what fraction of units are supplied immediately. For risk-period demand $D_\tau$ and inventory threshold $\iota$, expected units short are:
+
+$$
+U_s=\mathbb{E}[(D_\tau-\iota)^+]
+$$
+
+For $X\sim\Gamma(k,\theta)$ with $\iota\ge 0$, the gamma loss expression is:
+
+$$
+L_\Gamma(\iota;k,\theta)
+=k\theta\left[1-F_\Gamma(\iota;k+1,\theta)\right]
+-\iota\left[1-F_\Gamma(\iota;k,\theta)\right]
+$$
+
+For an offset gamma with risk-period floor $m_\tau$, shift the inventory threshold to $I'=\iota-m_\tau$ and evaluate the loss of the gamma component. If $I'\le0$, every nonnegative gamma-component demand exceeds that shifted threshold, so expected shortage is $k\theta-I'$; for $I'>0$, use $L_\Gamma(I';k,\theta)$. This keeps offset handling explicit rather than applying a zero-location formula to the unshifted threshold.
+
+A simple long-run fill-rate approximation for periodic review is:
+
+$$
+\beta\approx 1-\frac{U_s}{\mu_dR}
+$$
+
+The denominator is expected demand per replenishment cycle. For continuous review with fixed order quantity, the cycle-demand denominator is $Q$. This approximation and the loss expression rely on a specified shortage model; backorders, lost sales, and timing details can change the operational fill rate. Cycle service and fill rate are related but are not interchangeable.
+
+## Select a model carefully
+
+Use diagnostics to decide what to investigate, not to declare a winner automatically.
+
+### Compare skewness as a first screen
+
+A Normal distribution has theoretical skewness 0. A moment-matched gamma has skewness $2\sigma/\mu$; an offset gamma has $2\sigma/(\mu-d_{min})$. As a rough screen, compare $|\gamma_{obs}-\gamma_{candidate}|$ across candidates. If observed skewness is much closer to one candidate, that is a useful signal for further testing. It does not prove that the candidate matches the actual tail or service-level quantiles.
+
+### Compare empirical and fitted distributions
+
+A histogram can reveal asymmetry and outliers. If comparing candidates with a histogram, use the same bin edges and range. Convert each candidate's CDF into probability mass per bin, $F(b_{j+1})-F(b_j)$, and compare like with like. Density heights have units of inverse demand and depend on bin width; normalizing histogram heights by their sum is not generally a probability-density normalization unless the bin width is also accounted for.
+
+For empirical bin proportions $p_j$ and model bin probabilities $q_j$, one possible summary is:
+
+$$
+RMSE=\sqrt{\frac{1}{B}\sum_{j=1}^{B}(p_j-q_j)^2}
+$$
+
+An RMSE over bin probabilities is one summary, not a universal goodness-of-fit test. It weights all bins equally unless designed otherwise and may prioritize the center over the high-demand tail that drives shortages. For inventory decisions, inspect upper quantiles, exceedance counts, and service performance on held-out periods. A more advanced fit that fails out-of-sample checks is not an improvement.
+
+## Practice: fit, aggregate, and evaluate
+
+### Concept check
+
+<MultipleChoice
+  id="ib-beyond-normality-concepts"
+  title="Gamma demand and model fit"
+  questions={[
+    {
+      prompt: 'For a moment-matched Gamma(k, theta) with mean mu and standard deviation sigma, which parameter formulas use the shape-scale convention?',
+      choices: [
+        'k = mu / sigma; theta = sigma',
+        'k = mu^2 / sigma^2; theta = sigma^2 / mu',
+        'k = sigma^2 / mu^2; theta = mu / sigma^2',
+        'k = mu^2 / sigma; theta = sigma / mu',
+      ],
+      answer: 1,
+      why: 'Gamma moments are mu=k theta and sigma^2=k theta^2. Solving gives k=mu^2/sigma^2 and theta=sigma^2/mu.',
+      whyWrong: 'Check the parameterization: theta is scale, not rate. The formulas must reproduce both the stated mean and variance.',
+    },
+    {
+      prompt: 'A gamma component has shape k=4. What is its theoretical skewness?',
+      choices: ['0', '0.5', '1', '2'],
+      answer: 2,
+      why: 'Gamma skewness is 2/sqrt(k), so 2/sqrt(4)=1.',
+      whyWrong: 'Use 2 divided by the square root of the shape, not 2/k or 1/sqrt(k).',
+    },
+    {
+      prompt: 'Independent period demands are Gamma(k, theta) with the same scale theta. What is the distribution of their sum over tau periods?',
+      choices: [
+        'Gamma(k, tau theta)',
+        'Gamma(tau k, theta)',
+        'Normal(tau k, theta)',
+        'Gamma(k / tau, theta)',
+      ],
+      answer: 1,
+      why: 'For independent gamma variables sharing a scale, shapes add and the common scale stays unchanged.',
+      whyWrong: 'The sum keeps the shared scale; it is the shape parameters that add.',
+    },
+    {
+      prompt: 'Which is the strongest reason not to choose gamma solely because observed skewness is positive?',
+      choices: [
+        'Positive skewness is impossible for demand.',
+        'Skewness summarizes one moment and does not guarantee a good upper-tail fit.',
+        'Gamma distributions cannot model nonnegative values.',
+        'A Normal distribution always has a heavier right tail.',
+      ],
+      answer: 1,
+      why: 'Inventory service depends on tail quantiles; matching skewness alone does not establish calibration.',
+      whyWrong: 'Skewness is a useful screening statistic, but compare tail behavior and held-out service outcomes too.',
+    },
+    {
+      prompt: 'When comparing fitted PDFs to histogram data, what is the most appropriate quantity for each bin?',
+      choices: [
+        'PDF height at the bin center compared with raw count',
+        'CDF probability mass across the bin compared with the empirical bin proportion',
+        'The sample mean compared with the maximum observation,',
+        'The histogram height normalized by its unweighted sum compared with a CDF value',
+      ],
+      answer: 1,
+      why: 'Both values are probabilities for the same bin: empirical count/n and F(right edge)-F(left edge).',
+      whyWrong: 'A PDF value is a density height, not bin probability. Compare like quantities over identical bin edges.',
+    },
+  ]}
+/>
+
+### Rank the distribution-selection workflow
+
+Put these steps in dependency order. Do not pick a model before checking its support and the data used to fit it.
+
+<MultipleChoice
+  id="ib-beyond-normality-rank"
+  title="Select and validate a demand model"
+  questions={[
+    {
+      type: 'order',
+      prompt: 'Choose a practical candidate distribution for an inventory item.',
+      items: [
+        'Inspect the demand definition, time bucket, returns, zeros, and any credible minimum.',
+        'Estimate mean, standard deviation, skewness, and candidate parameters from training data.',
+        'Compare candidate distributions using common bins or a suitable fit diagnostic, paying attention to the upper tail.',
+        'Check quantiles and service performance on held-out periods under the intended inventory policy.',
+        'Document the chosen model, assumptions, and conditions that should trigger a refit.',
+      ],
+      why: 'Define and inspect the data first, fit candidates next, compare like quantities, validate policy outcomes out of sample, then document the decision.',
+      whyWrong: 'Do not select from skewness alone or tune against the same holdout used to claim performance. Model support and data cleaning must precede fitting.',
+    },
+  ]}
+/>
+
+### Python practice: measure sample skewness
+
+Use population moments for this exercise so the result matches the chapter's formula. The first sample has a right-tail outlier; the second is symmetric.
+
+| Sample | Observations |
+|---|---|
+| A | 1, 1, 1, 1, 5 |
+| B | 1, 2, 3, 4, 5 |
+
+Implement `population_skewness(values)`. Return the standardized third central moment; raise `ValueError` if the data have zero variance.
+
+<CodeExercise
+  lang="python"
+  title="Calculate population-moment skewness"
+  prompt={`Implement population_skewness(values) = mean((x - mean(x))**3) / population_std(values)**3. Use math.fsum for the sums and raise ValueError when the standard deviation is zero.`}
+  starter={`import math\n\ndef population_skewness(values):\n    pass\n`}
+  wrapSuffix={`\nimport sys\ntokens = list(map(float, sys.stdin.read().split()))\nn = int(tokens[0])\ntry:\n    value = population_skewness(tokens[1:1+n])\nexcept ValueError as error:\n    print(f'ERROR: {error}')\nelse:\n    print(f'{value:.4f}')\n`}
+  tests={[
+    {name: 'Right-tail outlier', stdin: '5 1 1 1 1 5', equals: '1.5000'},
+    {name: 'Symmetric sample', stdin: '5 1 2 3 4 5', equals: '0.0000'},
+    {name: 'Reject zero variance', stdin: '3 2 2 2', equals: 'ERROR: values must have nonzero variance'},
+  ]}
+  hint="Compute the population mean, population variance with divisor n, then the average cubed deviation divided by std**3. Do not use a sample-skew correction."
+  solution={`import math\n\ndef population_skewness(values):\n    if not values:\n        raise ValueError('values must not be empty')\n    mean = math.fsum(values) / len(values)\n    variance = math.fsum((value - mean) ** 2 for value in values) / len(values)\n    if variance == 0:\n        raise ValueError('values must have nonzero variance')\n    third_moment = math.fsum((value - mean) ** 3 for value in values) / len(values)\n    return third_moment / variance ** 1.5\n`}
+/>
+
+### Python practice: fit gamma parameters
+
+The table contains summary statistics for synthetic demand streams. `minimum` is an externally justified operating floor, not a value to blindly set to the smallest observation in every sample. Use the population-moment convention stated above.
+
+| Stream | Mean | SD | Minimum floor |
+|---|---:|---:|---:|
+| A | 100 | 25 | 0 |
+| B | 100 | 25 | 40 |
+| C | 80 | 20 | 30 |
+
+Implement `fit_gamma(mean, sd, minimum)`. Return `(offset, shape, scale, theoretical_skew)`, without rounding inside the function.
+
+<CodeExercise
+  lang="python"
+  title="Fit a moment-matched gamma"
+  prompt={`Implement fit_gamma(mean, sd, minimum). Fit the gamma component to mean - minimum and sd. Return (minimum, shape, scale, theoretical_skew), using shape k and scale theta.`}
+  starter={`import math\n\ndef fit_gamma(mean, sd, minimum):\n    # Validate that mean > minimum and sd > 0.\n    # Return offset, shape, scale, skewness.\n    pass\n`}
+  wrapSuffix={`\nimport sys\nmean, sd, minimum = map(float, sys.stdin.read().split())\ntry:\n    values = fit_gamma(mean, sd, minimum)\nexcept ValueError as error:\n    print(f'ERROR: {error}')\nelse:\n    print('|'.join(f'{value:.4f}' for value in values))\n`}
+  tests={[
+    {name: 'No offset', stdin: '100 25 0', equals: '0.0000|16.0000|6.2500|0.5000'},
+    {name: 'Positive demand floor', stdin: '100 25 40', equals: '40.0000|5.7600|10.4167|0.8333'},
+    {name: 'Demand data stream C', stdin: '80 20 30', equals: '30.0000|6.2500|8.0000|0.8000'},
+    {name: 'Reject zero standard deviation', stdin: '100 0 0', equals: 'ERROR: sd must be positive'},
+    {name: 'Reject an invalid floor', stdin: '30 5 30', equals: 'ERROR: mean must exceed minimum'},
+  ]}
+  hint="Let excess_mean = mean - minimum. Then shape = excess_mean**2 / sd**2, scale = sd**2 / excess_mean, and gamma skewness = 2 / sqrt(shape). Raise ValueError when the inputs violate the stated domain."
+  solution={`import math\n\ndef fit_gamma(mean, sd, minimum):\n    if sd <= 0:\n        raise ValueError('sd must be positive')\n    excess_mean = mean - minimum\n    if excess_mean <= 0:\n        raise ValueError('mean must exceed minimum')\n    shape = excess_mean ** 2 / sd ** 2\n    scale = sd ** 2 / excess_mean\n    skewness = 2 / math.sqrt(shape)\n    return minimum, shape, scale, skewness\n`}
+/>
+
+### Python practice: aggregate a floored demand model
+
+For independent, identical periods, gamma shapes add, the common scale stays fixed, and a per-period floor adds once per period. Use this table to check the aggregation.
+
+| Case | Per-period mean | SD | Floor | Periods $\tau$ |
+|---|---:|---:|---:|---:|
+| A | 100 | 25 | 40 | 5 |
+| B | 80 | 20 | 30 | 4 |
+
+Implement `aggregate_gamma(mean, sd, minimum, periods)`. Return `(risk_mean, risk_sd, risk_offset, shape, scale)`.
+
+<CodeExercise
+  lang="python"
+  title="Aggregate gamma demand over the risk period"
+  prompt={`Implement aggregate_gamma(mean, sd, minimum, periods) for independent identical offset-gamma periods. Return total mean, total SD, total offset, aggregate shape, and the unchanged scale.`}
+  starter={`import math\n\ndef aggregate_gamma(mean, sd, minimum, periods):\n    # First fit one period's excess-demand gamma.\n    pass\n`}
+  wrapSuffix={`\nimport sys\nmean, sd, minimum, periods = map(float, sys.stdin.read().split())\ntry:\n    values = aggregate_gamma(mean, sd, minimum, int(periods))\nexcept ValueError as error:\n    print(f'ERROR: {error}')\nelse:\n    print('|'.join(f'{value:.4f}' for value in values))\n`}
+  tests={[
+    {name: 'Five-period risk window', stdin: '100 25 40 5', equals: '500.0000|55.9017|200.0000|28.8000|10.4167'},
+    {name: 'Four-period risk window', stdin: '80 20 30 4', equals: '320.0000|40.0000|120.0000|25.0000|8.0000'},
+    {name: 'Reject a zero-length window', stdin: '100 25 40 0', equals: 'ERROR: require sd > 0, mean > minimum, periods > 0'},
+  ]}
+  hint="For one period, excess_mean = mean - minimum, shape = excess_mean**2 / sd**2, and scale = sd**2 / excess_mean. Over tau periods, mean and offset multiply by tau, SD multiplies by sqrt(tau), shape multiplies by tau, and scale is unchanged."
+  solution={`import math\n\ndef aggregate_gamma(mean, sd, minimum, periods):\n    if sd <= 0 or mean <= minimum or periods <= 0:\n        raise ValueError('require sd > 0, mean > minimum, periods > 0')\n    excess_mean = mean - minimum\n    shape = excess_mean ** 2 / sd ** 2\n    scale = sd ** 2 / excess_mean\n    return (\n        periods * mean,\n        math.sqrt(periods) * sd,\n        periods * minimum,\n        periods * shape,\n        scale,\n    )\n`}
+/>
+
+### Python practice: expected units short
+
+For $X\sim\Gamma(k,\theta)$ and inventory $I\ge0$, expected shortage is:
+
+$$
+L_\Gamma(I;k,\theta)=k\theta[1-F(I;k+1,\theta)]-I[1-F(I;k,\theta)]
+$$
+
+Gamma CDF values are supplied in this table so the code exercise can focus on implementing the loss identity without requiring SciPy.
+
+| Shape $k$ | Scale $\theta$ | Inventory $I$ | $F(I;k,\theta)$ | $F(I;k+1,\theta)$ |
+|---:|---:|---:|---:|---:|
+| 2 | 10 | 20 | 0.593994 | 0.323324 |
+| 2 | 10 | 10 | 0.264241 | 0.080302 |
+
+Implement `gamma_loss(shape, scale, inventory, cdf_k, cdf_k_plus_one)` and return expected units short. These are model calculations, not a substitute for checking whether the fitted tail is realistic.
+
+<CodeExercise
+  lang="python"
+  title="Calculate gamma expected shortage"
+  prompt={`Implement gamma_loss(shape, scale, inventory, cdf_k, cdf_k_plus_one) using the supplied CDF values. Return the expected number of units short, without rounding.`}
+  starter={`def gamma_loss(shape, scale, inventory, cdf_k, cdf_k_plus_one):\n    pass\n`}
+  wrapSuffix={`\nimport sys\nshape, scale, inventory, cdf_k, cdf_k_plus_one = map(float, sys.stdin.read().split())\nprint(f'{gamma_loss(shape, scale, inventory, cdf_k, cdf_k_plus_one):.4f}')\n`}
+  tests={[
+    {name: 'Inventory 20', stdin: '2 10 20 0.593994 0.323324', equals: '5.4134'},
+    {name: 'Inventory 10', stdin: '2 10 10 0.264241 0.080302', equals: '11.0364'},
+  ]}
+  hint="Use k * theta * (1 - F at shape k+1) - inventory * (1 - F at shape k). Preserve the two CDF values in the order given."
+  solution={`def gamma_loss(shape, scale, inventory, cdf_k, cdf_k_plus_one):\n    return (\n        shape * scale * (1 - cdf_k_plus_one)\n        - inventory * (1 - cdf_k)\n    )\n`}
+/>
+
+## Takeaways
+
+- Normality is convenient, not guaranteed; support and upper-tail fit matter to inventory decisions.
+- For moment-matched $\Gamma(k,\theta)$, $k=\mu^2/\sigma^2$, $\theta=\sigma^2/\mu$, and skewness is $2/\sqrt{k}$.
+- An offset gamma requires a defensible floor and $\mu>d_{min}$; fitting the sample minimum blindly can overfit.
+- Independent same-scale gamma periods aggregate exactly by adding shapes; different scales or correlated periods need another model or an explicit approximation.
+- Quantiles and expected-shortage formulas connect the chosen distribution to cycle service and fill rate, but model validation should focus on held-out upper-tail behavior.
+
+**Previous:** [Inventory Policy Simulation Lab](./inventory-policy-simulation-lab).
+
+**Next:** [Multi-Echelon Inventory Optimization](./multi-echelon-inventory) — coordinate safety stock across connected locations.

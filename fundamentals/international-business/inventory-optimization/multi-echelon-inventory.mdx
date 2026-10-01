@@ -1,0 +1,273 @@
+---
+sidebar_position: 8
+title: Multi-Echelon Inventory Optimization
+sidebar_label: '8. Multi-echelon inventory'
+---
+
+# 8. Multi-Echelon Inventory Optimization
+
+The earlier inventory models treated one item at one stocking location. Real networks can have plants, regional hubs, distribution centers, and stores, each holding stock for the same customer flow. Optimizing every location independently can protect local targets while increasing total inventory, hiding shortages, or amplifying order swings upstream.
+
+**Multi-echelon inventory optimization (MEIO)** coordinates where buffers sit across connected stocking points. It can improve service, reduce working capital, or trade one outcome for the other. It is not a guarantee of a fixed percentage savings: the result depends on the network, data quality, costs, service definition, and current operating maturity.
+
+## Represent the network
+
+A supply-chain network has **nodes** (stocking or processing locations) connected by **edges** (supplier-to-customer relationships). A layer or stage is an **echelon**. The first stage supplied from outside the modeled network is the supply side; the stage facing final customer demand is the demand side.
+
+| Network type | Relationship pattern | Example |
+|---|---|---|
+| **Serial** | Each intermediate node has one supplier and one downstream customer node | Plant → regional hub → distribution center |
+| **Assembly** | A node combines supply from multiple upstream nodes | Several component suppliers feed one assembly plant |
+| **Distribution** | One upstream node supplies multiple downstream nodes | One central warehouse supplies several stores |
+| **General** | Nodes may have multiple suppliers and multiple downstream customers | A branched, multi-source network |
+
+A general network may be acyclic or include cycles such as return flows. A supplier can manage inventory at a customer location under **vendor-managed inventory (VMI)**. If the supplier also owns stock physically held at the customer, that arrangement is often called consignment. Control, physical location, and ownership are distinct attributes; record each explicitly in a network model.
+
+## Local decisions can conflict with the network
+
+A locally optimized node chooses its own reorder point, batch, review interval, or safety stock using only its own objectives and observed orders. The upstream node then treats those orders as demand. If every stage independently forecasts and reacts to those orders, a small change at the final customer can become a larger, more irregular signal upstream. This amplification is called the **bullwhip effect**.
+
+Common contributors include:
+
+- **Order forecasting:** each stage forecasts its customer's orders rather than sharing final demand and inventory context.
+- **Order batching:** infrequent or large orders create lumpy signals.
+- **Price changes and promotions:** buyers shift order timing or build forward stock.
+- **Shortage gaming:** customers inflate orders when supply is constrained, hoping to receive a larger allocation.
+
+Practical countermeasures are better end-demand and inventory visibility, coordinated replenishment, shorter review and lead times where feasible, transparent allocation rules during shortage, and aligned promotion planning. A global model helps only when its data and operating rules are used consistently.
+
+## Decide where buffers belong
+
+Three forces often pull inventory in different directions:
+
+| Driver | Often favors | Why |
+|---|---|---|
+| **Lead-time pooling** | Downstream | A downstream buffer can cover a longer combined replenishment exposure, pooling variation over more periods and potentially reducing total safety stock. |
+| **Demand pooling** | Upstream | An upstream node may serve several locations; aggregation can smooth demand when branch variation is not too strongly positively correlated. |
+| **Value and holding cost** | Upstream | Earlier-stage material may be cheaper to hold than finished goods stored near expensive customer locations. |
+
+These are tendencies, not a universal placement rule. Correlation, transport, capacity, product value, service promises, and ownership can change the trade-off. MEIO compares the whole network's cost and service rather than assuming one driver always wins.
+
+## A practical serial-network model: guaranteed service
+
+Two broad modelling approaches help frame the trade-off. **Stochastic-service models (SSM)** represent how upstream stockouts make downstream replenishment times random; this can be realistic but computationally demanding. The **guaranteed-service model (GSM)** simplifies the problem by assuming each node protects demand up to a chosen bound and quotes a fixed service time; demand above the bound is handled by an exceptional response such as expediting, overtime, or a delayed customer promise.
+
+This is an explicit service assumption, not magic capacity. A GSM answer is useful only if the organization can execute the exception plan when demand exceeds its modeled bound.
+
+### Risk-period allocation
+
+For a serial network with aligned review period $R$ and deterministic incoming lead times $L_i$, the total risk-period to cover is:
+
+$$
+T=R+\sum_{i=1}^{n}L_i
+$$
+
+Let $x_i$ be the number of periods of demand protected by safety stock at node $i$. In the simplified serial framework used here:
+
+$$
+\sum_i x_i=T,\qquad x_i\ge0
+$$
+
+For independent Normal demand with per-period standard deviation $\sigma_d$ and service factor $z$, the safety stock at node $i$ is:
+
+$$
+SS_i=z\sigma_d\sqrt{x_i}
+$$
+
+If per-period mean demand is $\mu_d$, the corresponding local order-up-to target is $S_i=\mu_dx_i+SS_i$. Local targets can then be converted into echelon targets for coordinated ordering.
+
+The simplified serial GSM has an all-or-nothing structure at each candidate stocking point: a node either covers its eligible incoming risk segment or receives zero risk-period allocation. The demand-facing node covers the final review interval. For three nodes, the worked candidate allocations below are four feasible cases; they are not a license to use the same enumeration for every general network.
+
+In this simplified serial setup, the candidate count grows as $2^{n-1}$ for $n$ nodes because the demand-facing node must cover the final review interval. This is manageable for a short chain, but the assumption and search do not transfer directly to arbitrary assembly or general networks.
+
+### Worked example: compare safety-stock cost
+
+Consider a three-node serial chain with incoming lead times $[4,3,2]$ periods and common review interval $R=1$. Total risk-period is $T=10$. Demand has per-period mean $\mu_d=100$ and standard deviation $\sigma_d=25$; target cycle service is 95% ($z=1.645$). Holding costs are $[1,2,4]$ per unit per period for upstream, middle, and downstream stock.
+
+Under the simplified model, compare these four feasible risk-period allocations:
+
+| Case | Upstream $x_1$ | Middle $x_2$ | Demand-side $x_3$ |
+|---|---:|---:|---:|
+| 1 | 4 | 3 | 3 |
+| 2 | 0 | 7 | 3 |
+| 3 | 4 | 0 | 6 |
+| 4 | 0 | 0 | 10 |
+
+For each case calculate $SS_i=z\sigma_d\sqrt{x_i}$ (use zero stock where $x_i=0$), then total holding cost $C_h=\sum_i h_iSS_i$. Rounded results are:
+
+| Case | Safety stock by node (units) | Total safety stock | Holding cost |
+|---|---|---:|---:|
+| 1 | 82.3, 71.2, 71.2 | 224.7 | 509.6 |
+| 2 | 0, 108.8, 71.2 | 180.0 | 502.5 |
+| 3 | 82.3, 0, 100.7 | 183.0 | 485.2 |
+| 4 | 0, 0, 130.0 | 130.0 | 520.2 |
+
+Case 4 minimizes the number of safety-stock units because it pools the entire risk period downstream. Case 3 has the lowest holding cost in this example because the high downstream holding rate makes it cheaper to place part of the buffer upstream. **Minimizing units is not the same as minimizing cost.** The result also excludes cycle stock, transport, capacity, and the cost of exceptional responses; those omissions must be understood before using the allocation operationally.
+
+<FormulaExplorer preset="inventoryMeioSerialCases" />
+
+## Translate local targets into echelon orders
+
+A **local** order-up-to target $S_i$ describes stock at one node. An **echelon** target $\mathcal{S}_i$ describes stock at that node and all downstream nodes. In a simple serial network ordered upstream to downstream:
+
+$$
+\mathcal{S}_i=\sum_{j=i}^{n}S_j
+$$
+
+Echelon inventory is calculated the same way from current local inventory $I_j$:
+
+$$
+\mathcal{I}_i=\sum_{j=i}^{n}I_j
+$$
+
+The upstream order requirement is the shortfall between echelon target and echelon inventory. Physical availability and capacity constraints may then cap what is actually shipped; never interpret an unconstrained target shortfall as proof that stock can be delivered.
+
+For Case 1, the local targets are $S_i=\mu_dx_i+SS_i$, giving approximately $[482,371,371]$. These give echelon targets $[1224,742,371]$. Current local inventory $[300,250,100]$ gives echelon inventory $[650,350,100]$, so the raw echelon shortfalls are $[574,392,271]$ units.
+
+## Limits and next steps
+
+The serial example assumes aligned review timing, deterministic lead times, shared demand information, bounded demand, and a simplified exception response. Stochastic-service models represent interactions between stockouts and replenishment times more explicitly, but they can be much harder to solve. Assembly and general networks may need constrained optimization or dynamic programming. Distribution systems add demand pooling and possible correlation between branches.
+
+Use the serial GSM as a transparent starting point. For a real network, validate the demand and cost inputs, model capacity/transport constraints, make the emergency-service promise operational, and compare predicted results with simulation or observed performance.
+
+## Practice: allocate and execute
+
+### Concept check
+
+<MultipleChoice
+  id="ib-meio-concepts"
+  title="Network-wide inventory decisions"
+	questions={[
+		{
+			prompt: 'A central warehouse serves several stores. Which topology best describes this network?',
+			choices: ['Serial', 'Assembly', 'Distribution', 'Cyclic general'],
+			answer: 2,
+			why: 'A distribution node has one upstream supplier and multiple downstream customer nodes.',
+			whyWrong: 'Assembly combines multiple upstream inputs into a downstream node; a central warehouse feeding stores is distribution.',
+		},
+		{
+			prompt: 'Which statement best describes the guaranteed-service model assumption?',
+			choices: [
+				'Every possible demand is served from stock with no exceptions.',
+				'Stock protects demand up to a bound; demand above it needs an explicit exceptional response.',
+				'Every node uses the same local reorder point.',
+				'The model removes lead times from the network.',
+			],
+			answer: 1,
+			why: 'GSM makes a bounded-demand/service-time assumption and relies on expediting, overtime, delay, or another response beyond the bound.',
+			whyWrong: 'The model does not eliminate uncertainty; it defines a protected range and requires a plan for excursions beyond it.',
+		},
+		{
+			prompt: 'For one node with x = 4 periods, z = 1.645, and demand SD 25 per period, what is the safety stock?',
+			choices: ['41.1 units', '82.3 units', '164.5 units', '200 units'],
+			answer: 1,
+			why: 'SS = z sigma sqrt(x) = 1.645(25)(2) = 82.25, or 82.3 units.',
+			whyWrong: 'Aggregate standard deviation scales by sqrt(x), not x; then multiply by the service factor.',
+		},
+		{
+			prompt: 'In the three-node example, which allocation has the fewest safety-stock units, and which has the lowest holding cost?',
+			choices: [
+				'Case 1 for both',
+				'Case 3 for both',
+				'Case 4 has fewest units; Case 3 has lowest holding cost',
+				'Case 2 has fewest units; Case 4 has lowest holding cost',
+			],
+			answer: 2,
+			why: 'Pooling the full risk period downstream (Case 4) minimizes units, but its high holding rate makes Case 3 cheaper by cost.',
+			whyWrong: 'Compare both totals and weighted holding costs; the node holding rates make the minima differ.',
+		},
+		{
+			prompt: 'For local targets [482, 371, 371] in upstream-to-downstream order, what is the echelon target at the middle node?',
+			choices: ['371', '742', '853', '1224'],
+			answer: 1,
+			why: 'The middle echelon includes itself and the downstream node: 371 + 371 = 742.',
+			whyWrong: 'An echelon amount includes the node and every downstream node, not just the node-local target.',
+		},
+	]}
+/>
+
+### Rank the serial GSM analysis
+
+Order the dependent analysis steps for the stated three-node case.
+
+<MultipleChoice
+  id="ib-meio-rank"
+  title="Compare serial-network allocations"
+	questions={[
+		{
+			type: 'order',
+			prompt: 'Lead times, review period, demand mean and SD, service factor, holding costs, and four feasible allocations are given.',
+			items: [
+				'Confirm total risk period and that each candidate allocation covers it while meeting node constraints.',
+				'For each allocation, calculate node safety stock z sigma sqrt(x_i).',
+				'Multiply each node’s safety stock by its holding cost and sum to get network cost.',
+				'Compare feasible cases by the chosen objective, then check omitted operating constraints.',
+				'For the selected allocation, calculate local targets S_i = mean demand times x_i plus safety stock.',
+				'Convert local targets and local inventory into echelon targets, echelon inventory, and order requirements.',
+			],
+			why: 'Feasibility comes before calculation; calculate buffer quantities, weight by costs, choose an objective, and only then operationalize targets.',
+			whyWrong: 'Do not compare costs before checking the risk-period allocation or apply local-to-echelon ordering before selecting policy targets.',
+		},
+	]}
+/>
+
+### Python practice: compare feasible allocations
+
+Use the four risk-period cases and node holding costs from the worked example. Each row below is one candidate allocation, with periods protected at upstream, middle, and downstream nodes.
+
+| Case | $x_1$ | $x_2$ | $x_3$ |
+|---|---:|---:|---:|
+| 1 | 4 | 3 | 3 |
+| 2 | 0 | 7 | 3 |
+| 3 | 4 | 0 | 6 |
+| 4 | 0 | 0 | 10 |
+
+Implement `allocation_costs(z_sigma, holding_costs, allocations)`. Return the one-based lowest-cost case followed by each case's holding cost. The test wrapper formats values to one decimal.
+
+<CodeExercise
+  lang="python"
+  title="Choose a least-cost safety-stock allocation"
+	prompt={`Implement allocation_costs(z_sigma, holding_costs, allocations). For each node use safety_stock = z_sigma * sqrt(x_i), treating x_i=0 as zero stock. Return (best_case_number, cost_case_1, ...). Use total holding cost, not total safety-stock units, to choose the best case.`}
+	starter={`import math\n\ndef allocation_costs(z_sigma, holding_costs, allocations):\n    pass\n`}
+	wrapSuffix={`\nimport sys\ntokens = list(map(float, sys.stdin.read().split()))\nz_sigma = tokens[0]\nholding_costs = tokens[1:4]\nallocations = [tokens[index:index+3] for index in range(4, 16, 3)]\nvalues = allocation_costs(z_sigma, holding_costs, allocations)\nprint('|'.join([str(values[0])] + [f'{cost:.1f}' for cost in values[1:]]))\n`}
+	tests={[{name: 'Holding-cost minimum differs from unit minimum', stdin: '41.125 1 2 4 4 3 3 0 7 3 4 0 6 0 0 10', equals: '3|509.6|502.5|485.2|520.2'}]}
+	hint="For each case, compute z_sigma * sqrt(x) at each node, multiply each node's stock by its own holding cost, sum, then use the smallest total cost. Do not choose the case with the least stock units."
+	solution={`import math\n\ndef allocation_costs(z_sigma, holding_costs, allocations):\n    costs = []\n    for risk_periods in allocations:\n        total_cost = sum(\n            holding_cost * z_sigma * math.sqrt(periods)\n            for holding_cost, periods in zip(holding_costs, risk_periods)\n        )\n        costs.append(total_cost)\n    best_case = min(range(len(costs)), key=costs.__getitem__) + 1\n    return (best_case, *costs)\n`}
+/>
+
+### Python practice: convert local inventory to echelon orders
+
+Use upstream-to-downstream arrays. A serial echelon includes that node and all nodes downstream. Do not create a negative purchase order when echelon inventory exceeds its target.
+
+| Node | Local target | Current local inventory |
+|---|---:|---:|
+| Upstream | 482 | 300 |
+| Middle | 371 | 250 |
+| Demand-facing | 371 | 100 |
+
+Implement `echelon_orders(local_targets, local_inventory)` and return order requirements from upstream to downstream.
+
+<CodeExercise
+  lang="python"
+  title="Calculate echelon order requirements"
+	prompt={`Implement echelon_orders(local_targets, local_inventory). Convert local targets and local inventory to downstream suffix sums, then return max(0, echelon_target - echelon_inventory) for each node.`}
+	starter={`def echelon_orders(local_targets, local_inventory):\n    pass\n`}
+	wrapSuffix={`\nimport sys\ntokens = list(map(int, sys.stdin.read().split()))\nn = tokens[0]\nlocal_targets = tokens[1:1+n]\nlocal_inventory = tokens[1+n:1+2*n]\nprint('|'.join(map(str, echelon_orders(local_targets, local_inventory))))\n`}
+	tests={[
+		{name: 'Shortfall at every echelon', stdin: '3 482 371 371 300 250 100', equals: '574|392|271'},
+		{name: 'Cap excess echelon stock at zero order', stdin: '3 482 371 371 1300 800 300', equals: '0|0|71'},
+	]}
+	hint="Build suffix sums from the demand-facing node backward. At each node compare its echelon target with its echelon inventory and clamp the order quantity to zero or greater."
+	solution={`def echelon_orders(local_targets, local_inventory):\n    if len(local_targets) != len(local_inventory):\n        raise ValueError('targets and inventory must have equal length')\n    orders = [0] * len(local_targets)\n    target_total = 0\n    inventory_total = 0\n    for index in range(len(local_targets) - 1, -1, -1):\n        target_total += local_targets[index]\n        inventory_total += local_inventory[index]\n        orders[index] = max(0, target_total - inventory_total)\n    return orders\n`}
+/>
+
+## Takeaways
+
+- MEIO chooses buffer locations across a network; local targets alone do not describe total network cost or service.
+- Bullwhip can be amplified by order forecasting, batching, promotions, and shortage gaming; visibility and coordinated rules help.
+- Lead-time pooling, demand pooling, and value/holding cost can favor different inventory locations.
+- The serial GSM is a bounded-demand approximation with an explicit exception response, not a universal exact optimizer.
+- Echelon inventory and targets include downstream nodes; cap operational orders by real availability and capacity.
+
+**Previous:** [Beyond Normality](./beyond-normality).
+*** End Patch

@@ -15,6 +15,7 @@ import {STATS_PRESETS} from './statsPresets';
 import {ML_PRESETS} from './mlPresets';
 import {PHYSICS_PRESETS} from './physicsPresets';
 import {CALCULUS_PRESETS} from './calculusPresets';
+import {INVENTORY_PRESETS} from './inventoryPresets';
 
 /**
  * @typedef {{
@@ -808,6 +809,7 @@ function factorialSafeRatio(_n, k) {
 export function getPreset(id) {
   return (
     PRESETS[id] ||
+    INVENTORY_PRESETS[id] ||
     STATS_PRESETS[id] ||
     ML_PRESETS[id] ||
     PHYSICS_PRESETS[id] ||
