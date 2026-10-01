@@ -1,0 +1,282 @@
+---
+sidebar_position: 11
+title: Discrete Probabilistic Demand
+sidebar_label: '11. Discrete demand PMF'
+---
+
+# 11. Discrete Probabilistic Demand
+
+Earlier lessons often assumed **Normal** demand, then introduced **gamma** as a continuous alternative. Those parametric families are convenient, but they can misrepresent a custom sales history.
+
+This lesson builds a **tailor-fitted discrete** demand model from observations: start with histograms and their limits, improve with **kernel density estimation (KDE)**, then discretize the smooth density into a **probability mass function (PMF)** suitable for simulation and later policy optimization.
+
+Original teaching rewrite for this course. Numeric drills use synthetic samples; they mirror the chapter workflow without reprinting a commercial dataset or textbook figures.
+
+## Why leave parametric densities?
+
+A Normal or gamma model forces a fixed shape. Histograms and KDEs instead estimate density **from the data**, then compress the result onto integer demand values. The next chapter in the track uses such a custom PMF inside simulation-based policy search.
+
+## Histograms as a first density estimate
+
+A histogram splits the observed range into **bins**. Each bin’s height is the fraction (or count) of observations that fall inside it. A common inventory shortcut treats that frequency as a point mass at the **bin center**.
+
+### How a histogram is built
+
+1. Choose left and right edges of the support.
+2. Divide that interval into $k$ bins.
+3. Count observations in each bin and convert counts to frequencies.
+4. Optionally assign each frequency to the bin midpoint.
+
+That yields a crude discrete distribution—but only at the midpoints.
+
+### Four histogram limitations
+
+1. **Sparse support.** Probability lives only on bin centers (e.g. 21.7% at 1375 and 0% at 1376).
+2. **Arbitrary bin count.** Changing $k$ changes the shape of the estimated density.
+3. **Arbitrary edges.** Shifting the left/right limits reshapes the same sample into a different “distribution.”
+4. **Not smooth.** Adjacent bins can jump abruptly even when the true process is gradual.
+
+Histograms remain useful for **exploration**. They are a weak default for a simulation PMF.
+
+## Kernel density estimation
+
+**Kernel density estimation** places a small probability kernel around **every observation**, then sums and normalizes those kernels. You no longer choose bin edges or a bin count; each point gets its own local contribution.
+
+**Kernel:** a probability density used to spread mass around one observation.
+
+**Bandwidth:** the width of that kernel (for a Gaussian kernel, its standard deviation).
+
+### Box (squared) kernel
+
+A box kernel spreads equal density on an interval of width equal to the bandwidth centered at each observation. Overlapping boxes add. The result is continuous in the support sense (every nearby real value gets mass) but **not smooth**—edges of the boxes create flat stretches and abrupt slopes.
+
+Bandwidth still matters: a narrow box is jagged; a wide box oversmooths multimodal structure.
+
+### Gaussian kernel
+
+A **Normal** kernel around each point yields a smooth density. The estimated PDF at $x$ is the average of Normal densities centered at the observations (scaled so the whole curve integrates to 1).
+
+Larger bandwidth → smoother, flatter estimate. Smaller bandwidth → more peaks that hug the sample.
+
+### Choosing bandwidth: Scott and Silverman
+
+With $n$ observations and sample standard deviation $\sigma_d$:
+
+$$
+h_{\text{Scott}}=\sigma_d\,n^{-1/5}
+$$
+
+$$
+h_{\text{Silverman}}=\sigma_d\left(\frac{4}{3n}\right)^{1/5}
+$$
+
+Both are **rules of thumb**. Scott’s rule often **undersmooths less aggressively than intuition wants** in the other direction: in practice it can look **too smooth** (underfit). A common heuristic is to use about **$0.9\,h_{\text{Scott}}$** when the Scott curve looks too loose.
+
+<FormulaExplorer preset="inventoryKdeBandwidth" />
+
+KDE support extends slightly **beyond** the sample min and max—which is desirable: never observing 1902 does not prove $\Pr(D=1902)=0$.
+
+**Near-zero demand:** Gaussian kernels can leak probability onto **negative** demand. Fold that mass onto 0 when building a PMF (below).
+
+### Practical SciPy sketch
+
+`scipy.stats.gaussian_kde(data, bw_method=...)` accepts `'scott'`, `'silverman'`, or a scalar factor times $\sigma_d$. The object exposes `.pdf(x)`. SciPy does not ship a vectorized KDE `.cdf`; integrate one point at a time, e.g. `integrate_box_1d(-inf, x)`, or build your own loop.
+
+## From continuous KDE to a discrete PMF
+
+Simulation engines need a **finite integer domain** and a PMF that sums to 1. Continuous KDE lives on $(-\infty,\infty)$ in theory, so truncate thoughtfully.
+
+### Bounds from the sample and bandwidth
+
+With safety factor $m$ (often 3 or 4):
+
+$$
+L=\left\lfloor d_{\min}-m\,h\right\rfloor,\qquad
+U=\left\lceil d_{\max}+m\,h\right\rceil
+$$
+
+For a single Normal kernel, $\Phi(-3)\approx 0.0013$, so mass below $d_{\min}-3h$ from the lowest observation’s kernel is tiny; across $n$ kernels the tail is still small if other kernels sit higher. Floor $L$ and ceil $U$ for a conservative integer grid.
+
+Then take domain $x=L,L+1,\ldots,U-1$ (or through $U$, consistently), evaluate the KDE PDF on $x$, and **normalize**:
+
+$$
+\mathrm{pmf}_i=\frac{f(x_i)}{\sum_j f(x_j)}
+$$
+
+Sampling: `numpy.random.choice(x, size=..., p=pmf)`.
+
+### Fold negative demand to zero
+
+If any $x_i<0$ carry mass:
+
+1. Add $\sum_{x_i<0}\mathrm{pmf}_i$ onto the probability at $0$.
+2. Drop all negative support from $x$ and `pmf`.
+
+### Mean and variance from a PMF
+
+$$
+\mu_d=\sum_i \mathrm{pmf}_i\,x_i
+$$
+
+$$
+\mathrm{Var}_d=\sum_i x_i^2\,\mathrm{pmf}_i-\mu_d^2,\qquad
+\sigma_d=\sqrt{\mathrm{Var}_d}
+$$
+
+<FormulaExplorer preset="inventoryPmfMoments" />
+
+### Independence reminder
+
+A good **per-period** fit does not automatically describe **lead-time** demand. Autocorrelation (high after high, or high after low) breaks the independent-period assumption. When dependence matters, simulate demand over the **risk period** as a path, not as i.i.d. draws of one-period PMFs.
+
+## Recap path
+
+1. Prefer KDE over raw histograms when you need a custom density.
+2. Use a **Gaussian** kernel for smoothness; set bandwidth with Scott/Silverman (or a tuned fraction of Scott).
+3. Truncate with $d_{\min}-mh$ and $d_{\max}+mh$, evaluate PDF on integers, normalize to a PMF.
+4. Clamp negative mass to 0; report $\mu_d$ and $\sigma_d$ from the discrete support.
+5. Feed that PMF into simulation / policy search (next lessons).
+
+## Practice
+
+### Concept check
+
+<MultipleChoice
+  id="ib-discrete-demand-concepts"
+  title="Histograms, KDE, and discrete PMFs"
+  questions={[
+    {
+      prompt: 'Which is a core limitation of using a histogram as an inventory demand PMF?',
+      choices: [
+        'Bin edges are unique, so every histogram of the same sample is identical.',
+        'Probability is concentrated on bin centers; nearby integers get zero mass.',
+        'Histograms always force Normal tails.',
+        'Histograms require a known critical ratio before you can count bins.',
+      ],
+      answer: 1,
+      why: 'Assigning frequency only to midpoints leaves most integers with zero probability, and edges/bin count are arbitrary.',
+      whyWrong: 'Different edges or bin counts change the picture. Histograms do not force Normality or need a newsvendor ratio.',
+    },
+    {
+      prompt: 'Compared with a histogram, what does a Gaussian KDE mainly buy you for demand modeling?',
+      choices: [
+        'A guarantee that lead times are deterministic.',
+        'A smooth density without choosing bin count or histogram edges (bandwidth remains a choice).',
+        'Automatic removal of all autocorrelation.',
+        'A critical ratio α* equal to Scott’s factor.',
+      ],
+      answer: 1,
+      why: 'Kernels replace arbitrary bins/edges with a smooth sum of Normals; you still choose bandwidth.',
+      whyWrong: 'KDE does not fix lead times, dependence, or newsvendor service targets.',
+    },
+    {
+      prompt: "Scott's rule-of-thumb bandwidth for KDE is:",
+      choices: [
+        'σ_d · √n',
+        'σ_d / n',
+        'σ_d · n^(-1/5)',
+        'Φ(-3) · σ_d',
+      ],
+      answer: 2,
+      why: 'h_Scott = σ_d n^(-1/5).',
+      whyWrong: '√n and 1/n are different rates; Φ(-3) is a Normal tail probability used for truncation intuition, not bandwidth.',
+    },
+    {
+      prompt: 'Why truncate a KDE with something like d_min − 3h and d_max + 3h before building a PMF?',
+      choices: [
+        'Because KDE densities are exactly zero outside the sample min and max.',
+        'To keep a finite integer domain while retaining most kernel mass beyond the observed extremes.',
+        'To force the discrete mean to equal the sample median.',
+        'To make Silverman’s rule equal Scott’s rule.',
+      ],
+      answer: 1,
+      why: 'Continuous KDE has infinite theoretical support; a few bandwidths past the extremes keep almost all mass without an endless grid.',
+      whyWrong: 'KDE deliberately places some mass outside the sample range; truncation is practical, not a mean/median constraint.',
+    },
+    {
+      prompt: 'When converting a Gaussian KDE to a discrete PMF for nonnegative demand, negative support should be:',
+      choices: [
+        'Left unchanged so the PMF can include negatives.',
+        'Replaced by a Normal(μ,σ) with the same mean.',
+        'Ignored by setting bandwidth to zero.',
+        'Folded into probability at 0, then removed from the domain.',
+      ],
+      answer: 3,
+      why: 'Sum negative mass onto 0 and drop x < 0 so the PMF stays on feasible demand.',
+      whyWrong: 'Negative demand is not operational; shrinking bandwidth alone does not guarantee a nonnegative domain.',
+    },
+  ]}
+/>
+
+### Rank the KDE → PMF workflow
+
+<MultipleChoice
+  id="ib-discrete-demand-rank"
+  title="Build a custom discrete demand PMF"
+  questions={[
+    {
+      type: 'order',
+      prompt: 'You have a cleaned one-period demand sample and want an integer PMF for simulation.',
+      items: [
+        'If needed, fold negative mass onto 0 and compute μ_d, σ_d from the final PMF.',
+        'Fit the Gaussian KDE on the observations with the chosen bandwidth.',
+        'Normalize the evaluated PDF values so the discrete probabilities sum to 1.',
+        'Choose a bandwidth (Scott, Silverman, or a tuned fraction of Scott).',
+        'Set integer bounds with sample min/max ± m · bandwidth and evaluate the PDF on that grid.',
+      ],
+      order: [3, 1, 4, 2, 0],
+      why: 'Bandwidth → fit → truncate/evaluate → normalize → clamp and summarize.',
+      whyWrong: 'Do not normalize before evaluating the truncated grid, and do not compute moments before cleaning negatives.',
+    },
+  ]}
+/>
+
+### Code: Scott bandwidth and truncation bounds
+
+Implement Scott’s rule and the integer domain bounds used before discretizing a KDE.
+
+<CodeExercise
+  id="ib-kde-scott-bounds"
+  title="Scott bandwidth and discrete domain"
+  lang="python"
+  starter={`import math\n\ndef scott_bandwidth(std, n):\n    """h = std * n**(-1/5)."""\n    # TODO\n    raise NotImplementedError\n\ndef discrete_domain_bounds(d_min, d_max, bandwidth, safety=3):\n    """Return (L, U) with floor(min - m*h) and ceil(max + m*h)."""\n    # TODO\n    raise NotImplementedError\n`}
+  wrapSuffix={`\nimport sys\ntokens = list(map(float, sys.stdin.read().split()))\nstd, n, d_min, d_max, safety = tokens\ntry:\n    h = scott_bandwidth(std, int(n))\n    lo, hi = discrete_domain_bounds(d_min, d_max, h, safety)\nexcept ValueError:\n    print('ERROR')\nelse:\n    print(f'{h:.4f}|{int(lo)}|{int(hi)}')\n`}
+  tests={[
+    {name: 'n=32, sigma=100, sample 500..1900, m=3', stdin: '100 32 500 1900 3', equals: '50.0000|350|2050'},
+    {name: 'n=243, sigma=81, tighter sample, m=4', stdin: '81 243 100 400 4', equals: '27.0000|-8|508'},
+    {name: 'rejects n<=0', stdin: '10 0 1 5 3', equals: 'ERROR'},
+  ]}
+  hint="Scott: std * n**(-1/5) (same as std / n**(1/5)). Bounds: math.floor(d_min - safety*h), math.ceil(d_max + safety*h)."
+  solution={`import math\n\ndef scott_bandwidth(std, n):\n    if n <= 0 or std < 0:\n        raise ValueError('require n > 0 and std >= 0')\n    return std * (n ** (-0.2))\n\ndef discrete_domain_bounds(d_min, d_max, bandwidth, safety=3):\n    lower = math.floor(d_min - safety * bandwidth)\n    upper = math.ceil(d_max + safety * bandwidth)\n    return lower, upper\n`}
+/>
+
+### Code: normalize PDF weights, then moments and clamp
+
+First turn raw nonnegative weights into a PMF. Then compute mean/SD and fold negative support onto zero.
+
+<CodeExercise
+  id="ib-pmf-normalize-attributes-clamp"
+  title="Normalize, moments, and clamp negatives"
+  lang="python"
+  starter={`import math\n\ndef normalize_pmf(weights):\n    """Return probabilities that sum to 1 from nonnegative weights."""\n    # TODO\n    raise NotImplementedError\n\ndef pmf_moments(x, pmf):\n    """Return (mu, std) for a discrete PMF on support x."""\n    # TODO\n    raise NotImplementedError\n\ndef clamp_nonnegative_pmf(x, pmf):\n    """Fold mass on x < 0 onto 0; leave unchanged if already nonnegative."""\n    # TODO\n    raise NotImplementedError\n`}
+  wrapSuffix={`\nimport sys\ntokens = list(map(float, sys.stdin.read().split()))\nn = int(tokens[0])\nx = [int(tokens[1 + i]) for i in range(n)]\nweights = tokens[1 + n:1 + 2 * n]\ntry:\n    pmf = normalize_pmf(weights)\n    x2, pmf2 = clamp_nonnegative_pmf(x, pmf)\n    mu, std = pmf_moments(x2, pmf2)\nexcept ValueError:\n    print('ERROR')\nelse:\n    print(f'{mu:.4f}|{std:.4f}|{len(x2)}|{x2[0]}|{sum(pmf2):.4f}')\n`}
+  tests={[
+    {name: 'already a PMF, no negatives', stdin: '3 1 2 3 0.2 0.5 0.3', equals: '2.1000|0.7000|3|1|1.0000'},
+    {name: 'raw weights need normalize then clamp', stdin: '4 -2 -1 0 2 1 2 3 4', equals: '0.8000|0.9798|2|0|1.0000'},
+    {name: 'reject all-zero weights', stdin: '2 1 2 0 0', equals: 'ERROR'},
+  ]}
+  hint="normalize: divide by sum(weights). mu = sum(p*x); var = sum(p*x*x)-mu*mu. Clamp: if any x<0, add that mass to 0 and drop negatives."
+  solution={`import math\n\ndef normalize_pmf(weights):\n    total = sum(weights)\n    if total <= 0:\n        raise ValueError('weights must sum to a positive value')\n    return [w / total for w in weights]\n\ndef pmf_moments(x, pmf):\n    mu = sum(p * xi for xi, p in zip(x, pmf))\n    second = sum(p * xi * xi for xi, p in zip(x, pmf))\n    var = second - mu * mu\n    if var < 0 and var > -1e-12:\n        var = 0.0\n    return mu, math.sqrt(var)\n\ndef clamp_nonnegative_pmf(x, pmf):\n    negative_mass = sum(p for xi, p in zip(x, pmf) if xi < 0)\n    if negative_mass == 0:\n        return list(x), list(pmf)\n    out_x = []\n    out_p = []\n    zero_mass = negative_mass\n    for xi, p in zip(x, pmf):\n        if xi < 0:\n            continue\n        if xi == 0:\n            zero_mass += p\n        else:\n            out_x.append(xi)\n            out_p.append(p)\n    return [0] + out_x, [zero_mass] + out_p\n`}
+/>
+
+## Takeaways
+
+- Histograms need arbitrary bins and edges; they put mass only on midpoints and stay jagged.
+- **Gaussian KDE** places a Normal kernel on each observation; **bandwidth** (Scott/Silverman or a tuned fraction) controls smoothness.
+- Discretize by truncating with $d_{\min}-mh$ / $d_{\max}+mh$, evaluating the PDF on integers, and **normalizing**.
+- Fold negative KDE mass onto **0** for operational demand.
+- PMF moments $\mu_d,\sigma_d$ follow from $\sum p_i x_i$ and $\sum p_i x_i^2-\mu_d^2$; check independence before stacking periods.
+
+**Previous:** [Newsvendor Model](./newsvendor).
+
+**Next:** [Simulation Optimization](./simulation-optimization) — search inventory policies when closed forms fail.

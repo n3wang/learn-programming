@@ -1,0 +1,221 @@
+---
+sidebar_position: 9
+title: Distribution MEIO and Serial Simulation
+sidebar_label: '9. Distribution & simulation'
+---
+
+# 9. Distribution MEIO and Serial Simulation
+
+The previous chapter introduced **multi-echelon inventory optimization (MEIO)** and the simplified **guaranteed-service** risk-period model for a **serial** chain. This lesson extends that toolkit in two directions that appear constantly in practice:
+
+1. **Distribution networks** — one upstream node can serve several downstream branches (a central warehouse feeding stores or regions).
+2. **Policy simulation** — turn local and echelon targets into a short, inspectable time loop so you can check service before trusting a spreadsheet answer.
+
+Original teaching rewrite for this course. Numbered network examples are constructed for the drills below; they mirror the structure of classic GSM results without reprinting a commercial textbook.
+
+## Distribution topology under guaranteed service
+
+In a **distribution** network each node has at most one supplier, and possibly many customers. A common pattern is:
+
+- Node 1: central stocking point (incoming lead time $L_1$)
+- Node 2: regional hub fed by node 1 (incoming lead time $L_2$)
+- Nodes 3–5: demand-facing sites fed by node 1 or node 2 (incoming lead times $L_3,L_4,L_5$)
+
+Under the same GSM assumptions used for serial chains (aligned review period $R$, deterministic lead times, bounded demand with an explicit exception response), Inderfurth-type results say that a distribution network can still be optimized by checking a **small set of all-or-nothing buffer placements**: each candidate stocking point either covers the full risk segment back to the next upstream buffer, or holds none.
+
+For a three-echelon distribution sketch with five nodes, four representative placements are enough to illustrate the idea (not every industrial network collapses to four cases, but the search tree stays small compared with a naïve continuous allocation).
+
+### Risk-period table for a concrete sketch
+
+Take $L=[4,2,1,1,1]$ and $R=1$. Label nodes upstream → branches as $1,\ldots,5$. Four feasible placements (periods of demand protected by safety stock at each node) are:
+
+| Case | $x_1$ | $x_2$ | $x_3$ | $x_4$ | $x_5$ | Idea |
+|---|---:|---:|---:|---:|---:|---|
+| 1 | 4 | 2 | 2 | 2 | 2 | Buffer at every echelon |
+| 2 | 4 | 0 | 2 | 3 | 3 | Skip the regional buffer; branches absorb more |
+| 3 | 0 | 6 | 5 | 2 | 2 | Push the first buffer to the hub |
+| 4 | 0 | 0 | 5 | 7 | 7 | Hold only at demand-facing sites |
+
+Each row covers the network’s exposure: demand nodes always include $R$, and a “transparent” intermediate node ($x_i=0$) shifts protection onto its downstream clients. The arithmetic is the same as the serial lesson once each node’s $x_i$ is known:
+
+$$
+SS_i = z\,\sigma_{d,i}\,\sqrt{x_i},\qquad
+C_h=\sum_i h_i SS_i
+$$
+
+Use the **local** demand standard deviation at that node (see pooling below). Minimizing total units is again not the same as minimizing holding cost when $h_i$ rises downstream.
+
+The serial lesson’s cost explorer still applies once each node’s $x_i$ and $\sigma_{d,i}$ are set—compare holding-cost weighted cases rather than raw unit totals.
+
+<FormulaExplorer preset="inventoryMeioSerialCases" />
+
+## Demand pooling at aggregation nodes
+
+A regional or central node does not see a single store’s demand; it sees the **sum** of branch demand that flows through it.
+
+If branch demands are independent and Normal,
+
+$$
+d_{\text{hub}} \sim \mathcal{N}\!\left(
+\sum_k \mu_k,\;
+\sqrt{\sum_k \sigma_k^2}
+\right).
+$$
+
+If branches are positively correlated, the hub variance is larger than the independent case; if negatively correlated, it is smaller. When distributions differ (Normal at one branch, gamma at another) or correlation is unknown, estimate the hub series directly from historical throughput rather than assuming independence.
+
+Pooling is one reason MEIO often places **less** safety stock upstream than a naive sum of store-level buffers would suggest—provided the shared demand model is honest.
+
+### Quick pooling check
+
+Stores A and B have independent weekly demand with $(\mu,\sigma)=(40,10)$ and $(60,15)$. The hub that serves both has mean $100$ and SD $\sqrt{10^2+15^2}=18.03$ under independence—not $10+15=25$. Using $25$ as the hub SD would overstate the buffer.
+
+<FormulaExplorer preset="inventoryDemandPooling" />
+
+## Serial simulation: why “almost 95%” still happens
+
+Even with GSM risk periods chosen for cycle service $\alpha$, a multi-node simulation often shows **slightly lower** measured cycle service at intermediate placements than at “all stock downstream.” Upstream nodes are themselves imperfect; a demand-facing node protected only against its local segment still feels occasional shortages of supply from above. When every unit of risk is pooled at the customer-facing site and the external supplier is modeled as perfectly reliable, the measured cycle service matches the Normal calculation more closely.
+
+That gap is a reminder: spreadsheet GSM is a planning approximation. Simulation (or field measurement) remains the check on service, fill rate, and exceptional-response volume.
+
+### Timing conventions used in the drill
+
+For a short serial simulator with sites ordered upstream → downstream:
+
+1. Advance on-hand by receipts due this period.
+2. Consume final demand at the last site; record a stockout period if on-hand goes negative (or lost sales, if you clamp at zero).
+3. For each site from upstream to downstream (or reverse, consistently), compute **echelon** inventory = sum of on-hand and in-transit for that site and all downstream sites.
+4. Order up to the echelon target $\mathcal{S}_i$, but for every site except the external supplier, **cap** the order by stock available at its immediate supplier.
+
+The previous chapter already built $\mathcal{S}_i$ from local $S_i$. The drill below focuses on one update step of that loop.
+
+## Practice
+
+### Concept check
+
+<MultipleChoice
+  id="ib-meio-distribution-concepts"
+  title="Distribution networks and pooling"
+  questions={[
+    {
+      prompt: 'In a distribution network under the simplified GSM idea, what does an intermediate x_i = 0 mean?',
+      choices: [
+        'The node is deleted from the network.',
+        'The node holds no safety stock for its incoming segment; downstream nodes cover more risk.',
+        'The node quotes a negative service time.',
+        'The node must use continuous review only.',
+      ],
+      answer: 1,
+      why: 'A transparent intermediate shifts protection onto downstream buffers while still moving goods.',
+      whyWrong: 'Zero risk-period allocation is a buffer placement choice, not deletion of the site.',
+    },
+    {
+      prompt: 'Independent Normal demands with SD 10 and 15 at two stores. What hub SD should you use for pooling?',
+      choices: ['12.5', '18.03', '25', '225'],
+      answer: 1,
+      why: 'Independent variances add: sqrt(100 + 225) ≈ 18.03.',
+      whyWrong: 'Do not add standard deviations. Add variances, then take the square root.',
+    },
+    {
+      prompt: 'Why can a serial GSM simulation show cycle service a bit below the planned α when buffers sit upstream?',
+      choices: [
+        'The Normal distribution is invalid for inventory.',
+        'Upstream sites are imperfect suppliers to downstream sites, so local protection alone does not isolate the demand node.',
+        'Echelon policies always reduce service.',
+        'Review periods cannot be shared.',
+      ],
+      answer: 1,
+      why: 'Downstream protection assumes inbound supply behaves as modeled; imperfect upstream service leaks into measured stockouts.',
+      whyWrong: 'The issue is supply interaction across echelons, not a ban on shared reviews or echelon logic.',
+    },
+    {
+      prompt: 'When comparing distribution MEIO cases, which objective matches the serial lesson’s cost focus?',
+      choices: [
+        'Minimize the sum of safety-stock units only.',
+        'Minimize Σ h_i SS_i with node-specific holding costs.',
+        'Maximize the number of stocking points.',
+        'Set every x_i equal.',
+      ],
+      answer: 1,
+      why: 'Holding-cost weighted safety stock is the planning objective used in the serial worked example.',
+      whyWrong: 'Unit totals ignore expensive downstream locations; equal x_i is not required.',
+    },
+  ]}
+/>
+
+### Rank the distribution analysis
+
+<MultipleChoice
+  id="ib-meio-distribution-rank"
+  title="From network sketch to costed cases"
+  questions={[
+    {
+      type: 'order',
+      prompt: 'A distribution sketch, lead times, R, branch demand models, and holding costs are given.',
+      items: [
+        'Choose by cost (or service trade-off), then validate with simulation or history.',
+        'Estimate demand mean and SD at each node, pooling branches where they aggregate.',
+        'List a small set of feasible all-or-nothing risk-period allocations that cover the network.',
+        'Compute SS_i = z σ_{d,i} sqrt(x_i) and holding cost Σ h_i SS_i for each case.',
+      ],
+      order: [2, 1, 3, 0],
+      why: 'Topology → demand model → costed buffers → validation.',
+      whyWrong: 'Do not cost cases before demand pooling or skip feasibility of the risk-period cover.',
+    },
+  ]}
+/>
+
+### Python practice: pool independent Normal branches
+
+Implement `hub_demand_moments(means, sds)` for independent Normal branches. Return `(hub_mean, hub_sd)` with floating results.
+
+<CodeExercise
+  lang="python"
+  title="Hub demand under independent pooling"
+  prompt={`Implement hub_demand_moments(means, sds). Return (sum of means, sqrt of sum of squared SDs). Lengths must match; reject empty input.`}
+  starter={`import math\n\ndef hub_demand_moments(means, sds):\n    pass\n`}
+  wrapSuffix={`\nimport sys\ntokens = list(map(float, sys.stdin.read().split()))\nn = int(tokens[0])\nmeans = tokens[1:1+n]\nsds = tokens[1+n:1+2*n]\nmu, sd = hub_demand_moments(means, sds)\nprint(f'{mu:.4f}|{sd:.4f}')\n`}
+  tests={[
+    {name: 'Two independent stores', stdin: '2 40 60 10 15', equals: '100.0000|18.0278'},
+    {name: 'Single branch is itself', stdin: '1 80 12', equals: '80.0000|12.0000'},
+  ]}
+  hint="Sum means. Square each SD, sum, then take sqrt. Do not add the SDs directly."
+  solution={`import math\n\ndef hub_demand_moments(means, sds):\n    if len(means) == 0 or len(means) != len(sds):\n        raise ValueError('means and sds must be non-empty and equal length')\n    hub_mean = sum(means)\n    hub_var = sum(sd * sd for sd in sds)\n    return hub_mean, math.sqrt(hub_var)\n`}
+/>
+
+### Python practice: one serial echelon order step
+
+Given local on-hand by site (upstream → downstream), in-transit totals by site (already summed over pipeline positions), and echelon targets $\mathcal{S}$, compute orders $\max(0,\mathcal{S}_i-\mathcal{I}_i)$ where echelon inventory $\mathcal{I}_i$ is the sum of on-hand and in-transit from $i$ through the demand end. Then, from upstream to downstream, **cap** every site except the external supplier by the supplier’s current on-hand (do not model consumption of that on-hand beyond the cap for this drill).
+
+| Site | On-hand | In-transit | Echelon target |
+|---|---:|---:|---:|
+| Upstream | 300 | 0 | 1224 |
+| Middle | 250 | 0 | 742 |
+| Demand-facing | 100 | 0 | 371 |
+
+Raw shortfalls are $574$, $392$, $271$; after caps by supplier on-hand they become $574$, $300$, $250$.
+
+<CodeExercise
+  lang="python"
+  title="Echelon order with supplier availability"
+  prompt={`Implement echelon_step_orders(on_hand, in_transit_total, echelon_targets). Return capped order quantities upstream→downstream. Site 0 (external supply) is uncapped by a supplier on-hand. For i>0, order_i = min(raw_shortfall_i, on_hand[i-1]).`}
+  starter={`def echelon_step_orders(on_hand, in_transit_total, echelon_targets):\n    pass\n`}
+  wrapSuffix={`\nimport sys\ntokens = list(map(int, sys.stdin.read().split()))\nn = tokens[0]\non_hand = tokens[1:1+n]\nin_transit_total = tokens[1+n:1+2*n]\nechelon_targets = tokens[1+2*n:1+3*n]\nprint('|'.join(map(str, echelon_step_orders(on_hand, in_transit_total, echelon_targets))))\n`}
+  tests={[
+    {name: 'Shortfalls capped by supplier on-hand', stdin: '3 300 250 100 0 0 0 1224 742 371', equals: '574|300|250'},
+    {name: 'Middle order capped by thin upstream stock', stdin: '3 50 250 100 0 0 0 1224 742 371', equals: '824|50|250'},
+  ]}
+  hint="Build suffix sums for echelon inventory. Raw order = max(0, target - echelon_inventory). For i>0, order = min(order, on_hand[i-1])."
+  solution={`def echelon_step_orders(on_hand, in_transit_total, echelon_targets):\n    n = len(on_hand)\n    if not (n == len(in_transit_total) == len(echelon_targets)):\n        raise ValueError('array lengths must match')\n    orders = [0] * n\n    echelon_inventory = 0\n    for i in range(n - 1, -1, -1):\n        echelon_inventory += on_hand[i] + in_transit_total[i]\n        orders[i] = max(0, echelon_targets[i] - echelon_inventory)\n    for i in range(1, n):\n        orders[i] = min(orders[i], max(0, on_hand[i - 1]))\n    return orders\n`}
+/>
+
+## Takeaways
+
+- Distribution MEIO under GSM still uses sparse all-or-nothing placements; the hard part is honest demand at aggregation nodes.
+- Independent Normal branches pool by adding variances, not standard deviations.
+- Serial simulation explains why upstream buffers can leave measured cycle service a little short of the Normal plan.
+- Cap echelon orders by real supplier availability; unconstrained shortfalls are planning signals, not guaranteed shipments.
+
+**Previous:** [Multi-Echelon Inventory Optimization](./multi-echelon-inventory).
+
+**Next:** [Newsvendor Model](./newsvendor) — one-period order quantity with discrete demand and the critical ratio.

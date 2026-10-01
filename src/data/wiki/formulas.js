@@ -1625,4 +1625,125 @@ export const FORMULAS = [
     texAlts: ['newton method', 'x = x - f/f\'', "newton's iteration"],
     href: '/fundamentals/math-and-science/calculus/differentials-newtons-method',
   },
+  {
+    id: 'formula-meio-ss-risk-period',
+    kind: 'formula',
+    title: 'MEIO safety stock over a risk period',
+    formula: '$SS_i=z\\,\\sigma_{d,i}\\sqrt{x_i}$',
+    description:
+      'Under independent Normal demand, safety stock at node $i$ scales with the square root of the risk periods $x_i$ it protects. Network holding cost is $\\sum_i h_i SS_i$. Use the local demand SD at that node (pooled at hubs).',
+    explorer: 'inventoryMeioSerialCases',
+    tex: 'SS_i=z\\sigma_{d,i}\\sqrt{x_i}',
+    texAlts: [
+      'SS = z * sigma * sqrt(x)',
+      'SS_i=z\\sigma\\sqrt{x_i}',
+      'safety stock risk period',
+    ],
+    href: '/fundamentals/international-business/inventory-optimization/multi-echelon-inventory',
+  },
+  {
+    id: 'formula-newsvendor-critical-ratio',
+    kind: 'formula',
+    title: 'Newsvendor critical ratio',
+    formula: '$\\alpha^*=\\dfrac{c_u}{c_u+c_o}\\quad F_D(Q^*)=\\alpha^*$',
+    description:
+      'Optimal cycle service level for the newsvendor balances unit underage $c_u$ (lost margin, penalties) and overage $c_o$ (cost minus salvage or holding). Continuous $Q^*=F_D^{-1}(\\alpha^*)$; discrete $Q^*$ is the smallest integer with $P(D\\le Q)\\ge\\alpha^*$.',
+    explorer: 'inventoryNewsvendorCriticalNormal',
+    tex: '\\alpha^*=\\frac{c_u}{c_u+c_o}',
+    texAlts: [
+      'critical ratio newsvendor',
+      'cu/(cu+co)',
+      'F_D(Q*) = alpha*',
+      'newsvendor service level',
+    ],
+    href: '/fundamentals/international-business/inventory-optimization/newsvendor',
+  },
+  {
+    id: 'formula-newsvendor-expected-cost',
+    kind: 'formula',
+    title: 'Newsvendor expected mismatch cost',
+    formula:
+      '$\\mathcal{C}(Q)=c_o\\sum_{d<Q}(Q-d)p(d)+c_u\\sum_{d>Q}(d-Q)p(d)$',
+    description:
+      'Expected overage plus underage cost for discrete demand. Minimizing $\\mathcal{C}(Q)$ aligns with maximizing profit when $c_u$ includes lost margin. At optimum the two cost pieces balance.',
+    explorer: 'inventoryNewsvendorCost',
+    tex: '\\mathcal{C}(Q)=c_o\\sum_{d<Q}(Q-d)p(d)+c_u\\sum_{d>Q}(d-Q)p(d)',
+    texAlts: [
+      'newsvendor expected cost',
+      'C(Q) overage underage',
+      'co excess + cu shortage',
+    ],
+    href: '/fundamentals/international-business/inventory-optimization/newsvendor',
+  },
+  {
+    id: 'formula-kde-scott-bandwidth',
+    kind: 'formula',
+    title: "Scott's KDE bandwidth",
+    formula: '$h_{\\mathrm{Scott}}=\\sigma_d\\,n^{-1/5}$',
+    description:
+      "Rule-of-thumb Gaussian kernel bandwidth from sample SD $\\sigma_d$ and size $n$. Silverman's cousin is $\\sigma_d(4/(3n))^{1/5}$. Use about $0.9 h_{\\mathrm{Scott}}$ when Scott looks too smooth; truncate the discrete PMF near $d_{\\min}\\pm m h$.",
+    explorer: 'inventoryKdeBandwidth',
+    tex: 'h=\\sigma_d n^{-1/5}',
+    texAlts: [
+      'scott bandwidth',
+      'h = sigma / n^(1/5)',
+      'kde bandwidth scott',
+      'silverman bandwidth',
+    ],
+    href: '/fundamentals/international-business/inventory-optimization/discrete-probabilistic-demand',
+  },
+  {
+    id: 'formula-sim-opt-heuristic-ss',
+    kind: 'formula',
+    title: 'Sim-opt (R,S) heuristic safety stock',
+    formula:
+      '$\\alpha^*=1-\\dfrac{hR}{1.1 b_\\tau}\\quad S_s=z_{\\alpha^*}\\sqrt{(\\mu_L+R)\\sigma_d^2+\\sigma_L^2\\mu_d^2}$',
+    description:
+      'Warm-start safety stock before simulation search when backlog is charged per unit per period. Inflate $b_\\tau$ slightly in $\\alpha^*$, then convert $S=S_s+\\mu_d(\\mu_L+R)$ after the search.',
+    explorer: 'inventorySimOptHeuristicSs',
+    tex: 'S_s=z\\sqrt{(\\mu_L+R)\\sigma_d^2+\\sigma_L^2\\mu_d^2}',
+    texAlts: [
+      'sim-opt heuristic safety stock',
+      'alpha = 1 - hR / b',
+      'Ss warm start simulation',
+    ],
+    href: '/fundamentals/international-business/inventory-optimization/simulation-optimization',
+  },
+  {
+    id: 'formula-pmf-moments',
+    kind: 'formula',
+    title: 'Discrete demand PMF moments',
+    formula: '$\\mu_d=\\sum_i p_i x_i\\quad \\sigma_d=\\sqrt{\\sum_i p_i x_i^2-\\mu_d^2}$',
+    description:
+      'Mean and standard deviation of a normalized discrete demand PMF after KDE discretization (and optional folding of negative mass onto 0).',
+    explorer: 'inventoryPmfMoments',
+    tex: '\\mu=\\sum p_i x_i',
+    texAlts: ['pmf mean variance', 'discrete demand moments', 'sigma from pmf'],
+    href: '/fundamentals/international-business/inventory-optimization/discrete-probabilistic-demand',
+  },
+  {
+    id: 'formula-demand-pooling',
+    kind: 'formula',
+    title: 'Independent demand pooling',
+    formula: '$\\mu_{hub}=\\sum_k\\mu_k\\quad \\sigma_{hub}=\\sqrt{\\sum_k\\sigma_k^2}$',
+    description:
+      'For independent Normal branches feeding a hub, means add and variances add. Do not add standard deviations.',
+    explorer: 'inventoryDemandPooling',
+    tex: '\\sigma_{hub}=\\sqrt{\\sum\\sigma_k^2}',
+    texAlts: ['demand pooling', 'hub sd sqrt sum variance', 'independent branch pooling'],
+    href: '/fundamentals/international-business/inventory-optimization/distribution-meio-and-simulation',
+  },
+  {
+    id: 'formula-sim-opt-rsq-warm-start',
+    kind: 'formula',
+    title: '(R,s,Q) sim-opt warm start',
+    formula:
+      '$s=\\mu(L+R/2)+z\\sigma\\sqrt{L+R/2}\\quad Q\\approx\\sqrt{2(k+bU_s)D/h}$',
+    description:
+      'Heuristic seed for multi-parameter sim-opt: average (R,S) and (s,Q) service targets, risk length L+R/2, and a stochastic EOQ-style Q.',
+    explorer: 'inventorySimOptRsqStart',
+    tex: 's=\\mu(L+R/2)+z\\sigma\\sqrt{L+R/2}',
+    texAlts: ['RsQ warm start', 'L+R/2 risk period', 'sim-opt s Q heuristic'],
+    href: '/fundamentals/international-business/inventory-optimization/simulation-optimization',
+  },
 ];

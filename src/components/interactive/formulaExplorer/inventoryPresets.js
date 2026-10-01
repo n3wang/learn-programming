@@ -1247,4 +1247,755 @@ export const INVENTORY_PRESETS = {
       };
     },
   },
+
+  inventoryNewsvendorMuffin: {
+    id: 'inventoryNewsvendorMuffin',
+    title: 'Newsvendor: muffin expected profit',
+    subtitle: 'Discrete PMF, salvage value, and critical-ratio service level',
+    formula:
+      '$\\mathcal{P}(Q,d)=p\\min(Q,d)+s_v\\max(0,Q-d)-cQ\\qquad \\alpha^*=\\dfrac{c_u}{c_u+c_o}$',
+    params: [
+      {
+        key: 'price',
+        label: 'p (sell price)',
+        meaning: 'Revenue per unit sold at full price.',
+        min: 3,
+        max: 12,
+        step: 1,
+        default: 6,
+      },
+      {
+        key: 'cost',
+        label: 'c (unit cost)',
+        meaning: 'Cost to produce or buy one unit before the period.',
+        min: 1,
+        max: 8,
+        step: 1,
+        default: 2,
+      },
+      {
+        key: 'salvage',
+        label: 's_v (salvage)',
+        meaning: 'Recovery per leftover unit at period end.',
+        min: 0,
+        max: 6,
+        step: 1,
+        default: 1,
+      },
+    ],
+    example(v) {
+      const co = v.cost - v.salvage;
+      const cu = v.price - v.cost;
+      const alpha = cu / (cu + co);
+      return `With c_o=${fmt(co, 0)} and c_u=${fmt(cu, 0)}, critical ratio alpha*=${fmt(alpha, 3)} (target cycle service at optimum).`;
+    },
+    compute(v) {
+      const demands = [0, 2, 4, 6, 8, 10];
+      const pmf = [0.4, 0.2, 0.2, 0.1, 0.05, 0.05];
+      const quantities = [2, 4, 6, 8, 10];
+      const co = v.cost - v.salvage;
+      const cu = v.price - v.cost;
+      const alpha = cu / (cu + co);
+
+      function profitQd(q, d) {
+        return v.price * Math.min(q, d) + v.salvage * Math.max(0, q - d) - v.cost * q;
+      }
+
+      function cdfAt(q) {
+        return pmf.reduce((sum, p, index) => (demands[index] <= q ? sum + p : sum), 0);
+      }
+
+      let bestQ = quantities[0];
+      let bestProfit = -Infinity;
+      const bars = quantities.map((q) => {
+        const expected = pmf.reduce(
+          (sum, p, index) => sum + profitQd(q, demands[index]) * p,
+          0,
+        );
+        if (expected > bestProfit + 1e-9) {
+          bestProfit = expected;
+          bestQ = q;
+        }
+        return {
+          x: q,
+          y: expected,
+          highlight: false,
+          label: `Q=${q}`,
+        };
+      });
+      bars.forEach((bar) => {
+        if (bar.x === bestQ) {
+          bar.highlight = true;
+        }
+      });
+
+      let criticalQ = 0;
+      while (cdfAt(criticalQ) + 1e-12 < alpha) {
+        criticalQ += 1;
+      }
+
+      return {
+        chartType: 'bar',
+        series: bars,
+        stats: [
+          {label: 'best Q (grid, tie → low)', value: `${bestQ} units`},
+          {label: 'E[profit] at best', value: fmt(bestProfit, 2)},
+          {label: 'alpha* (critical ratio)', value: fmt(alpha, 3)},
+          {label: 'smallest Q with P(D≤Q)≥alpha*', value: `${criticalQ} units`},
+          {label: 'P(D≤4) on lesson PMF', value: fmt(cdfAt(4), 2)},
+        ],
+        note: 'Bars use candidate quantities {2,4,6,8,10}. Discrete optimum by CDF can differ from the profit tie on this grid.',
+      };
+    },
+  },
+
+  inventoryNewsvendorCost: {
+    id: 'inventoryNewsvendorCost',
+    title: 'Newsvendor expected cost C(Q)',
+    subtitle: 'Overage vs underage expected cost on the muffin PMF; minimum where they balance',
+    formula:
+      '$\\mathcal{C}(Q)=c_o\\sum_{d<Q}(Q-d)p(d)+c_u\\sum_{d>Q}(d-Q)p(d)$',
+    params: [
+      {
+        key: 'co',
+        label: 'c_o (unit overage)',
+        meaning: 'Cost of one leftover unit (e.g. c − salvage).',
+        min: 0.25,
+        max: 8,
+        step: 0.25,
+        default: 1,
+      },
+      {
+        key: 'cu',
+        label: 'c_u (unit underage)',
+        meaning: 'Cost of one unit short, including lost profit in this cost form.',
+        min: 0.25,
+        max: 12,
+        step: 0.25,
+        default: 4,
+      },
+    ],
+    example(v) {
+      const alpha = v.cu / (v.cu + v.co);
+      return `Critical ratio α*=${fmt(alpha, 3)}. Move c_o and c_u to see the cost valley shift on the discrete muffin demand PMF.`;
+    },
+    compute(v) {
+      const demands = [0, 2, 4, 6, 8, 10];
+      const pmf = [0.4, 0.2, 0.2, 0.1, 0.05, 0.05];
+      const quantities = [0, 2, 4, 6, 8, 10];
+      const alpha = v.cu / (v.cu + v.co);
+
+      function excess(q) {
+        return pmf.reduce((sum, p, i) => {
+          const d = demands[i];
+          return d < q ? sum + (q - d) * p : sum;
+        }, 0);
+      }
+      function shortage(q) {
+        return pmf.reduce((sum, p, i) => {
+          const d = demands[i];
+          return d > q ? sum + (d - q) * p : sum;
+        }, 0);
+      }
+
+      let bestQ = quantities[0];
+      let bestCost = Infinity;
+      let bestOver = 0;
+      let bestUnder = 0;
+      const bars = quantities.map((q) => {
+        const over = v.co * excess(q);
+        const under = v.cu * shortage(q);
+        const total = over + under;
+        if (total < bestCost - 1e-9) {
+          bestCost = total;
+          bestQ = q;
+          bestOver = over;
+          bestUnder = under;
+        }
+        return {x: q, y: total, label: `Q=${q}`, highlight: false};
+      });
+      bars.forEach((bar) => {
+        if (bar.x === bestQ) bar.highlight = true;
+      });
+
+      let criticalQ = 0;
+      const cdfAt = (q) =>
+        pmf.reduce((sum, p, i) => (demands[i] <= q ? sum + p : sum), 0);
+      while (cdfAt(criticalQ) + 1e-12 < alpha) criticalQ += 1;
+
+      return {
+        chartType: 'bar',
+        yLabel: 'order quantity Q',
+        series: bars,
+        stats: [
+          {label: 'α* = c_u/(c_u+c_o)', value: fmt(alpha, 3)},
+          {label: 'min C(Q) on grid', value: fmt(bestCost, 2)},
+          {label: 'Q at min C', value: `${bestQ} units`},
+          {label: 'overage part at min', value: fmt(bestOver, 2)},
+          {label: 'underage part at min', value: fmt(bestUnder, 2)},
+          {label: 'CDF rule Q*', value: `${criticalQ} units`},
+        ],
+        note: 'Bar height is total expected mismatch cost. Near the optimum the overage and underage pieces are closest; the CDF critical-ratio rule is the analytical target.',
+      };
+    },
+  },
+
+  inventoryNewsvendorCriticalNormal: {
+    id: 'inventoryNewsvendorCriticalNormal',
+    title: 'Continuous newsvendor Q*',
+    subtitle: 'Critical ratio α* sets the Normal quantile for one-period order quantity',
+    formula:
+      '$\\alpha^*=\\dfrac{c_u}{c_u+c_o}\\qquad Q^*=F_D^{-1}(\\alpha^*)=\\mu+z_{\\alpha^*}\\sigma$',
+    params: [
+      {
+        key: 'cu',
+        label: 'c_u (underage)',
+        meaning: 'Lost margin (and penalties) per unit short.',
+        min: 0.5,
+        max: 10,
+        step: 0.5,
+        default: 2,
+      },
+      {
+        key: 'co',
+        label: 'c_o (overage)',
+        meaning: 'Net cost of one leftover unit.',
+        min: 0.5,
+        max: 10,
+        step: 0.5,
+        default: 1,
+      },
+      {
+        key: 'mean',
+        label: 'mu (mean demand)',
+        meaning: 'Normal demand mean for the selling period.',
+        min: 5,
+        max: 40,
+        step: 1,
+        default: 15,
+      },
+      {
+        key: 'deviation',
+        label: 'sigma (demand SD)',
+        meaning: 'Normal demand standard deviation.',
+        min: 1,
+        max: 15,
+        step: 0.5,
+        default: 5,
+      },
+    ],
+    example(v) {
+      const alpha = v.cu / (v.cu + v.co);
+      const z = normalQuantile(clamp(alpha, 0.5, 0.999));
+      const qStar = v.mean + z * v.deviation;
+      return `Cookie-style sketch: α*=${fmt(alpha, 3)}, z≈${fmt(z, 3)}, so Q*≈${fmt(qStar, 1)} (bake about ${Math.round(qStar)} if pans are integer).`;
+    },
+    compute(v) {
+      const alpha = clamp(v.cu / (v.cu + v.co), 0.5, 0.999);
+      const z = normalQuantile(alpha);
+      const qStar = v.mean + z * v.deviation;
+      const minX = Math.max(0, v.mean - 4 * v.deviation);
+      const maxX = v.mean + 4 * v.deviation;
+      return {
+        chartType: 'line',
+        yLabel: 'demand x',
+        series: sampleCurve(minX, maxX, (x) => normalPdf(v.mean, v.deviation, x), 120, qStar),
+        shadeToX: qStar,
+        refLineX: qStar,
+        stats: [
+          {label: 'α*', value: fmt(alpha, 3)},
+          {label: 'z_α', value: fmt(z, 3)},
+          {label: 'Q*', value: fmt(qStar, 2)},
+          {label: 'rounded bake qty', value: String(Math.round(qStar))},
+          {label: 'P(D ≤ Q*)', value: fmt(normalCdf(v.mean, v.deviation, qStar), 3)},
+        ],
+        note: 'Shaded mass left of Q* is the targeted cycle service α*. Defaults match the lesson cookie sketch (c_u=2, c_o=1, μ=15, σ=5).',
+      };
+    },
+  },
+
+  inventoryKdeBandwidth: {
+    id: 'inventoryKdeBandwidth',
+    title: 'KDE bandwidth and discrete support',
+    subtitle: 'Scott / Silverman rules and truncated integer domain for a PMF',
+    formula:
+      '$h_{\\mathrm{Scott}}=\\sigma_d n^{-1/5}\\qquad L=\\lfloor d_{\\min}-m h\\rfloor\\qquad U=\\lceil d_{\\max}+m h\\rceil$',
+    params: [
+      {
+        key: 'std',
+        label: 'sigma_d (sample SD)',
+        meaning: 'Standard deviation of the demand observations.',
+        min: 10,
+        max: 400,
+        step: 5,
+        default: 100,
+      },
+      {
+        key: 'n',
+        label: 'n (sample size)',
+        meaning: 'Number of demand observations used in the KDE.',
+        min: 16,
+        max: 400,
+        step: 1,
+        default: 32,
+      },
+      {
+        key: 'dMin',
+        label: 'd_min (lowest observation)',
+        meaning: 'Smallest observed demand used for truncation.',
+        min: 0,
+        max: 2000,
+        step: 10,
+        default: 500,
+      },
+      {
+        key: 'dMax',
+        label: 'd_max (highest observation)',
+        meaning: 'Largest observed demand used for truncation.',
+        min: 100,
+        max: 3000,
+        step: 10,
+        default: 1900,
+      },
+      {
+        key: 'safety',
+        label: 'm (safety multiples of h)',
+        meaning: 'How many bandwidths beyond the sample extremes to keep.',
+        min: 2,
+        max: 5,
+        step: 0.5,
+        default: 3,
+      },
+      {
+        key: 'scottScale',
+        label: 'Scott scale factor',
+        meaning: '1 is full Scott; 0.9 is a common less-smooth heuristic.',
+        min: 0.5,
+        max: 1.2,
+        step: 0.05,
+        default: 0.9,
+      },
+    ],
+    example(v) {
+      const scott = v.std * v.n ** -0.2;
+      const silverman = v.std * (4 / (3 * v.n)) ** 0.2;
+      const tuned = v.scottScale * scott;
+      return `Scott h=${fmt(scott, 2)}; Silverman h=${fmt(silverman, 2)}; scaled Scott (${fmt(v.scottScale, 2)}×) h=${fmt(tuned, 2)}.`;
+    },
+    compute(v) {
+      const scott = v.std * v.n ** -0.2;
+      const silverman = v.std * (4 / (3 * v.n)) ** 0.2;
+      const tuned = v.scottScale * scott;
+      const lower = Math.floor(v.dMin - v.safety * tuned);
+      const upper = Math.ceil(v.dMax + v.safety * tuned);
+      const supportSize = Math.max(0, upper - lower + 1);
+      const points = [
+        {x: 0.9, y: 0.9 * scott, label: '0.9×Scott'},
+        {x: 1, y: scott, label: 'Scott'},
+        {x: 1.1, y: silverman, label: 'Silverman'},
+        {x: v.scottScale, y: tuned, label: 'scaled', highlight: true},
+      ].sort((a, b) => a.x - b.x);
+
+      return {
+        chartType: 'bar',
+        series: points,
+        stats: [
+          {label: 'Scott h', value: fmt(scott, 2)},
+          {label: 'Silverman h', value: fmt(silverman, 2)},
+          {label: 'scaled h used for bounds', value: fmt(tuned, 2)},
+          {label: 'integer domain [L, U]', value: `[${lower}, ${upper}]`},
+          {label: 'support size', value: `${supportSize} integers`},
+        ],
+        note: 'Bars compare bandwidth rules. Domain uses the scaled Scott bandwidth with safety m beyond the sample min/max.',
+      };
+    },
+  },
+
+  inventoryPmfMoments: {
+    id: 'inventoryPmfMoments',
+    title: 'Discrete PMF mean and SD',
+    subtitle: 'μ and σ from a two-point mix on a fixed integer support after normalization',
+    formula:
+      '$\\mu_d=\\sum_i p_i x_i\\qquad \\sigma_d=\\sqrt{\\sum_i p_i x_i^2-\\mu_d^2}$',
+    params: [
+      {
+        key: 'low',
+        label: 'low demand x_L',
+        meaning: 'Left support point of a simple two-point PMF.',
+        min: 0,
+        max: 40,
+        step: 1,
+        default: 10,
+      },
+      {
+        key: 'high',
+        label: 'high demand x_H',
+        meaning: 'Right support point (must stay above x_L).',
+        min: 5,
+        max: 80,
+        step: 1,
+        default: 40,
+      },
+      {
+        key: 'pHigh',
+        label: 'P(X = x_H)',
+        meaning: 'Probability on the high point; the rest sits on x_L.',
+        min: 0.05,
+        max: 0.95,
+        step: 0.05,
+        default: 0.3,
+      },
+    ],
+    example(v) {
+      const low = Math.min(v.low, v.high - 1);
+      const high = Math.max(v.high, low + 1);
+      const pH = v.pHigh;
+      const pL = 1 - pH;
+      const mu = pL * low + pH * high;
+      const second = pL * low * low + pH * high * high;
+      const sd = Math.sqrt(Math.max(0, second - mu * mu));
+      return `With mass ${fmt(pL, 2)} at ${low} and ${fmt(pH, 2)} at ${high}, μ≈${fmt(mu, 2)} and σ≈${fmt(sd, 2)}.`;
+    },
+    compute(v) {
+      const low = Math.min(v.low, v.high - 1);
+      const high = Math.max(v.high, low + 1);
+      const pH = v.pHigh;
+      const pL = 1 - pH;
+      const mu = pL * low + pH * high;
+      const second = pL * low * low + pH * high * high;
+      const sd = Math.sqrt(Math.max(0, second - mu * mu));
+      const xs = [];
+      for (let x = low; x <= high; x += 1) {
+        let p = 0;
+        if (x === low) p = pL;
+        if (x === high) p = pH;
+        xs.push({x, y: p, label: String(x), highlight: x === Math.round(mu)});
+      }
+      return {
+        chartType: 'bar',
+        yLabel: 'demand x',
+        series: xs,
+        refLineX: mu,
+        stats: [
+          {label: 'μ_d', value: fmt(mu, 2)},
+          {label: 'σ_d', value: fmt(sd, 2)},
+          {label: 'E[X²]', value: fmt(second, 2)},
+          {label: 'Var', value: fmt(sd * sd, 2)},
+        ],
+        note: 'Orange bar marks the integer nearest μ. Same identities apply to any normalized discrete PMF used in simulation.',
+      };
+    },
+  },
+
+  inventoryDemandPooling: {
+    id: 'inventoryDemandPooling',
+    title: 'Independent demand pooling',
+    subtitle: 'Hub mean adds; hub SD is the square root of summed variances',
+    formula:
+      '$\\mu_{hub}=\\sum_k\\mu_k\\qquad \\sigma_{hub}=\\sqrt{\\sum_k\\sigma_k^2}$',
+    params: [
+      {
+        key: 'muA',
+        label: 'μ_A (branch A mean)',
+        meaning: 'Mean demand at store/branch A.',
+        min: 10,
+        max: 120,
+        step: 5,
+        default: 40,
+      },
+      {
+        key: 'sdA',
+        label: 'σ_A (branch A SD)',
+        meaning: 'Demand SD at branch A.',
+        min: 1,
+        max: 40,
+        step: 1,
+        default: 10,
+      },
+      {
+        key: 'muB',
+        label: 'μ_B (branch B mean)',
+        meaning: 'Mean demand at store/branch B.',
+        min: 10,
+        max: 120,
+        step: 5,
+        default: 60,
+      },
+      {
+        key: 'sdB',
+        label: 'σ_B (branch B SD)',
+        meaning: 'Demand SD at branch B.',
+        min: 1,
+        max: 40,
+        step: 1,
+        default: 15,
+      },
+    ],
+    example(v) {
+      const mu = v.muA + v.muB;
+      const sd = Math.sqrt(v.sdA * v.sdA + v.sdB * v.sdB);
+      const naive = v.sdA + v.sdB;
+      return `Hub μ=${fmt(mu, 0)}, pooled σ≈${fmt(sd, 2)}. Adding SDs would wrongly give ${fmt(naive, 0)}.`;
+    },
+    compute(v) {
+      const mu = v.muA + v.muB;
+      const sd = Math.sqrt(v.sdA * v.sdA + v.sdB * v.sdB);
+      const naive = v.sdA + v.sdB;
+      const minX = Math.max(0, mu - 4 * sd);
+      const maxX = mu + 4 * sd;
+      return {
+        chartType: 'line',
+        yLabel: 'hub demand',
+        series: sampleCurve(minX, maxX, (x) => normalPdf(mu, sd, x), 120, mu),
+        refLineX: mu,
+        stats: [
+          {label: 'hub μ', value: fmt(mu, 1)},
+          {label: 'pooled σ', value: fmt(sd, 2)},
+          {label: 'naive σ_A+σ_B', value: fmt(naive, 2)},
+          {label: 'overstatement if add SDs', value: fmt(naive - sd, 2)},
+        ],
+        note: 'Curve is the independent Normal hub density. Positive correlation would widen it further.',
+      };
+    },
+  },
+
+  inventorySimOptHeuristicSs: {
+    id: 'inventorySimOptHeuristicSs',
+    title: 'Sim-opt warm-start safety stock',
+    subtitle: 'Normal heuristic Ss before a climb or double search',
+    formula:
+      '$\\alpha^*=1-\\dfrac{hR}{1.1 b_\\tau}\\qquad \\sigma_x=\\sqrt{(\\mu_L+R)\\sigma_d^2+\\sigma_L^2\\mu_d^2}\\qquad S_s=z_{\\alpha^*}\\sigma_x$',
+    params: [
+      {
+        key: 'h',
+        label: 'h (holding / unit / period)',
+        meaning: 'Holding cost used in the service-level heuristic.',
+        min: 0.25,
+        max: 5,
+        step: 0.25,
+        default: 1.25,
+      },
+      {
+        key: 'bTau',
+        label: 'b_tau (backlog / unit / period)',
+        meaning: 'Time-based backlog penalty; inflate slightly in α*.',
+        min: 5,
+        max: 80,
+        step: 1,
+        default: 25,
+      },
+      {
+        key: 'review',
+        label: 'R (review period)',
+        meaning: 'Periodic review interval.',
+        min: 1,
+        max: 8,
+        step: 1,
+        default: 1,
+      },
+      {
+        key: 'dMean',
+        label: 'mu_d (mean demand)',
+        meaning: 'Per-period mean demand.',
+        min: 200,
+        max: 3000,
+        step: 50,
+        default: 1200,
+      },
+      {
+        key: 'dStd',
+        label: 'sigma_d (demand SD)',
+        meaning: 'Per-period demand standard deviation.',
+        min: 50,
+        max: 800,
+        step: 10,
+        default: 300,
+      },
+      {
+        key: 'lMean',
+        label: 'mu_L (mean lead time)',
+        meaning: 'Expected lead time periods.',
+        min: 1,
+        max: 10,
+        step: 0.1,
+        default: 4,
+      },
+      {
+        key: 'lStd',
+        label: 'sigma_L (lead-time SD)',
+        meaning: 'Lead-time standard deviation from its PMF.',
+        min: 0,
+        max: 2,
+        step: 0.05,
+        default: 0.45,
+      },
+      {
+        key: 'inflate',
+        label: 'backlog inflate',
+        meaning: 'Multiplier on b_tau inside α* (1.1 ≈ multi-period backlog).',
+        min: 1,
+        max: 1.5,
+        step: 0.05,
+        default: 1.1,
+      },
+    ],
+    example(v) {
+      const alpha = 1 - (v.h * v.review) / (v.bTau * v.inflate);
+      const xStd = Math.sqrt(
+        (v.lMean + v.review) * v.dStd ** 2 + v.lStd ** 2 * v.dMean ** 2,
+      );
+      const z = normalQuantile(clamp(alpha, 0.5, 0.999));
+      const ss = z * xStd;
+      return `α*≈${fmt(alpha, 3)} gives z≈${fmt(z, 3)} and heuristic Ss≈${fmt(ss, 0)} (start sim-opt near here).`;
+    },
+    compute(v) {
+      const alpha = clamp(1 - (v.h * v.review) / (v.bTau * v.inflate), 0.5, 0.999);
+      const xStd = Math.sqrt(
+        (v.lMean + v.review) * v.dStd ** 2 + v.lStd ** 2 * v.dMean ** 2,
+      );
+      const z = normalQuantile(alpha);
+      const ss = z * xStd;
+      const orderUpTo = ss + v.dMean * (v.lMean + v.review);
+      const minX = Math.max(0, ss - 3 * xStd);
+      const maxX = ss + 3 * xStd;
+      return {
+        chartType: 'line',
+        yLabel: 'protection-period demand',
+        series: sampleCurve(minX, maxX, (x) => {
+          const u = (x - v.dMean * (v.lMean + v.review)) / xStd;
+          return Math.exp(-0.5 * u * u);
+        }, 120, orderUpTo),
+        refLineX: orderUpTo,
+        stats: [
+          {label: 'alpha*', value: fmt(alpha, 3)},
+          {label: 'z_alpha', value: fmt(z, 3)},
+          {label: 'sigma_x', value: fmt(xStd, 1)},
+          {label: 'heuristic Ss', value: fmt(ss, 0)},
+          {label: 'S = Ss + μ_d(μ_L+R)', value: fmt(orderUpTo, 0)},
+        ],
+        note: 'Curve is a Normal sketch of protection-period demand. Vertical reference is the heuristic order-up-to level used as a sim-opt warm start.',
+      };
+    },
+  },
+
+  inventorySimOptRsqStart: {
+    id: 'inventorySimOptRsqStart',
+    title: '(R,s,Q) warm-start s and Q',
+    subtitle: 'Average α* heuristics, risk L+R/2, and one stochastic EOQ refinement',
+    formula:
+      '$s=\\mu(L+R/2)+z\\sigma\\sqrt{L+R/2}\\qquad Q\\approx\\sqrt{\\dfrac{2(k+b U_s)D}{h}}$',
+    params: [
+      {
+        key: 'h',
+        label: 'h (holding)',
+        meaning: 'Holding cost per unit per period.',
+        min: 0.25,
+        max: 5,
+        step: 0.25,
+        default: 1.25,
+      },
+      {
+        key: 'bTau',
+        label: 'b_tau (backlog)',
+        meaning: 'Backlog cost per unit per period.',
+        min: 5,
+        max: 80,
+        step: 1,
+        default: 25,
+      },
+      {
+        key: 'k',
+        label: 'k (order cost)',
+        meaning: 'Fixed cost per replenishment transaction.',
+        min: 200,
+        max: 4000,
+        step: 100,
+        default: 1000,
+      },
+      {
+        key: 'review',
+        label: 'R (review)',
+        meaning: 'Periodic review interval.',
+        min: 1,
+        max: 8,
+        step: 1,
+        default: 1,
+      },
+      {
+        key: 'demand',
+        label: 'D (mean demand/period)',
+        meaning: 'Per-period mean demand.',
+        min: 200,
+        max: 3000,
+        step: 50,
+        default: 1200,
+      },
+      {
+        key: 'dStd',
+        label: 'sigma_d',
+        meaning: 'Per-period demand SD.',
+        min: 50,
+        max: 800,
+        step: 10,
+        default: 300,
+      },
+      {
+        key: 'lead',
+        label: 'L (lead time)',
+        meaning: 'Fixed lead time used in the warm-start sketch.',
+        min: 1,
+        max: 10,
+        step: 1,
+        default: 4,
+      },
+      {
+        key: 'inflate',
+        label: 'backlog inflate',
+        meaning: 'Multiplier on b_tau inside service heuristics.',
+        min: 1,
+        max: 1.5,
+        step: 0.05,
+        default: 1.1,
+      },
+    ],
+    example(v) {
+      const b = v.bTau * v.inflate;
+      const q0 = Math.sqrt((2 * v.k * v.demand) / v.h);
+      const Q = Math.sqrt((2 * (v.k + q0 * 0.02 * b) * v.demand) / v.h);
+      const risk = v.lead + v.review / 2;
+      return `Deterministic EOQ≈${fmt(q0, 0)}; refined Q≈${fmt(Q, 0)}; risk length L+R/2=${fmt(risk, 2)}.`;
+    },
+    compute(v) {
+      const b = v.bTau * v.inflate;
+      const q0 = Math.sqrt((2 * v.k * v.demand) / v.h);
+      const Q = Math.sqrt((2 * (v.k + q0 * 0.02 * b) * v.demand) / v.h);
+      const alphaRs = 1 - (v.h * v.review) / b;
+      const alphaSq = 1 - (v.h * Q) / (b * v.demand);
+      const alpha = clamp(0.5 * (alphaRs + alphaSq), 0.5, 0.999);
+      const z = normalQuantile(alpha);
+      const riskHalf = v.lead + v.review / 2;
+      const riskL = v.lead;
+      const riskFull = v.lead + v.review;
+      const ss = z * v.dStd * Math.sqrt(riskHalf);
+      const s = ss + v.demand * riskHalf;
+      const points = [
+        {x: 0, y: v.demand * riskL + z * v.dStd * Math.sqrt(riskL), label: 'L only', highlight: false},
+        {x: 1, y: s, label: 'L+R/2', highlight: true},
+        {x: 2, y: v.demand * riskFull + z * v.dStd * Math.sqrt(riskFull), label: 'L+R', highlight: false},
+      ];
+      return {
+        chartType: 'bar',
+        yLabel: 'reorder point sketch',
+        series: points,
+        stats: [
+          {label: 'α (averaged)', value: fmt(alpha, 3)},
+          {label: 'warm-start s', value: fmt(s, 0)},
+          {label: 'warm-start Q', value: fmt(Q, 0)},
+          {label: 'EOQ (no Us)', value: fmt(q0, 0)},
+          {label: 'risk L+R/2', value: fmt(riskHalf, 2)},
+        ],
+        note: 'Bars compare reorder-point sketches under L, L+R/2, and L+R with the same averaged α. Highlighted bar is the chapter compromise.',
+      };
+    },
+  },
 };

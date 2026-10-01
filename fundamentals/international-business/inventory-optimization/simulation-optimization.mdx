@@ -1,0 +1,348 @@
+---
+sidebar_position: 12
+title: Simulation Optimization
+sidebar_label: '12. Simulation optimization'
+---
+
+# 12. Simulation Optimization
+
+Closed-form inventory models need strong assumptions: Normal or gamma demand, fixed or Normal lead times, pure backorders, non-perishable stock. Real chains often violate several of those at once—custom demand shapes from the previous lesson, stochastic lead times, time-dependent backlog penalties, partial lost sales, or product aging.
+
+**Simulation optimization (sim-opt)** does not solve those cases with a single equation. It **simulates** many candidate policies and **keeps the one with the best estimated cost** (or another KPI). The price is compute time and noisy estimates; the gain is workable policies when math is intractable.
+
+Original teaching rewrite for this course. Numbers in drills are constructed for stable grading; they follow the chapter’s logic without reprinting a commercial case study.
+
+## When mathematical models stop being enough
+
+Typical breaks in earlier assumptions:
+
+- Excess demand is partly **lost sales**, or backlog that ages into cancellations—not a fixed per-unit backorder cost.
+- Demand follows a **custom discrete PMF** (KDE), not Normal/gamma.
+- Lead time is itself a **discrete PMF**.
+- Goods **deteriorate** or perish within a short horizon.
+
+If you cannot write a trustworthy closed form, simulate the policy and search.
+
+## Case: safety stock with custom demand and lead time
+
+Consider a periodic $(R,S)$ setting with:
+
+- Demand PMF from a discrete KDE (previous lesson), with moments $\mu_d,\sigma_d$.
+- Lead-time PMF, for example:
+
+| Lead time $L$ | 3 | 4 | 5 |
+|---|---:|---:|---:|
+| Probability | 0.1 | 0.7 | 0.2 |
+
+- Holding cost $h$ per unit per period, fixed order cost $k$, and a **backlog cost** $b_\tau$ charged **per unit short per period** (not a one-shot backorder fee).
+
+Three building blocks:
+
+1. Estimate demand and lead-time distributions (and their moments).
+2. Write a simulator that maps a candidate safety stock $S_s$ (given $R$) to average cost and service KPIs.
+3. Run a **search** over $S_s$ until a stopping rule fires.
+
+From safety stock to order-up-to:
+
+$$
+S = S_s + \mu_d(\mu_L + R)
+$$
+
+Use **mean** lead time $\mu_L$ in that formula—not only the modal (“most common”) lead time—unless your model explicitly says otherwise.
+
+## Simulation sketch
+
+A practical discrete-time loop (same spirit as earlier policy labs):
+
+1. Maintain on-hand (can go negative under backlog) and a **transit pipeline** sized to the **maximum** lead time.
+2. Each period: receive due receipts, observe demand, update on-hand and stockout flags, advance the pipeline.
+3. Every $R$ periods: compute inventory position (on-hand + pipeline), sample a random lead time from the lead-time PMF, and place an order that restores position to $S$.
+4. Accrue holding on average physical stock, backlog cost $b_\tau\cdot\max(0,-\text{on-hand})$, and transaction cost $k$ when ordering.
+5. Return average cost per period, cycle service, fill rate, and the $S_s$ you tested.
+
+Long horizons (e.g. tens of thousands of periods) reduce noise but raise runtime.
+
+## Search method 1: start at zero and climb
+
+1. Simulate $S_s=\texttt{start}$ (often 0).
+2. Step $S_s \leftarrow S_s + \Delta$.
+3. If the new cost is better than the best so far, update the best.
+4. Stop when the latest cost exceeds $\texttt{threshold}\times\text{best cost}$.
+
+**Step size $\Delta$:** often $1\%$–$5\%$ of mean demand, or a practical batch size (e.g. 100).
+
+**Threshold:** larger values explore farther past the valley but cost more iterations. Simulation noise can trip a tight threshold early—raise the threshold or lengthen the horizon when the chain is more random.
+
+Starting at $S_s=0$ often wastes iterations in a high-cost region.
+
+## Search method 2: heuristic start and double run
+
+1. Pick a **heuristic** $S_s$ near the analytical optimum under Normal assumptions.
+2. Search **upward** with $+\Delta$ and **downward** with $-\Delta$ from that seed (or from seed $-\Delta$ for the decrease pass).
+3. Keep the best policy seen across both runs.
+
+### Heuristic seed for $(R,S)$
+
+If you temporarily pretend demand and lead time are Normal, a backlog-style service target is
+
+$$
+\alpha^* \approx 1-\frac{hR}{b}
+$$
+
+With **time-based** backlog cost $b_\tau$, inflate $b$ slightly in the heuristic (e.g. $1.1\,b_\tau$) so multi-period shortage penalty is not understated:
+
+$$
+\alpha^* \approx 1-\frac{hR}{1.1\,b_\tau}
+$$
+
+Protection-period standard deviation with uncertain lead time:
+
+$$
+\sigma_x=\sqrt{(\mu_L+R)\sigma_d^2+\sigma_L^2\mu_d^2}
+$$
+
+$$
+S_s \approx z_{\alpha^*}\,\sigma_x,\qquad z_{\alpha^*}=\Phi^{-1}(\alpha^*)
+$$
+
+That seed is not “the” optimum under a custom PMF—it is a **warm start** for sim-opt.
+
+<FormulaExplorer preset="inventorySimOptHeuristicSs" />
+
+### Further search ideas
+
+- **Two-loop grid:** coarse $\Delta$ to locate the valley, then fine $\Delta$ around the winner.
+- **Faster simulation code** (vectorization, fewer allocations).
+- **Smooth noisy costs** (e.g. local average of neighboring $S_s$ evaluations) instead of only lengthening the horizon.
+- **Variable step** from the local slope; or fit a curve / use a black-box optimizer after a few evaluations.
+
+## Multi-parameter policies
+
+### $(R,S)$: nest searches
+
+1. Seed $R$ (e.g. power-of-two ideas from deterministic review design).
+2. Optimize $S_s$ for that $R$ with the methods above.
+3. Try shorter and longer $R$; optimize $S_s$ for each.
+4. Keep expanding $R$ in the improving direction until neighbors no longer win.
+
+### $(R,s,Q)$: harder analytically, natural for sim-opt
+
+Every $R$ periods, if inventory position $\le s$, order $Q$ (or enough multiples of $Q$ to clear the gap).
+
+If **review itself is free**, prefer small $R$ and let $Q$ carry the fixed-order-cost trade-off. If counting inventory is costly, search over $R$ as well.
+
+**Heuristic starts (wisdom-of-crowd style averages):**
+
+$$
+\alpha \approx \tfrac12\left[\left(1-\frac{hR}{b}\right)+\left(1-\frac{hQ}{bD}\right)\right]
+$$
+
+(again inflate $b$ if you only observe $b_\tau$).
+
+Risk period for the buffer: between $L$ and $L+R$, a practical compromise is $L+R/2$:
+
+$$
+S_s=z\sigma_d\sqrt{L+R/2},\qquad
+s=\mu_d(L+R/2)+S_s
+$$
+
+(with lead-time variance folded in as in the $(R,S)$ protection formula when $L$ is random).
+
+Order quantity: start from EOQ $\sqrt{2kD/h}$, optionally one stochastic refinement $\sqrt{2(k+bU_s)D/h}$ with a rough $U_s$ (e.g. a small fraction of $Q$).
+
+<FormulaExplorer preset="inventorySimOptRsqStart" />
+
+Pack $(s,Q)$ into a vector and hand it to a black-box minimizer (e.g. SciPy **Nelder–Mead**) whose objective is the simulated average cost. Round $s$ and $Q$ inside the simulator. Cap iterations (`maxiter`) so the search stays affordable.
+
+## Stability: sim-opt results move
+
+Two runs rarely return identical policies. Noise comes from random demand, lead times, and finite horizons. Planners dislike jittery parameter updates (bullwhip risk and trust erosion).
+
+Three mitigations:
+
+1. **Fix a random seed** (`np.random.seed(...)`) for reproducible **comparisons**—not a cure for every parameter change.
+2. **Lengthen the horizon** to cut variance (slower, but better chance of a policy that was not lucky on a short run).
+3. **Update only on material improvement**—e.g. adopt a new policy only if estimated cost falls by at least 5% versus the current live policy under the same cost assumptions.
+
+Seeds help demos; significant-change rules help production stability; longer sims help both reliability and fairness in scenario studies.
+
+## Practice
+
+### Concept check
+
+<MultipleChoice
+  id="ib-sim-opt-concepts"
+  title="Simulation optimization ideas"
+  questions={[
+    {
+      prompt: 'When is simulation optimization most justified?',
+      choices: [
+        'Whenever demand is exactly Normal with fixed lead time.',
+        'When closed-form assumptions (distribution, shortage regime, perishability) are too wrong to trust.',
+        'Only when EOQ already gives the global optimum.',
+        'Only for deterministic one-period newsvendor problems.',
+      ],
+      answer: 1,
+      why: 'Sim-opt trades compute for flexibility when mathematical models misrepresent the chain.',
+      whyWrong: 'Simple Normal/fixed-L cases are where formulas shine; newsvendor already has critical-ratio math.',
+    },
+    {
+      prompt: 'In the climb search, what does threshold ≈ 1.1 mean?',
+      choices: [
+        'Always accept policies within 10% of mean demand.',
+        'Require cycle service of at least 110%.',
+        'Stop when the latest simulated cost exceeds about 110% of the best cost found so far.',
+        'Increase step size by 10% each iteration.',
+      ],
+      answer: 2,
+      why: 'The loop continues while cost_new < threshold × cost_opt; crossing that band ends the search.',
+      whyWrong: 'Threshold is a cost-ratio stop rule, not a service or step-size rule.',
+    },
+    {
+      prompt: 'Why start the double search near a Normal heuristic Ss rather than at 0?',
+      choices: [
+        'Heuristics guarantee the global optimum under any PMF.',
+        'The high-cost region near zero wastes iterations; a warm start searches near the valley sooner.',
+        'Safety stock must always equal mean demand.',
+        'Random seeds only work if Ss starts at zero.',
+      ],
+      answer: 1,
+      why: 'Warm starts cut iterations; they do not certify optimality under custom distributions.',
+      whyWrong: 'Heuristics are approximate; seeds and Ss=μ_d are unrelated requirements.',
+    },
+    {
+      prompt: 'A new sim-opt cuts estimated cost by 1.5% versus the live policy. With a 5% update rule you should:',
+      choices: [
+        'Always switch because any improvement is mandatory.',
+        'Switch only if the seed equals zero.',
+        'Delete the lead-time PMF.',
+        'Keep the live policy for now; the change is below the materiality bar.',
+      ],
+      answer: 3,
+      why: 'Stability rules suppress noisy micro-updates that confuse planners.',
+      whyWrong: 'Material thresholds exist precisely so tiny noisy wins do not churn policy.',
+    },
+    {
+      prompt: 'For an (R,s,Q) warm start, why use a risk length near L + R/2 rather than L alone or L + R?',
+      choices: [
+        'It is a compromise between continuous-review L and full periodic L+R exposure.',
+        'It forces Q to equal the EOQ exactly.',
+        'It makes Nelder–Mead unnecessary.',
+        'It sets cycle service to 100%.',
+      ],
+      answer: 0,
+      why: 'Review timing sits between pure continuous and full (R,S) protection; L+R/2 is a practical in-between heuristic.',
+      whyWrong: 'The risk compromise does not replace EOQ, optimizers, or service targets by itself.',
+    },
+  ]}
+/>
+
+### Rank a safety-stock sim-opt
+
+<MultipleChoice
+  id="ib-sim-opt-rank"
+  title="Run a one-parameter sim-opt"
+  questions={[
+    {
+      type: 'order',
+      prompt: 'You have demand and lead-time PMFs and want a good Ss for fixed R.',
+      items: [
+        'Publish S = Ss + μ_d(μ_L + R) from the best Ss, and update the live policy only if improvement is material.',
+        'Estimate μ_d, σ_d, μ_L, σ_L from the PMFs.',
+        'Climb upward with +Δ and a cost-ratio stop from that seed.',
+        'Build a simulator that returns average cost for a candidate Ss.',
+        'Seed Ss with the Normal-style α*/σ_x heuristic; also search downward with −Δ.',
+      ],
+      order: [1, 3, 4, 2, 0],
+      why: 'Moments → simulator → warm start with both directions → climb detail → publish with a stability rule.',
+      whyWrong: 'Do not convert to S before searching. Warm start and bidirectional search belong after the simulator exists.',
+    },
+  ]}
+/>
+
+### Code: heuristic safety-stock seed
+
+Implement the Normal-style warm start used before sim-opt. Use `statistics.NormalDist().inv_cdf` for $\Phi^{-1}$.
+
+<CodeExercise
+  id="ib-sim-opt-heuristic-ss"
+  title="(R, S) heuristic safety stock"
+  lang="python"
+  starter={`import math\nfrom statistics import NormalDist\n\ndef norm_ppf(p):\n    """Standard Normal quantile Φ⁻¹(p)."""\n    # TODO\n    raise NotImplementedError\n\ndef heuristic_safety_stock(h, b_tau, R, d_mu, d_std, L_mu, L_std, backlog_inflate=1.1):\n    """Return rounded Ss from α* and lead-time demand SD."""\n    # TODO\n    raise NotImplementedError\n`}
+  wrapSuffix={`\nimport sys\ntokens = list(map(float, sys.stdin.read().split()))\nh, b_tau, R, d_mu, d_std, L_mu, L_std, inflate = tokens\nss = heuristic_safety_stock(h, b_tau, R, d_mu, d_std, L_mu, L_std, inflate)\nprint(ss)\n`}
+  tests={[
+    {name: 'textbook-style costs, R=1', stdin: '1.25 25 1 1200 300 4 0.4472 1.1', equals: '1452'},
+    {name: 'lower backlog inflate reduces Ss', stdin: '1.25 25 1 1200 300 4 0.4472 1.0', equals: '1413'},
+    {name: 'longer review changes α* and σ_x', stdin: '1.25 25 4 1200 300 4 0.4472 1.1', equals: '912'},
+  ]}
+  hint="α = 1 - h*R/(b_tau*inflate). σ_x = sqrt((L_mu+R)*d_std**2 + L_std**2*d_mu**2). Ss = round(norm_ppf(α)*σ_x)."
+  solution={`import math\nfrom statistics import NormalDist\n\ndef norm_ppf(p):\n    if not 0 < p < 1:\n        raise ValueError('p must be in (0, 1)')\n    return NormalDist().inv_cdf(p)\n\ndef heuristic_safety_stock(h, b_tau, R, d_mu, d_std, L_mu, L_std, backlog_inflate=1.1):\n    alpha = 1 - (h * R) / (b_tau * backlog_inflate)\n    x_std = math.sqrt((L_mu + R) * d_std ** 2 + L_std ** 2 * d_mu ** 2)\n    return int(round(norm_ppf(alpha) * x_std))\n`}
+/>
+
+### Code: threshold climb search
+
+Given a **deterministic** cost oracle `cost_fn(ss)` (stand-in for a long simulation), implement the climb search from Method 1. Support positive and negative step sizes.
+
+<CodeExercise
+  id="ib-sim-opt-find-best-ss"
+  title="Climb search with cost-ratio stop"
+  lang="python"
+  starter={`def find_best_ss(cost_fn, step_size=1, start=0, threshold=1.1):\n    """Return (best_ss, best_cost) using the chapter climb rule."""\n    # TODO\n    raise NotImplementedError\n`}
+  wrapSuffix={`\nimport sys\ntokens = list(map(float, sys.stdin.read().split()))\ncenter, floor, step, start, threshold = tokens\n\ndef cost_fn(ss):\n    return (ss - center) ** 2 + floor\n\nss, cost = find_best_ss(cost_fn, step_size=int(step), start=int(start), threshold=threshold)\nprint(f'{ss}|{cost:.1f}')\n`}
+  tests={[
+    {name: 'climb from 0 toward 100', stdin: '100 50 10 0 1.1', equals: '100|50.0'},
+    {name: 'already near valley; still improve', stdin: '40 10 5 20 1.05', equals: '40|10.0'},
+    {name: 'negative step searches downward', stdin: '100 50 -10 160 1.1', equals: '100|50.0'},
+  ]}
+  hint="Evaluate start, then start+step. While cost_new < best_cost*threshold: update best if improved; step again (step may be negative). Return best_ss, best_cost."
+  solution={`def find_best_ss(cost_fn, step_size=1, start=0, threshold=1.1):\n    ss_opt = start\n    cost_opt = cost_fn(ss_opt)\n    ss_new = start + step_size\n    cost_new = cost_fn(ss_new)\n    while cost_new < cost_opt * threshold:\n        if cost_new < cost_opt:\n            cost_opt = cost_new\n            ss_opt = ss_new\n        ss_new += step_size\n        cost_new = cost_fn(ss_new)\n    return ss_opt, cost_opt\n`}
+/>
+
+### Code: material policy update gate
+
+Return whether to replace the live policy given old/new estimated costs and a minimum relative improvement.
+
+<CodeExercise
+  id="ib-sim-opt-material-update"
+  title="Update only on material improvement"
+  lang="python"
+  starter={`def should_update_policy(old_cost, new_cost, min_improvement=0.05):\n    """True if new_cost is at least min_improvement better (relative) than old_cost."""\n    # TODO\n    raise NotImplementedError\n`}
+  wrapSuffix={`\nimport sys\nold_cost, new_cost, min_improvement = map(float, sys.stdin.read().split())\nprint('yes' if should_update_policy(old_cost, new_cost, min_improvement) else 'no')\n`}
+  tests={[
+    {name: '1.5% gain below 5% bar', stdin: '4719 4650 0.05', equals: 'no'},
+    {name: '9.2% gain clears 5% bar', stdin: '5689 5165 0.05', equals: 'yes'},
+    {name: 'worse cost never updates', stdin: '5000 5200 0.05', equals: 'no'},
+  ]}
+  hint="improvement = (old_cost - new_cost) / old_cost. Update only if improvement >= min_improvement."
+  solution={`def should_update_policy(old_cost, new_cost, min_improvement=0.05):\n    if old_cost <= 0:\n        raise ValueError('old_cost must be positive')\n    improvement = (old_cost - new_cost) / old_cost\n    return improvement >= min_improvement - 1e-12\n`}
+/>
+
+### Code: (R, s, Q) warm-start quantities
+
+One iteration of stochastic EOQ-style $Q$, then averaged $\alpha$ and $s$ with risk length $L+R/2$ (fixed $L$ here for the drill).
+
+<CodeExercise
+  id="ib-sim-opt-rsq-start"
+  title="Heuristic s and Q for (R, s, Q)"
+  lang="python"
+  starter={`import math\nfrom statistics import NormalDist\n\ndef norm_ppf(p):\n    # TODO\n    raise NotImplementedError\n\ndef rsq_warm_start(h, b_tau, k, R, D, d_std, L, backlog_inflate=1.1, us_frac=0.02):\n    """Return (s, Q) rounded ints from the chapter warm-start sketch (fixed L)."""\n    # TODO\n    raise NotImplementedError\n`}
+  wrapSuffix={`\nimport sys\ntokens = list(map(float, sys.stdin.read().split()))\nh, b_tau, k, R, D, d_std, L, inflate, us_frac = tokens\ns, Q = rsq_warm_start(h, b_tau, k, R, D, d_std, L, inflate, us_frac)\nprint(f'{s}|{Q}')\n`}
+  tests={[
+    {name: 'basic warm start', stdin: '1.25 25 1000 1 1200 300 4 1.1 0.02', equals: '6403|1839'},
+    {name: 'larger R widens risk', stdin: '1.25 25 1000 4 1200 300 4 1.1 0.02', equals: '8043|1839'},
+  ]}
+  hint="Q0=sqrt(2kD/h); Q=sqrt(2(k+Q0*us_frac*b_tau*inflate)*D/h). α averages (R,S) and (s,Q) formulas. Ss=z*d_std*sqrt(L+R/2); s=Ss+D*(L+R/2)."
+  solution={`import math\nfrom statistics import NormalDist\n\ndef norm_ppf(p):\n    return NormalDist().inv_cdf(p)\n\ndef rsq_warm_start(h, b_tau, k, R, D, d_std, L, backlog_inflate=1.1, us_frac=0.02):\n    b = b_tau * backlog_inflate\n    q0 = math.sqrt(2 * k * D / h)\n    Q = math.sqrt(2 * (k + q0 * us_frac * b) * D / h)\n    alpha_rs = 1 - h * R / b\n    alpha_sq = 1 - h * Q / (b * D)\n    alpha = 0.5 * (alpha_rs + alpha_sq)\n    risk = L + R / 2\n    Ss = norm_ppf(alpha) * d_std * math.sqrt(risk)\n    s = Ss + D * risk\n    return int(round(s)), int(round(Q))\n`}
+/>
+
+## Takeaways
+
+- Use **sim-opt** when shortage regimes, custom PMFs, random lead times, or perishability break closed forms.
+- Pipeline: **model distributions → simulate cost(policy) → search** (climb, double search, or black-box).
+- Warm-start from **Part III heuristics**; search both directions with a **cost-ratio stop**.
+- Nest searches for $R$ and $S_s$; pack $(s,Q)$ for multi-parameter optimizers.
+- Stabilize with **seeds**, **longer horizons**, and **material improvement** before changing live policies.
+
+**Previous:** [Discrete Probabilistic Demand](./discrete-probabilistic-demand).
+
+**Next:** Return to [Inventory Policies](./inventory-policies) and apply the full toolkit—or revisit MEIO and newsvendor as needed.

@@ -1559,4 +1559,102 @@ export const PROCEDURES = [
       why: '看 Data → 可选 define_etf → 按 tick 买入 → 持有或卖出。',
     },
   },
+  {
+    id: 'proc-meio-serial-allocate',
+    kind: 'procedure',
+    title: 'Allocate serial GSM safety stock',
+    description:
+      'Cover the network risk period with all-or-nothing placements, cost each case with SS_i = z σ √x_i, then convert the winner into local and echelon order-up-to targets.',
+    href: '/fundamentals/international-business/inventory-optimization/multi-echelon-inventory',
+    order: {
+      prompt: 'Order the serial MEIO workflow (top = first).',
+      items: [
+        'Convert the chosen local targets into echelon targets and order requirements',
+        'List feasible risk-period allocations that cover T = R + Σ L_i',
+        'Pick the case by holding-cost (or service trade-off), not units alone',
+        'Compute SS_i and Σ h_i SS_i for each case',
+      ],
+      order: [1, 3, 2, 0],
+      why: 'Feasible covers → cost each → choose → operationalize echelon targets.',
+    },
+  },
+  {
+    id: 'proc-meio-distribution-pool',
+    kind: 'procedure',
+    title: 'Cost a distribution MEIO sketch',
+    description:
+      'For a warehouse-to-branch network: pool branch demand at aggregation nodes, enumerate a few GSM placements, then weight safety stock by local holding costs.',
+    href: '/fundamentals/international-business/inventory-optimization/distribution-meio-and-simulation',
+    order: {
+      prompt: 'Order distribution MEIO analysis (top = first).',
+      items: [
+        'Validate the winner with simulation or history',
+        'Estimate μ and σ at each node (pool independent branches with √Σσ²)',
+        'Cost SS_i = z σ_i √x_i under each feasible placement',
+        'Sketch nodes, lead times, and a small set of all-or-nothing x vectors',
+      ],
+      order: [3, 1, 2, 0],
+      why: 'Network → demand model → costed cases → validate.',
+    },
+  },
+  {
+    id: 'proc-newsvendor-discrete-q',
+    kind: 'procedure',
+    title: 'Set discrete newsvendor order quantity',
+    description:
+      'From a one-period PMF and unit overage/underage costs, compute α* = c_u/(c_u+c_o), then choose the smallest Q with P(D≤Q)≥α*; validate with expected profit P(Q) on a grid.',
+    href: '/fundamentals/international-business/inventory-optimization/newsvendor',
+    order: {
+      prompt: 'Order the discrete newsvendor steps (top = first).',
+      items: [
+        'Confirm single-period, no in-season replenishment, and define c_o and c_u',
+        'Compute critical ratio α* = c_u / (c_u + c_o)',
+        'Build P(D ≤ Q) from the demand PMF',
+        'Select smallest integer Q with P(D ≤ Q) ≥ α*',
+        'Cross-check max expected profit on candidate quantities',
+      ],
+      order: [0, 1, 2, 3, 4],
+      why: 'Model → costs → CDF → critical-ratio Q → profit table sanity check.',
+    },
+  },
+  {
+    id: 'proc-kde-to-discrete-pmf',
+    kind: 'procedure',
+    title: 'Turn a demand sample into a discrete PMF',
+    description:
+      'Fit a Gaussian KDE (Scott/Silverman bandwidth), truncate with sample extremes ± m·h, evaluate and normalize the PDF on integers, fold negative mass onto 0, then report μ_d and σ_d.',
+    href: '/fundamentals/international-business/inventory-optimization/discrete-probabilistic-demand',
+    order: {
+      prompt: 'Order the KDE → discrete PMF steps (top = first).',
+      items: [
+        'Normalize PDF values on the integer grid so the PMF sums to 1',
+        'Choose bandwidth (Scott, Silverman, or a tuned fraction of Scott)',
+        'Fit the Gaussian KDE on the cleaned demand sample',
+        'Set integer bounds with min/max ± m·h and evaluate the PDF',
+        'Fold any negative mass onto 0 and compute μ_d, σ_d',
+      ],
+      order: [1, 2, 3, 0, 4],
+      why: 'Bandwidth → fit → truncate/evaluate → normalize → clamp and summarize.',
+    },
+  },
+  {
+    id: 'proc-sim-opt-safety-stock',
+    kind: 'procedure',
+    title: 'Simulation-optimize safety stock',
+    description:
+      'From demand and lead-time PMFs, warm-start Ss with a Normal heuristic, climb with ±Δ and a cost-ratio stop, optionally double-search, then publish S = Ss + μ_d(μ_L+R) and update live policy only on material improvement.',
+    href: '/fundamentals/international-business/inventory-optimization/simulation-optimization',
+    order: {
+      prompt: 'Order one-parameter sim-opt steps (top = first).',
+      items: [
+        'Convert the winning Ss into S = Ss + μ_d(μ_L + R) and apply a material-update rule',
+        'Estimate demand and lead-time moments from their PMFs',
+        'Seed Ss with the Normal α*/σ_x heuristic for the chosen R',
+        'Build a simulator that returns average cost (and KPIs) for a candidate Ss',
+        'Climb with +Δ (and −Δ) until cost exceeds threshold × best cost',
+      ],
+      order: [1, 3, 2, 4, 0],
+      why: 'Moments → simulator → warm start → bidirectional climb → publish with stability rule.',
+    },
+  },
 ];
