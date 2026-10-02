@@ -52,6 +52,20 @@ TOPIC_HINTS = {
     'devices': 'hard disk',
     'files': 'file',
     'distributed': 'network',
+    # game-engine / scalable-systems
+    'software': 'software',
+    'layout': 'binary',
+    'parallelism': 'parallel',
+    'os': 'operating system',
+    'atomics': 'atomic',
+    'storage': 'database',
+    'replication': 'database',
+    'partitioning': 'database',
+    'faults': 'network',
+    'consistency': 'distributed',
+    'batch': 'data',
+    'streams': 'data stream',
+    'patterns': 'cloud',
 }
 
 

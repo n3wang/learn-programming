@@ -9,10 +9,12 @@
 import exportImport from './decks/export-import.json';
 import inventoryOptimization from './decks/inventory-optimization.json';
 import computerEngineering from './decks/computer-engineering.json';
+import gameEngine from './decks/game-engine.json';
+import scalableSystems from './decks/scalable-systems.json';
 
 export const CARD_SCHEMA = 'l0l-cards/1';
 
-const DECK_FILES = [exportImport, inventoryOptimization, computerEngineering];
+const DECK_FILES = [exportImport, inventoryOptimization, computerEngineering, gameEngine, scalableSystems];
 
 const REQUIRED = ['id', 'term', 'definition', 'category'];
 
