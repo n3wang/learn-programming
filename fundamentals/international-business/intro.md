@@ -11,7 +11,15 @@ Trade across borders is a **systems** problem: contracts, documents, money, tran
 
 ### Export–Import practice
 - [1. Introduction to export–import](./export-import/introduction-to-export-import) — commercial sales, risk map, documentary sales, culture, institutions, WTO
-- *Later:* sale contracts & Incoterms · payment (L/Cs) · carriage & bills of lading · insurance · disputes · distribution / IP / e-commerce
+- [2. Documents and the transaction sequence](./export-import/documents-and-transaction-sequence) — RFQ → contract forms → L/C → B/L pack → bank examination
+- [3. Incoterms® trade terms](./export-import/incoterms-trade-terms) — any-mode vs sea, C vs D, insurance, quote hygiene
+- [4. International trade law](./export-import/international-trade-law) — contract chain, legal families, choice of law/forum, CISG, breach & remedies, LOIs
+- [5. The international sale contract](./export-import/international-sale-contract) — PO vs pro forma, model contracts, ICC Specific/General Conditions, key clauses and defaults
+- [6. International dispute resolution](./export-import/international-dispute-resolution) — escalation ladder, expert opinion, litigation and enforcement, arbitration pros and cons
+- [7. ICC arbitration and dispute services](./export-import/icc-arbitration-and-adr) — ICC clause, Court vs tribunal, procedure and costs, emergency arbitrator, DOCDEX, mediation, dispute boards, experts
+- [8. Introduction to international payments](./export-import/international-payments) — risk ladder, open account, standbys, D/P vs D/A collections, L/C steps, FX risk and hedging, payment documents
+- [9. Documentary credits and the UCP 600](./export-import/documentary-credits-ucp) — bank roles, credit types, confirmed-credit life cycle, independence, strict compliance, checklists, eUCP
+- *Later:* factoring & forfaiting · standbys & guarantees · carriage & bills of lading · insurance · distribution / IP / e-commerce
 
 ### Inventory optimization
 - [1. Inventory policies and replenishment](./inventory-optimization/inventory-policies) — continuous and periodic review, reorder points, order-up-to levels, and fixed order quantities

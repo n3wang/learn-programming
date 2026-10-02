@@ -1097,4 +1097,67 @@ export const PROBLEMS = [
     sample: 'trade-institutions',
     href: '/fundamentals/international-business/export-import/introduction-to-export-import',
   },
+  {
+    id: 'problem-export-contract-formation',
+    kind: 'problem',
+    title: 'Offer vs acceptance in export forms',
+    description:
+      'RFQ vs pro forma vs purchase order — which form binds, and who accepted.',
+    sample: 'export-contract-formation',
+    href: '/fundamentals/international-business/export-import/documents-and-transaction-sequence',
+  },
+  {
+    id: 'problem-export-key-documents',
+    kind: 'problem',
+    title: 'Key export documents',
+    description:
+      'Bill of lading, CIF insurance cover, and inspection certificates in a documentary sale.',
+    sample: 'export-key-documents',
+    href: '/fundamentals/international-business/export-import/documents-and-transaction-sequence',
+  },
+  {
+    id: 'problem-export-lc-discrepancies',
+    kind: 'problem',
+    title: 'L/C presentation & discrepancies',
+    description:
+      'Beneficiary, confirmation, and why invoice typos block payment.',
+    sample: 'export-lc-discrepancies',
+    href: '/fundamentals/international-business/export-import/documents-and-transaction-sequence',
+  },
+  {
+    id: 'problem-export-doc-sequence',
+    kind: 'problem',
+    title: 'Export document timeline',
+    description:
+      'RFQ → open credit before shipment → present documents after shipment.',
+    sample: 'export-doc-sequence',
+    href: '/fundamentals/international-business/export-import/documents-and-transaction-sequence',
+  },
+  {
+    id: 'problem-incoterms-mode-choice',
+    kind: 'problem',
+    title: 'Any-mode vs sea Incoterms®',
+    description:
+      'Containers and air vs bulk port-to-port — pick the right rule family.',
+    sample: 'incoterms-mode-choice',
+    href: '/fundamentals/international-business/export-import/incoterms-trade-terms',
+  },
+  {
+    id: 'problem-incoterms-c-vs-d',
+    kind: 'problem',
+    title: 'C-terms vs D-terms',
+    description:
+      'Shipment vs arrival contracts when cargo is lost after loading.',
+    sample: 'incoterms-c-vs-d',
+    href: '/fundamentals/international-business/export-import/incoterms-trade-terms',
+  },
+  {
+    id: 'problem-incoterms-quote-hygiene',
+    kind: 'problem',
+    title: 'Incoterms® quote hygiene',
+    description:
+      'Rule + place + year; title/payment gaps; danger of undefined variants.',
+    sample: 'incoterms-quote-hygiene',
+    href: '/fundamentals/international-business/export-import/incoterms-trade-terms',
+  },
 ];

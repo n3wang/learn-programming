@@ -1,6 +1,7 @@
 import React from 'react';
 import useDocusaurusContext from '@docusaurus/useDocusaurusContext';
 import ScratchNotes from '@site/src/components/ScratchNotes';
+import TermPeek from '@site/src/components/TermPeek';
 import {
   isLocalApiBase,
   readStoredApiBaseUrl,
@@ -34,6 +35,7 @@ export default function Root({children}) {
       <ApiBaseUrlBridge />
       {children}
       <ScratchNotes />
+      <TermPeek />
     </>
   );
 }

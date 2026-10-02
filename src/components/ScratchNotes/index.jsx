@@ -23,6 +23,7 @@ import {
   toggleWikiBookmark,
 } from './wikiStore';
 import WikiDetail from './WikiDetail';
+import DecksPanel from './DecksPanel';
 import styles from './styles.module.css';
 
 const SAVE_MS = 400;
@@ -156,7 +157,7 @@ export default function ScratchNotes() {
         }
         if (prefs) {
           setOpen(Boolean(prefs.open));
-          if (prefs.tab === 'code' || prefs.tab === 'notes' || prefs.tab === 'wiki') {
+          if (['code', 'notes', 'wiki', 'decks'].includes(prefs.tab)) {
             setTab(prefs.tab);
           }
         }
@@ -486,6 +487,14 @@ export default function ScratchNotes() {
                 onClick={() => selectTab('wiki')}>
                 {wikiPassedCount > 0 ? `wiki lv${wikiPassedCount}` : 'wiki'}
               </button>
+              <button
+                type="button"
+                role="tab"
+                aria-selected={tab === 'decks'}
+                className={tab === 'decks' ? styles.tabActive : styles.tab}
+                onClick={() => selectTab('decks')}>
+                decks
+              </button>
             </div>
             <button
               type="button"
@@ -743,6 +752,8 @@ export default function ScratchNotes() {
               )}
             </div>
           )}
+
+          {tab === 'decks' && <DecksPanel onNavigate={close} />}
         </section>
       ) : null}
       <button

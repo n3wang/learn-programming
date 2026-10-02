@@ -103,6 +103,33 @@ import newtonFailures from './newton-failures';
 import exportImportRiskMap from './export-import-risk-map';
 import exportRiskControls from './export-risk-controls';
 import tradeInstitutions from './trade-institutions';
+import exportContractFormation from './export-contract-formation';
+import exportKeyDocuments from './export-key-documents';
+import exportLcDiscrepancies from './export-lc-discrepancies';
+import exportDocSequence from './export-doc-sequence';
+import incotermsModeChoice from './incoterms-mode-choice';
+import incotermsCVsD from './incoterms-c-vs-d';
+import incotermsQuoteHygiene from './incoterms-quote-hygiene';
+import tradeLawContractChain from './trade-law-contract-chain';
+import tradeLawWrittenContracts from './trade-law-written-contracts';
+import tradeLawDisputeClause from './trade-law-dispute-clause';
+import tradeLawCisgBattleForms from './trade-law-cisg-battle-forms';
+import tradeLawRemedies from './trade-law-remedies';
+import saleContractFormation from './sale-contract-formation';
+import saleContractDescription from './sale-contract-description';
+import saleContractDefaults from './sale-contract-defaults';
+import disputeEscalationLadder from './dispute-escalation-ladder';
+import disputeLitigationEnforcement from './dispute-litigation-enforcement';
+import disputeArbitrationChoice from './dispute-arbitration-choice';
+import iccArbitrationClause from './icc-arbitration-clause';
+import iccArbitrationProcedure from './icc-arbitration-procedure';
+import iccAdrServices from './icc-adr-services';
+import paymentMethodChoice from './payment-method-choice';
+import paymentCollectionDpDa from './payment-collection-dp-da';
+import paymentFxRisk from './payment-fx-risk';
+import lcBankRoles from './lc-bank-roles';
+import lcCreditReview from './lc-credit-review';
+import lcStrictCompliance from './lc-strict-compliance';
 import provePiMinus from './prove-pi-minus';
 import provePolarRect from './prove-polar-rect';
 import proveLawsCosSin from './prove-laws-cos-sin';
@@ -317,6 +344,33 @@ const GUIDES = {
   'export-import-risk-map': exportImportRiskMap,
   'export-risk-controls': exportRiskControls,
   'trade-institutions': tradeInstitutions,
+  'export-contract-formation': exportContractFormation,
+  'export-key-documents': exportKeyDocuments,
+  'export-lc-discrepancies': exportLcDiscrepancies,
+  'export-doc-sequence': exportDocSequence,
+  'incoterms-mode-choice': incotermsModeChoice,
+  'incoterms-c-vs-d': incotermsCVsD,
+  'incoterms-quote-hygiene': incotermsQuoteHygiene,
+  'trade-law-contract-chain': tradeLawContractChain,
+  'trade-law-written-contracts': tradeLawWrittenContracts,
+  'trade-law-dispute-clause': tradeLawDisputeClause,
+  'trade-law-cisg-battle-forms': tradeLawCisgBattleForms,
+  'trade-law-remedies': tradeLawRemedies,
+  'sale-contract-formation': saleContractFormation,
+  'sale-contract-description': saleContractDescription,
+  'sale-contract-defaults': saleContractDefaults,
+  'dispute-escalation-ladder': disputeEscalationLadder,
+  'dispute-litigation-enforcement': disputeLitigationEnforcement,
+  'dispute-arbitration-choice': disputeArbitrationChoice,
+  'icc-arbitration-clause': iccArbitrationClause,
+  'icc-arbitration-procedure': iccArbitrationProcedure,
+  'icc-adr-services': iccAdrServices,
+  'payment-method-choice': paymentMethodChoice,
+  'payment-collection-dp-da': paymentCollectionDpDa,
+  'payment-fx-risk': paymentFxRisk,
+  'lc-bank-roles': lcBankRoles,
+  'lc-credit-review': lcCreditReview,
+  'lc-strict-compliance': lcStrictCompliance,
   'prove-pi-minus': provePiMinus,
   'prove-polar-rect': provePolarRect,
   'prove-laws-cos-sin': proveLawsCosSin,

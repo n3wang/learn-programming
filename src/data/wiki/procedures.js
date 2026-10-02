@@ -1503,6 +1503,82 @@ export const PROCEDURES = [
     },
   },
   {
+    id: 'proc-export-transaction-sequence',
+    kind: 'procedure',
+    title: 'Walk an L/C-backed export timeline',
+    description:
+      'From RFQ through offer/acceptance, open credit, ship with forwarder, present documents, and clear bank examination.',
+    href: '/fundamentals/international-business/export-import/documents-and-transaction-sequence',
+    order: {
+      prompt: 'Order the classic credit-backed export sequence (top = first).',
+      items: [
+        'Present B/L and credit documents to the bank after shipment',
+        'Open / advise the documentary credit before shipment',
+        'Exchange RFQ → offer (pro forma) → PO / confirmation',
+        'Book carriage, obtain B/L and insurance, assemble the pack',
+      ],
+      order: [2, 1, 3, 0],
+      why: 'Contract → open L/C → ship & pack → present for payment.',
+    },
+  },
+  {
+    id: 'proc-export-document-pack',
+    kind: 'procedure',
+    title: 'Assemble a documentary credit pack',
+    description:
+      'After shipment: commercial invoice, transport document, insurance, and any origin / inspection / packing papers the credit requires.',
+    href: '/fundamentals/international-business/export-import/documents-and-transaction-sequence',
+    order: {
+      prompt: 'Order a practical L/C pack assembly (top = first).',
+      items: [
+        'Proofread for discrepancies before presentation',
+        'Confirm the credit’s required document list vs the sale contract',
+        'Collect B/L (or other transport doc) and insurance evidence',
+        'Prepare commercial invoice and packing list to match the credit wording',
+      ],
+      order: [1, 3, 2, 0],
+      why: 'Read credit → draft invoice/packing → collect B/L & insurance → proofread.',
+    },
+  },
+  {
+    id: 'proc-incoterms-quote',
+    kind: 'procedure',
+    title: 'Write an Incoterms® price line',
+    description:
+      'Choose any-mode vs sea rule, name the place, cite the edition, then add insurance/transport details Incoterms® omit.',
+    href: '/fundamentals/international-business/export-import/incoterms-trade-terms',
+    order: {
+      prompt: 'Order Incoterms® quote hygiene (top = first).',
+      items: [
+        'Add contract specifics (insurance upgrades, reefer limits, force majeure if needed)',
+        'Pick the correct family (any-mode vs FAS/FOB/CFR/CIF)',
+        'Align forwarder instructions with the sale Incoterm',
+        'Write RULE + named place + Incoterms® year on the price line',
+      ],
+      order: [1, 3, 0, 2],
+      why: 'Family → cite rule/place/year → fill gaps → tell the forwarder.',
+    },
+  },
+  {
+    id: 'proc-incoterms-loss-in-transit',
+    kind: 'procedure',
+    title: 'Analyse loss in transit under C vs D',
+    description:
+      'Identify the Incoterm family, find the risk-transfer point, then decide whether seller already delivered or may be in breach.',
+    href: '/fundamentals/international-business/export-import/incoterms-trade-terms',
+    order: {
+      prompt: 'Order a loss-in-transit analysis (top = first).',
+      items: [
+        'Check insurance wording and carrier/B/L limits for recovery paths',
+        'Locate where risk passed under the named Incoterms® rule',
+        'Classify shipment (C/F) vs arrival (D) contract',
+        'Decide if seller already fulfilled delivery or may owe substitute goods/damages',
+      ],
+      order: [2, 1, 3, 0],
+      why: 'Family → risk point → delivery fulfilled? → insurance/carrier recovery.',
+    },
+  },
+  {
     id: 'proc-trading-on-tick',
     kind: 'procedure',
     title: '处理一个市场 tick',

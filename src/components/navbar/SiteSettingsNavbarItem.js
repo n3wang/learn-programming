@@ -7,6 +7,11 @@ import NameRandomizer from '@site/src/components/navbar/NameRandomizer';
 import SiteLoginPanel from '@site/src/components/navbar/SiteLoginPanel';
 import {useHomeworkDraftMode} from '@site/src/components/homework/useHomeworkDraftMode';
 import {useSiteAuth} from '@site/src/components/navbar/useSiteAuth';
+import {
+  TERM_PEEK_CHANGE_EVENT,
+  readTermPeekEnabled,
+  writeTermPeekEnabled,
+} from '@site/src/components/TermPeek/settings';
 
 const OFFICIAL_SITE_ORIGIN = 'https://learn.l.l0l.in';
 
@@ -29,6 +34,29 @@ function GearIcon() {
         d="M19.14 12.94c.04-.31.06-.63.06-.94s-.02-.63-.06-.94l2.03-1.58a.49.49 0 0 0 .12-.61l-1.92-3.32a.49.49 0 0 0-.59-.22l-2.39.96c-.5-.38-1.03-.7-1.62-.94l-.36-2.54a.48.48 0 0 0-.48-.41h-3.84a.48.48 0 0 0-.48.41l-.36 2.54c-.59.24-1.13.57-1.62.94l-2.39-.96a.49.49 0 0 0-.59.22L2.74 8.87a.48.48 0 0 0 .12.61l2.03 1.58c-.04.31-.06.63-.06.94s.02.63.06.94L2.86 14.5a.49.49 0 0 0-.12.61l1.92 3.32c.12.22.37.29.59.22l2.39-.96c.5.38 1.03.7 1.62.94l.36 2.54c.05.24.24.41.48.41h3.84c.24 0 .44-.17.48-.41l.36-2.54c.59-.24 1.13-.56 1.62-.94l2.39.96c.22.08.47 0 .59-.22l1.92-3.32a.49.49 0 0 0-.12-.61l-2.01-1.58zM12 15.6A3.6 3.6 0 1 1 12 8.4a3.6 3.6 0 0 1 0 7.2z"
       />
     </svg>
+  );
+}
+
+/** Shift + hover over a glossary term shows its card. Off by default. */
+function TermPeekToggle() {
+  const [enabled, setEnabled] = useState(false);
+  useEffect(() => {
+    setEnabled(readTermPeekEnabled());
+    const onChange = (e) => setEnabled(Boolean(e.detail?.enabled));
+    window.addEventListener(TERM_PEEK_CHANGE_EVENT, onChange);
+    return () => window.removeEventListener(TERM_PEEK_CHANGE_EVENT, onChange);
+  }, []);
+  return (
+    <label
+      style={{display: 'flex', alignItems: 'center', gap: '0.45rem', fontSize: '0.85rem', cursor: 'pointer'}}
+      title="Hold Shift while hovering a term in a lesson to see its card (icon + definition in the hover-translate language)">
+      <input
+        type="checkbox"
+        checked={enabled}
+        onChange={(e) => writeTermPeekEnabled(e.target.checked)}
+      />
+      Shift + hover: show term cards
+    </label>
   );
 }
 
@@ -124,6 +152,9 @@ function SettingsPanel({pageUrl, showQr, setShowQr, qrDataUrl, qrError}) {
           >
             {showQr ? 'Hide QR' : 'Show QR'}
           </button>
+        </div>
+        <div style={{marginTop: '0.75rem'}}>
+          <TermPeekToggle />
         </div>
         <div style={{marginTop: '0.85rem'}}>
           <SiteLanguageToggle />
