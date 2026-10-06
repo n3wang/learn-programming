@@ -1,0 +1,277 @@
+---
+sidebar_position: 9
+title: Choosing the Best Forecasting KPI
+sidebar_label: '9. Choosing the KPI'
+---
+
+# 9. Choosing the Best Forecasting KPI
+
+> **Teaching rewrite** — the *Metrics* step. Original wording; examples recomputed.
+
+## Introduction
+
+Lesson 8 showed four metrics crowning four different forecasts. This lesson stress-tests them on two hard cases — **outliers** and **intermittent demand** — and lands on a practical recommendation: track **MAE and bias together**, optionally combined into one **score**.
+
+| Metric | Formula |
+|---|---|
+| Bias | average(error) |
+| MAE | average(\|error\|) |
+| MAE% | sum(\|error\|) / sum(demand) |
+| MAPE | average(\|error\| / demand) |
+| RMSE | √average(error²) |
+
+---
+
+## 9.1 Extreme demand (outliers)
+
+| Metric | Reaction to one huge demand spike |
+|---|---|
+| **RMSE** | **Over-reacts** — the squared error of the spike can dominate the whole score |
+| **MAPE** | **Barely reacts** — the spike’s error is divided by the huge demand, and a too-low forecast’s error is capped at 100% |
+| **MAE** | Reacts **proportionately** — affected, but not dominated |
+
+### Worked example: one outlier
+
+Demand 100, 100, 100, **400**; forecast 100 every period → errors 0, 0, 0, −300.
+
+| Metric | Value |
+|---|---|
+| MAE | 300 / 4 = 75 → MAE% = 300 / 700 = **42.9%** |
+| RMSE | √(90,000 / 4) = **150** → RMSE% = 150 / 175 = **85.7%** |
+| MAPE | (0 + 0 + 0 + 75%) / 4 = **18.75%** |
+
+One spike doubles RMSE% relative to MAE%, while MAPE makes the miss look small.
+
+---
+
+## 9.2 Intermittent demand
+
+Many items sell only occasionally. Example: demand over 12 periods is mostly zero, with sales of 9, 6, 12, 9 every third period (average **3** per period).
+
+| Forecast | Bias% | MAE% | RMSE% | MAPE | Score (MAE% + \|Bias%\|) |
+|---|---|---|---|---|---|
+| **A**: 3 every period | **0%** | 133.3% | **147.2%** | undefined | **133.3%** |
+| **B**: 0 every period | −100% | **100%** | 178.0% | undefined | 200% |
+
+- **MAE prefers B** — forecasting **zero** forever — because the **median** of intermittent demand is 0. A forecast of zero is useless to a planner.
+- **MAPE** can’t be computed at all (division by zero).
+- **RMSE** and **bias** prefer A, the useful forecast.
+- The **combined score** also prefers A.
+
+<GuidedChoiceExplanation preset="dfx-kpi-choice" />
+
+---
+
+### Checkpoint: hard cases
+
+<MultipleChoice
+  id="dfx-ch9-mid1"
+  title="Checkpoint — sections 9.1 and 9.2"
+  questions={[
+    {
+      prompt: 'Which metric is most distorted by a single extreme demand spike?',
+      choices: ['MAE', 'RMSE', 'Bias', 'MAPE'],
+      answer: 1,
+      why: 'Squaring makes one large error dominate.',
+    },
+    {
+      prompt: 'For a mostly-zero demand series, which forecast does MAE alone favour?',
+      choices: ['The mean', 'Zero', 'The maximum', 'The last value'],
+      answer: 1,
+      why: 'MAE is minimised at the median, which is zero.',
+    },
+    {
+      prompt: 'Demand 50, 50, 50, 250; forecast 50 each period. MAE%?',
+      choices: ['25%', '50%', '40%', '80%'],
+      answer: 1,
+      why: 'Abs error 200; total demand 50 + 50 + 50 + 250 = 400; 200/400 = 50%.',
+    },
+    {
+      type: 'order',
+      prompt: 'Rank the metrics by sensitivity to outliers (MOST first).',
+      items: ['RMSE', 'MAE', 'MAPE'],
+      why: 'RMSE squares; MAE is linear; MAPE caps and shrinks big-demand errors.',
+    },
+  ]}
+/>
+
+---
+
+## 9.3 The best compromise: MAE + bias
+
+| Metric | Simple | Unbiased | Error weighting | Outlier sensitivity |
+|---|---|---|---|---|
+| **MAE** | ✅ | ❌ (aims at median) | Uniform | Moderate ✅ |
+| **MAPE** | ✅ | ❌ (pushes down) | Over-weights low-demand periods 💥 | Too low ❌ |
+| **RMSE** | ❌ | ✅ | Over-weights big errors | Too high ❌ |
+| **MAE + Bias** | ✅ | ✅ | Uniform | Moderate ✅ |
+
+No single metric is perfect, so **combine two**:
+
+> **Score = MAE + |Bias|**  **Score% = MAE% + |Bias%|**
+
+The bias term pulls MAE’s median-seeking (downward) tendency back toward the mean.
+
+:::caution Use the absolute bias
+Forget the absolute value and you **reward under-forecasting** (negative bias would lower the score).
+:::
+
+- Use the **score** to compare forecasts quantitatively.
+- With management, show **MAE and bias separately** — easier to understand than a combined percentage.
+- Track it **for every relevant lag** (lesson 6); analysts look per lag, management may prefer a single scorecard.
+
+---
+
+## 9.4 Case study — part 2
+
+| Forecast | Bias% | MAE% | MAPE | RMSE% | **Score%** |
+|---|---|---|---|---|---|
+| **1** (380) | −0.5% | 68.4% | 352.9% | 94.4% | **68.9%** |
+| **2** (260) | −31.9% | 65.7% | 239.1% | 99.6% | 97.6% |
+| **3** (200) | −47.6% | 67.6% | 187.1% | 105.7% | 115.2% |
+
+Forecast 1 wins clearly: 68.4 + 0.5 = **68.9%**.
+
+Forecasts 2 and 3 carry huge negative bias (−32% and −48%). Any consistent bias beyond about **±5%** should be treated as suspicious — something is wrong with the model or the process. If safety stocks are set in **days of cover**, under-forecasting also shrinks the buffers, compounding shortages.
+
+How to say it to management: *“Forecast 1 is the best balance of accuracy and bias, and both matter for running the supply chain.”*
+
+<GuidedChoiceExplanation preset="dfx-score" />
+
+---
+
+### Checkpoint: the score
+
+<MultipleChoice
+  id="dfx-ch9-mid2"
+  title="Checkpoint — sections 9.3 and 9.4"
+  questions={[
+    {
+      prompt: 'MAE% 40%, Bias% −8%. Score%?',
+      choices: ['32%', '48%', '40%', '−8%'],
+      answer: 1,
+      why: '40 + |−8| = 48%.',
+    },
+    {
+      prompt: 'What goes wrong if you compute MAE + Bias without the absolute value?',
+      choices: [
+        'Nothing',
+        'Under-forecasting (negative bias) is rewarded with a lower score',
+        'Over-forecasting is rewarded',
+        'The score becomes undefined',
+      ],
+      answer: 1,
+      why: 'Negative bias would subtract from MAE.',
+    },
+    {
+      prompt: 'Forecast A: MAE% 30, Bias% +2. Forecast B: MAE% 27, Bias% −9. Which is better by the score?',
+      choices: ['A (32 vs 36)', 'B (27 vs 30)', 'Tie', 'Cannot tell'],
+      answer: 0,
+      why: 'A = 32%; B = 36%.',
+    },
+    {
+      type: 'order',
+      prompt: 'Rank the case-study forecasts by Score% (BEST first).',
+      items: ['Forecast 1 (68.9%)', 'Forecast 2 (97.6%)', 'Forecast 3 (115.2%)'],
+      why: 'Lower is better.',
+    },
+  ]}
+/>
+
+---
+
+### Rank: choosing metrics
+
+<MultipleChoice
+  id="dfx-ch9-rank"
+  title="Metric selection"
+  questions={[
+    {
+      type: 'order',
+      prompt: 'Rank these metric set-ups from MOST to LEAST recommended for a planning process.',
+      items: [
+        'MAE and bias (or their combined score), per lag',
+        'RMSE and bias for a single product',
+        'MAE alone',
+        'MAPE alone',
+      ],
+      why: 'MAE + bias is the robust compromise; MAPE is the worst choice.',
+    },
+    {
+      type: 'order',
+      prompt: 'Rank the steps to compare candidate forecasts.',
+      items: [
+        'Collect demand (not sales) and each candidate’s forecasts per lag.',
+        'Compute MAE% and Bias% for each candidate.',
+        'Compute Score% = MAE% + |Bias%|.',
+        'Pick the lowest score; flag any |bias| above ~5%.',
+        'Report MAE and bias separately to management.',
+      ],
+      why: 'Clean inputs, compute, combine, decide, communicate.',
+    },
+  ]}
+/>
+
+---
+
+### Check: choosing the KPI
+
+<MultipleChoice
+  id="dfx-ch9"
+  title="Choosing the best forecasting KPI"
+  questions={[
+    {
+      prompt: 'Which pair is recommended for assessing forecast quality?',
+      choices: ['MAPE and RMSE', 'MAE and bias', 'Bias and COV', 'MAPE alone'],
+      answer: 1,
+      why: 'Simple, unbiased in combination, moderately outlier-sensitive.',
+    },
+    {
+      prompt: 'Why is MAPE the worst choice?',
+      choices: [
+        'It is hard to compute',
+        'It over-weights low-demand periods, pushes forecasts down, and breaks on zero demand',
+        'It over-reacts to outliers',
+        'It is not a percentage',
+      ],
+      answer: 1,
+      why: 'Every property works against good supply chain forecasts.',
+    },
+    {
+      prompt: 'A forecasting engine shows −12% bias across the portfolio for months. This is…',
+      choices: ['Normal', 'Suspicious — investigate model or process', 'Ideal', 'Required for safety'],
+      answer: 1,
+      why: 'Consistent bias beyond ~5% signals a problem.',
+    },
+    {
+      prompt: 'MAE% 22%, Bias% +3%. Score%?',
+      choices: ['19%', '22%', '25%', '66%'],
+      answer: 2,
+      why: '22 + 3 = 25%.',
+    },
+    {
+      prompt: 'How should accuracy be tracked across the horizon?',
+      choices: ['Only at lag 1', 'For every relevant lag', 'Only at the last lag', 'Once a year'],
+      answer: 1,
+      why: 'Orders depend on every period in the risk horizon.',
+    },
+  ]}
+/>
+
+---
+
+## Takeaways
+
+:::tip Remember
+- **RMSE** over-reacts to outliers; **MAPE** under-reacts and breaks on zeros; **MAE** alone can favour a zero forecast for intermittent items
+- Use **MAE + bias** — or **Score = MAE + |Bias|** — as the default
+- Treat consistent **|bias| > ~5%** as a red flag
+- Show MAE and bias **separately** to management; compute per **lag**
+- **Avoid MAPE**
+:::
+
+## Further Reading
+
+- [8. Forecasting metrics](./forecasting-metrics)
+- Next: [10. What is a good forecast error?](./good-forecast-error)
+- Background: N. Vandeput, *Demand Forecasting Best Practices* (Manning) — used as a study outline

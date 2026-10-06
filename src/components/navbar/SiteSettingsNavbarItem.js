@@ -116,7 +116,7 @@ function SettingsPanel({pageUrl, showQr, setShowQr, qrDataUrl, qrError}) {
             >
               {hwActive
                 ? `${hwSession?.title || 'HW'} · ${hwSession?.problemCount || 0} problems · stays on across pages`
-                : 'Adds 加入作业 beside 显示解答. Each ON starts a new assignment (new prompt + answer notes).'}
+                : 'Adds 加入作业 beside 显示解答. Each ON starts a new single note (prompt + answer interleaved).'}
             </div>
           </div>
 

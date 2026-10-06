@@ -24,9 +24,23 @@ import {
 } from './wikiStore';
 import WikiDetail from './WikiDetail';
 import DecksPanel from './DecksPanel';
+import NoteMarkdownPreview from './NoteMarkdownPreview';
 import styles from './styles.module.css';
 
 const SAVE_MS = 400;
+
+function homeworkTag(role) {
+  if (role === 'homework') {
+    return '[hw]';
+  }
+  if (role === 'prompts') {
+    return '[hw prompts]';
+  }
+  if (role === 'answers') {
+    return '[hw answers]';
+  }
+  return '[note]';
+}
 
 function formatDate(ts) {
   if (!ts) {
@@ -123,6 +137,7 @@ export default function ScratchNotes() {
   const [wikiId, setWikiId] = useState(null);
   const [wikiPractice, setWikiPractice] = useState(false);
   const [wikiBatch, setWikiBatch] = useState([]);
+  const [notePreview, setNotePreview] = useState(false);
   const saveTimer = useRef(null);
   const textareaRef = useRef(null);
   const dockRef = useRef(null);
@@ -528,13 +543,7 @@ export default function ScratchNotes() {
                       <button type="button" className={styles.row} onClick={() => setActiveId(n.id)}>
                         <span className={styles.rowTitle}>{n.title || 'Untitled'}</span>
                         <span className={styles.rowDate}>{formatDate(n.updatedAt)}</span>
-                        <span className={styles.tag}>
-                          {n.homeworkRole === 'prompts'
-                            ? '[hw prompts]'
-                            : n.homeworkRole === 'answers'
-                              ? '[hw answers]'
-                              : '[note]'}
-                        </span>
+                        <span className={styles.tag}>{homeworkTag(n.homeworkRole)}</span>
                       </button>
                     </li>
                   ))}
@@ -546,7 +555,15 @@ export default function ScratchNotes() {
           {tab === 'notes' && activeNote && (
             <div className={styles.bodyEditor}>
               <div className={styles.noteBar}>
-                <button type="button" className={styles.back} onClick={() => setActiveId(null)} aria-label="Back">
+                <button
+                  type="button"
+                  className={styles.back}
+                  onClick={() => {
+                    setActiveId(null);
+                    setNotePreview(false);
+                  }}
+                  aria-label="Back"
+                >
                   ‹
                 </button>
                 <input
@@ -556,25 +573,31 @@ export default function ScratchNotes() {
                   aria-label="Note title"
                 />
                 <span className={styles.rowDate}>{formatDate(activeNote.updatedAt)}</span>
-                <span className={styles.tag}>
-                  {activeNote.homeworkRole === 'prompts'
-                    ? '[hw prompts]'
-                    : activeNote.homeworkRole === 'answers'
-                      ? '[hw answers]'
-                      : '[note]'}
-                </span>
+                <span className={styles.tag}>{homeworkTag(activeNote.homeworkRole)}</span>
+                <button
+                  type="button"
+                  className={styles.textBtn}
+                  onClick={() => setNotePreview((v) => !v)}
+                  aria-pressed={notePreview}
+                >
+                  {notePreview ? 'edit' : 'preview'}
+                </button>
                 <button type="button" className={styles.textBtn} onClick={removeNote}>
                   delete
                 </button>
               </div>
-              <textarea
-                ref={textareaRef}
-                className={styles.area}
-                value={activeNote.body || ''}
-                onChange={onBodyChange}
-                placeholder="Write here. Saved on this device."
-                spellCheck
-              />
+              {notePreview ? (
+                <NoteMarkdownPreview markdown={activeNote.body || ''} />
+              ) : (
+                <textarea
+                  ref={textareaRef}
+                  className={styles.area}
+                  value={activeNote.body || ''}
+                  onChange={onBodyChange}
+                  placeholder="Write here. Saved on this device."
+                  spellCheck
+                />
+              )}
             </div>
           )}
 

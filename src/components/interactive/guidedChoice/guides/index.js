@@ -130,6 +130,105 @@ import paymentFxRisk from './payment-fx-risk';
 import lcBankRoles from './lc-bank-roles';
 import lcCreditReview from './lc-credit-review';
 import lcStrictCompliance from './lc-strict-compliance';
+import tradefinFactoring from './tradefin-factoring';
+import tradefinForfaiting from './tradefin-forfaiting';
+import tradefinChoose from './tradefin-choose';
+import guaranteeTypes from './guarantee-types';
+import guaranteeDemandSurety from './guarantee-demand-surety';
+import guaranteeRules from './guarantee-rules';
+import modelContractChoice from './model-contract-choice';
+import agencyVsDistributor from './agency-vs-distributor';
+import agencyClauses from './agency-clauses';
+import transportModeChoice from './transport-mode-choice';
+import transportDocuments from './transport-documents';
+import cargoInsurance from './cargo-insurance';
+import ecomLandedCost from './ecom-landed-cost';
+import ecomEsignature from './ecom-esignature';
+import ecomPolicy from './ecom-policy';
+import ipTrademarkFiling from './ip-trademark-filing';
+import ipWhichRight from './ip-which-right';
+import ipEnforcement from './ip-enforcement';
+import customsClassification from './customs-classification';
+import customsOriginValuation from './customs-origin-valuation';
+import customsTemporaryImport from './customs-temporary-import';
+import dfxFrameworkStep from './dfx-framework-step';
+import dfxHorizon from './dfx-horizon';
+import dfxViciousCircle from './dfx-vicious-circle';
+import dfxForecastPlanTarget from './dfx-forecast-plan-target';
+import dfxOrderData from './dfx-order-data';
+import dfxCensoring from './dfx-censoring';
+import dfxSubstitution from './dfx-substitution';
+import dfxBullwhipCause from './dfx-bullwhip-cause';
+import dfxCollaborationStage from './dfx-collaboration-stage';
+import dfxAggregationLevel from './dfx-aggregation-level';
+import dfxGranularitySource from './dfx-granularity-source';
+import dfxRiskHorizon from './dfx-risk-horizon';
+import dfxLostVsBackorder from './dfx-lost-vs-backorder';
+import dfxReconcileLevel from './dfx-reconcile-level';
+import dfxOneNumber from './dfx-one-number';
+import dfxMetricCompute from './dfx-metric-compute';
+import dfxKpiChoice from './dfx-kpi-choice';
+import dfxScore from './dfx-score';
+import dfxBenchmark from './dfx-benchmark';
+import dfxCov from './dfx-cov';
+import dfxValueWeight from './dfx-value-weight';
+import dfxAsymmetric from './dfx-asymmetric';
+import dfxFvaRead from './dfx-fva-read';
+import dfxFvaPractice from './dfx-fva-practice';
+import dfxAbcXyz from './dfx-abc-xyz';
+import dfxStarRating from './dfx-star-rating';
+import dfxTsComponents from './dfx-ts-components';
+import dfxDrivers from './dfx-drivers';
+import dfxModelLoop from './dfx-model-loop';
+import dfxMlBasics from './dfx-ml-basics';
+import dfxMlExpectations from './dfx-ml-expectations';
+import dfxWhenAdjust from './dfx-when-adjust';
+import dfxBiasSpot from './dfx-bias-spot';
+import dfxAssumptions from './dfx-assumptions';
+import commParticipants from './comm-participants';
+import commInstrumentChoice from './comm-instrument-choice';
+import commOptionPayoff from './comm-option-payoff';
+import commExotics from './comm-exotics';
+import commCurveShape from './comm-curve-shape';
+import commArbitrage from './comm-arbitrage';
+import commModels from './comm-models';
+import commGreeks from './comm-greeks';
+import commRiskTypes from './comm-risk-types';
+import commHedgeStrategy from './comm-hedge-strategy';
+import commVolTrading from './comm-vol-trading';
+import commGoldMarket from './comm-gold-market';
+import commGoldLease from './comm-gold-lease';
+import commGoldHedge from './comm-gold-hedge';
+import commGoldTrading from './comm-gold-trading';
+import commBaseSupply from './comm-base-supply';
+import commLme from './comm-lme';
+import commBaseHedge from './comm-base-hedge';
+import commCrudeQuality from './comm-crude-quality';
+import commBrentComplex from './comm-brent-complex';
+import commOilHedge from './comm-oil-hedge';
+import commPowerMarket from './comm-power-market';
+import commPowerPrice from './comm-power-price';
+import commPowerTrading from './comm-power-trading';
+import commPowerDerivs from './comm-power-derivs';
+import commPlasticsChem from './comm-plastics-chem';
+import commPlasticsPrice from './comm-plastics-price';
+import commPlasticsHedge from './comm-plastics-hedge';
+import commBulkCoal from './comm-bulk-coal';
+import commBulkCoalHedge from './comm-bulk-coal-hedge';
+import commBulkFreight from './comm-bulk-freight';
+import commBulkFfa from './comm-bulk-ffa';
+import commCarbonDrivers from './comm-carbon-drivers';
+import commCarbonTrade from './comm-carbon-trade';
+import commWeatherHedge from './comm-weather-hedge';
+import commAgBalance from './comm-ag-balance';
+import commAgDrivers from './comm-ag-drivers';
+import commAgHedge from './comm-ag-hedge';
+import commFinSecurity from './comm-fin-security';
+import commFinRepo from './comm-fin-repo';
+import commFinStructures from './comm-fin-structures';
+import commInvRoll from './comm-inv-roll';
+import commInvEtp from './comm-inv-etp';
+import commInvNotes from './comm-inv-notes';
 import provePiMinus from './prove-pi-minus';
 import provePolarRect from './prove-polar-rect';
 import proveLawsCosSin from './prove-laws-cos-sin';
@@ -371,6 +470,105 @@ const GUIDES = {
   'lc-bank-roles': lcBankRoles,
   'lc-credit-review': lcCreditReview,
   'lc-strict-compliance': lcStrictCompliance,
+  'tradefin-factoring': tradefinFactoring,
+  'tradefin-forfaiting': tradefinForfaiting,
+  'tradefin-choose': tradefinChoose,
+  'guarantee-types': guaranteeTypes,
+  'guarantee-demand-surety': guaranteeDemandSurety,
+  'guarantee-rules': guaranteeRules,
+  'model-contract-choice': modelContractChoice,
+  'agency-vs-distributor': agencyVsDistributor,
+  'agency-clauses': agencyClauses,
+  'transport-mode-choice': transportModeChoice,
+  'transport-documents': transportDocuments,
+  'cargo-insurance': cargoInsurance,
+  'ecom-landed-cost': ecomLandedCost,
+  'ecom-esignature': ecomEsignature,
+  'ecom-policy': ecomPolicy,
+  'ip-trademark-filing': ipTrademarkFiling,
+  'ip-which-right': ipWhichRight,
+  'ip-enforcement': ipEnforcement,
+  'customs-classification': customsClassification,
+  'customs-origin-valuation': customsOriginValuation,
+  'customs-temporary-import': customsTemporaryImport,
+  'dfx-framework-step': dfxFrameworkStep,
+  'dfx-horizon': dfxHorizon,
+  'dfx-vicious-circle': dfxViciousCircle,
+  'dfx-forecast-plan-target': dfxForecastPlanTarget,
+  'dfx-order-data': dfxOrderData,
+  'dfx-censoring': dfxCensoring,
+  'dfx-substitution': dfxSubstitution,
+  'dfx-bullwhip-cause': dfxBullwhipCause,
+  'dfx-collaboration-stage': dfxCollaborationStage,
+  'dfx-aggregation-level': dfxAggregationLevel,
+  'dfx-granularity-source': dfxGranularitySource,
+  'dfx-risk-horizon': dfxRiskHorizon,
+  'dfx-lost-vs-backorder': dfxLostVsBackorder,
+  'dfx-reconcile-level': dfxReconcileLevel,
+  'dfx-one-number': dfxOneNumber,
+  'dfx-metric-compute': dfxMetricCompute,
+  'dfx-kpi-choice': dfxKpiChoice,
+  'dfx-score': dfxScore,
+  'dfx-benchmark': dfxBenchmark,
+  'dfx-cov': dfxCov,
+  'dfx-value-weight': dfxValueWeight,
+  'dfx-asymmetric': dfxAsymmetric,
+  'dfx-fva-read': dfxFvaRead,
+  'dfx-fva-practice': dfxFvaPractice,
+  'dfx-abc-xyz': dfxAbcXyz,
+  'dfx-star-rating': dfxStarRating,
+  'dfx-ts-components': dfxTsComponents,
+  'dfx-drivers': dfxDrivers,
+  'dfx-model-loop': dfxModelLoop,
+  'dfx-ml-basics': dfxMlBasics,
+  'dfx-ml-expectations': dfxMlExpectations,
+  'dfx-when-adjust': dfxWhenAdjust,
+  'dfx-bias-spot': dfxBiasSpot,
+  'dfx-assumptions': dfxAssumptions,
+  'comm-participants': commParticipants,
+  'comm-instrument-choice': commInstrumentChoice,
+  'comm-option-payoff': commOptionPayoff,
+  'comm-exotics': commExotics,
+  'comm-curve-shape': commCurveShape,
+  'comm-arbitrage': commArbitrage,
+  'comm-models': commModels,
+  'comm-greeks': commGreeks,
+  'comm-risk-types': commRiskTypes,
+  'comm-hedge-strategy': commHedgeStrategy,
+  'comm-vol-trading': commVolTrading,
+  'comm-gold-market': commGoldMarket,
+  'comm-gold-lease': commGoldLease,
+  'comm-gold-hedge': commGoldHedge,
+  'comm-gold-trading': commGoldTrading,
+  'comm-base-supply': commBaseSupply,
+  'comm-lme': commLme,
+  'comm-base-hedge': commBaseHedge,
+  'comm-crude-quality': commCrudeQuality,
+  'comm-brent-complex': commBrentComplex,
+  'comm-oil-hedge': commOilHedge,
+  'comm-power-market': commPowerMarket,
+  'comm-power-price': commPowerPrice,
+  'comm-power-trading': commPowerTrading,
+  'comm-power-derivs': commPowerDerivs,
+  'comm-plastics-chem': commPlasticsChem,
+  'comm-plastics-price': commPlasticsPrice,
+  'comm-plastics-hedge': commPlasticsHedge,
+  'comm-bulk-coal': commBulkCoal,
+  'comm-bulk-coal-hedge': commBulkCoalHedge,
+  'comm-bulk-freight': commBulkFreight,
+  'comm-bulk-ffa': commBulkFfa,
+  'comm-carbon-drivers': commCarbonDrivers,
+  'comm-carbon-trade': commCarbonTrade,
+  'comm-weather-hedge': commWeatherHedge,
+  'comm-ag-balance': commAgBalance,
+  'comm-ag-drivers': commAgDrivers,
+  'comm-ag-hedge': commAgHedge,
+  'comm-fin-security': commFinSecurity,
+  'comm-fin-repo': commFinRepo,
+  'comm-fin-structures': commFinStructures,
+  'comm-inv-roll': commInvRoll,
+  'comm-inv-etp': commInvEtp,
+  'comm-inv-notes': commInvNotes,
   'prove-pi-minus': provePiMinus,
   'prove-polar-rect': provePolarRect,
   'prove-laws-cos-sin': proveLawsCosSin,

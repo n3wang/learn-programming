@@ -130,12 +130,87 @@ const ANSWER_MODES = ['write', 'choice', 'staged'];
 const ANSWER_MODE_LABEL = {write: 'write', choice: 'choice', staged: 'choice → write'};
 
 const SETTINGS_KEY = 'cards-practice-settings';
-const DEFAULT_SETTINGS = {queueSize: 10, choices: 4, passPercent: 90};
+const DEFAULT_SETTINGS = {
+  queueSize: 10,
+  choices: 4,
+  passPercent: 90,
+  playAndStudy: false,
+};
 const SETTING_OPTIONS = {
   queueSize: [3, 5, 10, 20, 0],
   choices: [3, 4, 5, 6],
   passPercent: [70, 80, 90, 100],
+  playAndStudy: [false, true],
 };
+
+/** Study block ends after either 5 learned terms or 5 minutes, then a 5-minute break. */
+const PLAY_STUDY_TERMS = 5;
+const PLAY_STUDY_MS = 5 * 60 * 1000;
+const PLAY_BREAK_MS = 5 * 60 * 1000;
+
+function formatCountdown(ms) {
+  const total = Math.max(0, Math.ceil(ms / 1000));
+  const m = Math.floor(total / 60);
+  const s = total % 60;
+  return `${m}:${String(s).padStart(2, '0')}`;
+}
+
+/** Soft alert beep; caller stops via returned handle. Loops until stop(). */
+function startContinueAlarm() {
+  let ctx = null;
+  let timer = null;
+  let stopped = false;
+
+  const beep = () => {
+    if (stopped) {
+      return;
+    }
+    try {
+      if (!ctx) {
+        const AC = window.AudioContext || window.webkitAudioContext;
+        if (!AC) {
+          return;
+        }
+        ctx = new AC();
+      }
+      if (ctx.state === 'suspended') {
+        ctx.resume().catch(() => {});
+      }
+      const osc = ctx.createOscillator();
+      const gain = ctx.createGain();
+      osc.type = 'sine';
+      osc.frequency.value = 880;
+      gain.gain.value = 0.0001;
+      osc.connect(gain);
+      gain.connect(ctx.destination);
+      const now = ctx.currentTime;
+      gain.gain.setValueAtTime(0.0001, now);
+      gain.gain.exponentialRampToValueAtTime(0.12, now + 0.02);
+      gain.gain.exponentialRampToValueAtTime(0.0001, now + 0.35);
+      osc.start(now);
+      osc.stop(now + 0.4);
+    } catch {
+      // autoplay / audio restrictions: UI still works
+    }
+  };
+
+  beep();
+  timer = window.setInterval(beep, 1600);
+
+  return {
+    stop() {
+      stopped = true;
+      if (timer != null) {
+        window.clearInterval(timer);
+        timer = null;
+      }
+      if (ctx) {
+        ctx.close().catch(() => {});
+        ctx = null;
+      }
+    },
+  };
+}
 
 function loadSettings() {
   try {
@@ -236,12 +311,19 @@ function Practice({mode, pool: fullPool, initialLang, title, onBack, onNavigate}
   const [known, setKnown] = useState(0);
   const [missed, setMissed] = useState(0);
   const [turn, setTurn] = useState(0);
+  const [studyPhase, setStudyPhase] = useState('study'); // study | break | alarm
+  const [studyTerms, setStudyTerms] = useState(0);
+  const [studyStartedAt, setStudyStartedAt] = useState(() => Date.now());
+  const [breakEndsAt, setBreakEndsAt] = useState(null);
+  const [nowTick, setNowTick] = useState(() => Date.now());
   const inputRef = useRef(null);
+  const alarmRef = useRef(null);
   const total = pool.length;
   const entry = session.queue[0] || null;
   const card = entry?.card || null;
   const stage = entry?.stage || 'write';
   const choice = !translate && stage === 'choice';
+  const playAndStudy = Boolean(settings.playAndStudy);
 
   function resetCard() {
     setRevealed(false);
@@ -255,8 +337,39 @@ function Practice({mode, pool: fullPool, initialLang, title, onBack, onNavigate}
     inputRef.current?.blur();
   }
 
+  function stopAlarm() {
+    alarmRef.current?.stop?.();
+    alarmRef.current = null;
+  }
+
+  function beginStudyBlock() {
+    stopAlarm();
+    setStudyPhase('study');
+    setStudyTerms(0);
+    setStudyStartedAt(Date.now());
+    setBreakEndsAt(null);
+  }
+
+  function beginBreak() {
+    stopAlarm();
+    setStudyPhase('break');
+    setBreakEndsAt(Date.now() + PLAY_BREAK_MS);
+  }
+
+  function beginAlarm() {
+    setStudyPhase('alarm');
+    setBreakEndsAt(null);
+    if (!alarmRef.current) {
+      alarmRef.current = startContinueAlarm();
+    }
+  }
+
+  function continueAfterBreak() {
+    beginStudyBlock();
+  }
+
   function grade(gotIt) {
-    if (!entry) {
+    if (!entry || studyPhase !== 'study') {
       return;
     }
     setSession(({queue, backlog}) => {
@@ -276,6 +389,15 @@ function Practice({mode, pool: fullPool, initialLang, title, onBack, onNavigate}
       setMissed((n) => n + 1);
     } else if (!(answerMode === 'staged' && entry.stage === 'choice')) {
       setKnown((n) => n + 1);
+      if (playAndStudy) {
+        setStudyTerms((n) => {
+          const next = n + 1;
+          if (next >= PLAY_STUDY_TERMS) {
+            window.setTimeout(() => beginBreak(), 0);
+          }
+          return next;
+        });
+      }
     }
     resetCard();
   }
@@ -314,14 +436,49 @@ function Practice({mode, pool: fullPool, initialLang, title, onBack, onNavigate}
     if (key === 'queueSize') {
       restart(pool, next);
     }
+    if (key === 'playAndStudy') {
+      if (value) {
+        beginStudyBlock();
+      } else {
+        stopAlarm();
+        setStudyPhase('study');
+        setBreakEndsAt(null);
+        setStudyTerms(0);
+      }
+    }
   }
 
   // Each new card (including a re-queued one) starts with the cursor in the answer box.
   useEffect(() => {
-    if (!revealed && !showSettings) {
+    if (!revealed && !showSettings && studyPhase === 'study') {
       inputRef.current?.focus({preventScroll: true});
     }
-  }, [turn, revealed, reverse, lang, showSettings]);
+  }, [turn, revealed, reverse, lang, showSettings, studyPhase]);
+
+  // Play-and-study clock: end study after 5 minutes; end break after 5 minutes → alarm.
+  useEffect(() => {
+    if (!playAndStudy) {
+      return undefined;
+    }
+    const id = window.setInterval(() => {
+      const now = Date.now();
+      setNowTick(now);
+      if (studyPhase === 'study' && now - studyStartedAt >= PLAY_STUDY_MS) {
+        beginBreak();
+      } else if (studyPhase === 'break' && breakEndsAt && now >= breakEndsAt) {
+        beginAlarm();
+      }
+    }, 250);
+    return () => window.clearInterval(id);
+  }, [playAndStudy, studyPhase, studyStartedAt, breakEndsAt]);
+
+  useEffect(() => () => stopAlarm(), []);
+
+  useEffect(() => {
+    if (!playAndStudy && studyPhase !== 'study') {
+      beginStudyBlock();
+    }
+  }, [playAndStudy]);
 
   const shown = card ? localizeCard(card, lang) : null;
   const target = card && translate ? localizeCard(card, toLang) : null;
@@ -378,6 +535,18 @@ function Practice({mode, pool: fullPool, initialLang, title, onBack, onNavigate}
     const onKey = (event) => {
       const tag = event.target?.tagName;
       if (showSettings || tag === 'INPUT' || tag === 'TEXTAREA' || event.isComposing) {
+        return;
+      }
+      if (
+        playAndStudy &&
+        (studyPhase === 'alarm' || studyPhase === 'break') &&
+        (event.key === 'Enter' || event.key === ' ')
+      ) {
+        event.preventDefault();
+        continueAfterBreak();
+        return;
+      }
+      if (playAndStudy && studyPhase !== 'study') {
         return;
       }
       const digit = /^[1-9]$/.test(event.key) ? Number(event.key) : null;
@@ -470,10 +639,59 @@ function Practice({mode, pool: fullPool, initialLang, title, onBack, onNavigate}
             format={(v) => `${v}%`}
             onChange={(v) => updateSetting('passPercent', v)}
           />
+          <SettingRow
+            label="Play and study"
+            hint="study 5 terms or 5 minutes, then a 5-minute break; alarm loops until you continue"
+            value={settings.playAndStudy}
+            options={SETTING_OPTIONS.playAndStudy}
+            format={(v) => (v ? 'On' : 'Off')}
+            onChange={(v) => updateSetting('playAndStudy', v)}
+          />
           <p className={styles.choiceHint}>Saved on this device. Changing the queue size restarts the session.</p>
+        </div>
+      ) : playAndStudy && studyPhase !== 'study' ? (
+        <div className={styles.wikiDetail}>
+          <div className={styles.flashcard}>
+            {studyPhase === 'break' ? (
+              <>
+                <p className={styles.flashText}>Break time</p>
+                <p className={styles.queueInfo}>
+                  Back in {formatCountdown((breakEndsAt || nowTick) - nowTick)}
+                </p>
+                <p className={styles.choiceHint}>5-minute rest. An alert will play when it is time to continue.</p>
+                <div className={styles.flashActions}>
+                  <button
+                    type="button"
+                    className={styles.wikiPracticeBtn}
+                    onClick={continueAfterBreak}>
+                    Skip break
+                  </button>
+                </div>
+              </>
+            ) : (
+              <>
+                <p className={styles.flashText}>Break over — continue studying</p>
+                <p className={styles.choiceHint}>Alert is playing until you continue.</p>
+                <div className={styles.flashActions}>
+                  <button
+                    type="button"
+                    className={styles.wikiPracticeBtn}
+                    onClick={continueAfterBreak}>
+                    Continue studying
+                  </button>
+                </div>
+              </>
+            )}
+          </div>
         </div>
       ) : (
         <div className={styles.wikiDetail}>
+          {playAndStudy ? (
+            <p className={styles.queueInfo}>
+              Play &amp; study · {studyTerms}/{PLAY_STUDY_TERMS} terms ·{' '}
+              {formatCountdown(PLAY_STUDY_MS - (nowTick - studyStartedAt))} left
+            </p>
+          ) : null}
           <div className={styles.filters}>
             {translate ? (
               directions.length === 2 ? (

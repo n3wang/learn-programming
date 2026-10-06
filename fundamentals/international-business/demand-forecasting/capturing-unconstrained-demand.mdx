@@ -1,0 +1,340 @@
+---
+sidebar_position: 3
+title: Capturing Unconstrained Demand
+sidebar_label: '3. Capturing demand'
+---
+
+# 3. Capturing Unconstrained Demand (Not Sales)
+
+> **Teaching rewrite** — the *Data* step of the framework. Original wording; examples and numbers are illustrative.
+
+## Introduction
+
+Lesson 2 established that we must forecast **demand**, not sales. The hard part is that most systems only record **sales**: what was shipped, when, and how much. As long as stock is available, that is fine — every request becomes a sale. The trouble starts with **shortages**: demand keeps arriving, but the data stops showing it.
+
+Unconstrained demand means the customer’s **originally requested** product, quantity, and **delivery date** — *what, how much, when* — not what you shipped, how much you shipped, and when you shipped or invoiced it.
+
+This lesson covers four techniques to recover demand when stock runs out:
+
+1. **Order collection and management** — keep recording orders during shortages
+2. **Shortage censoring** — tell the model which periods are constrained
+3. **Demand drivers** — estimate lost demand from data unaffected by stock
+4. **Aggregate forecasting** — cope with **substitution** and **cannibalization**
+
+(A fifth — **customer collaboration** — comes in a later lesson.)
+
+Perfect demand data is usually impossible. But **better data → better forecast**, and **more data → better forecast**. Unconstraining demand also lets you estimate **lost sales** and their revenue impact.
+
+### Case snapshot: the missing 5%
+
+A consultant tuned a forecasting model for a manufacturer, chasing every 0.1% of accuracy. Then it emerged that the model was trained on data from a new IT system while results were reported from the old one. Comparing the two showed a gap of about **5%** across all products; reconciliation brought it to 1%, but the rest stayed unexplained. Lesson: fix the **data** before polishing the **model** — a 5% data error dwarfs a 0.1% model gain.
+
+---
+
+## 3.1 Order collection and management
+
+If customers can still place orders during a shortage, an **order management system** keeps recording demand even while shipments drop. Track these order types:
+
+| Order type | What it is | Risk if mishandled |
+|---|---|---|
+| **Open orders** | Recorded but not yet delivered (often due to shortage). Keep a **backlog** and tell customers when to expect delivery | Customers re-order → duplicates |
+| **Duplicated orders** | The same need ordered several times because the customer never heard back | **Inflated** demand |
+| **Cancelled orders** | Orders dropped because delivery was too late | Demand vanishes from data unless recorded with original date and **reason** |
+| **Substitution orders** | Customer accepts another product instead | Demand credited to the wrong product |
+| **Uncollected orders** | Customer never ordered because stock was visibly missing (e.g. abandoned online carts) | Invisible demand — hardest to measure |
+
+Good practice:
+
+- Record each order’s **initially requested delivery date** — not the entry, shipping, or invoice date.
+- Use a **small set of cancellation reasons** (price too high, delay too long, no longer needed, took a substitute) — not a vague “customer cancelled”.
+- Let the system **propose substitutes automatically** and log the original request; manual workarounds lose information.
+- Prevent **data/KPI hacking** — e.g. customer service editing requested dates so service levels look higher.
+
+### Worked example: cleaning order data
+
+During a 3-week shortage the order log for item A shows **260** order lines. Investigation finds:
+
+| Finding | Lines | Treatment |
+|---|---|---|
+| Duplicates of earlier open orders (inside the 260) | 40 | **Remove** |
+| Cancelled after delay (inside the 260) | 30 | **Keep** — real demand at its requested date |
+| Substitutions: customers asked for A but were logged as orders for B (not in the 260) | 25 | **Add** to A (and remove from B) |
+
+Unconstrained demand for A ≈ 260 − 40 + 25 = **245** lines. Raw orders (260) would overstate it; shipments alone would understate it badly.
+
+<GuidedChoiceExplanation preset="dfx-order-data" />
+
+---
+
+## 3.2 Shortage censoring
+
+Many B2C (and some B2B) businesses cannot collect orders during shortages — the customer simply leaves. But when stock is available, **sales = demand**. So track **inventory** alongside sales and mark periods where stock was out:
+
+| Period status | What the data shows | Use in the model |
+|---|---|---|
+| In stock | True demand | Learn from it |
+| Out of stock | Constrained sales (often zero) | **Censor** — don’t treat as low demand |
+
+Censoring tells the model: “sales here were limited by supply; ignore or adjust these values.” Most forecasting engines ignore inventory data even when it is readily available — a missed opportunity.
+
+Censor even when the system shows stock if the item was effectively unavailable:
+
+- **Inaccurate inventory records** (ERP says 3 units; shelf is empty)
+- Stock present but **not displayed** to customers (in the back room)
+- **Ultra-fresh** products whose quality drove customers to competitors
+
+### Worked example: censored average
+
+Daily sales over 10 days; the item was out of stock on days 4–6:
+
+| Day | 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9 | 10 |
+|---|---|---|---|---|---|---|---|---|---|---|
+| Sales | 12 | 9 | 11 | 0 | 0 | 0 | 10 | 13 | 8 | 7 |
+| In stock? | ✓ | ✓ | ✓ | ✗ | ✗ | ✗ | ✓ | ✓ | ✓ | ✓ |
+
+- Naive average of all days: 70 / 10 = **7.0** per day
+- Censored average (in-stock days only): 70 / 7 = **10.0** per day
+- Estimated lost sales: 3 days × 10 = **30 units**
+
+The naive forecast is 30% too low — exactly how the vicious circle begins.
+
+### Using demand drivers to estimate lost demand
+
+Some data is **not affected by your stock** — weather, web traffic, store footfall, number of customers served. Use it to reconstruct demand during shortages.
+
+**Ice-cream example**: normally **1 in 5** customers buys a waffle cone. Waffle cones ran out at 2 pm; **25** customers were served between 2 pm and 6 pm. Estimated lost waffle-cone demand ≈ 25 / 5 = **5 cones**, added to the morning’s actual sales.
+
+<GuidedChoiceExplanation preset="dfx-censoring" />
+
+---
+
+### Checkpoint: orders and censoring
+
+<MultipleChoice
+  id="dfx-ch3-mid1"
+  title="Checkpoint — sections 3.1 and 3.2"
+  questions={[
+    {
+      prompt: 'Which date should be recorded to capture demand timing?',
+      choices: ['Order entry date', 'Shipping date', 'Customer’s initially requested delivery date', 'Invoice date'],
+      answer: 2,
+      why: 'Demand is when the customer wanted the goods.',
+    },
+    {
+      prompt: 'Customers re-order the same need three times because nobody confirmed the first order. The demand data is…',
+      choices: ['Accurate', 'Inflated by duplicates', 'Censored', 'Cannibalized'],
+      answer: 1,
+      why: 'Keep a backlog of open orders and communicate expected dates.',
+    },
+    {
+      prompt: 'Sales over 8 weeks: 20, 22, 0, 0, 18, 21, 19, 20 (weeks 3–4 out of stock). Censored weekly average?',
+      choices: ['15.0', '20.0', '17.5', '22.0'],
+      answer: 1,
+      why: 'In-stock weeks sum to 120 over 6 weeks = 20.0; the naive 120/8 = 15.0 understates demand.',
+    },
+    {
+      type: 'order',
+      prompt: 'Rank the steps to censor shortages in a sales history.',
+      items: [
+        'Collect daily or weekly inventory positions next to sales.',
+        'Flag periods with zero (or effectively zero) available stock.',
+        'Exclude or adjust those periods when estimating demand.',
+        'Estimate lost sales = flagged periods × estimated demand rate.',
+      ],
+      why: 'You need stock data to know which sales are constrained.',
+    },
+  ]}
+/>
+
+---
+
+## 3.3 Substitution and cannibalization
+
+| Effect | Trigger | Data distortion |
+|---|---|---|
+| **Substitution** | Item A is out of stock; customers buy similar item B | B’s sales > B’s demand; A’s sales < A’s demand |
+| **Cannibalization** | A **promotion** or **new launch** on B pulls demand away from A | A’s sales *and* demand fall; B’s rise |
+
+If you forecast sales, you will **over-forecast** the product that benefited and **under-forecast** the one that lost.
+
+### Aggregate (top-down) forecasting
+
+One remedy: forecast at the **family** level (all ice creams) rather than per flavour, then split down to SKUs. Within a family, substitution moves volume around but the total stays closer to true demand.
+
+Not a silver bullet:
+
+- **Defining families is hard.** Fruit vs non-fruit? Premium vs budget? Cone vs cup? Products in one family must truly substitute for each other.
+- **Splitting the family forecast** is risky. If the split is based on **recent sales**, a recently out-of-stock SKU gets a smaller share → less stock deployed → more shortages: the vicious circle again. Base split ratios on **censored**, in-stock history.
+
+### Worked example: a fair split
+
+A family forecast is **1,000** units for next month. Last month (with SKU A out of stock for half the month):
+
+| SKU | Last month sales | In-stock share of month | Censored monthly rate | Split by raw sales | Split by censored rate |
+|---|---|---|---|---|---|
+| A | 150 | 50% | 150 / 0.5 = 300 | 1,000 × 150/1,000 = **150** | 1,000 × 300/1,150 ≈ **261** |
+| B | 500 | 100% | 500 | **500** | ≈ **435** |
+| C | 350 | 100% | 350 | **350** | ≈ **304** |
+| **Total** | 1,000 | | 1,150 | 1,000 | 1,000 |
+
+The raw split would starve SKU A; the censored split restores its share. (B’s sales were probably inflated by substitution from A, so its share falls.)
+
+<GuidedChoiceExplanation preset="dfx-substitution" />
+
+---
+
+### Checkpoint: substitution and aggregation
+
+<MultipleChoice
+  id="dfx-ch3-mid2"
+  title="Checkpoint — section 3.3"
+  questions={[
+    {
+      prompt: 'Chocolate runs out and vanilla sales jump. This is…',
+      choices: ['Cannibalization', 'Substitution', 'Censoring', 'Duplication'],
+      answer: 1,
+      why: 'Shortage-driven switching is substitution.',
+    },
+    {
+      prompt: 'A 50%-off promotion on vanilla reduces chocolate demand. This is…',
+      choices: ['Substitution', 'Cannibalization', 'A duplicated order', 'An uncollected order'],
+      answer: 1,
+      why: 'Promotions and launches cause cannibalization.',
+    },
+    {
+      prompt: 'Why can splitting a family forecast by recent sales restart the vicious circle?',
+      choices: [
+        'Families are always wrong',
+        'A recently out-of-stock SKU gets a smaller share, so less stock is deployed for it',
+        'Top-down forecasts ignore promotions',
+        'It doubles the total forecast',
+      ],
+      answer: 1,
+      why: 'Use censored history for split ratios.',
+    },
+    {
+      type: 'order',
+      prompt: 'Rank the steps of a top-down forecast that handles substitution.',
+      items: [
+        'Group truly substitutable SKUs into a family.',
+        'Forecast demand for the family total.',
+        'Compute each SKU’s share from censored (in-stock) history.',
+        'Split the family forecast by those shares.',
+      ],
+      why: 'Aggregate where substitution cancels out, then split with unbiased shares.',
+    },
+  ]}
+/>
+
+---
+
+### Rank: improving demand data
+
+<MultipleChoice
+  id="dfx-ch3-rank"
+  title="Sequence demand-data improvements"
+  questions={[
+    {
+      type: 'order',
+      prompt: 'Rank these data sources from MOST to LEAST faithful to unconstrained demand during a shortage.',
+      items: [
+        'Order log with requested dates, cancellations with reasons, and logged substitutions',
+        'Order log without cancellation or substitution tracking',
+        'Shipments with stock-out periods flagged (censored)',
+        'Raw invoiced sales',
+      ],
+      why: 'Direct order capture beats inference; censoring beats raw constrained sales.',
+    },
+    {
+      type: 'order',
+      prompt: 'Rank the actions for a company that only records invoices today.',
+      items: [
+        'Reconcile data sources so everyone uses the same history.',
+        'Start storing inventory positions next to sales to enable censoring.',
+        'Record orders with requested delivery dates and an open-order backlog.',
+        'Add cancellation reasons and automatic substitution logging.',
+        'Add stock-independent drivers (traffic, footfall, weather) to estimate lost demand.',
+      ],
+      why: 'Clean and consistent data first, quick wins (censoring) next, then richer order and driver data.',
+    },
+  ]}
+/>
+
+---
+
+### Check: capturing unconstrained demand
+
+<MultipleChoice
+  id="dfx-ch3"
+  title="Capturing unconstrained demand"
+  questions={[
+    {
+      prompt: 'When is tracking sales instead of demand acceptable?',
+      choices: ['Always', 'When there are no shortages', 'During promotions', 'Never'],
+      answer: 1,
+      why: 'Without shortages, sales equal demand.',
+    },
+    {
+      prompt: 'An online shop’s product shows “out of stock” and shoppers leave. This lost demand is…',
+      choices: ['A duplicated order', 'An uncollected order', 'A substitution order', 'A cancelled order'],
+      answer: 1,
+      why: 'It was never recorded — the hardest kind to estimate.',
+    },
+    {
+      prompt: 'Normally 1 in 4 customers buys a topping. Toppings ran out; 60 customers came afterwards. Estimated lost topping sales?',
+      choices: ['4', '12', '15', '60'],
+      answer: 2,
+      why: '60 / 4 = 15.',
+    },
+    {
+      prompt: 'The ERP shows 5 units in stock, but the shelf has been empty for days. You should…',
+      choices: [
+        'Trust the ERP',
+        'Censor those days too — the item was effectively unavailable',
+        'Delete the item',
+        'Increase the price',
+      ],
+      answer: 1,
+      why: 'Censor based on real availability, not only recorded stock.',
+    },
+    {
+      prompt: 'Customer service edits requested dates so late orders look on time. This is…',
+      choices: ['Good service', 'Data/KPI hacking that corrupts demand data', 'Shortage censoring', 'Top-down forecasting'],
+      answer: 1,
+      why: 'It improves a KPI while degrading the data behind decisions.',
+    },
+    {
+      prompt: 'Why fix data before tuning the model?',
+      choices: [
+        'Models do not matter',
+        'Data errors (e.g. a 5% discrepancy) can dwarf small model gains (e.g. 0.1%)',
+        'Data is cheaper than models',
+        'Regulators require it',
+      ],
+      answer: 1,
+      why: 'Better data = better forecast.',
+    },
+  ]}
+/>
+
+---
+
+## Takeaways
+
+:::tip Remember
+- Demand = requested **what, how much, when** — record the **original requested date**
+- Manage **open, duplicated, cancelled, substitution, and uncollected** orders deliberately
+- If you can’t capture orders, **censor** stock-out periods using inventory data (and effective unavailability)
+- Use **stock-independent drivers** (traffic, footfall, weather) to estimate lost demand
+- **Substitution** (shortage) and **cannibalization** (promotion/launch) distort item-level sales
+- **Top-down** forecasting helps, but split with **censored** shares to avoid the vicious circle
+- Fix **data** before polishing the **model**
+:::
+
+## Further Reading
+
+- [2. Demand, sales, and plans](./demand-vs-sales)
+- [Safety stocks](../inventory-optimization/safety-stocks)
+- [International Business home](../intro)
+- Next: [4. Collaboration and the bullwhip effect](./collaboration-and-bullwhip)
+- Background: N. Vandeput, *Demand Forecasting Best Practices* (Manning) — used as a study outline

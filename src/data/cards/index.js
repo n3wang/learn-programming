@@ -11,10 +11,22 @@ import inventoryOptimization from './decks/inventory-optimization.json';
 import computerEngineering from './decks/computer-engineering.json';
 import gameEngine from './decks/game-engine.json';
 import scalableSystems from './decks/scalable-systems.json';
+import englishChuyi from './decks/english-chuyi.json';
+import englishChuer from './decks/english-chuer.json';
+import commodities from './decks/commodities.json';
 
 export const CARD_SCHEMA = 'l0l-cards/1';
 
-const DECK_FILES = [exportImport, inventoryOptimization, computerEngineering, gameEngine, scalableSystems];
+const DECK_FILES = [
+  exportImport,
+  inventoryOptimization,
+  computerEngineering,
+  gameEngine,
+  scalableSystems,
+  englishChuyi,
+  englishChuer,
+  commodities,
+];
 
 const REQUIRED = ['id', 'term', 'definition', 'category'];
 

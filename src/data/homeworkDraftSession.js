@@ -16,8 +16,7 @@ function emptySession() {
     active: false,
     sessionId: null,
     dateKey: null,
-    promptNoteId: null,
-    answerNoteId: null,
+    noteId: null,
     problemCount: 0,
     title: null,
   };
@@ -27,12 +26,17 @@ function sanitizeSession(raw) {
   if (!raw || typeof raw !== 'object') {
     return emptySession();
   }
+  // Prefer new single-note id; fall back to legacy prompt note id.
+  const noteId = raw.noteId
+    ? String(raw.noteId)
+    : raw.promptNoteId
+      ? String(raw.promptNoteId)
+      : null;
   return {
     active: Boolean(raw.active),
     sessionId: raw.sessionId ? String(raw.sessionId) : null,
     dateKey: raw.dateKey ? String(raw.dateKey) : null,
-    promptNoteId: raw.promptNoteId ? String(raw.promptNoteId) : null,
-    answerNoteId: raw.answerNoteId ? String(raw.answerNoteId) : null,
+    noteId,
     problemCount: Number.isFinite(Number(raw.problemCount))
       ? Math.max(0, Number(raw.problemCount))
       : 0,
@@ -86,66 +90,48 @@ function newSessionId() {
   return `hw_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 7)}`;
 }
 
-function noteTitles(dateKey, sessionId) {
+function noteTitle(dateKey, sessionId) {
   const short = sessionId ? String(sessionId).slice(-5) : 'new';
-  return {
-    prompts: `HW ${dateKey} · ${short} · prompts`,
-    answers: `HW ${dateKey} · ${short} · answers`,
-  };
+  return `HW ${dateKey} · ${short}`;
 }
 
-async function ensurePairNotes(session) {
-  const dateKey = session.dateKey || localDateKey();
-  const titles = noteTitles(dateKey, session.sessionId);
-  const sessionId = session.sessionId || '';
+function makeHeader(sessionId, dateKey) {
+  return [
+    `# Homework draft`,
+    ``,
+    `Session: \`${sessionId || ''}\``,
+    `Date: ${dateKey}`,
+    ``,
+    `---`,
+    ``,
+  ].join('\n');
+}
 
-  let promptNoteId = session.promptNoteId;
-  let answerNoteId = session.answerNoteId;
+async function ensureDraftNote(session) {
+  const dateKey = session.dateKey || localDateKey();
+  const sessionId = session.sessionId || '';
+  let noteId = session.noteId;
 
   const notes = await listNotes().catch(() => []);
   const byId = new Map((notes || []).map((n) => [n?.id, n]));
 
-  const makeHeader = (kindLabel) =>
-    [
-      `# Homework ${kindLabel}`,
-      ``,
-      `Session: \`${sessionId}\``,
-      `Date: ${dateKey}`,
-      ``,
-      `---`,
-      ``,
-    ].join('\n');
-
-  if (!promptNoteId || !byId.get(promptNoteId)) {
+  if (!noteId || !byId.get(noteId)) {
     const created = await saveNoteRecord({
       id: newNoteId(),
-      title: titles.prompts,
-      body: makeHeader('prompts'),
+      title: noteTitle(dateKey, sessionId),
+      body: makeHeader(sessionId, dateKey),
       kind: 'note',
       homeworkSessionId: sessionId,
-      homeworkRole: 'prompts',
+      homeworkRole: 'homework',
       homeworkDateKey: dateKey,
     });
-    promptNoteId = created.id;
+    noteId = created.id;
   }
 
-  if (!answerNoteId || !byId.get(answerNoteId)) {
-    const created = await saveNoteRecord({
-      id: newNoteId(),
-      title: titles.answers,
-      body: makeHeader('answers'),
-      kind: 'note',
-      homeworkSessionId: sessionId,
-      homeworkRole: 'answers',
-      homeworkDateKey: dateKey,
-    });
-    answerNoteId = created.id;
-  }
-
-  return {promptNoteId, answerNoteId, dateKey};
+  return {noteId, dateKey};
 }
 
-/** Turn draft mode on — always starts a fresh assignment session + note pair. */
+/** Turn draft mode on — always starts a fresh assignment session + note. */
 export async function activateHomeworkDraftMode() {
   const dateKey = localDateKey();
   const sessionId = newSessionId();
@@ -153,18 +139,17 @@ export async function activateHomeworkDraftMode() {
     active: true,
     sessionId,
     dateKey,
-    promptNoteId: null,
-    answerNoteId: null,
+    noteId: null,
     problemCount: 0,
     title: `HW ${dateKey}`,
   };
 
-  const pair = await ensurePairNotes(session);
+  const ensured = await ensureDraftNote(session);
   const next = writeHomeworkDraftSession({
     ...session,
-    ...pair,
+    ...ensured,
     active: true,
-    title: `HW ${pair.dateKey}`,
+    title: `HW ${ensured.dateKey}`,
   });
   notifyNoteChange({session: next, action: 'activate'});
   return next;
@@ -177,8 +162,7 @@ export async function deactivateHomeworkDraftMode() {
     active: false,
     sessionId: null,
     dateKey: current.dateKey || null,
-    promptNoteId: null,
-    answerNoteId: null,
+    noteId: null,
     problemCount: 0,
     title: null,
   });
@@ -203,7 +187,7 @@ function cleanDraftText(text) {
 }
 
 /**
- * Append one problem into the session's prompt + answer notes.
+ * Append one problem (prompt + answer) into the session's single draft note.
  * @param {{ title?: string, prompt: string, answer?: string, sourcePath?: string }} payload
  */
 export async function appendProblemToHomeworkDraft(payload) {
@@ -212,55 +196,48 @@ export async function appendProblemToHomeworkDraft(payload) {
     throw new Error('Homework draft mode is off');
   }
 
-  const pair = await ensurePairNotes(session);
+  const ensured = await ensureDraftNote(session);
   const index = (session.problemCount || 0) + 1;
   const title = cleanDraftText(payload?.title) || `Problem ${index}`;
   const prompt = cleanDraftText(payload?.prompt);
   const answer = cleanDraftText(payload?.answer);
   const sourcePath = payload?.sourcePath ? String(payload.sourcePath) : '';
 
-  const meta = [
+  const block = [
     `### ${index}. ${title}`,
     sourcePath ? `Source: ${sourcePath}` : null,
+    ``,
+    `**Prompt**`,
+    ``,
+    prompt || '(empty prompt)',
+    ``,
+    `**Answer**`,
+    ``,
+    answer || '(no answer captured)',
+    ``,
+    `---`,
     ``,
   ]
     .filter((line) => line != null)
     .join('\n');
 
   const notes = await listNotes().catch(() => []);
-  const promptNote = (notes || []).find((n) => n?.id === pair.promptNoteId);
-  const answerNote = (notes || []).find((n) => n?.id === pair.answerNoteId);
-
-  const promptBody = `${promptNote?.body || ''}${meta}${prompt || '(empty prompt)'}\n\n`;
-  const answerBody = `${answerNote?.body || ''}${meta}${
-    answer || '(no answer captured)'
-  }\n\n`;
+  const note = (notes || []).find((n) => n?.id === ensured.noteId);
 
   await saveNoteRecord({
-    ...(promptNote || {}),
-    id: pair.promptNoteId,
-    title: promptNote?.title || noteTitles(pair.dateKey, session.sessionId).prompts,
-    body: promptBody,
+    ...(note || {}),
+    id: ensured.noteId,
+    title: note?.title || noteTitle(ensured.dateKey, session.sessionId),
+    body: `${note?.body || ''}${block}`,
     kind: 'note',
     homeworkSessionId: session.sessionId,
-    homeworkRole: 'prompts',
-    homeworkDateKey: pair.dateKey,
-  });
-
-  await saveNoteRecord({
-    ...(answerNote || {}),
-    id: pair.answerNoteId,
-    title: answerNote?.title || noteTitles(pair.dateKey, session.sessionId).answers,
-    body: answerBody,
-    kind: 'note',
-    homeworkSessionId: session.sessionId,
-    homeworkRole: 'answers',
-    homeworkDateKey: pair.dateKey,
+    homeworkRole: 'homework',
+    homeworkDateKey: ensured.dateKey,
   });
 
   const next = writeHomeworkDraftSession({
     ...session,
-    ...pair,
+    ...ensured,
     active: true,
     problemCount: index,
   });
@@ -268,8 +245,7 @@ export async function appendProblemToHomeworkDraft(payload) {
     session: next,
     action: 'append',
     index,
-    promptNoteId: pair.promptNoteId,
-    answerNoteId: pair.answerNoteId,
+    noteId: ensured.noteId,
   });
   return next;
 }
