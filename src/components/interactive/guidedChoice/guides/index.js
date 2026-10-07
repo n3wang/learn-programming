@@ -229,6 +229,24 @@ import commFinStructures from './comm-fin-structures';
 import commInvRoll from './comm-inv-roll';
 import commInvEtp from './comm-inv-etp';
 import commInvNotes from './comm-inv-notes';
+import contabHistoria from './contab-historia';
+import contabEtica from './contab-etica';
+import contabProfesion from './contab-profesion';
+import contabEntidad from './contab-entidad';
+import contabUsuarios from './contab-usuarios';
+import contabEcuacion from './contab-ecuacion';
+import contabNaturaleza from './contab-naturaleza';
+import contabCatalogo from './contab-catalogo';
+import contabPresentacion from './contab-presentacion';
+import contabIva from './contab-iva';
+import contabResultados from './contab-resultados';
+import contabPostulados from './contab-postulados';
+import contabCualitativas from './contab-cualitativas';
+import contabPartidaDoble from './contab-partida-doble';
+import contabAsiento from './contab-asiento';
+import contabSistemaInventario from './contab-sistema-inventario';
+import contabCostoVentas from './contab-costo-ventas';
+import contabPerpetuo from './contab-perpetuo';
 import provePiMinus from './prove-pi-minus';
 import provePolarRect from './prove-polar-rect';
 import proveLawsCosSin from './prove-laws-cos-sin';
@@ -569,6 +587,24 @@ const GUIDES = {
   'comm-inv-roll': commInvRoll,
   'comm-inv-etp': commInvEtp,
   'comm-inv-notes': commInvNotes,
+  'contab-historia': contabHistoria,
+  'contab-etica': contabEtica,
+  'contab-profesion': contabProfesion,
+  'contab-entidad': contabEntidad,
+  'contab-usuarios': contabUsuarios,
+  'contab-ecuacion': contabEcuacion,
+  'contab-naturaleza': contabNaturaleza,
+  'contab-catalogo': contabCatalogo,
+  'contab-presentacion': contabPresentacion,
+  'contab-iva': contabIva,
+  'contab-resultados': contabResultados,
+  'contab-postulados': contabPostulados,
+  'contab-cualitativas': contabCualitativas,
+  'contab-partida-doble': contabPartidaDoble,
+  'contab-asiento': contabAsiento,
+  'contab-sistema-inventario': contabSistemaInventario,
+  'contab-costo-ventas': contabCostoVentas,
+  'contab-perpetuo': contabPerpetuo,
   'prove-pi-minus': provePiMinus,
   'prove-polar-rect': provePolarRect,
   'prove-laws-cos-sin': proveLawsCosSin,

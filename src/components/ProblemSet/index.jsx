@@ -2,6 +2,8 @@ import React, {useEffect, useMemo, useState} from 'react';
 import TranslatableParagraph from '@site/src/components/Translate/TranslatableParagraph';
 import styles from './styles.module.css';
 import MathText from './MathText';
+import ClozePane from './ClozePane';
+import {getLabels} from './labels';
 
 function storageKey(id) {
   return `numeric-problem-set:${id}`;
@@ -34,12 +36,12 @@ function missingKeywords(text, keywords) {
   return (keywords || []).filter((kw) => !hay.includes(String(kw).toLowerCase()));
 }
 
-function formatKeywordLead(keywords) {
+function formatKeywordLead(keywords, t) {
   const list = (keywords || []).map((k) => String(k).trim()).filter(Boolean);
   if (!list.length) return null;
-  if (list.length === 1) return `Using “${list[0]}”`;
-  if (list.length === 2) return `Using “${list[0]}” and “${list[1]}”`;
-  return `Using “${list.slice(0, -1).join('”, “')}”, and “${list[list.length - 1]}”`;
+  if (list.length === 1) return t.usingOne(list[0]);
+  if (list.length === 2) return t.usingTwo(list[0], list[1]);
+  return t.usingMany(list.slice(0, -1).join('”, “'), list[list.length - 1]);
 }
 
 /** Next unsolved index after `from`, wrapping; null if everything is solved. */
@@ -81,6 +83,7 @@ function ConceptPane({
   onSolved,
   onCheckLater,
   hasNextUnsolved,
+  t,
 }) {
   const [draft, setDraft] = useState('');
   const [revealed, setRevealed] = useState(done);
@@ -92,7 +95,7 @@ function ConceptPane({
     [keywords],
   );
   const needWords = Number(minWords) > 0 ? Number(minWords) : 0;
-  const lead = formatKeywordLead(kwList);
+  const lead = formatKeywordLead(kwList, t);
   const hasRequirements = needWords > 0 || kwList.length > 0;
 
   useEffect(() => {
@@ -121,13 +124,13 @@ function ConceptPane({
     const missing = missingKeywords(draft, kwList);
     const issues = [];
     if (needWords > 0 && words < needWords) {
-      issues.push(`Write at least ${needWords} words (you have ${words}).`);
+      issues.push(t.needWords(needWords, words));
     }
     if (missing.length) {
       issues.push(
         missing.length === 1
-          ? `Include the required term “${missing[0]}”.`
-          : `Include the required terms: ${missing.map((m) => `“${m}”`).join(', ')}.`,
+          ? t.needTerm(missing[0])
+          : t.needTerms(missing.map((m) => `“${m}”`).join(', ')),
       );
     }
     if (issues.length) {
@@ -145,12 +148,12 @@ function ConceptPane({
   return (
     <div className={styles.pane}>
       <div className={styles.meta}>
-        <span className={styles.badge}>{title || `Problem ${index + 1}`}</span>
+        <span className={styles.badge}>{title || t.problem(index + 1)}</span>
         {company ? <span className={styles.company}>{company}</span> : null}
       </div>
       {lead ? (
         <TranslatableParagraph className={styles.keywordLead}>
-          {`${lead}, explain:`}
+          {`${lead}, ${t.explain}`}
         </TranslatableParagraph>
       ) : null}
       <TranslatableParagraph className={styles.prompt} translateKey={prompt}>
@@ -158,14 +161,14 @@ function ConceptPane({
       </TranslatableParagraph>
       {(needWords > 0 || kwList.length > 0) && !done ? (
         <p className={styles.hint}>
-          {needWords > 0 ? `Minimum ${needWords} words. ` : ''}
+          {needWords > 0 ? t.minWordsHint(needWords) : ''}
           {kwList.length
-            ? `Your answer must include: ${kwList.map((k) => `“${k}”`).join(', ')}.`
-            : 'Type your explanation, then check before viewing the model answer.'}
+            ? t.mustInclude(kwList.map((k) => `“${k}”`).join(', '))
+            : t.typeThenCheck}
         </p>
       ) : (
         <p className={styles.hint}>
-          Type your own explanation, then compare with the model answer and mark as reviewed.
+          {t.typeThenCompare}
         </p>
       )}
       <textarea
@@ -173,8 +176,8 @@ function ConceptPane({
         value={draft}
         disabled={done}
         rows={6}
-        placeholder="Write your answer here…"
-        aria-label="Your written answer"
+        placeholder={t.placeholder}
+        aria-label={t.answerAria}
         onChange={(e) => {
           saveDraft(e.target.value);
           if (feedback) setFeedback('');
@@ -182,12 +185,10 @@ function ConceptPane({
         }}
       />
       <div className={styles.draftMeta}>
-        <span>
-          {words} word{words === 1 ? '' : 's'}
-        </span>
+        <span>{t.words(words)}</span>
         {needWords > 0 ? (
           <span className={words >= needWords ? styles.metaOk : styles.metaWarn}>
-            / {needWords} min
+            {t.minSuffix(needWords)}
           </span>
         ) : null}
       </div>
@@ -198,40 +199,40 @@ function ConceptPane({
         <div className={styles.row}>
           {hasRequirements && !checked ? (
             <button type="button" className={styles.primary} onClick={validate}>
-              Check requirements
+              {t.checkRequirements}
             </button>
           ) : null}
           {checked && !revealed ? (
             <button type="button" className={styles.primary} onClick={() => setRevealed(true)}>
-              Show model answer
+              {t.showModel}
             </button>
           ) : null}
           {checked && revealed ? (
             <button type="button" className={styles.primary} onClick={() => onSolved(index)}>
-              Mark as reviewed
+              {t.markReviewed}
             </button>
           ) : null}
           {hasNextUnsolved ? (
             <button type="button" className={styles.secondary} onClick={onCheckLater}>
-              Check later
+              {t.checkLater}
             </button>
           ) : null}
         </div>
       ) : (
         <div className={styles.row}>
           <p className={styles.hint} style={{margin: 0, flex: 1}}>
-            Marked as reviewed.
+            {t.markedReviewed}
           </p>
           {hasNextUnsolved ? (
             <button type="button" className={styles.secondary} onClick={onCheckLater}>
-              Next unsolved
+              {t.nextUnsolved}
             </button>
           ) : null}
         </div>
       )}
       {hasRequirements && !done && !checked && !feedback ? (
         <p className={styles.hint}>
-          Meet the writing requirements, then you can open the model answer.
+          {t.meetRequirements}
         </p>
       ) : null}
       {revealed ? (
@@ -259,6 +260,7 @@ function ProblemPane({
   onSolved,
   onCheckLater,
   hasNextUnsolved,
+  t,
 }) {
   const MAX_ATTEMPTS = 2;
   const [draft, setDraft] = useState('');
@@ -286,6 +288,25 @@ function ProblemPane({
         onSolved={onSolved}
         onCheckLater={onCheckLater}
         hasNextUnsolved={hasNextUnsolved}
+        t={t}
+      />
+    );
+  }
+
+  if (type === 'cloze') {
+    return (
+      <ClozePane
+        setId={setId}
+        index={index}
+        title={title}
+        company={company}
+        prompt={prompt}
+        why={why}
+        done={done}
+        onSolved={onSolved}
+        onCheckLater={onCheckLater}
+        hasNextUnsolved={hasNextUnsolved}
+        t={t}
       />
     );
   }
@@ -310,16 +331,13 @@ function ProblemPane({
   return (
     <div className={styles.pane}>
       <div className={styles.meta}>
-        <span className={styles.badge}>{title || `Problem ${index + 1}`}</span>
+        <span className={styles.badge}>{title || t.problem(index + 1)}</span>
         {company ? <span className={styles.company}>{company}</span> : null}
       </div>
       <TranslatableParagraph className={styles.prompt} translateKey={prompt}>
         <MathText text={prompt} />
       </TranslatableParagraph>
-      <p className={styles.hint}>
-        Enter a number (at most {decimals} decimal place{decimals === 1 ? '' : 's'}
-        {decimals === 0 ? ' — integer' : ''}).
-      </p>
+      <p className={styles.hint}>{t.enterNumber(decimals)}</p>
       <div className={styles.row}>
         <input
           className={styles.input}
@@ -328,7 +346,7 @@ function ProblemPane({
           value={draft}
           disabled={status === 'right' || status === 'revealed'}
           placeholder={decimals === 0 ? 'e.g. 1680' : 'e.g. 0.31'}
-          aria-label="Numeric answer"
+          aria-label={t.numericAria}
           onChange={(e) => {
             setDraft(e.target.value);
             if (status !== 'revealed') setStatus('idle');
@@ -339,28 +357,26 @@ function ProblemPane({
         />
         {status !== 'right' && status !== 'revealed' ? (
           <button type="button" className={styles.primary} onClick={check}>
-            Check
+            {t.check}
           </button>
         ) : null}
         {!done && hasNextUnsolved ? (
           <button type="button" className={styles.secondary} onClick={onCheckLater}>
-            Check later
+            {t.checkLater}
           </button>
         ) : null}
       </div>
       {status === 'invalid' ? (
-        <TranslatableParagraph className={styles.why}>Enter a valid number.</TranslatableParagraph>
+        <TranslatableParagraph className={styles.why}>{t.invalidNumber}</TranslatableParagraph>
       ) : null}
       {status === 'wrong' ? (
         <TranslatableParagraph className={styles.why}>
-          {`Not quite — try again (${MAX_ATTEMPTS - attempts} attempt${
-            MAX_ATTEMPTS - attempts === 1 ? '' : 's'
-          } left before the answer is revealed).`}
+          {t.notQuite(MAX_ATTEMPTS - attempts)}
         </TranslatableParagraph>
       ) : null}
       {status === 'revealed' ? (
         <TranslatableParagraph className={styles.why}>
-          Official answer: <strong>{roundAtMost(Number(answer), decimals)}</strong>.
+          {t.officialAnswer} <strong>{roundAtMost(Number(answer), decimals)}</strong>.
           {why ? (
             <>
               {' '}
@@ -371,7 +387,7 @@ function ProblemPane({
       ) : null}
       {status === 'right' ? (
         <TranslatableParagraph className={styles.whyOk}>
-          Correct ({roundAtMost(Number(answer), decimals)}).
+          {t.correct} ({roundAtMost(Number(answer), decimals)}).
           {why ? (
             <>
               {' '}
@@ -397,7 +413,8 @@ function ProblemPane({
  *   <Problem type="concept" keywords={['CLT']} minWords={3} … />
  * </ProblemSet>
  */
-export default function ProblemSet({id, children}) {
+export default function ProblemSet({id, lang = 'en', children}) {
+  const t = getLabels(lang);
   const items = useMemo(
     () =>
       React.Children.toArray(children)
@@ -454,9 +471,9 @@ export default function ProblemSet({id, children}) {
     <div className={styles.set}>
       <div className={styles.bar}>
         <span className={styles.progress}>
-          {solvedCount}/{items.length} solved
+          {solvedCount}/{items.length} {t.solved}
         </span>
-        <div className={styles.tiles} role="tablist" aria-label="Problems">
+        <div className={styles.tiles} role="tablist" aria-label={t.problemsAria}>
           {items.map((item, i) => {
             const label = item.title || String(i + 1);
             return (
@@ -502,6 +519,7 @@ export default function ProblemSet({id, children}) {
             onSolved={onSolved}
             onCheckLater={onCheckLater}
             hasNextUnsolved={nextUnsolvedIndex(i, done, items.length) != null}
+            t={t}
           />
         </div>
       ))}

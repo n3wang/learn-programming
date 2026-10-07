@@ -33,6 +33,7 @@ const OutputChallenge = lazyMdxComponent(() => import('@site/src/components/Outp
 const ChartChallenge = lazyMdxComponent(() => import('@site/src/components/ChartChallenge'));
 const MatPlotChallenge = lazyMdxComponent(() => import('@site/src/components/MatPlotChallenge'));
 const NodeLab = lazyMdxComponent(() => import('@site/src/components/NodeLab'));
+const SheetExercise = lazyMdxComponent(() => import('@site/src/components/SheetExercise'));
 const StudentReportsPanel = lazyMdxComponent(() =>
   import('@site/src/components/class/StudentReportsPanel'),
 );
@@ -87,6 +88,7 @@ export default {
     ChartChallenge,
     MatPlotChallenge,
     NodeLab,
+    SheetExercise,
     StudentReportsPanel,
     AdminSubmissionsPanel,
     AdminNotesPanel,
