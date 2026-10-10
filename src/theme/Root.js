@@ -2,6 +2,7 @@ import React from 'react';
 import useDocusaurusContext from '@docusaurus/useDocusaurusContext';
 import ScratchNotes from '@site/src/components/ScratchNotes';
 import TermPeek from '@site/src/components/TermPeek';
+import StudentPickDock from '@site/src/components/navbar/StudentPickDock';
 import {
   isLocalApiBase,
   readStoredApiBaseUrl,
@@ -36,6 +37,7 @@ export default function Root({children}) {
       {children}
       <ScratchNotes />
       <TermPeek />
+      <StudentPickDock />
     </>
   );
 }
