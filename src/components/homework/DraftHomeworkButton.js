@@ -41,7 +41,6 @@ export default function DraftHomeworkButton({getPayload, label = '加入作业'}
           `${location?.pathname || ''}${location?.search || ''}`,
       });
       setFlash(`#${next.problemCount}`);
-      window.setTimeout(() => setFlash(''), 1600);
     } catch {
       setFlash('err');
       window.setTimeout(() => setFlash(''), 1600);
