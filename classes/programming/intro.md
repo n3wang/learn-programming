@@ -3,7 +3,16 @@ sidebar_position: 1
 title: 编程
 ---
 
+## Godot Introduction
 
+![intro-2026-10-10-15-49-20](/img/intro-2026-10-10-15-49-20.png)
+
+https://youtu.be/HNIrE4tPWFA
+
+
+![intro-2026-10-10-15-51-29](/img/intro-2026-10-10-15-51-29.png)
+
+https://youtu.be/lxEnjyN62Ko
 
 ## 需要下载的软件
 
