@@ -229,6 +229,132 @@ function saveSettings(next) {
   }
 }
 
+/** Up to 3 in-progress deck topics, keyed by deck + category + mode (+ search). */
+const PROGRESS_KEY = 'cards-practice-slots';
+const MAX_DECK_SLOTS = 3;
+
+function makeTopicKey({deckId, category, mode, search}) {
+  return [deckId || 'all', category || '', mode, (search || '').trim().toLowerCase()].join('|');
+}
+
+function loadSlots() {
+  try {
+    const raw = window.localStorage.getItem(PROGRESS_KEY);
+    const list = raw ? JSON.parse(raw) : [];
+    return Array.isArray(list) ? list.filter((s) => s && s.key).slice(0, MAX_DECK_SLOTS) : [];
+  } catch {
+    return [];
+  }
+}
+
+function saveSlots(slots) {
+  try {
+    window.localStorage.setItem(PROGRESS_KEY, JSON.stringify(slots.slice(0, MAX_DECK_SLOTS)));
+  } catch {
+    // private mode / blocked storage
+  }
+}
+
+/** Insert or update a slot; if full and key is new, replace the longest-unused (oldest updatedAt). */
+function upsertSlot(slots, entry) {
+  const next = {...entry, updatedAt: entry.updatedAt || Date.now()};
+  const idx = slots.findIndex((s) => s.key === next.key);
+  if (idx >= 0) {
+    const copy = slots.slice();
+    copy[idx] = next;
+    return copy;
+  }
+  if (slots.length < MAX_DECK_SLOTS) {
+    return [...slots, next];
+  }
+  let oldest = 0;
+  for (let i = 1; i < slots.length; i += 1) {
+    if ((slots[i].updatedAt || 0) < (slots[oldest].updatedAt || 0)) {
+      oldest = i;
+    }
+  }
+  const copy = slots.slice();
+  copy[oldest] = next;
+  return copy;
+}
+
+function poolForSlot(slot) {
+  const deck = slot.deckId ? DECKS.find((d) => d.id === slot.deckId) : null;
+  let base = deck ? deck.cards : CARDS;
+  if (slot.category) {
+    base = base.filter((c) => c.category === slot.category);
+  }
+  if (slot.search) {
+    const q = slot.search.toLowerCase();
+    base = base.filter((c) => cardMatches(c, q));
+  }
+  if (slot.mode === 'translate') {
+    base = base.filter((c) => c.translations && Object.keys(c.translations).length);
+  }
+  return base;
+}
+
+function hydrateFromSlot(saved, pool, settings, translate) {
+  const answerMode = saved?.answerMode && ANSWER_MODES.includes(saved.answerMode) ? saved.answerMode : 'write';
+  const stage = startStage(answerMode, translate);
+  if (!saved?.queue) {
+    return {
+      session: buildQueue(pool, settings.queueSize, stage),
+      known: 0,
+      missed: 0,
+      answerMode,
+      reverse: false,
+      lang: null,
+      toLang: null,
+    };
+  }
+  const byId = new Map(pool.map((c) => [c.id, c]));
+  const queue = (saved.queue || [])
+    .map((row) => {
+      const card = byId.get(row.id);
+      return card ? {card, stage: row.stage || stage} : null;
+    })
+    .filter(Boolean);
+  const backlog = (saved.backlog || []).map((id) => byId.get(id)).filter(Boolean);
+  const seen = new Set([...queue.map((e) => e.card.id), ...backlog.map((c) => c.id)]);
+  const extras = shuffle(pool.filter((c) => !seen.has(c.id)));
+  return {
+    session: {queue, backlog: [...backlog, ...extras]},
+    known: saved.known || 0,
+    missed: saved.missed || 0,
+    answerMode,
+    reverse: Boolean(saved.reverse),
+    lang: saved.lang || null,
+    toLang: saved.toLang || null,
+  };
+}
+
+function formatSlotAge(updatedAt) {
+  if (!updatedAt) {
+    return '';
+  }
+  const mins = Math.floor((Date.now() - updatedAt) / 60000);
+  if (mins < 1) {
+    return 'just now';
+  }
+  if (mins < 60) {
+    return `${mins}m ago`;
+  }
+  const hours = Math.floor(mins / 60);
+  if (hours < 48) {
+    return `${hours}h ago`;
+  }
+  return `${Math.floor(hours / 24)}d ago`;
+}
+
+/** Cards still to learn: active queue + waiting backlog (not just the working set). */
+function slotRemaining(slot) {
+  if (!slot) {
+    return 0;
+  }
+  return (slot.queue || []).length + (slot.backlog || []).length;
+}
+
 function startStage(answerMode, translate) {
   if (translate) {
     return 'write';
@@ -283,33 +409,54 @@ function SettingRow({label, hint, value, options, format, onChange}) {
  * Keys: Enter reveal/check · 1–n pick (choice) · after reveal 0 retry · 1 again · 2 got it ·
  * Enter = automatic verdict (spelling check or chosen option).
  */
-function Practice({mode, pool: fullPool, initialLang, title, onBack, onNavigate}) {
+function Practice({
+  mode,
+  pool: fullPool,
+  initialLang,
+  title,
+  topicKey,
+  topicMeta,
+  savedSlot,
+  onProgress,
+  onBack,
+  onNavigate,
+}) {
   const translate = mode === 'translate';
   const languages = useMemo(
     () => LANGUAGES.filter((l) => l.id === 'en' || fullPool.some((c) => c.translations?.[l.id])),
     [fullPool],
   );
   const [settings, setSettings] = useState(loadSettings);
-  const [showSettings, setShowSettings] = useState(false);
-  const [lang, setLang] = useState(initialLang);
-  const [toLang, setToLang] = useState(() => {
-    const other = languages.find((l) => l.id !== initialLang);
+  const startLang =
+    savedSlot?.lang && languages.some((l) => l.id === savedSlot.lang) ? savedSlot.lang : initialLang;
+  const startToLang = (() => {
+    if (savedSlot?.toLang && languages.some((l) => l.id === savedSlot.toLang)) {
+      return savedSlot.toLang;
+    }
+    const other = languages.find((l) => l.id !== startLang);
     return other ? other.id : initialLang;
-  });
-  const [answerMode, setAnswerMode] = useState('write');
+  })();
+  const startPool = translate
+    ? fullPool.filter((c) => hasTranslation(c, [startLang, startToLang]))
+    : fullPool;
+  const boot = hydrateFromSlot(savedSlot, startPool, settings, translate);
+  const [showSettings, setShowSettings] = useState(false);
+  const [lang, setLang] = useState(startLang);
+  const [toLang, setToLang] = useState(startToLang);
+  const [answerMode, setAnswerMode] = useState(boot.answerMode);
   const pool = useMemo(
     () => (translate ? fullPool.filter((c) => hasTranslation(c, [lang, toLang])) : fullPool),
     [translate, fullPool, lang, toLang],
   );
-  const [session, setSession] = useState(() =>
-    buildQueue(pool, settings.queueSize, startStage('write', translate)),
-  );
+  const [session, setSession] = useState(boot.session);
   const [revealed, setRevealed] = useState(false);
-  const [reverse, setReverse] = useState(false);
+  const [reverse, setReverse] = useState(boot.reverse);
   const [picked, setPicked] = useState(null);
   const [attempt, setAttempt] = useState('');
-  const [known, setKnown] = useState(0);
-  const [missed, setMissed] = useState(0);
+  /** After reveal, lock the box only if something was typed; empty → allow rewrite. */
+  const [attemptLocked, setAttemptLocked] = useState(false);
+  const [known, setKnown] = useState(boot.known);
+  const [missed, setMissed] = useState(boot.missed);
   const [turn, setTurn] = useState(0);
   const [studyPhase, setStudyPhase] = useState('study'); // study | break | alarm
   const [studyTerms, setStudyTerms] = useState(0);
@@ -329,12 +476,22 @@ function Practice({mode, pool: fullPool, initialLang, title, onBack, onNavigate}
     setRevealed(false);
     setAttempt('');
     setPicked(null);
+    setAttemptLocked(false);
     setTurn((n) => n + 1);
   }
 
   function reveal() {
+    const typed = attempt.trim().length > 0;
     setRevealed(true);
-    inputRef.current?.blur();
+    setAttemptLocked(typed);
+    if (typed) {
+      inputRef.current?.blur();
+    } else {
+      // Peeked with an empty box — keep focus so they can rewrite against the answer.
+      window.requestAnimationFrame(() => {
+        inputRef.current?.focus({preventScroll: true});
+      });
+    }
   }
 
   function stopAlarm() {
@@ -368,37 +525,69 @@ function Practice({mode, pool: fullPool, initialLang, title, onBack, onNavigate}
     beginStudyBlock();
   }
 
+  function persistSlot(overrides = {}) {
+    if (!onProgress || !topicKey) {
+      return;
+    }
+    const nextSession = overrides.session || session;
+    onProgress({
+      key: topicKey,
+      title,
+      deckId: topicMeta?.deckId ?? null,
+      category: topicMeta?.category ?? '',
+      search: topicMeta?.search ?? '',
+      mode,
+      lang: overrides.lang ?? lang,
+      toLang: overrides.toLang ?? toLang,
+      answerMode: overrides.answerMode ?? answerMode,
+      reverse: overrides.reverse ?? reverse,
+      known: overrides.known ?? known,
+      missed: overrides.missed ?? missed,
+      queue: nextSession.queue.map(({card, stage: st}) => ({id: card.id, stage: st})),
+      backlog: nextSession.backlog.map((c) => c.id),
+      updatedAt: Date.now(),
+    });
+  }
+
+  // Claim / refresh this topic's slot when practice opens.
+  useEffect(() => {
+    persistSlot();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [topicKey]);
+
   function grade(gotIt) {
     if (!entry || studyPhase !== 'study') {
       return;
     }
-    setSession(({queue, backlog}) => {
-      const [head, ...rest] = queue;
-      if (!gotIt) {
-        return {queue: [...rest, head], backlog};
-      }
-      if (answerMode === 'staged' && head.stage === 'choice') {
-        // Recognised it: queue the same card again, this time to write.
-        return {queue: [...rest, {...head, stage: 'write'}], backlog};
-      }
-      const [next, ...waiting] = backlog;
-      const joined = next ? [{card: next, stage: startStage(answerMode, translate)}] : [];
-      return {queue: [...rest, ...joined], backlog: waiting};
-    });
+    const [head, ...rest] = session.queue;
+    let nextSession;
+    let nextKnown = known;
+    let nextMissed = missed;
     if (!gotIt) {
-      setMissed((n) => n + 1);
-    } else if (!(answerMode === 'staged' && entry.stage === 'choice')) {
-      setKnown((n) => n + 1);
+      nextSession = {queue: [...rest, head], backlog: session.backlog};
+      nextMissed = missed + 1;
+    } else if (answerMode === 'staged' && head.stage === 'choice') {
+      // Recognised it: queue the same card again, this time to write.
+      nextSession = {queue: [...rest, {...head, stage: 'write'}], backlog: session.backlog};
+    } else {
+      const [next, ...waiting] = session.backlog;
+      const joined = next ? [{card: next, stage: startStage(answerMode, translate)}] : [];
+      nextSession = {queue: [...rest, ...joined], backlog: waiting};
+      nextKnown = known + 1;
       if (playAndStudy) {
         setStudyTerms((n) => {
-          const next = n + 1;
-          if (next >= PLAY_STUDY_TERMS) {
+          const count = n + 1;
+          if (count >= PLAY_STUDY_TERMS) {
             window.setTimeout(() => beginBreak(), 0);
           }
-          return next;
+          return count;
         });
       }
     }
+    setSession(nextSession);
+    setKnown(nextKnown);
+    setMissed(nextMissed);
+    persistSlot({session: nextSession, known: nextKnown, missed: nextMissed});
     resetCard();
   }
 
@@ -408,16 +597,30 @@ function Practice({mode, pool: fullPool, initialLang, title, onBack, onNavigate}
   }
 
   function restart(nextPool = pool, nextSettings = settings, nextMode = answerMode) {
-    setSession(buildQueue(nextPool, nextSettings.queueSize, startStage(nextMode, translate)));
+    const nextSession = buildQueue(nextPool, nextSettings.queueSize, startStage(nextMode, translate));
+    setSession(nextSession);
     setKnown(0);
     setMissed(0);
+    persistSlot({session: nextSession, known: 0, missed: 0, answerMode: nextMode});
     resetCard();
   }
 
   function chooseDirection(from, to) {
     setLang(from);
     setToLang(to);
-    restart(fullPool.filter((c) => hasTranslation(c, [from, to])));
+    const nextPool = fullPool.filter((c) => hasTranslation(c, [from, to]));
+    const nextSession = buildQueue(nextPool, settings.queueSize, startStage(answerMode, translate));
+    setSession(nextSession);
+    setKnown(0);
+    setMissed(0);
+    persistSlot({
+      session: nextSession,
+      known: 0,
+      missed: 0,
+      lang: from,
+      toLang: to,
+    });
+    resetCard();
   }
 
   function cycleAnswerMode() {
@@ -425,7 +628,12 @@ function Practice({mode, pool: fullPool, initialLang, title, onBack, onNavigate}
     setAnswerMode(next);
     // Keep progress; just re-ask the active cards in the new style.
     const stageNow = startStage(next, translate);
-    setSession(({queue, backlog}) => ({queue: queue.map((e) => ({...e, stage: stageNow})), backlog}));
+    const nextSession = {
+      queue: session.queue.map((e) => ({...e, stage: stageNow})),
+      backlog: session.backlog,
+    };
+    setSession(nextSession);
+    persistSlot({session: nextSession, answerMode: next});
     resetCard();
   }
 
@@ -448,12 +656,12 @@ function Practice({mode, pool: fullPool, initialLang, title, onBack, onNavigate}
     }
   }
 
-  // Each new card (including a re-queued one) starts with the cursor in the answer box.
+  // Each new card (and empty-reveal rewrite) starts with the cursor in the answer box.
   useEffect(() => {
-    if (!revealed && !showSettings && studyPhase === 'study') {
+    if ((!revealed || !attemptLocked) && !showSettings && studyPhase === 'study') {
       inputRef.current?.focus({preventScroll: true});
     }
-  }, [turn, revealed, reverse, lang, showSettings, studyPhase]);
+  }, [turn, revealed, attemptLocked, reverse, lang, showSettings, studyPhase]);
 
   // Play-and-study clock: end study after 5 minutes; end break after 5 minutes → alarm.
   useEffect(() => {
@@ -720,7 +928,11 @@ function Practice({mode, pool: fullPool, initialLang, title, onBack, onNavigate}
                   type="button"
                   className={styles.filterOn}
                   title="Click to flip direction"
-                  onClick={() => setReverse((r) => !r)}>
+                  onClick={() => {
+                    const next = !reverse;
+                    setReverse(next);
+                    persistSlot({reverse: next});
+                  }}>
                   {reverse ? 'meaning ⇄ term' : 'term ⇄ meaning'}
                 </button>
                 <button
@@ -810,12 +1022,22 @@ function Practice({mode, pool: fullPool, initialLang, title, onBack, onNavigate}
                     }
                     if (e.key === 'Enter' && !e.shiftKey) {
                       e.preventDefault();
-                      reveal();
+                      if (!revealed) {
+                        reveal();
+                      } else if (!attemptLocked && match) {
+                        grade(match.pass);
+                      }
                     }
                   }}
-                  readOnly={revealed}
+                  readOnly={revealed && attemptLocked}
                   rows={translate ? 1 : 3}
-                  placeholder={placeholder}
+                  placeholder={
+                    revealed && !attemptLocked
+                      ? translate
+                        ? `Rewrite in ${langLabel(toLang)}`
+                        : 'Rewrite the answer'
+                      : placeholder
+                  }
                   aria-label="Your answer"
                 />
               )}
@@ -832,7 +1054,9 @@ function Practice({mode, pool: fullPool, initialLang, title, onBack, onNavigate}
                           {attempt.trim() ? (
                             <DiffLine parts={charDiff(attempt, match.target)} />
                           ) : (
-                            <span className={styles.compareHead}>nothing typed</span>
+                            <span className={styles.compareHead}>
+                              {attemptLocked ? 'nothing typed' : 'rewrite above'}
+                            </span>
                           )}
                           <span className={match.pass ? styles.matchPass : styles.matchFail}>
                             {Math.round(match.score * 100)}% · {match.pass ? 'pass' : 'not yet'}
@@ -921,6 +1145,7 @@ export default function DecksPanel({onNavigate}) {
   const [search, setSearch] = useState('');
   const [openId, setOpenId] = useState(null);
   const [practice, setPractice] = useState(null);
+  const [slots, setSlots] = useState(loadSlots);
 
   const deck = DECKS.find((d) => d.id === deckId) || null;
   const q = search.trim().toLowerCase();
@@ -947,6 +1172,11 @@ export default function DecksPanel({onNavigate}) {
 
   const translatable = useMemo(() => terms.filter((c) => c.translations && Object.keys(c.translations).length), [terms]);
 
+  const recentSlots = useMemo(
+    () => slots.slice().sort((a, b) => (b.updatedAt || 0) - (a.updatedAt || 0)),
+    [slots],
+  );
+
   function openDeck(id) {
     setDeckId(id);
     setCategory('');
@@ -961,7 +1191,7 @@ export default function DecksPanel({onNavigate}) {
     setOpenId(null);
   }
 
-  if (practice) {
+  function practiceTitle() {
     let title = q ? `“${search.trim()}”` : 'all decks';
     if (deck) {
       title = category ? categoryLabel(category, locale) : deckTitle(deck, locale);
@@ -969,13 +1199,76 @@ export default function DecksPanel({onNavigate}) {
         title += ` · “${search.trim()}”`;
       }
     }
+    return title;
+  }
+
+  function startPractice(modeId, pool) {
+    const key = makeTopicKey({
+      deckId,
+      category,
+      mode: modeId,
+      search: q,
+    });
+    const saved = slots.find((s) => s.key === key) || null;
+    // Resume only when cards remain (queue + backlog); otherwise start fresh.
+    const usable = saved && slotRemaining(saved) > 0 ? saved : null;
+    setPractice({
+      mode: modeId,
+      pool,
+      key,
+      title: practiceTitle(),
+      deckId,
+      category,
+      search: q,
+      saved: usable,
+    });
+  }
+
+  function resumeSlot(slot) {
+    const pool = poolForSlot(slot);
+    setDeckId(slot.deckId || null);
+    setCategory(slot.category || '');
+    setSearch(slot.search || '');
+    setOpenId(null);
+    setPractice({
+      mode: slot.mode,
+      pool,
+      key: slot.key,
+      title: slot.title || 'deck',
+      deckId: slot.deckId || null,
+      category: slot.category || '',
+      search: slot.search || '',
+      saved: slot,
+    });
+  }
+
+  function onPracticeProgress(entry) {
+    setSlots((prev) => {
+      const next = upsertSlot(prev, entry);
+      saveSlots(next);
+      return next;
+    });
+  }
+
+  if (practice) {
     return (
       <Practice
         mode={practice.mode}
         pool={practice.pool}
         initialLang={locale}
-        title={title}
-        onBack={() => setPractice(null)}
+        title={practice.title}
+        topicKey={practice.key}
+        topicMeta={{
+          deckId: practice.deckId,
+          category: practice.category,
+          search: practice.search,
+        }}
+        savedSlot={practice.saved}
+        onProgress={onPracticeProgress}
+        onBack={() => {
+          setPractice(null);
+          setSlots(loadSlots());
+        }}
         onNavigate={onNavigate}
       />
     );
@@ -984,6 +1277,8 @@ export default function DecksPanel({onNavigate}) {
   const showTerms = Boolean(deck) || Boolean(q);
   const visible = terms.slice(0, TERM_LIMIT);
   const poolFor = (mode) => (mode === 'translate' ? translatable : terms);
+  const topicKeyFor = (modeId) =>
+    makeTopicKey({deckId, category, mode: modeId, search: q});
 
   return (
     <div className={deck ? styles.bodyEditor : styles.body}>
@@ -1012,14 +1307,19 @@ export default function DecksPanel({onNavigate}) {
             <span className={styles.practiceModes}>
               {PRACTICE_MODES.map((mode) => {
                 const n = poolFor(mode.id).length;
+                const saved = slots.find((s) => s.key === topicKeyFor(mode.id));
+                const left = slotRemaining(saved);
                 return (
                   <button
                     key={mode.id}
                     type="button"
                     className={styles.wikiPracticeBtn}
-                    onClick={() => setPractice({mode: mode.id, pool: poolFor(mode.id)})}
+                    onClick={() => startPractice(mode.id, poolFor(mode.id))}
                     disabled={n === 0}>
-                    {mode.label}
+                    {saved && left > 0 ? `Continue ${mode.label}` : mode.label}
+                    {saved && left > 0 ? (
+                      <span className={styles.rowDate}> · {left} left</span>
+                    ) : null}
                   </button>
                 );
               })}
@@ -1045,18 +1345,54 @@ export default function DecksPanel({onNavigate}) {
           DECKS.length === 0 ? (
             <p className={styles.empty}>No decks yet.</p>
           ) : (
-            <ul className={styles.list}>
-              {DECKS.map((d) => (
-                <li key={d.id}>
-                  <button type="button" className={styles.deckRow} onClick={() => openDeck(d.id)}>
-                    <span className={styles.rowTitle}>{deckTitle(d, locale)}</span>
-                    <span className={styles.rowDate}>
-                      {d.cards.length} cards · {Object.keys(d.categories || {}).length} topics
-                    </span>
-                  </button>
-                </li>
-              ))}
-            </ul>
+            <>
+              {recentSlots.length > 0 ? (
+                <div className={styles.continueBlock}>
+                  <p className={styles.sectionLabel}>Continue</p>
+                  <ul className={styles.list}>
+                    {recentSlots.map((slot) => {
+                      const modeLabel =
+                        PRACTICE_MODES.find((m) => m.id === slot.mode)?.label || slot.mode;
+                      const left = slotRemaining(slot);
+                      return (
+                        <li key={slot.key}>
+                          <button
+                            type="button"
+                            className={styles.deckRow}
+                            onClick={() => resumeSlot(slot)}>
+                            <span className={styles.rowTitle}>{slot.title || 'deck'}</span>
+                            <span className={styles.rowDate}>
+                              {modeLabel}
+                              {left > 0 ? ` · ${left} left` : ' · done'}
+                              {slot.updatedAt ? ` · ${formatSlotAge(slot.updatedAt)}` : ''}
+                            </span>
+                          </button>
+                        </li>
+                      );
+                    })}
+                  </ul>
+                </div>
+              ) : null}
+              <p className={styles.sectionLabel}>Decks</p>
+              <ul className={styles.list}>
+                {DECKS.map((d) => {
+                  const active = slots.filter((s) => s.deckId === d.id);
+                  return (
+                    <li key={d.id}>
+                      <button type="button" className={styles.deckRow} onClick={() => openDeck(d.id)}>
+                        <span className={styles.rowTitle}>{deckTitle(d, locale)}</span>
+                        <span className={styles.rowDate}>
+                          {d.cards.length} cards · {Object.keys(d.categories || {}).length} topics
+                          {active.length
+                            ? ` · ${active.length} saved`
+                            : ''}
+                        </span>
+                      </button>
+                    </li>
+                  );
+                })}
+              </ul>
+            </>
           )
         ) : visible.length === 0 ? (
           <p className={styles.empty}>No matching terms.</p>

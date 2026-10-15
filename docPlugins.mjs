@@ -7,9 +7,20 @@ const require = createRequire(import.meta.url);
 const defaultSidebar = require.resolve('./sidebars.js');
 const fundamentalsSidebar = require.resolve('./sidebars.fundamentals.js');
 
+/** Ignore \\ in $$…$$ (KaTeX newLineInDisplayMode); keep other strict warnings. */
+function katexStrict(errorCode) {
+  if (errorCode === 'newLineInDisplayMode') {
+    return 'ignore';
+  }
+  return 'warn';
+}
+
+const mathRemark = [remarkMath];
+const mathRehype = [[rehypeKatex, {strict: katexStrict, throwOnError: false}]];
+
 /** @type {Array<[string, import('@docusaurus/plugin-content-docs').Options]>} */
 const DOC_INSTANCES = [
-  ['python', {path: 'python', routeBasePath: 'python', remarkPlugins: [remarkMath], rehypePlugins: [rehypeKatex]}],
+  ['python', {path: 'python', routeBasePath: 'python', remarkPlugins: mathRemark, rehypePlugins: mathRehype}],
   ['java', {path: 'java', routeBasePath: 'java'}],
   ['cpp', {path: 'cpp', routeBasePath: 'cpp'}],
   ['godot', {path: 'godot', routeBasePath: 'godot'}],
@@ -18,9 +29,9 @@ const DOC_INSTANCES = [
   ['javascript', {path: 'javascript', routeBasePath: 'javascript'}],
   ['ios', {path: 'ios', routeBasePath: 'ios'}],
   ['game-dev', {path: 'game-dev', routeBasePath: 'game-dev'}],
-  ['math', {path: 'math', routeBasePath: 'math', remarkPlugins: [remarkMath], rehypePlugins: [rehypeKatex]}],
-  ['math-1', {path: 'classes/math-1', routeBasePath: 'classes/math-1', remarkPlugins: [remarkMath], rehypePlugins: [rehypeKatex]}],
-  ['math-2', {path: 'classes/math-2', routeBasePath: 'classes/math-2', remarkPlugins: [remarkMath], rehypePlugins: [rehypeKatex]}],
+  ['math', {path: 'math', routeBasePath: 'math', remarkPlugins: mathRemark, rehypePlugins: mathRehype}],
+  ['math-1', {path: 'classes/math-1', routeBasePath: 'classes/math-1', remarkPlugins: mathRemark, rehypePlugins: mathRehype}],
+  ['math-2', {path: 'classes/math-2', routeBasePath: 'classes/math-2', remarkPlugins: mathRemark, rehypePlugins: mathRehype}],
   ['biancheng', {path: 'classes/programming', routeBasePath: 'classes/programming'}],
 ];
 
@@ -156,8 +167,8 @@ function fundamentalsPlugin() {
   return docPlugin('fundamentals', {
     path: 'fundamentals',
     routeBasePath: 'fundamentals',
-    remarkPlugins: [remarkMath],
-    rehypePlugins: [rehypeKatex],
+    remarkPlugins: mathRemark,
+    rehypePlugins: mathRehype,
     sidebarItemsGenerator: fundamentalsSidebarItemsGenerator,
     ...(exclude ? {exclude} : {}),
   });
@@ -200,11 +211,19 @@ export function webpackMemoryPlugin() {
   return {
     name: 'docusaurus-webpack-memory-tune',
     configureWebpack(_config, isServer) {
+      // react-confetti@6 uses package "exports"; some webpack resolves miss the
+      // package root — pin an explicit file so StudentPickDock always builds.
+      const confettiAlias = {
+        'react-confetti': require.resolve('react-confetti'),
+      };
       if (!isServer) {
-        return {};
+        return {
+          resolve: {alias: confettiAlias},
+        };
       }
       return {
         parallelism: 1,
+        resolve: {alias: confettiAlias},
       };
     },
   };
