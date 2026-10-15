@@ -419,6 +419,14 @@ export default function ScratchNotes() {
     setWikiBatch(shuffleSample(wikiPool(value, wikiProgress), WIKI_PAGE));
   }
 
+  function openChatGptPrep() {
+    const pageUrl =
+      typeof window !== 'undefined' ? window.location.href : '';
+    const prompt = `I want to read ${pageUrl} and get prepared for a mini test that can be an oral test, or just simple discussion to get everything familiarized.`;
+    const url = `https://chatgpt.com/?prompt=${encodeURIComponent(prompt)}`;
+    window.open(url, '_blank', 'noopener,noreferrer');
+  }
+
   async function addNote() {
     const index = notes.length + 1;
     const created = await saveNoteRecord({
@@ -532,6 +540,14 @@ export default function ScratchNotes() {
                 />
                 <button type="button" className={styles.addBtn} onClick={addNote} aria-label="Add note">
                   +
+                </button>
+                <button
+                  type="button"
+                  className={styles.chatGptBtn}
+                  onClick={openChatGptPrep}
+                  aria-label="Open ChatGPT prep for this page"
+                  title="ChatGPT prep">
+                  <span className={styles.chatGptIcon} aria-hidden="true" />
                 </button>
               </div>
               {filteredNotes.length === 0 ? (
