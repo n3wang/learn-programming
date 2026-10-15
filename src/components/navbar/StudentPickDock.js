@@ -1,4 +1,6 @@
 import React, {useCallback, useEffect, useState} from 'react';
+import {createPortal} from 'react-dom';
+import Confetti from 'react-confetti';
 import {CLASS_ROSTERS, NAME_APPROX_OVERRIDES} from '@site/src/data/classRosters';
 import {
   applyStudentBehavior,
@@ -17,12 +19,131 @@ import {
   readPickSession,
   rememberPick,
 } from '@site/src/components/navbar/pickSession';
+import {UI_LANG_CHANGE_EVENT, readUiLang} from '@site/src/components/Translate/translateClient';
 
-const ACTION_META = {
-  plus: {mark: '+', color: '#2e7d32'},
-  minus: {mark: '−', color: '#f9a825'},
-  absent: {mark: 'absent', color: '#c62828'},
+const COPY = {
+  en: {
+    ariaDock: 'Last picked students',
+    hideDock: 'Hide picked students',
+    pickRandom: 'Pick a random student',
+    pickRandomTitle: (course) => `Pick a random student from ${course}`,
+    noStudent: 'Tap to pick',
+    plusTitle: '+1 point',
+    minusTitle: '−1 point',
+    absent: 'Absent',
+    absentTitle: "Exclude from today’s pool",
+    absentMark: 'absent',
+    lastPicked: 'Last picked',
+    pickHint: (course) => `Tap the name or dice to draw from ${course}.`,
+    noneLeft: 'No students left in this course (all marked absent).',
+  },
+  'zh-CN': {
+    ariaDock: '已抽学生',
+    hideDock: '隐藏已抽学生',
+    pickRandom: '随机抽取学生',
+    pickRandomTitle: (course) => `从${course}随机抽取`,
+    noStudent: '点击抽取',
+    plusTitle: '+1 分',
+    minusTitle: '−1 分',
+    absent: '缺席',
+    absentTitle: '今日不参与抽取',
+    absentMark: '缺席',
+    lastPicked: '上次抽到',
+    pickHint: (course) => `点击姓名或骰子，从${course}抽取。`,
+    noneLeft: '本班没有可抽学生（均已标为缺席）。',
+  },
 };
+
+function RandomDiceIcon() {
+  return (
+    <svg width="14" height="14" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+      <rect
+        x="3.5"
+        y="3.5"
+        width="17"
+        height="17"
+        rx="3.5"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="1.8"
+      />
+      <circle cx="8.2" cy="8.2" r="1.35" fill="currentColor" />
+      <circle cx="15.8" cy="8.2" r="1.35" fill="currentColor" />
+      <circle cx="12" cy="12" r="1.35" fill="currentColor" />
+      <circle cx="8.2" cy="15.8" r="1.35" fill="currentColor" />
+      <circle cx="15.8" cy="15.8" r="1.35" fill="currentColor" />
+    </svg>
+  );
+}
+
+function dockCopy(lang) {
+  return COPY[lang] || COPY.en;
+}
+
+function actionMeta(lang) {
+  const t = dockCopy(lang);
+  return {
+    plus: {mark: '+', color: '#2e7d32'},
+    minus: {mark: '−', color: '#c62828'},
+    absent: {mark: t.absentMark, color: '#c62828'},
+  };
+}
+
+const FEEDBACK_FACES = {
+  plus: [
+    '/img/feedback_faces/happy/ok_1.png',
+    '/img/feedback_faces/happy/ok_2.gif',
+    '/img/feedback_faces/happy/ok_3.gif',
+    '/img/feedback_faces/happy/ok_4.png',
+    '/img/feedback_faces/happy/ok_5.gif',
+    '/img/feedback_faces/happy/ok_6.gif',
+    '/img/feedback_faces/happy/ok_7.gif',
+    '/img/feedback_faces/happy/ok_8.gif',
+  ],
+  minus: [
+    '/img/feedback_faces/dis/dis_1.png',
+    '/img/feedback_faces/dis/dis_2.gif',
+    '/img/feedback_faces/dis/dis_3.png',
+    '/img/feedback_faces/dis/dis_4.gif',
+    '/img/feedback_faces/dis/dis_5.png',
+    '/img/feedback_faces/dis/dis_6.png',
+    '/img/feedback_faces/dis/dis_7.png',
+    '/img/feedback_faces/dis/dis_8.png',
+    '/img/feedback_faces/dis/dis_9.png',
+    '/img/feedback_faces/dis/dis_10.gif',
+    '/img/feedback_faces/dis/dis_11.gif',
+    '/img/feedback_faces/dis/dis_12.png',
+  ],
+};
+
+const FEEDBACK_FACE_MS = 1200;
+const FEEDBACK_CONFETTI_MS = 1200;
+const FEEDBACK_Z = 1000;
+
+const FEEDBACK_FACE_ALPHA = 0.65;
+
+const FEEDBACK_OVERLAY_STYLE = `
+@keyframes studentPickFaceBackdrop {
+  0% { opacity: 0; }
+  12% { opacity: 1; }
+  78% { opacity: 1; }
+  100% { opacity: 0; }
+}
+@keyframes studentPickFacePop {
+  0% { opacity: 0; }
+  14% { opacity: ${FEEDBACK_FACE_ALPHA}; }
+  78% { opacity: ${FEEDBACK_FACE_ALPHA}; }
+  100% { opacity: 0; }
+}
+`;
+
+function pickFeedbackFace(action) {
+  const faces = FEEDBACK_FACES[action];
+  if (!faces?.length) {
+    return null;
+  }
+  return faces[Math.floor(Math.random() * faces.length)];
+}
 
 function todayPoints(students, name) {
   const points = Number(students?.[name]?.points);
@@ -41,7 +162,13 @@ export default function StudentPickDock() {
   const [behavior, setBehavior] = useState(null);
   const [busy, setBusy] = useState(false);
   const [note, setNote] = useState('');
+  const [faceFeedback, setFaceFeedback] = useState(null);
+  const [confettiBurst, setConfettiBurst] = useState(null);
+  const [viewport, setViewport] = useState({width: 0, height: 0});
+  const [uiLang, setUiLang] = useState(() => readUiLang());
   const dateKey = localDateKey();
+  const t = dockCopy(uiLang);
+  const ACTION_META = actionMeta(uiLang);
 
   useEffect(() => {
     const onSession = (event) => {
@@ -49,6 +176,21 @@ export default function StudentPickDock() {
     };
     window.addEventListener(PICK_SESSION_EVENT, onSession);
     return () => window.removeEventListener(PICK_SESSION_EVENT, onSession);
+  }, []);
+
+  useEffect(() => {
+    const sync = (event) => setUiLang(event?.detail?.lang || readUiLang());
+    window.addEventListener(UI_LANG_CHANGE_EVENT, sync);
+    return () => window.removeEventListener(UI_LANG_CHANGE_EVENT, sync);
+  }, []);
+
+  useEffect(() => {
+    const syncViewport = () => {
+      setViewport({width: window.innerWidth, height: window.innerHeight});
+    };
+    syncViewport();
+    window.addEventListener('resize', syncViewport);
+    return () => window.removeEventListener('resize', syncViewport);
   }, []);
 
   const loadBehavior = useCallback(async () => {
@@ -94,10 +236,105 @@ export default function StudentPickDock() {
     return () => window.removeEventListener(CLASS_BEHAVIOR_CHANGE_EVENT, onChange);
   }, [isAdmin, dateKey, rosterId, loadBehavior]);
 
+  useEffect(() => {
+    if (!faceFeedback) {
+      return undefined;
+    }
+    const timer = window.setTimeout(() => setFaceFeedback(null), FEEDBACK_FACE_MS);
+    return () => window.clearTimeout(timer);
+  }, [faceFeedback]);
+
+  useEffect(() => {
+    if (!confettiBurst) {
+      return undefined;
+    }
+    const timer = window.setTimeout(() => setConfettiBurst(null), FEEDBACK_CONFETTI_MS);
+    return () => window.clearTimeout(timer);
+  }, [confettiBurst]);
+
+  const showFaceOverlay = (action) => {
+    const faceSrc = pickFeedbackFace(action);
+    const passing = action === 'plus';
+    const key = Date.now();
+    if (faceSrc) {
+      setFaceFeedback({
+        src: faceSrc,
+        passing,
+        key,
+      });
+    }
+    // Always reset confetti: keep a prior + burst from flashing on −.
+    setConfettiBurst(passing ? {key} : null);
+  };
+
+  const showBackdrop = Boolean(faceFeedback && !faceFeedback.passing);
+
+  const feedbackPortal =
+    typeof document !== 'undefined' && (faceFeedback || confettiBurst)
+      ? createPortal(
+          <div
+            key={faceFeedback?.key || confettiBurst?.key}
+            aria-hidden="true"
+            style={{
+              position: 'fixed',
+              inset: 0,
+              zIndex: FEEDBACK_Z,
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              padding: '1.5rem',
+              background: showBackdrop ? 'rgba(140, 0, 0, 0.72)' : 'transparent',
+              animation: showBackdrop
+                ? `studentPickFaceBackdrop ${FEEDBACK_FACE_MS}ms ease both`
+                : 'none',
+              pointerEvents: 'none',
+            }}
+          >
+            <style>{FEEDBACK_OVERLAY_STYLE}</style>
+            {confettiBurst && (!faceFeedback || faceFeedback.passing) && viewport.width > 0 ? (
+              <Confetti
+                width={viewport.width}
+                height={viewport.height}
+                numberOfPieces={420}
+                recycle={false}
+                gravity={0.45}
+                friction={0.96}
+                tweenDuration={180}
+                initialVelocityX={{min: -28, max: 28}}
+                initialVelocityY={{min: -42, max: 8}}
+                confettiSource={{
+                  x: viewport.width / 2 - 8,
+                  y: viewport.height / 2 - 8,
+                  w: 16,
+                  h: 16,
+                }}
+                style={{position: 'fixed', inset: 0, pointerEvents: 'none'}}
+              />
+            ) : null}
+            {faceFeedback ? (
+              <img
+                src={faceFeedback.src}
+                alt=""
+                style={{
+                  width: 'min(22rem, 72vw)',
+                  height: 'min(22rem, 72vw)',
+                  maxHeight: '70vh',
+                  objectFit: 'contain',
+                  border: 'none',
+                  background: 'transparent',
+                  animation: `studentPickFacePop ${FEEDBACK_FACE_MS}ms ease both`,
+                }}
+              />
+            ) : null}
+          </div>,
+          document.body,
+        )
+      : null;
+
   const slot = session.byRoster?.[rosterId] || null;
   const current = slot?.name || '';
   if (!isAdmin || !session.open) {
-    return null;
+    return feedbackPortal;
   }
 
   const history = recentPickHistory(behavior, 8);
@@ -112,6 +349,9 @@ export default function StudentPickDock() {
     }
     setBusy(true);
     setNote('');
+    if (action === 'plus' || action === 'minus') {
+      showFaceOverlay(action);
+    }
     try {
       const nextRecord = await applyStudentBehavior({
         dateKey,
@@ -135,7 +375,7 @@ export default function StudentPickDock() {
       const record = (await loadBehavior()) || behavior;
       const next = pickWeightedStudent(roster?.names || [], record, current || null);
       if (!next) {
-        setNote('No students left in this course (all marked absent).');
+        setNote(t.noneLeft);
         return;
       }
       setSession(rememberPick({rosterId, name: next}));
@@ -145,8 +385,11 @@ export default function StudentPickDock() {
   };
 
   return (
+    <>
+    {feedbackPortal}
     <aside
-      aria-label="Last picked students"
+      aria-label={t.ariaDock}
+      lang={uiLang === 'zh-CN' ? 'zh-CN' : undefined}
       style={{
         position: 'fixed',
         left: '1rem',
@@ -178,7 +421,27 @@ export default function StudentPickDock() {
         <button
           type="button"
           className="clean-btn"
-          aria-label="Hide picked students"
+          aria-label={t.pickRandom}
+          title={t.pickRandomTitle(courseLabel)}
+          disabled={busy}
+          onClick={onPickAgain}
+          style={{
+            width: '1.4rem',
+            height: '1.4rem',
+            borderRadius: 6,
+            color: 'var(--ifm-color-emphasis-700)',
+            display: 'inline-flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            opacity: busy ? 0.5 : 1,
+          }}
+        >
+          <RandomDiceIcon />
+        </button>
+        <button
+          type="button"
+          className="clean-btn"
+          aria-label={t.hideDock}
           onClick={() => setSession(clearPickSession())}
           style={{
             width: '1.4rem',
@@ -194,9 +457,27 @@ export default function StudentPickDock() {
       </div>
 
       <div style={{marginTop: '0.35rem', textAlign: 'center'}}>
-        <div style={{fontSize: '1.35rem', fontWeight: 700, lineHeight: 1.2}}>
-          {current || 'No student yet'}
-        </div>
+        <button
+          type="button"
+          className="clean-btn"
+          onClick={onPickAgain}
+          disabled={busy}
+          title={t.pickRandomTitle(courseLabel)}
+          aria-label={t.pickRandom}
+          style={{
+            width: '100%',
+            fontSize: '1.35rem',
+            fontWeight: 700,
+            lineHeight: 1.2,
+            color: 'inherit',
+            cursor: busy ? 'wait' : 'pointer',
+            opacity: busy ? 0.65 : 1,
+            borderRadius: 8,
+            padding: '0.15rem 0.25rem',
+          }}
+        >
+          {current || t.noStudent}
+        </button>
         {pronunciation ? (
           <div style={{marginTop: '0.2rem', fontSize: '0.85rem', color: 'var(--ifm-color-emphasis-700)'}}>
             {pronunciation}
@@ -230,16 +511,16 @@ export default function StudentPickDock() {
           className="button button--sm button--success"
           disabled={busy || !current}
           onClick={() => onAction('plus')}
-          title="+1 point"
+          title={t.plusTitle}
         >
           +
         </button>
         <button
           type="button"
-          className="button button--sm button--warning"
+          className="button button--sm button--danger"
           disabled={busy || !current}
           onClick={() => onAction('minus')}
-          title="−1 point"
+          title={t.minusTitle}
         >
           −
         </button>
@@ -248,18 +529,9 @@ export default function StudentPickDock() {
           className="button button--sm button--secondary"
           disabled={busy || !current}
           onClick={() => onAction('absent')}
-          title="Exclude from today’s pool"
+          title={t.absentTitle}
         >
-          Absent
-        </button>
-        <button
-          type="button"
-          className="button button--sm button--primary"
-          disabled={busy}
-          onClick={onPickAgain}
-          title={`Pick again from ${courseLabel}`}
-        >
-          Pick again
+          {t.absent}
         </button>
       </div>
 
@@ -274,16 +546,16 @@ export default function StudentPickDock() {
           style={{
             fontSize: '0.68rem',
             fontWeight: 700,
-            letterSpacing: '0.04em',
-            textTransform: 'uppercase',
+            letterSpacing: uiLang === 'zh-CN' ? '0.02em' : '0.04em',
+            textTransform: uiLang === 'zh-CN' ? 'none' : 'uppercase',
             color: 'var(--ifm-color-emphasis-600)',
           }}
         >
-          Last picked
+          {t.lastPicked}
         </div>
         {rows.length === 0 ? (
           <div style={{fontSize: '0.75rem', color: 'var(--ifm-color-emphasis-600)'}}>
-            Pick again to draw from {courseLabel}.
+            {t.pickHint(courseLabel)}
           </div>
         ) : (
           rows.map((name, index) => {
@@ -315,7 +587,7 @@ export default function StudentPickDock() {
                   style={{
                     color: meta?.color || 'var(--ifm-color-emphasis-500)',
                     fontWeight: 700,
-                    minWidth: action === 'absent' ? 42 : 12,
+                    minWidth: action === 'absent' ? (uiLang === 'zh-CN' ? 28 : 42) : 12,
                     textAlign: 'center',
                   }}
                 >
@@ -336,5 +608,6 @@ export default function StudentPickDock() {
         )}
       </div>
     </aside>
+    </>
   );
 }
