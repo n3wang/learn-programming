@@ -1,9 +1,10 @@
 import React from 'react';
 import katex from 'katex';
+import {katexRenderOptions} from '@site/src/utils/katexOptions';
 
 function renderSegment(expr, displayMode) {
   try {
-    return katex.renderToString(expr, {throwOnError: false, displayMode});
+    return katex.renderToString(expr, katexRenderOptions({displayMode}));
   } catch {
     return expr;
   }

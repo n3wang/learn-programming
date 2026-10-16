@@ -40,12 +40,12 @@ That same timestamp-as-key design is also the textbook way key-range partitionin
     {
       prompt: 'Why does replication alone fail to solve the problem that partitioning addresses?',
       choices: [
-        'Replication and partitioning solve the exact same problem in the exact same way',
         'Replication only creates additional full COPIES of the same complete dataset — every replica still has to hold everything, so it never helps once the dataset (or its load) exceeds what any single machine can hold or serve; only splitting the data itself across nodes (partitioning) solves that',
+        'Replication and partitioning solve the exact same problem in the exact same way',
         'Replication actually makes datasets smaller, not partitioning',
         'Partitioning and replication cannot be used together in the same system',
       ],
-      answer: 1,
+      answer: 0,
       why: 'Replication multiplies copies of the same complete dataset; partitioning is the only technique that actually divides the dataset so no single node needs to hold or serve all of it.',
     },
     {
@@ -62,12 +62,12 @@ That same timestamp-as-key design is also the textbook way key-range partitionin
     {
       prompt: 'In the sensor-data example, why does keying purely by timestamp create a write hot spot, and how does prefixing the key with sensor name fix it?',
       choices: [
-        'Timestamp keys cause no hot spot at all; the fix is unrelated to sensor names',
-        'A timestamp-only key means every partition corresponds to a time range, so ALL writes at any given moment land on the single partition covering "now," while every other partition sits idle; prefixing with sensor name spreads simultaneous writes from many active sensors across many different partitions instead',
         'Prefixing with sensor name eliminates the need for partitioning entirely',
         'The hot spot only occurs when there is exactly one sensor active',
+        'A timestamp-only key means every partition corresponds to a time range, so ALL writes at any given moment land on the single partition covering "now," while every other partition sits idle; prefixing with sensor name spreads simultaneous writes from many active sensors across many different partitions instead',
+        'Timestamp keys cause no hot spot at all; the fix is unrelated to sensor names',
       ],
-      answer: 1,
+      answer: 2,
       why: 'Partitioning by time alone concentrates all "current" writes on one partition; reordering the key so sensor identity is checked first spreads that same write volume across many partitions instead.',
     },
   ]}
@@ -97,31 +97,31 @@ Cassandra strikes a real compromise using a **compound primary key**: only the *
       prompt: 'What is the fundamental trade-off hash partitioning makes compared to key range partitioning?',
       choices: [
         'There is no trade-off; hash partitioning is strictly better in every respect',
-        'Hash partitioning spreads load more evenly by scattering keys pseudorandomly across partitions, but this destroys key ordering — range queries that were cheap under key-range partitioning become expensive or entirely unsupported',
         'Hash partitioning makes range queries faster than key-range partitioning',
         'Hash partitioning can only be used with numeric keys',
+        'Hash partitioning spreads load more evenly by scattering keys pseudorandomly across partitions, but this destroys key ordering — range queries that were cheap under key-range partitioning become expensive or entirely unsupported',
       ],
-      answer: 1,
+      answer: 3,
       why: 'Even load distribution and efficient range queries are genuinely in tension — hash partitioning picks even distribution at the direct cost of destroying the sort order that made range scans cheap.',
     },
     {
       prompt: 'How does Cassandra\'s compound primary key design let it get some benefits of both hash and range partitioning?',
       choices: [
-        'Cassandra hashes every column of the key equally, with no distinction between them',
         'Only the FIRST part of the compound key is hashed to choose the partition; the remaining columns act as a sort key WITHIN that partition, so a query with a fixed value for the first column can still efficiently range-scan the rest',
+        'Cassandra hashes every column of the key equally, with no distinction between them',
         'Cassandra does not support compound keys at all',
         'Cassandra applies range partitioning to the entire compound key with no hashing involved',
       ],
-      answer: 1,
+      answer: 0,
       why: 'Hashing only the leading column spreads different partition-key values (like different users) across nodes, while preserving efficient sorted access within any single partition-key value\'s own data.',
     },
     {
       prompt: 'Why can using a language\'s built-in hash function (like Java\'s Object.hashCode()) for database partitioning be dangerous?',
       choices: [
-        'Built-in hash functions are always too slow to use in a database',
-        'Some built-in hash functions can return different values for the same input across different process runs — which would mean the same key could get routed to a different partition depending on which process is doing the hashing, breaking the whole scheme',
-        'Built-in hash functions can only handle numeric input',
         'This is not actually a real concern for any hash function',
+        'Some built-in hash functions can return different values for the same input across different process runs — which would mean the same key could get routed to a different partition depending on which process is doing the hashing, breaking the whole scheme',
+        'Built-in hash functions are always too slow to use in a database',
+        'Built-in hash functions can only handle numeric input',
       ],
       answer: 1,
       why: 'A partitioning hash needs to be stable and deterministic across processes and time — a hash that isn\'t satisfies neither requirement, silently breaking key-to-partition routing.',
@@ -196,22 +196,22 @@ Most systems today can't automatically detect or fix this kind of skew — it fa
       prompt: 'Why doesn\'t hash partitioning help when a single specific key receives a disproportionate share of all reads and writes (e.g. a viral celebrity post)?',
       choices: [
         'Hash partitioning always spreads even a single hot key across multiple partitions automatically',
-        'Hashing the SAME key always produces the SAME hash value, so every request for that one key is still routed to the exact same single partition every time — hashing only helps distribute DIFFERENT keys apart from each other, not concentrated traffic to one key',
         'This scenario cannot actually occur in real systems',
+        'Hashing the SAME key always produces the SAME hash value, so every request for that one key is still routed to the exact same single partition every time — hashing only helps distribute DIFFERENT keys apart from each other, not concentrated traffic to one key',
         'Hot keys are automatically detected and split by every modern database',
       ],
-      answer: 1,
+      answer: 2,
       why: 'Hash partitioning distributes distinct keys across partitions, but a single key\'s hash is fixed — concentrated load on one key stays concentrated on one partition no matter what hash function is used.',
     },
     {
       prompt: 'What is the real cost of the "append a random suffix to hot keys" technique for relieving hot spots?',
       choices: [
-        'There is no real cost; it is a strictly free improvement',
-        'Reads now must fetch and combine data from every split-key variant (e.g. all 100 of them) instead of a single lookup, and the application must track which specific keys are hot enough to warrant this splitting, since applying it to every key would add unnecessary overhead everywhere',
-        'It makes writes slower but has no effect on reads',
         'It can only be applied to numeric keys, never string keys',
+        'There is no real cost; it is a strictly free improvement',
+        'It makes writes slower but has no effect on reads',
+        'Reads now must fetch and combine data from every split-key variant (e.g. all 100 of them) instead of a single lookup, and the application must track which specific keys are hot enough to warrant this splitting, since applying it to every key would add unnecessary overhead everywhere',
       ],
-      answer: 1,
+      answer: 3,
       why: 'Splitting a key trades cheaper, more evenly-distributed writes for more expensive, multi-key reads — plus the ongoing bookkeeping cost of knowing which keys need this treatment at all.',
     },
   ]}

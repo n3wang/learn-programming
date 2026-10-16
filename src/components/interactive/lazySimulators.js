@@ -145,6 +145,7 @@ export const lazySimulators = {
   LfsSimulator: lazyMdxComponent(() => import('@site/src/components/interactive/LfsSimulator.js')),
   LimitedDirectExecutionSimulator: lazyMdxComponent(() => import('@site/src/components/interactive/LimitedDirectExecutionSimulator.js')),
   LocksSimulator: lazyMdxComponent(() => import('@site/src/components/interactive/LocksSimulator.js')),
+  LsmTreeSimulator: lazyMdxComponent(() => import('@site/src/components/interactive/LsmTreeSimulator.js')),
   MachineBoxRemainderSimulator: lazyMdxComponent(() => import('@site/src/components/interactive/MachineBoxRemainderSimulator.js')),
   MarkerPenBuySimulator: lazyMdxComponent(() => import('@site/src/components/interactive/MarkerPenBuySimulator.js')),
   MascotPriceSimulator: lazyMdxComponent(() => import('@site/src/components/interactive/MascotPriceSimulator.js')),

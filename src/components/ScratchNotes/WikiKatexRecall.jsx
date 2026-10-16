@@ -2,11 +2,15 @@ import React, {useMemo, useState} from 'react';
 import katex from 'katex';
 import LineDiffPreview from '@site/src/components/interactive/typingCopy/LineDiffPreview';
 import {matchesAnyTex, unwrapTex} from '@site/src/components/interactive/typingCopy/katexFormulas';
+import {katexRenderOptions} from '@site/src/utils/katexOptions';
 import styles from './styles.module.css';
 
 function renderTex(tex) {
   try {
-    return katex.renderToString(unwrapTex(tex), {throwOnError: false, displayMode: true});
+    return katex.renderToString(
+      unwrapTex(tex),
+      katexRenderOptions({displayMode: true}),
+    );
   } catch {
     return '';
   }

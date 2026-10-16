@@ -28,12 +28,12 @@ In principle, a plain file or database is *sufficient* to connect producers and 
     {
       prompt: 'What is an "event" in the stream-processing sense, and how does it relate to a "record" in batch processing?',
       choices: [
-        'An event is a completely unrelated concept with no connection to batch records',
         'An event is essentially the streaming equivalent of a batch record — a small, self-contained, immutable object describing something that happened at a point in time, usually with a timestamp',
+        'An event is a completely unrelated concept with no connection to batch records',
         'An event can only ever represent a user click, never any other kind of occurrence',
         'Events are always mutable and can be updated after being recorded',
       ],
-      answer: 1,
+      answer: 0,
       why: 'The lesson explicitly draws this parallel: an event is the same fundamental idea as a batch record, just applied to unbounded, incrementally-arriving data instead of a bounded file.',
     },
     {
@@ -110,33 +110,33 @@ That redelivery mechanism, combined with load balancing specifically, has a genu
       prompt: 'Why do direct messaging systems (UDP multicast, webhooks, brokerless libraries) generally require the application itself to stay aware that messages can be lost?',
       choices: [
         'Direct messaging systems never actually lose any messages',
+        'Message loss is impossible once a webhook URL is registered, as if the broker held undelivered events for offline consumers',
         'These systems generally assume producers and consumers are continuously online — if a consumer happens to be offline when a message is sent, it typically just misses that message entirely, with no centralized place holding onto it for later delivery',
-        'Message loss is impossible once a webhook URL is registered',
         'Direct messaging is only used for messages that are allowed to be duplicated, never lost',
       ],
-      answer: 1,
+      answer: 2,
       why: 'Without a centralized, durable intermediary, there is nowhere for a message to "wait" for an offline consumer — it either arrives or it doesn\'t, which is exactly why application code has to plan around that possibility.',
     },
     {
       prompt: 'What is the key structural difference between the "load balancing" and "fan-out" delivery patterns for multiple consumers on one topic?',
       choices: [
         'They are two names for the exact same delivery behavior',
-        'Load balancing delivers each individual message to exactly ONE consumer (spreading total work across the group); fan-out delivers each message to EVERY consumer (letting several independent consumers each see the full stream)',
         'Fan-out can only be used with exactly two consumers',
         'Load balancing requires every consumer to process every message twice',
+        'Load balancing delivers each individual message to exactly ONE consumer (spreading total work across the group); fan-out delivers each message to EVERY consumer (letting several independent consumers each see the full stream)',
       ],
-      answer: 1,
+      answer: 3,
       why: 'One-message-one-consumer versus one-message-every-consumer is exactly the distinction that separates these two patterns, and the reason both are useful for different scenarios (parallelizing expensive work vs. independent downstream consumers).',
     },
     {
       prompt: 'In the m3/m4 redelivery example, why does consumer 1 end up processing messages out of the order they were originally sent?',
       choices: [
-        'The message broker deliberately randomizes message order for load testing purposes',
         'Consumer 2 crashed while processing m3 before acknowledging it, so the broker redelivered m3 — but by the time that redelivery happened, consumer 1 had already moved on to processing m4, so m3 ends up arriving at consumer 1 AFTER m4, even though m3 was sent first',
-        'm3 and m4 were never actually sent in a particular order in the first place',
         'This reordering only happens when fan-out delivery is used, never with load balancing',
+        'The message broker deliberately randomizes message order for load testing purposes',
+        'm3 and m4 were never actually sent in a particular order in the first place',
       ],
-      answer: 1,
+      answer: 0,
       why: 'The crash-and-redeliver mechanism, combined with load-balanced delivery to different consumers, is exactly what creates the possibility of this kind of reordering — a genuine, documented trade-off of the acknowledgment model.',
     },
   ]}
@@ -279,10 +279,10 @@ Because consuming a log-based topic is fundamentally **read-only** (unlike AMQP/
     {
       prompt: 'Why does the broker in a log-based system only need to track ONE offset per consumer, rather than individually acknowledging every single message?',
       choices: [
-        'Log-based brokers do not actually track any consumer progress at all',
+        'Because messages within a partition can be processed in any arbitrary order, which does not explain the behavior the question is asking about',
         'Because a consumer reads a partition strictly sequentially, everything below its current offset is known to already be processed and everything at or above it is known not to be — a single number fully captures the consumer\'s progress, eliminating the need for per-message bookkeeping',
-        'Because messages within a partition can be processed in any arbitrary order',
-        'Because log-based brokers only ever support exactly one consumer per topic',
+        'Because log-based brokers only ever support exactly one consumer per topic, which does not explain the behavior the question is asking about',
+        'Log-based brokers do not actually track any consumer progress at all',
       ],
       answer: 1,
       why: 'Sequential, in-order consumption within a partition is exactly what makes a single offset sufficient to fully describe processing progress — no per-message tracking needed.',
@@ -291,22 +291,22 @@ Because consuming a log-based topic is fundamentally **read-only** (unlike AMQP/
       prompt: 'Why does a slow consumer falling too far behind in a log-based system only affect that ONE consumer, rather than disrupting the whole system?',
       choices: [
         'A slow consumer always causes the entire broker to crash',
-        'Because the log itself is unaffected by how far behind any individual consumer is — other consumers keep reading at their own pace from their own offsets, and only the lagging consumer risks missing messages once its offset points at an already-deleted segment',
         'Slow consumers are automatically disconnected by the broker after a fixed timeout',
+        'Because the log itself is unaffected by how far behind any individual consumer is — other consumers keep reading at their own pace from their own offsets, and only the lagging consumer risks missing messages once its offset points at an already-deleted segment',
         'This isolation only applies to fan-out delivery, never to load-balanced consumer groups',
       ],
-      answer: 1,
+      answer: 2,
       why: 'Because each consumer tracks its own independent offset against a shared, unaffected log, one consumer\'s lag has no bearing on any other consumer\'s ability to keep reading normally.',
     },
     {
       prompt: 'Why is replaying old messages fundamentally easier in a log-based broker than in a traditional AMQP/JMS-style broker?',
       choices: [
         'Traditional brokers actually make replaying messages just as easy as log-based ones',
-        'Consuming from a log-based broker is a read-only operation (offsets are entirely consumer-controlled, and reading never deletes anything) — you can simply rewind a consumer\'s offset and reprocess history; traditional brokers, by contrast, typically delete a message once it\'s been acknowledged, making that same message permanently unavailable for a future replay',
         'Log-based brokers automatically replay every message every hour regardless of consumer requests',
         'Replaying messages requires special hardware only available to log-based brokers',
+        'Consuming from a log-based broker is a read-only operation (offsets are entirely consumer-controlled, and reading never deletes anything) — you can simply rewind a consumer\'s offset and reprocess history; traditional brokers, by contrast, typically delete a message once it\'s been acknowledged, making that same message permanently unavailable for a future replay',
       ],
-      answer: 1,
+      answer: 3,
       why: 'The read-only, offset-controlled nature of log consumption versus the destructive, acknowledgment-driven deletion of traditional brokers is precisely what makes replay trivial in one and effectively impossible in the other.',
     },
   ]}

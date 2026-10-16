@@ -39,12 +39,12 @@ The tolerance math is straightforward: if `w < n`, writes can survive a node bei
     {
       prompt: 'In leaderless replication, what happens when a client writes to 3 replicas but one is temporarily unreachable?',
       choices: [
-        'The write fails entirely, since not all replicas could be reached',
         'The client sends the write to all replicas in parallel and considers it successful once enough of them (a configured threshold) acknowledge — the unreachable replica simply misses the write and can catch up later',
         'The system automatically performs a leader failover',
         'The write silently succeeds on the unreachable replica anyway',
+        'The write fails entirely, since not all replicas could be reached',
       ],
-      answer: 1,
+      answer: 0,
       why: 'There is no leader to fail over from in a leaderless system — success is defined purely by how many of the n replicas acknowledge the write, not by all of them doing so.',
     },
     {
@@ -62,11 +62,11 @@ The tolerance math is straightforward: if `w < n`, writes can survive a node bei
       prompt: 'With n=5 replicas, w=3, and r=3, why does the quorum condition w+r>n (3+3=6 > 5) guarantee an up-to-date read?',
       choices: [
         'It does not actually guarantee anything about read freshness',
-        'Since every successful write reaches at least 3 of the 5 replicas, and every read queries at least 3 of the 5, the two sets of 3 (out of only 5 total) are mathematically guaranteed to share at least one replica in common — which must be the one carrying the latest write',
         'It only works if all 5 replicas are queried on every single read',
+        'Since every successful write reaches at least 3 of the 5 replicas, and every read queries at least 3 of the 5, the two sets of 3 (out of only 5 total) are mathematically guaranteed to share at least one replica in common — which must be the one carrying the latest write',
         'The quorum condition only applies to writes, never to reads',
       ],
-      answer: 1,
+      answer: 2,
       why: 'The overlap guarantee is pure counting: two subsets of size 3 drawn from a set of 5 cannot both avoid sharing at least one common element.',
     },
   ]}
@@ -104,22 +104,22 @@ Leaderless replication also suits **multi-datacenter** deployments well, precise
       prompt: 'What problem does a sloppy quorum solve that a strict quorum cannot?',
       choices: [
         'It makes reads always return the absolute latest value with perfect certainty',
-        'When a client is cut off (e.g. by a network partition) from enough of a value\'s designated "home" nodes to form a strict quorum, but can still reach OTHER healthy nodes in a larger cluster, a sloppy quorum lets those other nodes temporarily accept the write instead of simply failing the request',
         'It eliminates the need for read repair entirely',
         'It guarantees perfect consistency across all datacenters',
+        'When a client is cut off (e.g. by a network partition) from enough of a value\'s designated "home" nodes to form a strict quorum, but can still reach OTHER healthy nodes in a larger cluster, a sloppy quorum lets those other nodes temporarily accept the write instead of simply failing the request',
       ],
-      answer: 1,
+      answer: 3,
       why: 'Sloppy quorums trade strict "correct home nodes" quorum membership for write availability during partial network partitions.',
     },
     {
       prompt: 'Why is a sloppy quorum described as a durability mechanism rather than a consistency mechanism?',
       choices: [
-        'Because sloppy quorums do not actually store any data reliably',
         'Because it only guarantees the data is stored SOMEWHERE among w reachable nodes — it does not guarantee that a subsequent read of r nodes will find that data, since it may be sitting on nodes outside the value\'s usual n, awaiting hinted handoff',
-        'Because sloppy quorums always provide stronger consistency than strict quorums',
-        'Because sloppy quorums require synchronous replication to all n home nodes',
+        'Because sloppy quorums require synchronous replication to all n home nodes, ignoring that writes may land outside the usual replica set, which does not explain the behavior the question is asking about',
+        'Because sloppy quorums do not actually store any data reliably, which does not explain the behavior the question is asking about',
+        'Because sloppy quorums always provide stronger consistency than strict quorums, which does not explain the behavior the question is asking about',
       ],
-      answer: 1,
+      answer: 0,
       why: 'The w+r>n overlap guarantee assumed reads and writes land on the same designated n nodes — a sloppy quorum breaks that assumption, which is exactly why it only promises durability ("stored somewhere"), not read-time consistency.',
     },
   ]}
@@ -210,10 +210,10 @@ A single version number per key is enough on one replica — but leaderless syst
     {
       prompt: 'What is the fundamental risk of using last write wins (LWW) for conflict resolution?',
       choices: [
-        'LWW never actually resolves conflicts and leaves the database permanently inconsistent',
-        'LWW keeps only the write with the highest timestamp and silently discards every other concurrent write — even ones that were already reported as successful to their own clients — and clock skew can cause it to discard writes that were not even truly concurrent',
         'LWW requires a leader node to function, contradicting the leaderless model',
+        'LWW keeps only the write with the highest timestamp and silently discards every other concurrent write — even ones that were already reported as successful to their own clients — and clock skew can cause it to discard writes that were not even truly concurrent',
         'LWW can only be used with string values, never numbers',
+        'LWW never actually resolves conflicts and leaves the database permanently inconsistent',
       ],
       answer: 1,
       why: 'LWW achieves convergence purely by throwing away data — a real durability cost that only becomes acceptable if keys are treated as effectively write-once and immutable.',
@@ -221,23 +221,23 @@ A single version number per key is enough on one replica — but leaderless syst
     {
       prompt: 'According to the "happens-before" definition used in this lesson, why are two operations considered concurrent even if their wall-clock execution times don\'t overlap at all?',
       choices: [
-        'Concurrency is defined purely by whether neither operation was aware of, or built upon, the other — not by whether their execution times overlapped on a physical clock, since clocks across machines cannot be trusted to be tightly synchronized anyway',
-        'Two operations are only concurrent if they run on literally the same CPU core at the same instant',
         'Concurrency in this context always requires perfectly synchronized clocks',
         'Operations are never actually concurrent in a real distributed system',
+        'Concurrency is defined purely by whether neither operation was aware of, or built upon, the other — not by whether their execution times overlapped on a physical clock, since clocks across machines cannot be trusted to be tightly synchronized anyway',
+        'Two operations are only concurrent if they run on literally the same CPU core at the same instant',
       ],
-      answer: 0,
+      answer: 2,
       why: 'The happens-before relationship is about causal awareness, not physical simultaneity — this is exactly why the lesson explicitly decouples "concurrent" from wall-clock overlap.',
     },
     {
       prompt: 'Why does a leaderless system need a full version VECTOR (one counter per replica) instead of the single version number sufficient for a one-replica example?',
       choices: [
         'Version vectors are purely a performance optimization with no functional necessity',
-        'With multiple replicas independently accepting writes, a single shared counter cannot capture which specific replica\'s writes a given write has or has not seen — a per-replica counter is needed so the database can still correctly distinguish real overwrites from genuinely concurrent writes across different replicas',
         'Version vectors are only needed when using last write wins',
         'A single version number works identically well regardless of how many replicas exist',
+        'With multiple replicas independently accepting writes, a single shared counter cannot capture which specific replica\'s writes a given write has or has not seen — a per-replica counter is needed so the database can still correctly distinguish real overwrites from genuinely concurrent writes across different replicas',
       ],
-      answer: 1,
+      answer: 3,
       why: 'Generalizing happens-before detection to multiple independently-writing replicas requires tracking each replica\'s own contribution separately — exactly what a version vector\'s per-replica counters provide.',
     },
   ]}

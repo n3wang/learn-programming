@@ -1,0 +1,486 @@
+---
+sidebar_position: 38
+title: SQL Interview Cheat Sheet
+sidebar_label: 'SQL interview cheat sheet'
+---
+
+import {SQL_INTERVIEW_SEED, SQL_INTERVIEW_TABLES} from '@site/src/components/SqlExercise/sqlInterviewSeed';
+
+Last-minute SQL coding warm-up for analytics / data science interviews. The notes below are a **written quick-reference** (PostgreSQL / MySQL / general SQL). The drills run on **SQLite** in this course — syntax is close enough for joins, aggregates, CTEs, and windows; date helpers differ slightly (use `strftime` here; interviewers often expect Postgres `DATE_TRUNC` / `EXTRACT` or MySQL `DATE_FORMAT` / `YEAR`).
+
+Open the **Data** tab on any exercise. Schema is created for you — write only the `SELECT` / `WITH … SELECT`. Prefer `LEFT JOIN` over `RIGHT JOIN`.
+
+## Schema (this lesson)
+
+| Table | Columns |
+| --- | --- |
+| `departments` | `department_id`, `department_name` |
+| `employees` | `employee_id`, `name`, `department_id` (nullable), `salary` |
+| `customers` | `customer_id`, `name`, `country`, `phone` (nullable) |
+| `orders` | `order_id`, `customer_id`, `order_date`, `amount` |
+| `users` | `user_id`, `email` |
+
+Prioritize in interviews: **JOIN**, **GROUP BY / HAVING**, aggregates, **CASE**, subqueries / CTEs, and windows (`ROW_NUMBER`, `RANK` / `DENSE_RANK`, `LAG` / `LEAD`).
+
+## 1. Aggregate functions
+
+| Function | Purpose |
+| --- | --- |
+| `COUNT(*)` | Count rows |
+| `COUNT(column)` | Count non-NULL values |
+| `COUNT(DISTINCT column)` | Count unique non-NULL values |
+| `SUM(column)` | Sum values |
+| `AVG(column)` | Average |
+| `MIN` / `MAX` | Smallest / largest |
+
+```sql
+SELECT
+    department,
+    COUNT(*) AS employees,
+    AVG(salary) AS avg_salary,
+    MAX(salary) AS max_salary,
+    SUM(salary) AS total_salary
+FROM employees
+GROUP BY department;
+```
+
+### Drill: department aggregates
+
+<ExerciseSet>
+  <SqlExercise
+    title="Stats per department"
+    prompt="Join employees to departments. Return department_name, employee count, average salary rounded to 1 decimal, max salary, and sum of salaries. Order by department_name. Format: name|n|avg|max|sum"
+    seed={SQL_INTERVIEW_SEED}
+    tables={SQL_INTERVIEW_TABLES}
+    starter={"SELECT\n  -- TODO\n"}
+    tests={[{name: 'agg', equals: 'Engineering|6|86666.7|120000|520000\nFinance|4|85000.0|105000|340000\nHR|2|60000.0|62000|120000\nSales|5|77800.0|110000|389000'}]}
+    sourceChecks={[
+      {name: 'GROUP BY', pattern: 'GROUP\\s+BY', flags: 'i', hint: 'GROUP BY'},
+      {name: 'AVG', pattern: '\\bAVG\\s*\\(', flags: 'i', hint: 'AVG(...)'},
+    ]}
+    hint="JOIN on department_id, GROUP BY department_name, ROUND(AVG(salary), 1)."
+    solution={"SELECT\n  d.department_name,\n  COUNT(*),\n  ROUND(AVG(e.salary), 1),\n  MAX(e.salary),\n  SUM(e.salary)\nFROM employees e\nJOIN departments d ON d.department_id = e.department_id\nGROUP BY d.department_name\nORDER BY d.department_name;"}
+  />
+</ExerciseSet>
+
+## 2. `WHERE` vs `GROUP BY` vs `HAVING`
+
+- **WHERE** — filter rows **before** aggregation  
+- **GROUP BY** — collapse rows that share keys  
+- **HAVING** — filter groups **after** aggregation  
+
+Logical order to memorize: `FROM` → `WHERE` → `GROUP BY` → `HAVING` → `SELECT` → `DISTINCT` → `ORDER BY` → `LIMIT`.
+
+```sql
+SELECT department, COUNT(*) AS employee_count
+FROM employees
+WHERE salary > 50000
+GROUP BY department
+HAVING COUNT(*) >= 3
+ORDER BY employee_count DESC;
+```
+
+### Drill: filter then group
+
+<ExerciseSet>
+  <SqlExercise
+    title="Crowded high-pay departments"
+    prompt="Departments with at least 3 employees earning more than 50000. Return department_name and employee_count, highest count first, then name. Format: name|n"
+    seed={SQL_INTERVIEW_SEED}
+    tables={SQL_INTERVIEW_TABLES}
+    starter={"SELECT\n  -- TODO\n"}
+    tests={[{name: 'having', equals: 'Engineering|6\nSales|5\nFinance|4'}]}
+    sourceChecks={[
+      {name: 'WHERE', pattern: '\\bWHERE\\b', flags: 'i', hint: 'WHERE'},
+      {name: 'HAVING', pattern: '\\bHAVING\\b', flags: 'i', hint: 'HAVING'},
+    ]}
+    hint="WHERE salary > 50000, GROUP BY department, HAVING COUNT(*) >= 3."
+    solution={"SELECT\n  d.department_name,\n  COUNT(*) AS employee_count\nFROM employees e\nJOIN departments d ON d.department_id = e.department_id\nWHERE e.salary > 50000\nGROUP BY d.department_name\nHAVING COUNT(*) >= 3\nORDER BY employee_count DESC, d.department_name;"}
+  />
+  <SqlExercise
+    title="Duplicate emails"
+    prompt="From users, return emails that appear more than once with their occurrence counts. Order by email. Format: email|n"
+    seed={SQL_INTERVIEW_SEED}
+    tables={SQL_INTERVIEW_TABLES}
+    starter={"SELECT\n  -- TODO\n"}
+    tests={[{name: 'dups', equals: 'a@ex.com|2\nb@ex.com|2\nc@ex.com|2'}]}
+    sourceChecks={[{name: 'HAVING', pattern: '\\bHAVING\\b', flags: 'i', hint: 'HAVING COUNT(*) > 1'}]}
+    hint="GROUP BY email HAVING COUNT(*) > 1."
+    solution={"SELECT email, COUNT(*) AS occurrences\nFROM users\nGROUP BY email\nHAVING COUNT(*) > 1\nORDER BY email;"}
+  />
+</ExerciseSet>
+
+## 3. Ranking windows: `RANK`, `DENSE_RANK`, `ROW_NUMBER`
+
+Windows keep detail rows while attaching a rank (unlike `GROUP BY`, which collapses).
+
+```sql
+SELECT
+    name,
+    department,
+    salary,
+    RANK() OVER (
+        PARTITION BY department
+        ORDER BY salary DESC
+    ) AS salary_rank
+FROM employees;
+```
+
+| Salary | `RANK()` | `DENSE_RANK()` | `ROW_NUMBER()` |
+| --- | --- | --- | --- |
+| 100000 | 1 | 1 | 1 |
+| 90000 | 2 | 2 | 2 |
+| 90000 | 2 | 2 | 3 |
+| 80000 | 4 | 3 | 4 |
+
+- **RANK** — ties share; next rank skips  
+- **DENSE_RANK** — ties share; no skip (good for “top 3 salary levels”)  
+- **ROW_NUMBER** — unique sequence (good for “exactly 3 rows”)
+
+### Top-N per group pattern
+
+```sql
+WITH ranked AS (
+    SELECT *,
+           DENSE_RANK() OVER (
+               PARTITION BY department
+               ORDER BY salary DESC
+           ) AS rnk
+    FROM employees
+)
+SELECT * FROM ranked WHERE rnk <= 3;
+```
+
+### Drill: windows
+
+<ExerciseSet>
+  <SqlExercise
+    title="Top salary levels in Engineering"
+    prompt="Using DENSE_RANK over salary DESC within department, keep Engineering rows with rnk <= 3. Return name, department_name, salary, rnk ordered by rnk then name. Format: name|dept|salary|rnk"
+    seed={SQL_INTERVIEW_SEED}
+    tables={SQL_INTERVIEW_TABLES}
+    starter={"WITH ranked AS (\n  -- TODO\n)\nSELECT\n  -- TODO\n"}
+    tests={[{name: 'top3', equals: 'Ada|Engineering|120000|1\nBob|Engineering|95000|2\nCara|Engineering|95000|2\nDan|Engineering|80000|3'}]}
+    sourceChecks={[{name: 'DENSE_RANK', pattern: '\\bDENSE_RANK\\s*\\(', flags: 'i', hint: 'DENSE_RANK()'}]}
+    hint="PARTITION BY department_id (or name), ORDER BY salary DESC, filter rnk <= 3 and Engineering."
+    solution={"WITH ranked AS (\n  SELECT\n    e.name,\n    d.department_name AS department,\n    e.salary,\n    DENSE_RANK() OVER (\n      PARTITION BY e.department_id\n      ORDER BY e.salary DESC\n    ) AS rnk\n  FROM employees e\n  JOIN departments d ON d.department_id = e.department_id\n)\nSELECT name, department, salary, rnk\nFROM ranked\nWHERE rnk <= 3 AND department = 'Engineering'\nORDER BY rnk, name;"}
+  />
+  <SqlExercise
+    title="Latest order per customer"
+    prompt="ROW_NUMBER partitioned by customer_id, ordered by order_date DESC then order_id DESC. Keep rn = 1. Return customer_id, order_id, order_date, amount ordered by customer_id. Format: customer|order|date|amount"
+    seed={SQL_INTERVIEW_SEED}
+    tables={SQL_INTERVIEW_TABLES}
+    starter={"WITH ranked AS (\n  -- TODO\n)\nSELECT\n  -- TODO\n"}
+    tests={[{name: 'latest', equals: '1|3|2026-02-02|80.0\n2|5|2026-01-15|60.0\n3|8|2026-02-14|90.0\n5|11|2026-02-10|75.0\n6|12|2026-01-03|45.0\n8|14|2026-02-05|95.0\n9|15|2026-01-12|70.0\n11|17|2026-02-08|65.0\n12|18|2026-01-30|85.0\n14|19|2026-02-12|150.0\n15|20|2026-01-07|35.0'}]}
+    sourceChecks={[{name: 'ROW_NUMBER', pattern: '\\bROW_NUMBER\\s*\\(', flags: 'i', hint: 'ROW_NUMBER()'}]}
+    hint="Tie-break with order_id so same-day orders are deterministic."
+    solution={"WITH ranked AS (\n  SELECT *,\n         ROW_NUMBER() OVER (\n           PARTITION BY customer_id\n           ORDER BY order_date DESC, order_id DESC\n         ) AS rn\n  FROM orders\n)\nSELECT customer_id, order_id, order_date, amount\nFROM ranked\nWHERE rn = 1\nORDER BY customer_id;"}
+  />
+  <SqlExercise
+    title="Running total (first 5)"
+    prompt="Return the first 5 orders by (order_date, order_id) with a running SUM(amount) using a window (UNBOUNDED PRECEDING … CURRENT ROW). Columns: order_id, amount, running_total. Format: id|amount|total"
+    seed={SQL_INTERVIEW_SEED}
+    tables={SQL_INTERVIEW_TABLES}
+    starter={"SELECT\n  -- TODO\n"}
+    tests={[{name: 'run', equals: '12|45.0|45.0\n1|100.0|145.0\n20|35.0|180.0\n6|120.0|300.0\n4|50.0|350.0'}]}
+    sourceChecks={[{name: 'OVER', pattern: '\\bOVER\\s*\\(', flags: 'i', hint: 'SUM(...) OVER (...)'}]}
+    hint="ORDER BY order_date, order_id in the window and outer query; LIMIT 5."
+    solution={"SELECT\n  order_id,\n  amount,\n  SUM(amount) OVER (\n    ORDER BY order_date, order_id\n    ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW\n  ) AS running_total\nFROM orders\nORDER BY order_date, order_id\nLIMIT 5;"}
+  />
+</ExerciseSet>
+
+## 4. Dates (interview dialects vs SQLite)
+
+| Task | PostgreSQL | MySQL | This runtime (SQLite) |
+| --- | --- | --- | --- |
+| Current date | `CURRENT_DATE` | `CURRENT_DATE()` | `DATE('now')` |
+| Extract year | `EXTRACT(YEAR FROM d)` | `YEAR(d)` | `strftime('%Y', d)` |
+| Month bucket | `DATE_TRUNC('month', d)` | `DATE_FORMAT(d, '%Y-%m-01')` | `strftime('%Y-%m', d)` |
+| Add 7 days | `d + INTERVAL '7 days'` | `DATE_ADD(d, INTERVAL 7 DAY)` | `DATE(d, '+7 days')` |
+| Day difference | `date2::date - date1::date` | `DATEDIFF(date2, date1)` | `JULIANDAY(date2) - JULIANDAY(date1)` |
+
+Parse / format: Postgres `TO_DATE` / `TO_CHAR`; MySQL `STR_TO_DATE` / `DATE_FORMAT`. Prefer **half-open ranges** for filters:
+
+```sql
+WHERE order_date >= '2026-01-01'
+  AND order_date <  '2026-02-01';
+```
+
+### Drill: dates
+
+<ExerciseSet>
+  <SqlExercise
+    title="Sales by month"
+    prompt="Group orders by calendar month (YYYY-MM). Return month and SUM(amount) ordered by month. Format: month|total"
+    seed={SQL_INTERVIEW_SEED}
+    tables={SQL_INTERVIEW_TABLES}
+    starter={"SELECT\n  -- TODO\n"}
+    tests={[{name: 'months', equals: '2026-01|995.0\n2026-02|585.0'}]}
+    sourceChecks={[{name: 'strftime or substr', pattern: 'strftime|SUBSTR', flags: 'i', hint: "strftime('%Y-%m', order_date)"}]}
+    hint="strftime('%Y-%m', order_date) in SELECT and GROUP BY."
+    solution={"SELECT\n  strftime('%Y-%m', order_date) AS month,\n  SUM(amount) AS total_sales\nFROM orders\nGROUP BY strftime('%Y-%m', order_date)\nORDER BY month;"}
+  />
+  <SqlExercise
+    title="January order count"
+    prompt="Count orders with order_date in January 2026 using a half-open range [2026-01-01, 2026-02-01). Single integer."
+    seed={SQL_INTERVIEW_SEED}
+    tables={SQL_INTERVIEW_TABLES}
+    starter={"SELECT\n  -- TODO\n"}
+    tests={[{name: 'jan', equals: '13'}]}
+    sourceChecks={[{name: 'range', pattern: '2026-01-01', flags: 'i', hint: 'half-open date range'}]}
+    hint=">= '2026-01-01' AND < '2026-02-01'."
+    solution={"SELECT COUNT(*)\nFROM orders\nWHERE order_date >= '2026-01-01'\n  AND order_date < '2026-02-01';"}
+  />
+</ExerciseSet>
+
+## 5. Joins
+
+| Join | Returns |
+| --- | --- |
+| `INNER JOIN` | Matching keys on both sides |
+| `LEFT JOIN` | All left rows; NULLs when no match |
+| `RIGHT JOIN` | All right rows (emulate with swapped `LEFT JOIN` here) |
+| `FULL OUTER` | Both sides (not in SQLite — skip or UNION anti-join patterns) |
+| `CROSS JOIN` | Every combination |
+
+Anti-join (employees with no department):
+
+```sql
+SELECT e.*
+FROM employees e
+LEFT JOIN departments d ON e.department_id = d.department_id
+WHERE d.department_id IS NULL;
+```
+
+Count including empty departments — use `COUNT(e.employee_id)`, **not** `COUNT(*)` (that would count the preserved department row).
+
+### Drill: joins
+
+<ExerciseSet>
+  <SqlExercise
+    title="Employees without a department"
+    prompt="LEFT JOIN anti-pattern: employee_id and name where department match is missing. Order by employee_id. Format: id|name"
+    seed={SQL_INTERVIEW_SEED}
+    tables={SQL_INTERVIEW_TABLES}
+    starter={"SELECT\n  -- TODO\n"}
+    tests={[{name: 'anti', equals: '16|Pat'}]}
+    sourceChecks={[
+      {name: 'LEFT JOIN', pattern: 'LEFT\\s+JOIN', flags: 'i', hint: 'LEFT JOIN'},
+      {name: 'IS NULL', pattern: 'IS\\s+NULL', flags: 'i', hint: 'IS NULL'},
+    ]}
+    hint="WHERE d.department_id IS NULL."
+    solution={"SELECT e.employee_id, e.name\nFROM employees e\nLEFT JOIN departments d ON e.department_id = d.department_id\nWHERE d.department_id IS NULL\nORDER BY e.employee_id;"}
+  />
+  <SqlExercise
+    title="Headcount including empty departments"
+    prompt="Every department with employee_count (0 allowed). Order by department_name. Format: name|n"
+    seed={SQL_INTERVIEW_SEED}
+    tables={SQL_INTERVIEW_TABLES}
+    starter={"SELECT\n  -- TODO\n"}
+    tests={[{name: 'incl empty', equals: 'Engineering|6\nFinance|4\nHR|2\nMarketing|0\nSales|5'}]}
+    sourceChecks={[
+      {name: 'LEFT JOIN', pattern: 'LEFT\\s+JOIN', flags: 'i', hint: 'LEFT JOIN'},
+      {name: 'COUNT employee', pattern: 'COUNT\\s*\\(\\s*e\\.employee_id\\s*\\)', flags: 'i', hint: 'COUNT(e.employee_id)'},
+    ]}
+    hint="FROM departments LEFT JOIN employees; COUNT(e.employee_id)."
+    solution={"SELECT\n  d.department_name,\n  COUNT(e.employee_id) AS employee_count\nFROM departments d\nLEFT JOIN employees e ON e.department_id = d.department_id\nGROUP BY d.department_id, d.department_name\nORDER BY d.department_name;"}
+  />
+</ExerciseSet>
+
+## 6. CTEs, subqueries, `EXISTS`
+
+```sql
+WITH high_earners AS (
+    SELECT * FROM employees WHERE salary > 80000
+)
+SELECT department, COUNT(*)
+FROM high_earners
+GROUP BY department;
+```
+
+Above-average filter:
+
+```sql
+SELECT *
+FROM employees
+WHERE salary > (SELECT AVG(salary) FROM employees);
+```
+
+Existence:
+
+```sql
+SELECT *
+FROM customers c
+WHERE EXISTS (
+    SELECT 1 FROM orders o WHERE o.customer_id = c.customer_id
+);
+```
+
+Use `NOT EXISTS` for customers with no orders. Prefer `EXISTS` over `IN (SELECT …)` when you only care about presence.
+
+### Drill: CTE / subquery / EXISTS
+
+<ExerciseSet>
+  <SqlExercise
+    title="Above-average salaries"
+    prompt="Return employee names whose salary is strictly greater than the company average. Order by name. One name per row."
+    seed={SQL_INTERVIEW_SEED}
+    tables={SQL_INTERVIEW_TABLES}
+    starter={"SELECT\n  -- TODO\n"}
+    tests={[{name: 'above', equals: 'Ada\nBob\nCara\nFrank\nGina\nJon\nKim\nLeo'}]}
+    sourceChecks={[{name: 'subquery AVG', pattern: 'AVG\\s*\\(', flags: 'i', hint: 'salary > (SELECT AVG(salary) ...)'}]}
+    hint="Scalar subquery in WHERE."
+    solution={"SELECT name\nFROM employees\nWHERE salary > (SELECT AVG(salary) FROM employees)\nORDER BY name;"}
+  />
+  <SqlExercise
+    title="Customers with at least one order"
+    prompt="Using EXISTS, list customer_id values that have matching orders. Order ascending. One id per row."
+    seed={SQL_INTERVIEW_SEED}
+    tables={SQL_INTERVIEW_TABLES}
+    starter={"SELECT\n  -- TODO\n"}
+    tests={[{name: 'exists', equals: '1\n2\n3\n5\n6\n8\n9\n11\n12\n14\n15'}]}
+    sourceChecks={[{name: 'EXISTS', pattern: '\\bEXISTS\\b', flags: 'i', hint: 'EXISTS'}]}
+    hint="Correlated EXISTS on orders.customer_id."
+    solution={"SELECT c.customer_id\nFROM customers c\nWHERE EXISTS (\n  SELECT 1 FROM orders o WHERE o.customer_id = c.customer_id\n)\nORDER BY c.customer_id;"}
+  />
+  <SqlExercise
+    title="Second-highest distinct salary"
+    prompt="Return the second-highest distinct salary as a single number (LIMIT/OFFSET pattern)."
+    seed={SQL_INTERVIEW_SEED}
+    tables={SQL_INTERVIEW_TABLES}
+    starter={"SELECT\n  -- TODO\n"}
+    tests={[{name: 'second', equals: '110000'}]}
+    sourceChecks={[
+      {name: 'DISTINCT', pattern: '\\bDISTINCT\\b', flags: 'i', hint: 'DISTINCT salary'},
+      {name: 'OFFSET', pattern: '\\bOFFSET\\b', flags: 'i', hint: 'LIMIT 1 OFFSET 1'},
+    ]}
+    hint="ORDER BY salary DESC LIMIT 1 OFFSET 1."
+    solution={"SELECT DISTINCT salary\nFROM employees\nORDER BY salary DESC\nLIMIT 1 OFFSET 1;"}
+  />
+</ExerciseSet>
+
+## 7. `CASE` and `COALESCE`
+
+```sql
+SELECT
+    name,
+    salary,
+    CASE
+        WHEN salary >= 100000 THEN 'High'
+        WHEN salary >= 60000  THEN 'Medium'
+        ELSE 'Low'
+    END AS salary_category
+FROM employees;
+```
+
+`COALESCE(phone, 'No phone')` returns the first non-NULL. Never write `phone = NULL` — use `IS NULL` / `IS NOT NULL`.
+
+### Drill: CASE / COALESCE
+
+<ExerciseSet>
+  <SqlExercise
+    title="Salary bands for sample employees"
+    prompt="For employee_id IN (1, 5, 13, 18), return name and High/Medium/Low using thresholds 100000 and 60000. Order by employee_id. Format: name|band"
+    seed={SQL_INTERVIEW_SEED}
+    tables={SQL_INTERVIEW_TABLES}
+    starter={"SELECT\n  -- TODO\n"}
+    tests={[{name: 'case', equals: 'Ada|High\nEve|Medium\nMia|Low\nRae|Low'}]}
+    sourceChecks={[{name: 'CASE', pattern: '\\bCASE\\b', flags: 'i', hint: 'CASE WHEN ...'}]}
+    hint="Ordered CASE: High first, then Medium, else Low."
+    solution={"SELECT\n  name,\n  CASE\n    WHEN salary >= 100000 THEN 'High'\n    WHEN salary >= 60000 THEN 'Medium'\n    ELSE 'Low'\n  END AS salary_category\nFROM employees\nWHERE employee_id IN (1, 5, 13, 18)\nORDER BY employee_id;"}
+  />
+  <SqlExercise
+    title="Phone with default"
+    prompt="For customer_id IN (1, 2, 4), return customer_id and COALESCE(phone, 'No phone'). Order by customer_id. Format: id|phone"
+    seed={SQL_INTERVIEW_SEED}
+    tables={SQL_INTERVIEW_TABLES}
+    starter={"SELECT\n  -- TODO\n"}
+    tests={[{name: 'coalesce', equals: '1|555-0101\n2|No phone\n4|No phone'}]}
+    sourceChecks={[{name: 'COALESCE', pattern: '\\bCOALESCE\\s*\\(', flags: 'i', hint: 'COALESCE'}]}
+    hint="COALESCE(phone, 'No phone')."
+    solution={"SELECT customer_id, COALESCE(phone, 'No phone')\nFROM customers\nWHERE customer_id IN (1, 2, 4)\nORDER BY customer_id;"}
+  />
+</ExerciseSet>
+
+## 8. Filtering, sorting, set ops (cheat list)
+
+```sql
+SELECT DISTINCT country FROM customers;
+
+SELECT * FROM employees
+WHERE salary BETWEEN 50000 AND 100000
+  AND department IN ('IT', 'Finance');
+
+SELECT * FROM customers WHERE name LIKE 'A%';
+
+SELECT * FROM employees ORDER BY salary DESC LIMIT 10;
+```
+
+- `IN (...)` — membership  
+- `BETWEEN a AND b` — inclusive range  
+- `LIKE` — `%` any sequence; `_` one character  
+- `UNION` — stack + dedupe; `UNION ALL` — keep duplicates  
+
+## 9. Concept check (fast)
+
+<MultipleChoice
+  id="ds-sql-interview-concepts"
+  title="SQL interview mental model"
+  questions={[
+    {
+      prompt: 'Which clause filters groups after aggregation?',
+      choices: [
+        'HAVING — it keeps or drops groups using aggregate conditions',
+        'WHERE — it removes rows before GROUP BY runs',
+        'ORDER BY — it only sorts the final result rows',
+        'LIMIT — it only truncates how many rows are returned',
+      ],
+      answer: 0,
+      why: 'HAVING runs after GROUP BY; WHERE cannot reference aggregate results.',
+    },
+    {
+      prompt: 'You need exactly one “latest” order per customer when dates can tie. Best tool?',
+      choices: [
+        'GROUP BY customer_id with MAX(amount) alone, ignoring dates',
+        'DENSE_RANK on amount within customer, keep rank = 1',
+        'ROW_NUMBER partitioned by customer_id ordered by date then order_id, keep rn = 1',
+        'AVG(order_date) in HAVING to pick the middle order',
+      ],
+      answer: 2,
+      why: 'ROW_NUMBER forces a unique pick; add order_id as a tie-break.',
+    },
+    {
+      prompt: 'Counting employees per department on a LEFT JOIN from departments, why prefer COUNT(e.employee_id)?',
+      choices: [
+        'COUNT(*) is illegal after a LEFT JOIN in every SQL dialect',
+        'COUNT(e.employee_id) always counts department rows twice for safety',
+        'COUNT(*) undercounts when salaries are NULL even if the employee exists',
+        'COUNT(e.employee_id) ignores NULL employee keys so empty departments stay at 0',
+      ],
+      answer: 3,
+      why: 'Preserved unmatched left rows have NULL employee columns; COUNT(*) would still count them as 1.',
+    },
+    {
+      prompt: 'Logical processing order places HAVING…',
+      choices: [
+        'Before FROM, so you can filter tables that do not exist yet',
+        'After GROUP BY and before ORDER BY / LIMIT',
+        'Immediately after WHERE and before GROUP BY',
+        'Only after LIMIT, so it can trim already-sorted pages',
+      ],
+      answer: 1,
+      why: 'FROM → WHERE → GROUP BY → HAVING → SELECT → ORDER BY → LIMIT.',
+    },
+  ]}
+/>
+
+## 10. Day-of interview checklist
+
+1. Restate the metric and grain (one row per user? per day? per department?).  
+2. Sketch columns of the ideal result, then work **backwards**.  
+3. Layer CTEs: filters → joins → aggregates → windows.  
+4. Check NULL / anti-join behavior on `LEFT JOIN`.  
+5. Prefer half-open date ranges; know your dialect’s date helpers.  
+6. If asked about speed: fewer columns, filter early, index join keys, avoid exploding joins.
+
+Deeper practice sets: [SQL](./lesson-10-sql), [SQL Problems (easy)](./lesson-13-sql-problems-easy), [SQL Problems (medium)](./lesson-14-sql-problems-medium). Next warm-up: [Python interview cheat sheet](./lesson-38-python-interview-cheat-sheet).

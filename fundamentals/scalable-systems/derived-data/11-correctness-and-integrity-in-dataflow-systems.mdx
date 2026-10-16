@@ -109,12 +109,12 @@ print(process_requests(requests))
     {
       prompt: 'Why is a plain two-statement money transfer transaction (debit one account, credit another, inside one BEGIN/COMMIT) NOT actually idempotent, even though it is wrapped in a transaction?',
       choices: [
-        'Transactions can never contain more than one statement',
         'If the client loses its connection right after sending COMMIT and does not know whether it succeeded, retrying the exact same transaction from scratch would apply the debit and credit a SECOND time — the transaction itself has no built-in memory of "I already ran once for this logical operation"',
-        'Databases automatically detect and reject any repeated transaction',
         'This only fails when using a NoSQL database, never a relational one',
+        'Transactions can never contain more than one statement',
+        'Databases automatically detect and reject any repeated transaction',
       ],
-      answer: 1,
+      answer: 0,
       why: 'A transaction guarantees atomicity for its own execution, but says nothing about whether an entire retried transaction is a duplicate of a previous one — that requires a separate mechanism like an operation ID.',
     },
     {
@@ -228,23 +228,23 @@ If the processor in step 2 crashes and resumes from its last checkpoint, it migh
     {
       prompt: 'Why does partitioning a log by the value that needs to be unique (e.g., by hash of username) let a stream processor enforce a uniqueness constraint correctly?',
       choices: [
+        'Partitioning only works if there is exactly one partition in the whole system',
         'Partitioning has nothing to do with uniqueness enforcement',
         'Partitioning by the unique value guarantees every request FOR THAT SAME VALUE lands in the same partition, in true arrival order; a single-threaded consumer reading that partition sequentially can then deterministically decide which request genuinely came first, with no ambiguity',
         'Partitioning eliminates the need to check anything at all, since duplicates are physically impossible',
-        'Partitioning only works if there is exactly one partition in the whole system',
       ],
-      answer: 1,
+      answer: 2,
       why: 'Routing every conflicting request to the same partition, in order, is exactly what turns a distributed consensus problem into a simple sequential, single-threaded decision.',
     },
     {
       prompt: 'In the multi-partition money-transfer example, why doesn\'t crashing and resuming the stream processor in step 2 (mid-way through emitting debit/credit instructions) cause the transfer to be applied twice?',
       choices: [
         'Crashes are simply assumed not to happen in this design',
-        'Because the processor is DETERMINISTIC, resuming from its last checkpoint and reprocessing the same request produces the IDENTICAL debit/credit instructions (carrying the same request ID) as before, and step 3\'s request-ID deduplication silently discards the resulting duplicates',
         'The processor uses a distributed transaction to guarantee it only runs once',
-        'Debit and credit instructions are always applied immediately with no possibility of replay',
+        'Debit and credit instructions are applied once immediately, with no checkpoint replay or request-id deduplication on recovery',
+        'Because the processor is DETERMINISTIC, resuming from its last checkpoint and reprocessing the same request produces the IDENTICAL debit/credit instructions (carrying the same request ID) as before, and step 3\'s request-ID deduplication silently discards the resulting duplicates',
       ],
-      answer: 1,
+      answer: 3,
       why: 'Determinism plus end-to-end request-ID deduplication is precisely what replaces the need for a cross-partition atomic commit here.',
     },
   ]}
@@ -289,21 +289,21 @@ As Kleppmann puts it: coordination and strict constraints reduce how often you h
     {
       prompt: 'What is the key difference between a "timeliness" violation and an "integrity" violation?',
       choices: [
-        'There is no meaningful difference between the two',
         'A timeliness violation (e.g., a stale read) is temporary and resolves itself simply by waiting or retrying; an integrity violation (e.g., lost or corrupted data, or a derived index that no longer matches its source) is PERMANENT and requires explicit detection and repair — it does not fix itself over time',
+        'There is no meaningful difference between the two',
         'Integrity violations always resolve themselves within a few seconds',
         'Timeliness only applies to write operations, never to reads',
       ],
-      answer: 1,
+      answer: 0,
       why: 'The self-healing-vs-permanent distinction is exactly why the lesson argues integrity deserves far more engineering attention than timeliness in most applications.',
     },
     {
       prompt: 'Why might an application reasonably choose to validate a constraint (like available warehouse stock) AFTER writing an order, rather than strictly beforehand?',
       choices: [
-        'Because integrity does not matter for warehouse stock',
+        'Because integrity does not matter for warehouse stock, which does not explain the behavior the question is asking about',
         'Because many businesses already need an "apology" process for unrelated reasons (e.g., damaged inventory), so if the cost of occasionally overselling and apologizing is low, paying for synchronous, strict pre-write validation everywhere is an unnecessary tax on performance and availability',
-        'Because it is technically impossible to validate stock levels before a write',
-        'Because customers always prefer receiving incorrect orders over waiting slightly longer',
+        'Because it is technically impossible to validate stock levels before a write, which does not explain the behavior the question is asking about',
+        'Because customers always prefer receiving incorrect orders over waiting slightly longer, which does not explain the behavior the question is asking about',
       ],
       answer: 1,
       why: 'This is precisely the "loosely interpreted constraints" trade-off — accepting occasional, cheaply-fixed violations in exchange for avoiding expensive synchronous coordination on every write.',
@@ -340,23 +340,23 @@ Cryptographic tools offer one path toward integrity guarantees that don't rely o
     {
       prompt: 'Why does the lesson argue that "unlikely" hardware faults like bit flips deserve some genuine engineering attention, even though any single occurrence is extremely rare?',
       choices: [
-        'Because bit flips happen constantly on every single machine',
+        'Because bit flips happen constantly on every single machine, which does not explain the behavior the question is asking about',
+        'Because modern hardware has actually made this problem worse than it was decades ago, which does not explain the behavior the question is asking about',
         'Because at large enough scale (many machines, disks, and devices running for a long time), even a very low per-device probability adds up to a real, observed frequency of occurrence across the whole fleet — rare does not mean "never happens in practice"',
-        'Because modern hardware has actually made this problem worse than it was decades ago',
-        'Because software bugs are actually rarer than hardware bugs',
+        'Because software bugs are actually rarer than hardware bugs, which does not explain the behavior the question is asking about',
       ],
-      answer: 1,
+      answer: 2,
       why: 'Treating a system model\'s assumptions as probabilistic rather than absolute is exactly why scale changes which "unlikely" failures are worth actively defending against.',
     },
     {
       prompt: 'Why does event sourcing make a system meaningfully more AUDITABLE than a traditional approach of directly mutating database rows?',
       choices: [
         'Event sourcing and traditional mutation are equally auditable',
-        'A traditional mutation leaves no durable record of the application logic that decided on the change, whereas event sourcing keeps every input as an immutable event and derives state through a DETERMINISTIC transformation — meaning the derivation can be rerun, hashed, or run redundantly in parallel to verify it still produces the same, correct result',
         'Event sourcing makes it impossible for bugs to ever occur',
         'Auditability has nothing to do with whether a transformation is deterministic',
+        'A traditional mutation leaves no durable record of the application logic that decided on the change, whereas event sourcing keeps every input as an immutable event and derives state through a DETERMINISTIC transformation — meaning the derivation can be rerun, hashed, or run redundantly in parallel to verify it still produces the same, correct result',
       ],
-      answer: 1,
+      answer: 3,
       why: 'Determinism plus a durable, replayable event log is exactly what turns "trust that this was right" into "verify that this is still right."',
     },
   ]}

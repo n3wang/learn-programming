@@ -1,0 +1,686 @@
+---
+sidebar_position: 39
+title: Python Interview Cheat Sheet
+sidebar_label: 'Python interview cheat sheet'
+---
+
+Last-minute **Python / LeetCode** warm-up for coding interviews. The goal is to recognize which structure or built-in to reach for, remember the syntax, and avoid reinventing common operations under time pressure.
+
+Drills below are small templates (Piston Python). Implement the named function; the harness prints the result. For fuller company-style problems see [Coding — Easy](./lesson-18-coding-problems-easy) / [Medium](./lesson-19-coding-problems-medium) / [Hard](./lesson-20-coding-problems-hard). Approach & Big-O: [Coding Interviews](./lesson-15-coding-interviews).
+
+**Memorize first:** `dict` / `set` / `Counter` → list-as-stack + `deque` → `enumerate` / `zip` / `sorted(..., key=)` → binary search, two pointers, sliding window → BFS / DFS / heaps → complexity + edge cases.
+
+Ask on every prompt: do I need **fast lookup**, **ordering**, **FIFO/LIFO**, or **priority**? That choice usually picks the structure.
+
+## 1. Data structures at a glance
+
+| Need | Python tool | Typical use |
+| --- | --- | --- |
+| Dynamic array / stack | `list` | Two pointers, DFS, stack problems |
+| Queue / deque | `collections.deque` | BFS, sliding windows |
+| Frequency counter | `collections.Counter` | Anagrams, duplicates, top K |
+| Default values | `collections.defaultdict` | Graphs, grouping |
+| Fast membership / uniqueness | `set` | Two Sum variants, visited nodes |
+| Key-value lookup | `dict` | Hash maps, caching |
+| Min/max priority queue | `heapq` | Top K, scheduling, merging |
+| Binary search | `bisect` | Sorted arrays |
+| Combinations / permutations | `itertools` | Backtracking, enumeration |
+
+## 2. `collections` — high-value tools
+
+### Counter
+
+```python
+from collections import Counter
+
+nums = [1, 2, 2, 3, 3, 3]
+count = Counter(nums)
+count[2]              # 2
+count.most_common(2)  # [(3, 3), (2, 2)]
+```
+
+Useful for frequency counting, anagrams, duplicates, top-K frequent.
+
+```python
+def is_anagram(s, t):
+    return Counter(s) == Counter(t)
+```
+
+### defaultdict
+
+```python
+from collections import defaultdict
+
+groups = defaultdict(list)
+for word in ["eat", "tea", "dog"]:
+    groups["".join(sorted(word))].append(word)
+
+graph = defaultdict(list)
+graph[1].append(2)
+graph[1].append(3)
+```
+
+Useful for grouping, adjacency lists, and accumulating without `if key not in …`.
+
+### deque
+
+```python
+from collections import deque
+
+q = deque([1, 2, 3])
+q.append(4)        # right
+q.appendleft(0)    # left
+q.pop()            # right
+q.popleft()        # left — O(1)
+```
+
+Use `deque.popleft()` for a queue — not `list.pop(0)`, which shifts the rest of the list.
+
+### Drill: Counter & defaultdict
+
+<ExerciseSet>
+  <CodeExercise
+    title="Anagram check"
+    heading="py-cheat-anagram"
+    lang="python"
+    filename="main.py"
+    prompt="Return True if s and t are anagrams (same character multiset), else False. Input: line1 s, line2 t."
+    starter={`def is_anagram(s, t):
+    return False
+`}
+    wrapSuffix={`
+s = input().rstrip("\\n")
+t = input().rstrip("\\n")
+print("true" if is_anagram(s, t) else "false")
+`}
+    solution={`from collections import Counter
+
+def is_anagram(s, t):
+    return Counter(s) == Counter(t)
+`}
+    sourceChecks={[{name: 'Counter or sorted', pattern: 'Counter|sorted\\s*\\(', flags: '', hint: 'Counter or sorted comparison'}]}
+    tests={[
+      {name: 'yes', stdin: 'listen\nsilent', equals: 'true'},
+      {name: 'no', stdin: 'rat\ncar', equals: 'false'},
+      {name: 'same', stdin: 'abc\nabc', equals: 'true'},
+      {name: 'perm', stdin: 'aab\naba', equals: 'true'},
+      {name: 'len', stdin: 'ab\na', equals: 'false'},
+    ]}
+  />
+  <CodeExercise
+    title="Group anagrams"
+    heading="py-cheat-group-anagrams"
+    lang="python"
+    filename="main.py"
+    prompt="Group words that are anagrams. Input: space-separated words. Output one group per line (comma-joined, input order within a group). Sort groups by the sorted-letters key (e.g. bat before eat,tea,ate before nat,tan)."
+    starter={`def group_anagrams(words):
+    return []
+`}
+    wrapSuffix={`
+words = input().split()
+groups = group_anagrams(words)
+for g in groups:
+    print(",".join(g))
+`}
+    solution={`from collections import defaultdict
+
+def group_anagrams(words):
+    buckets = defaultdict(list)
+    for w in words:
+        buckets["".join(sorted(w))].append(w)
+    return [buckets[k] for k in sorted(buckets)]
+`}
+    sourceChecks={[{name: 'defaultdict or dict', pattern: 'defaultdict|\\{\\}', hint: 'dict / defaultdict'}]}
+    tests={[
+      {name: 'classic', stdin: 'eat tea tan ate nat bat', equals: 'bat\neat,tea,ate\nnat,tan'},
+      {name: 'one', stdin: 'abc', equals: 'abc'},
+      {name: 'pairs', stdin: 'ab ba cd dc', equals: 'ab,ba\ncd,dc'},
+      {name: 'same', stdin: 'aa aa', equals: 'aa,aa'},
+      {name: 'singles', stdin: 'a b', equals: 'a\nb'},
+    ]}
+  />
+</ExerciseSet>
+
+## 3. Lists, stacks, and queues
+
+### List as array and stack
+
+```python
+arr = [10, 20, 30]
+arr.append(40)   # amortized O(1)
+arr.pop()        # O(1)
+arr[-1]          # peek last
+arr[1:3]         # [20, 30]
+arr.reverse()
+arr.sort()
+```
+
+Stack = LIFO:
+
+```python
+stack = []
+stack.append(1)   # push
+top = stack[-1]   # peek
+top = stack.pop() # pop
+```
+
+Typical: valid parentheses, DFS, monotonic stacks.
+
+### Queue = FIFO
+
+```python
+from collections import deque
+
+queue = deque()
+queue.append("A")
+first = queue.popleft()
+```
+
+Typical: BFS, unweighted shortest path, tree level order.
+
+## 4. Dictionaries and sets
+
+### dict — O(1) average lookup
+
+```python
+index = {"alice": 10, "bob": 20}
+index.get("unknown", 0)
+index["carol"] = 30
+"bob" in index
+```
+
+Two Sum pattern:
+
+```python
+def two_sum(nums, target):
+    seen = {}
+    for i, num in enumerate(nums):
+        needed = target - num
+        if needed in seen:
+            return [seen[needed], i]
+        seen[num] = i
+    return []
+```
+
+### set — uniqueness / membership
+
+```python
+seen = {1, 2, 3}
+seen.add(4)
+seen.discard(99)  # safe if absent
+a & b; a | b; a - b
+```
+
+Typical: duplicates, intersections, visited nodes.
+
+### Drill: hash map
+
+<ExerciseSet>
+  <CodeExercise
+    title="Two Sum indices"
+    heading="py-cheat-two-sum"
+    lang="python"
+    filename="main.py"
+    prompt="Return 0-based indices of two numbers that sum to target (first valid pair in left-to-right scan). Input: line1 space-separated ints, line2 target. Print i j or -1 -1."
+    starter={`def two_sum(nums, target):
+    return [-1, -1]
+`}
+    wrapSuffix={`
+nums = list(map(int, input().split()))
+target = int(input())
+i, j = two_sum(nums, target)
+print(i, j)
+`}
+    solution={`def two_sum(nums, target):
+    seen = {}
+    for i, num in enumerate(nums):
+        needed = target - num
+        if needed in seen:
+            return [seen[needed], i]
+        seen[num] = i
+    return [-1, -1]
+`}
+    sourceChecks={[{name: 'dict', pattern: '\\{\\}|dict\\s*\\(', hint: 'hash map'}]}
+    tests={[
+      {name: 'basic', stdin: '2 7 11 15\n9', equals: '0 1'},
+      {name: 'later', stdin: '3 2 4\n6', equals: '1 2'},
+      {name: 'dup', stdin: '3 3\n6', equals: '0 1'},
+      {name: 'none', stdin: '1 2 3\n100', equals: '-1 -1'},
+      {name: 'neg', stdin: '-1 0 1\n0', equals: '0 2'},
+    ]}
+  />
+  <CodeExercise
+    title="Contains duplicate"
+    heading="py-cheat-dup"
+    lang="python"
+    filename="main.py"
+    prompt="Return true if any value appears at least twice. Input: space-separated ints (may be empty → false)."
+    starter={`def contains_duplicate(nums):
+    return False
+`}
+    wrapSuffix={`
+line = input().strip()
+nums = list(map(int, line.split())) if line else []
+print("true" if contains_duplicate(nums) else "false")
+`}
+    solution={`def contains_duplicate(nums):
+    return len(nums) != len(set(nums))
+`}
+    tests={[
+      {name: 'yes', stdin: '1 2 3 1', equals: 'true'},
+      {name: 'no', stdin: '1 2 3 4', equals: 'false'},
+      {name: 'empty', stdin: '', equals: 'false'},
+      {name: 'one', stdin: '7', equals: 'false'},
+      {name: 'all', stdin: '5 5 5', equals: 'true'},
+    ]}
+  />
+</ExerciseSet>
+
+## 5. Heaps (`heapq`)
+
+Min-heap: smallest at index `0`.
+
+```python
+import heapq
+
+heap = [5, 2, 8, 1]
+heapq.heapify(heap)            # O(n)
+heapq.heappush(heap, 3)        # O(log n)
+smallest = heapq.heappop(heap) # O(log n)
+peek = heap[0]                 # O(1)
+```
+
+Top K largest: `heapq.nlargest(k, nums)`. Max-heap simulation: push/pop negated values.
+
+Typical: top K, merge K lists, scheduling, Dijkstra.
+
+### Drill: heap
+
+<ExerciseSet>
+  <CodeExercise
+    title="Top K largest"
+    heading="py-cheat-topk"
+    lang="python"
+    filename="main.py"
+    prompt="Return the k largest elements in descending order. Input: line1 nums, line2 k."
+    starter={`def top_k(nums, k):
+    return []
+`}
+    wrapSuffix={`
+nums = list(map(int, input().split()))
+k = int(input())
+print(" ".join(map(str, top_k(nums, k))))
+`}
+    solution={`import heapq
+
+def top_k(nums, k):
+    return heapq.nlargest(k, nums)
+`}
+    sourceChecks={[{name: 'heapq', pattern: 'heapq|heappush|nlargest|nsmallest', hint: 'heapq'}]}
+    tests={[
+      {name: 'a', stdin: '7 2 9 4 1 8\n3', equals: '9 8 7'},
+      {name: 'b', stdin: '1 2 3\n1', equals: '3'},
+      {name: 'c', stdin: '5 5 5\n2', equals: '5 5'},
+      {name: 'd', stdin: '10\n1', equals: '10'},
+      {name: 'e', stdin: '4 1 3 2\n4', equals: '4 3 2 1'},
+    ]}
+  />
+</ExerciseSet>
+
+## 6. Binary search (`bisect`)
+
+```python
+from bisect import bisect_left, bisect_right
+
+nums = [1, 2, 2, 2, 5, 8]
+bisect_left(nums, 2)   # 1 — first 2
+bisect_right(nums, 2)  # 4 — after last 2
+```
+
+Manual template ($O(\log n)$):
+
+```python
+def binary_search(nums, target):
+    left, right = 0, len(nums) - 1
+    while left <= right:
+        mid = (left + right) // 2
+        if nums[mid] == target:
+            return mid
+        if nums[mid] < target:
+            left = mid + 1
+        else:
+            right = mid - 1
+    return -1
+```
+
+Use on sorted arrays, boundary searches, and monotonic predicates.
+
+### Drill: binary search
+
+<ExerciseSet>
+  <CodeExercise
+    title="Binary search index"
+    heading="py-cheat-bisect"
+    lang="python"
+    filename="main.py"
+    prompt="Sorted ascending nums. Return any index of target, or -1. Input: line1 nums, line2 target. Prefer O(log n)."
+    starter={`def binary_search(nums, target):
+    return -1
+`}
+    wrapSuffix={`
+nums = list(map(int, input().split()))
+target = int(input())
+print(binary_search(nums, target))
+`}
+    solution={`def binary_search(nums, target):
+    left, right = 0, len(nums) - 1
+    while left <= right:
+        mid = (left + right) // 2
+        if nums[mid] == target:
+            return mid
+        if nums[mid] < target:
+            left = mid + 1
+        else:
+            right = mid - 1
+    return -1
+`}
+    tests={[
+      {name: 'hit', stdin: '1 2 3 4 5\n3', equals: '2'},
+      {name: 'miss', stdin: '1 2 4 5\n3', equals: '-1'},
+      {name: 'first', stdin: '1 2 3\n1', equals: '0'},
+      {name: 'last', stdin: '1 2 3\n3', equals: '2'},
+      {name: 'one', stdin: '7\n7', equals: '0'},
+    ]}
+  />
+</ExerciseSet>
+
+## 7. Strings, sorting, iteration
+
+```python
+s = "hello"
+s[::-1]; s.lower(); s.split(" ")
+"-".join(["a", "b"])
+s.startswith("he"); s.isdigit()
+
+nums.sort()                    # in place
+sorted(nums, key=abs)
+sorted(words, key=len)
+sorted(words, key=lambda x: x[-1])
+
+for i, value in enumerate(nums):
+    ...
+for a, b in zip(xs, ys):
+    ...
+for i in range(len(nums) - 1, -1, -1):
+    ...
+```
+
+## 8. `itertools`
+
+```python
+from itertools import combinations, permutations, product
+
+list(combinations([1, 2, 3], 2))
+list(permutations([1, 2, 3], 2))
+list(product([0, 1], repeat=3))
+```
+
+Handy for brute force / backtracking — watch exponential blow-ups.
+
+## 9. Essential templates
+
+### BFS
+
+```python
+from collections import deque
+
+def bfs(graph, start):
+    visited = {start}
+    queue = deque([start])
+    while queue:
+        node = queue.popleft()
+        for neighbor in graph[node]:
+            if neighbor not in visited:
+                visited.add(neighbor)
+                queue.append(neighbor)
+```
+
+Unweighted shortest paths and level-order exploration.
+
+### DFS
+
+```python
+def dfs(graph, node, visited):
+    if node in visited:
+        return
+    visited.add(node)
+    for neighbor in graph[node]:
+        dfs(graph, neighbor, visited)
+```
+
+Connectivity, cycles, path search. Prefer an explicit stack for deep graphs (recursion limit).
+
+### Two pointers
+
+```python
+def has_pair(nums, target):
+    nums = sorted(nums)
+    left, right = 0, len(nums) - 1
+    while left < right:
+        total = nums[left] + nums[right]
+        if total == target:
+            return True
+        if total < target:
+            left += 1
+        else:
+            right -= 1
+    return False
+```
+
+### Sliding window (fixed size)
+
+```python
+def max_sum_k(nums, k):
+    if len(nums) < k:
+        return None
+    window = sum(nums[:k])
+    best = window
+    for right in range(k, len(nums)):
+        window += nums[right] - nums[right - k]
+        best = max(best, window)
+    return best
+```
+
+### Drill: BFS, two pointers, window
+
+<ExerciseSet>
+  <CodeExercise
+    title="BFS reachable count"
+    heading="py-cheat-bfs"
+    lang="python"
+    filename="main.py"
+    prompt="Undirected graph. Line1: n m start. Next m lines: u v edges (0-based). Count nodes reachable from start (including start)."
+    starter={`from collections import defaultdict, deque
+
+def reachable_count(n, edges, start):
+    return 0
+`}
+    wrapSuffix={`
+n, m, start = map(int, input().split())
+edges = [tuple(map(int, input().split())) for _ in range(m)]
+print(reachable_count(n, edges, start))
+`}
+    solution={`from collections import defaultdict, deque
+
+def reachable_count(n, edges, start):
+    graph = defaultdict(list)
+    for u, v in edges:
+        graph[u].append(v)
+        graph[v].append(u)
+    visited = {start}
+    q = deque([start])
+    while q:
+        node = q.popleft()
+        for nei in graph[node]:
+            if nei not in visited:
+                visited.add(nei)
+                q.append(nei)
+    return len(visited)
+`}
+    sourceChecks={[{name: 'deque', pattern: 'deque', hint: 'collections.deque'}]}
+    tests={[
+      {name: 'line', stdin: '4 3 0\n0 1\n1 2\n2 3', equals: '4'},
+      {name: 'split', stdin: '4 1 0\n2 3', equals: '1'},
+      {name: 'star', stdin: '3 2 1\n0 1\n1 2', equals: '3'},
+      {name: 'solo', stdin: '1 0 0', equals: '1'},
+      {name: 'cycle', stdin: '3 3 0\n0 1\n1 2\n2 0', equals: '3'},
+    ]}
+  />
+  <CodeExercise
+    title="Sorted two-sum exists"
+    heading="py-cheat-two-ptr"
+    lang="python"
+    filename="main.py"
+    prompt="May sort a copy. Return true if any two distinct indices sum to target. Input: line1 nums, line2 target."
+    starter={`def has_pair(nums, target):
+    return False
+`}
+    wrapSuffix={`
+nums = list(map(int, input().split()))
+target = int(input())
+print("true" if has_pair(nums, target) else "false")
+`}
+    solution={`def has_pair(nums, target):
+    nums = sorted(nums)
+    left, right = 0, len(nums) - 1
+    while left < right:
+        total = nums[left] + nums[right]
+        if total == target:
+            return True
+        if total < target:
+            left += 1
+        else:
+            right -= 1
+    return False
+`}
+    tests={[
+      {name: 'yes', stdin: '1 4 5 8\n9', equals: 'true'},
+      {name: 'no', stdin: '1 2 3\n10', equals: 'false'},
+      {name: 'neg', stdin: '-2 0 3\n1', equals: 'true'},
+      {name: 'dup', stdin: '5 5\n10', equals: 'true'},
+      {name: 'short', stdin: '7\n7', equals: 'false'},
+    ]}
+  />
+  <CodeExercise
+    title="Max sum of window size k"
+    heading="py-cheat-window"
+    lang="python"
+    filename="main.py"
+    prompt="Fixed-size sliding window. Return max sum of any contiguous subarray of length k, or 'none' if len(nums) < k. Input: line1 nums, line2 k."
+    starter={`def max_sum_k(nums, k):
+    return None
+`}
+    wrapSuffix={`
+nums = list(map(int, input().split()))
+k = int(input())
+ans = max_sum_k(nums, k)
+print("none" if ans is None else ans)
+`}
+    solution={`def max_sum_k(nums, k):
+    if len(nums) < k:
+        return None
+    window = sum(nums[:k])
+    best = window
+    for right in range(k, len(nums)):
+        window += nums[right] - nums[right - k]
+        best = max(best, window)
+    return best
+`}
+    tests={[
+      {name: 'a', stdin: '1 2 3 4 5\n2', equals: '9'},
+      {name: 'b', stdin: '2 1 5 1 3 2\n3', equals: '9'},
+      {name: 'c', stdin: '1 2\n3', equals: 'none'},
+      {name: 'd', stdin: '5\n1', equals: '5'},
+      {name: 'e', stdin: '-1 -2 -3\n2', equals: '-3'},
+    ]}
+  />
+</ExerciseSet>
+
+## 10. Complexity quick reference
+
+| Operation | Typical complexity |
+| --- | --- |
+| List index | $O(1)$ |
+| List append | amortized $O(1)$ |
+| `x in list` | $O(n)$ |
+| Set / dict lookup | average $O(1)$ |
+| `deque.popleft()` | $O(1)$ |
+| Heap push/pop | $O(\log n)$ |
+| Sorting | $O(n\log n)$ |
+| Binary search | $O(\log n)$ |
+| BFS / DFS | $O(V+E)$ |
+
+$n$ = elements; $V$ / $E$ = vertices / edges.
+
+## Concept check
+
+<MultipleChoice
+  id="ds-python-interview-concepts"
+  title="Pick the right tool"
+  questions={[
+    {
+      prompt: 'You need FIFO level-order traversal of a tree. Best structure?',
+      choices: [
+        'collections.deque with append / popleft',
+        'A plain list with pop(0) for every dequeue',
+        'heapq so the smallest node always leaves first',
+        'A set of children so order does not matter',
+      ],
+      answer: 0,
+      why: 'deque gives O(1) enqueue and dequeue; list.pop(0) is O(n).',
+    },
+    {
+      prompt: 'Fast “have I seen this value?” checks while scanning once usually want…',
+      choices: [
+        'Nested loops comparing every pair of indices',
+        'Sorting after every insertion so binary search stays valid',
+        'A dict or set for average O(1) membership',
+        'A deque storing the entire history in arrival order only',
+      ],
+      answer: 2,
+      why: 'Hash-based membership is the standard O(n) Two Sum / visited pattern.',
+    },
+    {
+      prompt: 'Python heapq is a min-heap. To repeatedly extract the current maximum you…',
+      choices: [
+        'Call heapq.heappop and hope the largest floats to index 0',
+        'Negate values on push/pop so the min-heap orders by magnitude',
+        'Use list.sort after every push instead of a heap',
+        'Switch to bisect_left on an unsorted buffer',
+      ],
+      answer: 1,
+      why: 'Negated keys turn min-heap order into max-heap order.',
+    },
+    {
+      prompt: 'A fixed-length contiguous subarray max-sum is usually a…',
+      choices: [
+        'Full O(n²) restart of the sum from every left index',
+        'Priority queue of all prefixes with no window invariant',
+        'DFS over index pairs until the window length matches k',
+        'Sliding window that adds the entering element and subtracts the leaving one',
+      ],
+      answer: 3,
+      why: 'Maintain a running sum; each step is O(1) after the first window.',
+    },
+  ]}
+/>
+
+## Day-of checklist
+
+1. Restate I/O, constraints, and whether order / duplicates matter.  
+2. Name the need: lookup, order, FIFO/LIFO, or priority.  
+3. Brute force → improve; say Big-O out loud.  
+4. Code the template (hash map, two pointers, BFS, …) then dry-run edges.  
+5. Watch off-by-one on windows/bisect and recursion depth on DFS.
+
+Also useful: [Data structures](./lesson-16-data-structures) · [Algorithms](./lesson-17-algorithms) · [SQL cheat sheet](./lesson-37-sql-interview-cheat-sheet).
