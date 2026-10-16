@@ -14,7 +14,13 @@ main: build-commit ft-push
 # VPS deploy (Docker + Caddy, https://learn.l.l0l.in)
 # Usage: make sync-all m="commit message"   (m is optional, defaults to a timestamp)
 #        make deploy-main
-m ?= sync: $(shell date -u +%Y-%m-%dT%H:%M:%SZ)
+# cmd.exe's built-in `date` shadows the Unix one on Windows, so use PowerShell there.
+ifeq ($(OS),Windows_NT)
+NOW := $(shell powershell -NoProfile -Command "(Get-Date).ToUniversalTime().ToString('yyyy-MM-ddTHH:mm:ssZ')")
+else
+NOW := $(shell date -u +%Y-%m-%dT%H:%M:%SZ)
+endif
+m ?= sync: $(NOW)
 sync-all:
 	git add --all
 	git commit -m "${m}" || echo "nothing to commit"
