@@ -3,6 +3,9 @@ sidebar_position: 1
 title: International Business
 ---
 
+
+
+
 # International Business
 
 Trade across borders is a **systems** problem: contracts, documents, money, transport, and law have to line up, or the physical goods never “count” as a completed deal. This section teaches export–import practice the same way we teach engineering fundamentals — clear definitions, risk models, and interactive drills — in **original** lesson prose (not a reprint of any commercial handbook).
