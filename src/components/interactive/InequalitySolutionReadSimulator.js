@@ -7,6 +7,7 @@ function labelOf(n) {
   return String(n).replace('-', '−');
 }
 
+/** Textbook practice 1: closed right ray, open left ray, half-open segment. */
 function bookFigures() {
   return [
     { id: '1', kind: 'ray', dir: 'right', closed: true, at: -2 },
@@ -15,23 +16,52 @@ function bookFigures() {
   ];
 }
 
-function randomFigures() {
-  const a = randInt(-6, 2);
-  const b = randInt(2, 7);
-  const left = randInt(-5, 0);
-  const right = left + randInt(2, 6);
-  return [
-    { id: '1', kind: 'ray', dir: 'right', closed: randInt(0, 1) === 1, at: a },
-    { id: '2', kind: 'ray', dir: 'left', closed: randInt(0, 1) === 1, at: b },
-    {
-      id: '3',
-      kind: 'seg',
-      left,
-      leftClosed: randInt(0, 1) === 1,
-      right,
-      rightClosed: randInt(0, 1) === 1,
-    },
-  ];
+/**
+ * Seven curated rounds covering rays (open/closed × left/right) and
+ * segments (open / closed / either half-open). 「随机」picks among these.
+ */
+const VARIANT_SETS = [
+  bookFigures(),
+  // solid ≥ right, solid ≤ left, closed interval
+  [
+    { id: '1', kind: 'ray', dir: 'right', closed: true, at: -6 },
+    { id: '2', kind: 'ray', dir: 'left', closed: true, at: 6 },
+    { id: '3', kind: 'seg', left: -1, leftClosed: true, right: 1, rightClosed: true },
+  ],
+  // open > right, open < left, open interval
+  [
+    { id: '1', kind: 'ray', dir: 'right', closed: false, at: 3 },
+    { id: '2', kind: 'ray', dir: 'left', closed: false, at: -2 },
+    { id: '3', kind: 'seg', left: -5, leftClosed: false, right: 2, rightClosed: false },
+  ],
+  // closed ≤ left, open > right, half-open (left open)
+  [
+    { id: '1', kind: 'ray', dir: 'left', closed: true, at: 0 },
+    { id: '2', kind: 'ray', dir: 'right', closed: false, at: -4 },
+    { id: '3', kind: 'seg', left: 0, leftClosed: false, right: 4, rightClosed: true },
+  ],
+  // open < left, closed ≥ right, half-open (right open)
+  [
+    { id: '1', kind: 'ray', dir: 'left', closed: false, at: 5 },
+    { id: '2', kind: 'ray', dir: 'right', closed: true, at: -3 },
+    { id: '3', kind: 'seg', left: -3, leftClosed: true, right: 1, rightClosed: false },
+  ],
+  // both rays closed, closed interval on negatives
+  [
+    { id: '1', kind: 'ray', dir: 'right', closed: true, at: 0 },
+    { id: '2', kind: 'ray', dir: 'left', closed: true, at: -1 },
+    { id: '3', kind: 'seg', left: -10, leftClosed: true, right: -5, rightClosed: true },
+  ],
+  // both rays open, half-open flipped vs book
+  [
+    { id: '1', kind: 'ray', dir: 'right', closed: false, at: -5 },
+    { id: '2', kind: 'ray', dir: 'left', closed: false, at: 1 },
+    { id: '3', kind: 'seg', left: -2, leftClosed: true, right: 3, rightClosed: false },
+  ],
+];
+
+function cloneFigures(figs) {
+  return figs.map((fig) => ({ ...fig }));
 }
 
 function rayAnswer(fig) {
@@ -127,8 +157,16 @@ const chip = {
 
 export default function InequalitySolutionReadSimulator() {
   const [key, setKey] = useState(0);
-  const [figs, setFigs] = useState(bookFigures);
+  const [variantIndex, setVariantIndex] = useState(0);
+  const [figs, setFigs] = useState(() => cloneFigures(VARIANT_SETS[0]));
   const [picks, setPicks] = useState({});
+
+  const loadVariant = (index) => {
+    setVariantIndex(index);
+    setFigs(cloneFigures(VARIANT_SETS[index]));
+    setPicks({});
+    setKey((k) => k + 1);
+  };
 
   const solution = (
     <div className={stepStyles.solution}>
@@ -153,15 +191,13 @@ export default function InequalitySolutionReadSimulator() {
       subtitle="空心不包含，实心包含；线段只取两端之间"
       problemKey={key}
       onRandomize={() => {
-        setFigs(randomFigures());
-        setPicks({});
-        setKey((k) => k + 1);
+        let next = randInt(0, VARIANT_SETS.length - 1);
+        if (VARIANT_SETS.length > 1 && next === variantIndex) {
+          next = (next + 1) % VARIANT_SETS.length;
+        }
+        loadVariant(next);
       }}
-      onBook={() => {
-        setFigs(bookFigures());
-        setPicks({});
-        setKey((k) => k + 1);
-      }}
+      onBook={() => loadVariant(0)}
       solution={solution}
     >
       <p style={{ marginTop: 0 }}>点选每幅图对应的解集。</p>

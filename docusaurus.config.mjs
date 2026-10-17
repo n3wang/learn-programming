@@ -159,7 +159,11 @@ export default async function createConfig() {
   url: 'http://learn.wangnelson.xyz',
   baseUrl: '/',
   onBrokenLinks: subsetBuild ? 'warn' : 'throw',
-  onBrokenMarkdownLinks: 'warn',
+  markdown: {
+    hooks: {
+      onBrokenMarkdownLinks: 'warn',
+    },
+  },
   favicon: 'img/favicon.ico',
   organizationName: 'n3wang',
   projectName: 'Learn-programming',
