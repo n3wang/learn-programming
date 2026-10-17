@@ -3,12 +3,16 @@ import katex from 'katex';
 import Box from '@site/src/components/ui/Box';
 import Typography from '@site/src/components/ui/Typography';
 import {UI_LANG_CHANGE_EVENT, readUiLang} from '@site/src/components/Translate/translateClient';
+import {katexRenderOptions} from '@site/src/utils/katexOptions';
 import {docsForTex, sameTex} from './katexFormulas';
 import LineDiffPreview from './LineDiffPreview';
 
 function renderTex(tex, displayMode) {
   try {
-    return katex.renderToString(String(tex || ''), {throwOnError: false, displayMode});
+    return katex.renderToString(
+      String(tex || ''),
+      katexRenderOptions({displayMode}),
+    );
   } catch {
     return '';
   }

@@ -64,12 +64,12 @@ Replicated caches duplicate the **same hot keys** on every node — great for re
     {
       prompt: 'Ten cache replicas each have 10 GB RAM; the total working set is 200 GB. Why does a replicated (non-sharded) layout only cover about 5% of the data?',
       choices: [
-        'Kubernetes limits cache size to 5%',
         'Each replica stores roughly the same popular keys independently, so aggregate unique cached data is about one node worth (~10 GB), not 10× unique capacity',
+        'Kubernetes limits cache size to 5%',
         'Sharded caches cannot handle 1,000 RPS',
         'Memcached always duplicates data by design',
       ],
-      answer: 1,
+      answer: 0,
       why: 'Replication optimizes availability and RPS; sharding optimizes aggregate memory — each key lives on one shard.',
     },
   ]}
@@ -119,10 +119,10 @@ Trade-off: more moving parts than simple sharding.
     {
       prompt: 'Why does losing one shard in a sharded cache hurt more than losing one replica in a fully replicated cache?',
       choices: [
-        'Sharded caches never recalculate missed data',
-        'A given key always maps to the same shard — while that shard is down, those keys always miss until it recovers, whereas replicated caches have identical data on other replicas',
         'Kubernetes restarts sharded caches more slowly',
+        'A given key always maps to the same shard — while that shard is down, those keys always miss until it recovers, whereas replicated caches have identical data on other replicas',
         'Hit rate is unrelated to shard failures',
+        'Sharded caches never recalculate missed data',
       ],
       answer: 1,
       why: 'Sharding trades memory efficiency for partition-specific failure domains — misses are correct but slower until the shard returns.',
@@ -351,22 +351,22 @@ The right key requires understanding which request attributes actually change th
       prompt: 'Two HTTP GETs differ only by client IP and timestamp; the response depends only on the URL path. Which shard key is best for a cache in front of this API?',
       choices: [
         'Hash the entire request object including IP and time',
+        'Hash a fresh random UUID on every request so the same URL hits different',
         'Hash only the request path (or full URI if query string matters)',
-        'Hash a random UUID per request',
-        'Always shard by timestamp',
+        'Shard only by request timestamp so path locality is ignored entirely',
       ],
-      answer: 1,
+      answer: 2,
       why: 'Shard on attributes that actually determine the cached bytes — otherwise you fragment identical cacheable responses across shards.',
     },
     {
       prompt: 'Responses vary by user country derived from IP, but two users in France should share cached pages. Which key is better?',
       choices: [
-        'hash(client_ip, path) — every IP is unique',
+        'hash(client_ip, path) — treating each client IP as its own shard key',
+        'hash(timestamp) only — ignoring client geography and URL path',
+        'No sharding — one global cache node for all countries and paths',
         'hash(country(client_ip), path) — group by country then path',
-        'hash(timestamp) only',
-        'No sharding — use one global cache',
       ],
-      answer: 1,
+      answer: 3,
       why: 'Normalize IP to country before hashing when geography defines the response but per-IP stickiness is unnecessary.',
     },
   ]}

@@ -7,9 +7,20 @@ const require = createRequire(import.meta.url);
 const defaultSidebar = require.resolve('./sidebars.js');
 const fundamentalsSidebar = require.resolve('./sidebars.fundamentals.js');
 
-/** Ignore \\ in $$…$$ (KaTeX newLineInDisplayMode); keep other strict warnings. */
-function katexStrict(errorCode) {
+/**
+ * Ignore known noisy KaTeX strict cases; keep other warnings.
+ * - newLineInDisplayMode: \\ inside $$…$$
+ * - curly “ ” in prose that leaks into math tokenization
+ */
+function katexStrict(errorCode, errorMsg) {
   if (errorCode === 'newLineInDisplayMode') {
+    return 'ignore';
+  }
+  if (
+    errorCode === 'unknownSymbol' &&
+    typeof errorMsg === 'string' &&
+    (/[\u201C\u201D]/.test(errorMsg) || /\(822[01]\)/.test(errorMsg))
+  ) {
     return 'ignore';
   }
   return 'warn';

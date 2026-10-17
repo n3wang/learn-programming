@@ -214,6 +214,25 @@ export default function StudentPickDock() {
     };
   }, [isAdmin, session.open, loadBehavior]);
 
+  // Warm the feedback face cache while the pick dock is open.
+  useEffect(() => {
+    if (!isAdmin || !session.open || typeof Image === 'undefined') {
+      return undefined;
+    }
+    const urls = [...FEEDBACK_FACES.plus, ...FEEDBACK_FACES.minus];
+    const loaders = urls.map((src) => {
+      const img = new Image();
+      img.decoding = 'async';
+      img.src = src;
+      return img;
+    });
+    return () => {
+      loaders.forEach((img) => {
+        img.src = '';
+      });
+    };
+  }, [isAdmin, session.open]);
+
   useEffect(() => {
     if (!isAdmin) {
       return undefined;

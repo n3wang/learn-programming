@@ -39,21 +39,21 @@ Multi-device access compounds this: a user editing on their phone, then immediat
     {
       prompt: 'What does read-after-write (read-your-writes) consistency specifically guarantee?',
       choices: [
-        'That every user sees every other user\'s updates instantly',
         'That a user will always see their OWN recently-submitted updates on their next read — with no guarantee about how quickly other users\' updates become visible to them',
-        'That all replicas are always perfectly synchronized at all times',
         'That writes are never lost under any circumstances',
+        'That every user sees every other user\'s updates instantly',
+        'That all replicas are always perfectly synchronized at all times',
       ],
-      answer: 1,
+      answer: 0,
       why: 'The guarantee is scoped specifically to a user seeing their own writes — it says nothing about visibility of other users\' concurrent changes.',
     },
     {
       prompt: 'Why does cross-device read-after-write consistency (e.g. editing on a phone, then checking on a laptop) require extra care beyond the single-device case?',
       choices: [
-        'It does not require anything extra; single-device techniques work identically',
-        'The two devices may not even route through the same datacenter, and neither device inherently knows what the other one just wrote — so tracking "last write timestamp" per-device isn\'t enough; it needs to be tracked centrally',
-        'Cross-device consistency is fundamentally impossible to achieve',
         'Laptops and phones always share the exact same network path to the database',
+        'The two devices may not even route through the same datacenter, and neither device inherently knows what the other one just wrote — so tracking "last write timestamp" per-device isn\'t enough; it needs to be tracked centrally',
+        'It does not require anything extra; single-device techniques work identically',
+        'Cross-device consistency is fundamentally impossible to achieve',
       ],
       answer: 1,
       why: 'Per-device timestamp tracking breaks down precisely because each device is unaware of writes made from the other — a shared, centralized tracking point is needed instead.',
@@ -123,23 +123,23 @@ print(r1 == r3)
     {
       prompt: 'What specific anomaly does the monotonic reads guarantee prevent?',
       choices: [
+        'It guarantees writes are applied synchronously to every replica',
         'It prevents a user from ever seeing stale data at all',
         'It prevents a user, making several reads in sequence, from seeing time appear to move backward — e.g. seeing a comment appear on one read and then vanish on a subsequent read, because the second read hit a more-lagging replica than the first',
-        'It prevents any two users from ever seeing different data',
-        'It guarantees writes are applied synchronously to every replica',
+        'It prevents any two users from ever seeing different data — confusing global consistency with per-user monotonic reads across lagging replicas',
       ],
-      answer: 1,
+      answer: 2,
       why: 'Monotonic reads is specifically about the ORDER of what one user observes over successive reads, not about eliminating staleness altogether.',
     },
     {
       prompt: 'What is the standard technique for achieving monotonic reads in a leader-based replicated system?',
       choices: [
-        'Always read from a randomly chosen replica on every single request',
-        'Consistently route a given user\'s reads to the SAME replica (e.g. via a hash of their user ID), so that user is deterministically comparing against progressively more up-to-date state, while different users may still use different replicas',
         'Force every read to go to the leader at all times',
         'Disable replication lag monitoring entirely',
+        'Always read from a randomly chosen replica on every single request',
+        'Consistently route a given user\'s reads to the SAME replica (e.g. via a hash of their user ID), so that user is deterministically comparing against progressively more up-to-date state, while different users may still use different replicas',
       ],
-      answer: 1,
+      answer: 3,
       why: 'Sticky, deterministic routing per user is exactly what prevents a single user from bouncing between replicas at different lag levels and seeing inconsistent orderings.',
     },
   ]}
@@ -162,21 +162,21 @@ The third anomaly is about **causality** — one write logically depending on an
     {
       prompt: 'What does the "question answered before it was asked" scenario illustrate about replication lag?',
       choices: [
-        'That replication lag never affects the perceived ORDER of writes, only their staleness',
         'That if causally related writes (a question, then its answer) replicate through the system at different speeds, an observer can end up seeing them in the wrong order — the answer appearing before the question that prompted it',
+        'That replication lag never affects the perceived ORDER of writes, only their staleness',
         'That questions and answers must always be stored in the same database table',
         'That this scenario is purely theoretical and has never actually occurred in real systems',
       ],
-      answer: 1,
+      answer: 0,
       why: 'Uneven replication speed between causally-linked writes is exactly the mechanism that can invert their apparent order for an observer.',
     },
     {
       prompt: 'Why is the consistent prefix reads problem especially significant in PARTITIONED (sharded) databases specifically?',
       choices: [
-        'Partitioned databases are actually immune to this problem entirely',
-        'Different partitions typically replicate independently with no shared global ordering across them, so a reader can easily observe one partition further ahead in time than another, scrambling the apparent order of causally related writes that landed on different partitions',
         'Partitioning always eliminates the need for replication altogether',
+        'Different partitions typically replicate independently with no shared global ordering across them, so a reader can easily observe one partition further ahead in time than another, scrambling the apparent order of causally related writes that landed on different partitions',
         'This problem only occurs in single-node, unpartitioned databases',
+        'Partitioned databases are actually immune to this problem entirely',
       ],
       answer: 1,
       why: 'The lack of a single global write order across independently-replicating partitions is exactly what creates room for causally related writes on different partitions to be observed out of order.',

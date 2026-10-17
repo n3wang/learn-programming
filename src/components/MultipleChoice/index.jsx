@@ -169,6 +169,26 @@ function shuffleCopy(arr) {
   return next;
 }
 
+/** Stable permutation so choice letter A/B/C isn't a content-order tell. */
+function seededPerm(n, seedStr) {
+  let h = 2166136261;
+  for (let i = 0; i < seedStr.length; i++) {
+    h ^= seedStr.charCodeAt(i);
+    h = Math.imul(h, 16777619);
+  }
+  const arr = Array.from({length: n}, (_, i) => i);
+  for (let i = n - 1; i > 0; i--) {
+    h ^= h << 13;
+    h ^= h >>> 17;
+    h ^= h << 5;
+    const j = (h >>> 0) % (i + 1);
+    const tmp = arr[i];
+    arr[i] = arr[j];
+    arr[j] = tmp;
+  }
+  return arr;
+}
+
 function initialOrderIds(q) {
   const n = (q.items || []).length;
   const ids = Array.from({length: n}, (_, i) => i);
@@ -386,6 +406,14 @@ export default function MultipleChoice({
     return Array.isArray(state.pick) ? state.pick : [];
   }, [kind, state.pick]);
 
+  const choiceOrder = useMemo(() => {
+    const n = (q?.choices || []).length;
+    if (!n) {
+      return [];
+    }
+    return seededPerm(n, `${id}|${state.step}|${q?.prompt || ''}`);
+  }, [id, state.step, q]);
+
   function answerSingle(choiceIndex) {
     if (!q || state.status !== 'idle' || state.done) {
       return;
@@ -574,7 +602,8 @@ export default function MultipleChoice({
 
         {kind === 'single' ? (
           <div className={styles.choices} role="radiogroup" aria-label={parsePrompt(q).lead || title}>
-            {(q.choices || []).map((choice, cIndex) => {
+            {choiceOrder.map((cIndex, displayIndex) => {
+              const choice = (q.choices || [])[cIndex];
               const chosen = state.pick === cIndex;
               const alreadyWrong = qMissed.includes(cIndex);
               let stateClass = '';
@@ -593,7 +622,7 @@ export default function MultipleChoice({
                   disabled={state.status !== 'idle' || alreadyWrong}
                   onClick={() => answerSingle(cIndex)}
                 >
-                  <span className={styles.letter}>{letters(cIndex)}</span>
+                  <span className={styles.letter}>{letters(displayIndex)}</span>
                   <ChoiceLabel choice={choice} />
                 </button>
               );
@@ -603,7 +632,8 @@ export default function MultipleChoice({
 
         {kind === 'multi' ? (
           <div className={styles.choices} role="group" aria-label={parsePrompt(q).lead || title}>
-            {(q.choices || []).map((choice, cIndex) => {
+            {choiceOrder.map((cIndex, displayIndex) => {
+              const choice = (q.choices || [])[cIndex];
               const chosen = multiPick.includes(cIndex);
               const want = correctMulti(q);
               let stateClass = '';
@@ -628,7 +658,7 @@ export default function MultipleChoice({
                   <span className={styles.checkBox} aria-hidden="true">
                     {chosen ? '☑' : '☐'}
                   </span>
-                  <span className={styles.letter}>{letters(cIndex)}</span>
+                  <span className={styles.letter}>{letters(displayIndex)}</span>
                   <ChoiceLabel choice={choice} />
                 </button>
               );

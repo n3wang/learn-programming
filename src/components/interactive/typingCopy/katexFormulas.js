@@ -247,7 +247,7 @@ export function equivalentTex(typed, expected) {
     return true;
   }
   try {
-    const opts = {throwOnError: false, displayMode: true};
+    const opts = {throwOnError: false, displayMode: true, strict: 'ignore'};
     return katex.renderToString(a, opts) === katex.renderToString(b, opts);
   } catch {
     return false;

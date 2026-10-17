@@ -47,12 +47,12 @@ This is the exact same Unix philosophy from the first lesson in this arc, just a
     {
       prompt: 'Why is it generally a bad idea for a MapReduce job to write directly, record-by-record, to a live production database from inside its mappers or reducers?',
       choices: [
-        'This is actually the recommended, standard approach',
         'Per-record network writes are far slower than normal batch throughput, many parallel tasks writing simultaneously can overwhelm the target database, and it breaks MapReduce\'s all-or-nothing output guarantee by exposing partial results from in-progress or retried tasks as externally visible side effects',
+        'This is actually the recommended, standard approach',
         'MapReduce is technically incapable of opening a network connection',
         'Production databases automatically reject all writes from batch jobs',
       ],
-      answer: 1,
+      answer: 0,
       why: 'These three concrete problems — throughput, overload risk, and broken atomicity guarantees — are exactly why the lesson recommends building output as immutable files and bulk-loading instead.',
     },
     {
@@ -103,33 +103,33 @@ Why the different philosophy? At Google's own mixed-use datacenters, low-priorit
       prompt: 'What does "schema-on-read" mean in the context of dumping raw data into a distributed filesystem before deciding how to model it?',
       choices: [
         'The schema is enforced automatically by the filesystem on every write',
-        'Data is stored in its raw form without upfront modeling, and the responsibility for interpreting/structuring it shifts to whoever later reads and processes it — useful specifically when producers and consumers are different teams with different needs',
         'Schema-on-read means the data can never actually be read back out again',
+        'Data is stored in its raw form without upfront modeling, and the responsibility for interpreting/structuring it shifts to whoever later reads and processes it — useful specifically when producers and consumers are different teams with different needs',
         'It is a synonym for the MPP database approach of modeling data before import',
       ],
-      answer: 1,
+      answer: 2,
       why: 'Deferring interpretation to read-time, rather than enforcing structure at write-time, is exactly the trade-off "schema-on-read" names — and it\'s the opposite of an MPP database\'s upfront-modeling requirement.',
     },
     {
       prompt: 'Why could both HBase (OLTP-style) and Impala (MPP-style analytics) coexist productively within the same Hadoop ecosystem, despite being very different kinds of systems?',
       choices: [
         'They cannot actually coexist; only one processing model can run on a Hadoop cluster at a time',
-        'Both sit on top of the same underlying distributed filesystem (HDFS) without requiring MapReduce itself, meaning genuinely different processing models can share the same cluster and the same underlying files rather than requiring data to be copied into separate specialized systems',
         'HBase and Impala are actually the exact same system with different names',
         'Impala requires all data to first pass through HBase before it can be queried',
+        'Both sit on top of the same underlying distributed filesystem (HDFS) without requiring MapReduce itself, meaning genuinely different processing models can share the same cluster and the same underlying files rather than requiring data to be copied into separate specialized systems',
       ],
-      answer: 1,
+      answer: 3,
       why: 'Sharing a common storage layer (HDFS) while supporting very different processing models on top of it is precisely the diversity-of-processing advantage the lesson attributes to the Hadoop approach over monolithic MPP databases.',
     },
     {
       prompt: 'Why does MapReduce tolerate individual task failures far more gracefully than most MPP databases tolerate a node crash mid-query?',
       choices: [
-        'Because Google\'s hardware was simply less reliable than typical MPP database hardware',
         'Because MapReduce was specifically designed for an environment (Google\'s mixed-use datacenters) where low-priority batch tasks are frequently and deliberately preempted to free resources for higher-priority services — at a rate far higher than genuine hardware failure — making task-level retry a necessity rather than an optional nicety',
+        'Because Google\'s hardware was simply less reliable than typical MPP database hardware, which does not explain the behavior the question is asking about',
         'MPP databases are technically incapable of retrying failed work at any granularity',
         'MapReduce jobs never actually experience any task failures in practice',
       ],
-      answer: 1,
+      answer: 0,
       why: 'The preemption rate (roughly 5% per hour-long task, over 10x the hardware failure rate) is the specific, concrete reason MapReduce\'s design assumes frequent, non-hardware-related task termination.',
     },
   ]}
@@ -178,22 +178,22 @@ This recomputation strategy has one real precondition: **determinism**. If an op
       prompt: 'How do dataflow engines like Spark and Flink typically recover from a node failure, given that they often avoid fully materializing intermediate state to a distributed filesystem?',
       choices: [
         'They cannot recover from node failures at all and must restart the entire workflow',
-        'They recompute the lost intermediate data from whatever upstream data is still available — Spark tracks derivation lineage via RDDs, while Flink periodically checkpoints operator state — rather than relying on durably-written intermediate files the way MapReduce does',
         'They always fall back to writing every stage to HDFS as soon as any failure occurs',
+        'They recompute the lost intermediate data from whatever upstream data is still available — Spark tracks derivation lineage via RDDs, while Flink periodically checkpoints operator state — rather than relying on durably-written intermediate files the way MapReduce does',
         'They require every operator to be manually re-run by a human operator after any failure',
       ],
-      answer: 1,
+      answer: 2,
       why: 'Recomputation from tracked lineage (Spark) or periodic checkpointing (Flink) is exactly the alternative durability strategy these engines use in place of MapReduce\'s full materialize-everything approach.',
     },
     {
       prompt: 'Why does determinism matter so much for an operator whose output might need to be recomputed after a failure?',
       choices: [
         'Determinism is irrelevant to fault recovery in dataflow engines',
-        'If a recomputed operator produces DIFFERENT output than its original (already lost) run, and some of that original output had already been consumed downstream before the failure, reconciling the old and new output becomes very difficult — often forcing every downstream operator to be killed and rerun as well, cascading the problem outward',
         'Nondeterministic operators run faster than deterministic ones, so determinism is purely a performance trade-off',
         'Determinism only matters for operators that never fail',
+        'If a recomputed operator produces DIFFERENT output than its original (already lost) run, and some of that original output had already been consumed downstream before the failure, reconciling the old and new output becomes very difficult — often forcing every downstream operator to be killed and rerun as well, cascading the problem outward',
       ],
-      answer: 1,
+      answer: 3,
       why: 'Recomputation-based fault tolerance implicitly assumes rerunning an operator yields the same result — nondeterminism breaks that assumption and can cascade a single failure into a much larger one.',
     },
   ]}
@@ -285,12 +285,12 @@ print(outgoing)
     {
       prompt: 'What is the key difference between Pregel\'s per-vertex processing and a plain MapReduce reducer call?',
       choices: [
-        'There is no meaningful difference between the two',
         'A Pregel vertex retains its own state in memory across iterations (supersteps), so its per-round function only needs to process NEW incoming messages — unlike a MapReduce reducer, which has no persistent memory between separate job runs and must reprocess its full input each time',
-        'Pregel vertices cannot send messages to each other at all',
         'MapReduce reducers retain state across iterations, but Pregel vertices do not',
+        'There is no meaningful difference between the two',
+        'Pregel vertices cannot send messages to each other at all',
       ],
-      answer: 1,
+      answer: 0,
       why: 'Persistent per-vertex state across supersteps, processing only new messages, is exactly the upgrade Pregel makes over repeatedly rerunning full MapReduce passes.',
     },
     {
@@ -308,11 +308,11 @@ print(outgoing)
       prompt: 'Why might a single-machine (even single-threaded) graph algorithm outperform a "properly" distributed graph processing system in some cases?',
       choices: [
         'Single-machine algorithms are always faster regardless of graph size',
-        'If the graph comfortably fits in memory (or even just on disk) on one machine, there is no cross-machine communication overhead to pay at all — distribution only starts to pay for itself once a graph genuinely exceeds what a single machine can hold',
         'Distributed graph processing systems cannot correctly handle any graph smaller than a certain size',
+        'If the graph comfortably fits in memory (or even just on disk) on one machine, there is no cross-machine communication overhead to pay at all — distribution only starts to pay for itself once a graph genuinely exceeds what a single machine can hold',
         'This scenario never actually occurs in practice',
       ],
-      answer: 1,
+      answer: 2,
       why: 'The lesson frames this directly: distributed processing\'s communication overhead is a cost with no benefit once a single machine is already sufficient to hold and process the whole graph.',
     },
   ]}
