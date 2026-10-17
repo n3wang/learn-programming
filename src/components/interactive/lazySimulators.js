@@ -63,6 +63,7 @@ export const lazySimulators = {
   CrashConsistencySimulator: lazyMdxComponent(() => import('@site/src/components/interactive/CrashConsistencySimulator.js')),
   DataIntegritySimulator: lazyMdxComponent(() => import('@site/src/components/interactive/DataIntegritySimulator.js')),
   DegreeAddSubSimulator: lazyMdxComponent(() => import('@site/src/components/interactive/DegreeAddSubSimulator.js')),
+  SetSquareAngleComboSimulator: lazyMdxComponent(() => import('@site/src/components/interactive/SetSquareAngleComboSimulator.js')),
   DegreeComplementFindSimulator: lazyMdxComponent(() => import('@site/src/components/interactive/DegreeComplementFindSimulator.js')),
   DegreeConvertCompareSimulator: lazyMdxComponent(() => import('@site/src/components/interactive/DegreeConvertCompareSimulator.js')),
   DegreeMulDivSimulator: lazyMdxComponent(() => import('@site/src/components/interactive/DegreeMulDivSimulator.js')),
