@@ -3,6 +3,7 @@ import JournalAnswer from '@site/src/components/JournalAnswer';
 import GuidedLab, {LabStep} from '@site/src/components/GuidedLab';
 import YouTubeEmbed from '@site/src/components/YouTubeEmbed';
 import MultipleChoice from '@site/src/components/MultipleChoice';
+import CitationCards from '@site/src/components/CitationCards';
 import NumericQuiz from '@site/src/components/NumericQuiz';
 import ProblemSet, {Problem, NumericProblemSet, NumericProblem} from '@site/src/components/ProblemSet';
 import ExerciseSet, {Exercise} from '@site/src/components/ExerciseSet';
@@ -75,6 +76,7 @@ export default {
     LabStep,
     YouTubeEmbed,
     MultipleChoice,
+    CitationCards,
     NumericQuiz,
     ProblemSet,
     Problem,

@@ -1,6 +1,7 @@
 import React, { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import Button from '@site/src/components/ui/Button';
 import MathText from '@site/src/components/ProblemSet/MathText';
+import { discoverWikiForGuided } from '@site/src/data/wiki/discover';
 import { getGuidedChoice } from './guidedChoice/guides';
 import styles from './guidedChoiceExplanation.module.css';
 
@@ -49,19 +50,31 @@ export default function GuidedChoiceExplanation({preset, compact, onComplete, st
   const [reserved, setReserved] = useState(0);
   const [choices, setChoices] = useState([]);
   const completeOnce = useRef(false);
+  const discoveredOnce = useRef(false);
   const steps = data?.steps || [];
   const visible = mode === 'complete' ? steps.length : shown;
   const next = steps[shown];
   const waiting = mode === 'guided' && shown < steps.length && next?.ask;
 
+  function discover() {
+    if (discoveredOnce.current || !preset) {
+      return;
+    }
+    discoveredOnce.current = true;
+    discoverWikiForGuided(preset).catch(() => {});
+  }
+
   useEffect(() => {
     completeOnce.current = false;
+    discoveredOnce.current = false;
     if (startMode === 'guided') {
       const first = revealThrough(data?.steps || [], 1);
       setMode('guided');
       setShown(first);
       setPicked(null);
       setWrong(false);
+      discoverWikiForGuided(preset).catch(() => {});
+      discoveredOnce.current = true;
     } else {
       setMode('complete');
       setShown(1);
@@ -73,9 +86,13 @@ export default function GuidedChoiceExplanation({preset, compact, onComplete, st
       return undefined;
     }
     completeOnce.current = true;
+    if (!discoveredOnce.current && preset) {
+      discoveredOnce.current = true;
+      discoverWikiForGuided(preset).catch(() => {});
+    }
     onComplete?.();
     return undefined;
-  }, [mode, shown, steps.length, onComplete]);
+  }, [mode, shown, steps.length, onComplete, preset]);
 
   useEffect(() => {
     if (mode !== 'guided' || !next?.choices) {
@@ -97,6 +114,7 @@ export default function GuidedChoiceExplanation({preset, compact, onComplete, st
   }
 
   function startGuided() {
+    discover();
     const first = revealThrough(steps, 1);
     setMode('guided');
     setShown(first);

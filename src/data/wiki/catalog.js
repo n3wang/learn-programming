@@ -2,7 +2,8 @@
  * Central wiki dictionary. Progress lives in IndexedDB, not here.
  *
  * Add an object to the matching kind file (procedures / theorems / formulas /
- * problems). The wiki tab, search, and practice pick it up — no modal wiring.
+ * problems). Entries appear in the wiki tab only after discovery (formula
+ * slider, guided walkthrough, or citation quiz) — see discover.js.
  */
 
 import {PROCEDURES} from './procedures';

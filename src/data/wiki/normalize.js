@@ -1,4 +1,4 @@
-export const WIKI_KINDS = ['procedure', 'theorem', 'formula', 'problem'];
+export const WIKI_KINDS = ['procedure', 'theorem', 'formula', 'problem', 'reference'];
 
 function unwrapDollars(s) {
   return String(s || '')

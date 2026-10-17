@@ -1,6 +1,8 @@
 import React, {Suspense, useCallback} from 'react';
 import Link from '@docusaurus/Link';
 import MathText from '@site/src/components/ProblemSet/MathText';
+import {CitationQuiz, useEssayLabData} from '@site/src/components/EssayLab/shared';
+import {citationById} from '@site/src/data/citations/reliableAi';
 import {wikiPracticeKind} from '@site/src/data/wiki/catalog';
 import WikiOrder from './WikiOrder';
 import WikiKatexRecall from './WikiKatexRecall';
@@ -13,6 +15,12 @@ const GuidedChoiceExplanation = React.lazy(() =>
 );
 
 export default function WikiDetail({entry, practice, onBack, onProgress}) {
+  const {progress: essayProgress} = useEssayLabData();
+  const citation =
+    entry?.kind === 'reference' || entry?.citationId
+      ? citationById(entry.citationId || String(entry.id || '').replace(/^ref-/, ''))
+      : null;
+
   const finish = useCallback(() => {
     const write = practice ? markWikiLearned : markWikiStudied;
     write(entry.id).then(() => onProgress?.());
@@ -25,7 +33,8 @@ export default function WikiDetail({entry, practice, onBack, onProgress}) {
   const showExplorer = Boolean(entry.explorer) && (!practice || mode === 'formula');
   const showGuided = Boolean(entry.sample) && (!practice || mode === 'guided');
   const showKatex = practice && mode === 'formula' && hasKatex;
-  const showReadPass = practice && mode === 'read';
+  const showCitationQuiz = Boolean(citation?.quizzes?.length);
+  const showReadPass = practice && mode === 'read' && !showCitationQuiz;
 
   return (
     <div className={styles.bodyEditor}>
@@ -90,9 +99,26 @@ export default function WikiDetail({entry, practice, onBack, onProgress}) {
         ) : null}
 
         {!practice && entry.href ? (
-          <Link className={styles.wikiLesson} to={entry.href}>
-            Open lesson
-          </Link>
+          entry.external || /^https?:\/\//.test(entry.href) ? (
+            <a className={styles.wikiLesson} href={entry.href} target="_blank" rel="noopener noreferrer">
+              Open source
+            </a>
+          ) : (
+            <Link className={styles.wikiLesson} to={entry.href}>
+              Open lesson
+            </Link>
+          )
+        ) : null}
+
+        {showCitationQuiz ? (
+          <div className={styles.wikiEmbed}>
+            <CitationQuiz
+              key={`${entry.id}-${citation.id}`}
+              citation={citation}
+              progress={essayProgress[citation.id]}
+              onCorrect={finish}
+            />
+          </div>
         ) : null}
       </div>
     </div>

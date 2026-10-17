@@ -15,7 +15,14 @@ import {
   listDrafts,
   toggleDraftBookmark,
 } from '@site/src/components/codeWorkspace/drafts';
-import {WIKI, wikiPracticeKind} from '@site/src/data/wiki/catalog';
+import {wikiPracticeKind} from '@site/src/data/wiki/catalog';
+import {
+  getWikiCatalog,
+  isWikiDiscovered,
+  needsDiscovery,
+  syncUnlockedCitationsToWiki,
+} from '@site/src/data/wiki/discover';
+import {ESSAY_LAB_CHANGE_EVENT} from '@site/src/components/EssayLab/storage';
 import {
   WIKI_PROGRESS_EVENT,
   listWikiProgress,
@@ -26,6 +33,8 @@ import WikiDetail from './WikiDetail';
 import DecksPanel from './DecksPanel';
 import NoteMarkdownPreview from './NoteMarkdownPreview';
 import styles from './styles.module.css';
+
+const WIKI = getWikiCatalog();
 
 const SAVE_MS = 400;
 
@@ -100,6 +109,10 @@ function wikiMatches(entry, q) {
 function wikiPool(filter, progress) {
   return WIKI.filter((e) => {
     const row = progress[e.id];
+    // Quiz-, guided-, and slider-backed entries appear only after that interaction.
+    if (needsDiscovery(e) && !isWikiDiscovered(row)) {
+      return false;
+    }
     if (filter === 'bookmarked' && !row?.bookmarked) {
       return false;
     }
@@ -148,10 +161,18 @@ export default function ScratchNotes() {
     return rows;
   }, []);
 
-  const refreshWiki = useCallback(async () => {
+  const refreshWiki = useCallback(async (opts = {}) => {
+    const {resyncCitations = false, reshuffle = false} = opts;
+    if (resyncCitations) {
+      await syncUnlockedCitationsToWiki().catch(() => null);
+    }
     const map = await listWikiProgress().catch(() => ({}));
     setWikiProgress(map || {});
-  }, []);
+    if (reshuffle) {
+      setWikiBatch(shuffleSample(wikiPool(wikiFilter, map || {}), WIKI_PAGE));
+    }
+    return map || {};
+  }, [wikiFilter]);
 
   const refreshPractices = useCallback(async () => {
     const rows = await listDrafts().catch(() => []);
@@ -160,34 +181,35 @@ export default function ScratchNotes() {
 
   useEffect(() => {
     let cancelled = false;
-    Promise.all([
-      loadPrefs().catch(() => null),
-      listNotes().catch(() => []),
-      listDrafts().catch(() => []),
-      listWikiProgress().catch(() => ({})),
-    ])
-      .then(([prefs, noteRows, draftRows, wikiMap]) => {
-        if (cancelled) {
-          return;
+    (async () => {
+      const [prefs, noteRows, draftRows] = await Promise.all([
+        loadPrefs().catch(() => null),
+        listNotes().catch(() => []),
+        listDrafts().catch(() => []),
+      ]);
+      await syncUnlockedCitationsToWiki().catch(() => null);
+      const wikiMap = await listWikiProgress().catch(() => ({}));
+      if (cancelled) {
+        return;
+      }
+      if (prefs) {
+        setOpen(Boolean(prefs.open));
+        if (['code', 'notes', 'wiki', 'decks'].includes(prefs.tab)) {
+          setTab(prefs.tab);
         }
-        if (prefs) {
-          setOpen(Boolean(prefs.open));
-          if (['code', 'notes', 'wiki', 'decks'].includes(prefs.tab)) {
-            setTab(prefs.tab);
-          }
-        }
-        setNotes(noteRows);
-        setPractices((draftRows || []).filter((row) => isPracticeDraft(row) && countsTowardProgress(row)));
-        setWikiProgress(wikiMap || {});
-        if (prefs?.tab === 'wiki') {
-          setWikiBatch(shuffleSample(wikiPool('all', wikiMap || {}), WIKI_PAGE));
-        }
-      })
-      .finally(() => {
-        if (!cancelled) {
-          setReady(true);
-        }
-      });
+      }
+      setNotes(noteRows);
+      setPractices((draftRows || []).filter((row) => isPracticeDraft(row) && countsTowardProgress(row)));
+      setWikiProgress(wikiMap || {});
+      if (prefs?.tab === 'wiki') {
+        setWikiBatch(shuffleSample(wikiPool('all', wikiMap || {}), WIKI_PAGE));
+      }
+      setReady(true);
+    })().catch(() => {
+      if (!cancelled) {
+        setReady(true);
+      }
+    });
     return () => {
       cancelled = true;
     };
@@ -200,18 +222,47 @@ export default function ScratchNotes() {
     const onWiki = () => {
       refreshWiki();
     };
+    const onEssay = () => {
+      refreshWiki({resyncCitations: true});
+    };
     const onHomeworkNotes = () => {
       refreshNotes();
     };
     window.addEventListener(CODE_PROGRESS_EVENT, onProgress);
     window.addEventListener(WIKI_PROGRESS_EVENT, onWiki);
+    window.addEventListener(ESSAY_LAB_CHANGE_EVENT, onEssay);
     window.addEventListener('homework-draft-note', onHomeworkNotes);
     return () => {
       window.removeEventListener(CODE_PROGRESS_EVENT, onProgress);
       window.removeEventListener(WIKI_PROGRESS_EVENT, onWiki);
+      window.removeEventListener(ESSAY_LAB_CHANGE_EVENT, onEssay);
       window.removeEventListener('homework-draft-note', onHomeworkNotes);
     };
   }, [refreshPractices, refreshNotes, refreshWiki]);
+
+  // Keep the visible wiki page in sync when new entries are discovered.
+  useEffect(() => {
+    if (tab !== 'wiki' || wikiQuery.trim()) {
+      return;
+    }
+    setWikiBatch((prev) => {
+      const pool = wikiPool(wikiFilter, wikiProgress);
+      if (!pool.length) {
+        return [];
+      }
+      const byId = new Map(pool.map((e) => [e.id, e]));
+      const kept = prev.filter((e) => byId.has(e.id)).map((e) => byId.get(e.id));
+      const keptIds = new Set(kept.map((e) => e.id));
+      const added = pool.filter((e) => !keptIds.has(e.id));
+      if (!kept.length) {
+        return shuffleSample(pool, WIKI_PAGE);
+      }
+      if (!added.length) {
+        return kept;
+      }
+      return [...added, ...kept].slice(0, Math.max(WIKI_PAGE, kept.length + added.length));
+    });
+  }, [wikiProgress, wikiFilter, tab, wikiQuery]);
 
   const persistPrefs = useCallback((nextOpen, nextTab) => {
     savePrefs({open: nextOpen, tab: nextTab}).catch(() => {});
@@ -263,11 +314,12 @@ export default function ScratchNotes() {
     } else {
       refreshNotes();
       refreshPractices();
-      refreshWiki();
       if (tab === 'wiki') {
         setWikiSearch('');
         setWikiQuery('');
-        setWikiBatch(shuffleSample(wikiPool(wikiFilter, wikiProgress), WIKI_PAGE));
+        refreshWiki({resyncCitations: true, reshuffle: true});
+      } else {
+        refreshWiki({resyncCitations: true});
       }
     }
     persistPrefs(next, tab);
@@ -285,8 +337,7 @@ export default function ScratchNotes() {
     if (next === 'wiki') {
       setWikiSearch('');
       setWikiQuery('');
-      setWikiBatch(shuffleSample(wikiPool(wikiFilter, wikiProgress), WIKI_PAGE));
-      refreshWiki();
+      refreshWiki({resyncCitations: true, reshuffle: true});
     }
   }
 
@@ -381,9 +432,9 @@ export default function ScratchNotes() {
     if (!q) {
       return wikiBatch;
     }
-    const hits = WIKI.filter((e) => wikiMatches(e, q));
+    const hits = wikiPool(wikiFilter, wikiProgress).filter((e) => wikiMatches(e, q));
     return hits.slice(0, WIKI_PAGE);
-  }, [wikiQuery, wikiBatch]);
+  }, [wikiQuery, wikiBatch, wikiFilter, wikiProgress]);
 
   const practicePool = useMemo(() => {
     if (wikiList.length) {
@@ -759,7 +810,11 @@ export default function ScratchNotes() {
                 </button>
               </div>
               {wikiList.length === 0 ? (
-                <p className={styles.empty}>No matching wiki entries.</p>
+                <p className={styles.empty}>
+                  {wikiQuery.trim()
+                    ? 'No matching wiki entries.'
+                    : 'Wiki fills as you interact: pass a citation quiz, start a guided walkthrough (引导), or move a formula explorer slider.'}
+                </p>
               ) : (
                 <ul className={styles.list}>
                   {wikiList.map((e) => {

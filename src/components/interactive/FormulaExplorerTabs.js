@@ -1,6 +1,7 @@
-import React, {useState} from 'react';
+import React, {useCallback, useState} from 'react';
 import Box from '@site/src/components/ui/Box';
 import Typography from '@site/src/components/ui/Typography';
+import {discoverWikiForExplorer} from '@site/src/data/wiki/discover';
 import {getPreset} from './formulaExplorer/presets';
 import {FormulaExplorerBody} from './FormulaExplorer';
 import SpecularReflectionSimulator from './SpecularReflectionSimulator';
@@ -84,6 +85,9 @@ export default function FormulaExplorerTabs({items}) {
     .filter(Boolean);
 
   const [active, setActive] = useState(0);
+  const onPresetInteract = useCallback((presetId) => {
+    discoverWikiForExplorer(presetId).catch(() => {});
+  }, []);
 
   if (!entries.length) {
     return null;
@@ -117,7 +121,12 @@ export default function FormulaExplorerTabs({items}) {
         {Panel ? (
           <Panel key={current.key} embedded compact={false} refNote={current.note} />
         ) : (
-          <FormulaExplorerBody key={current.key} preset={current.resolved} refNote={current.note} />
+          <FormulaExplorerBody
+            key={current.key}
+            preset={current.resolved}
+            refNote={current.note}
+            onInteract={() => onPresetInteract(current.preset)}
+          />
         )}
       </Box>
     </Box>

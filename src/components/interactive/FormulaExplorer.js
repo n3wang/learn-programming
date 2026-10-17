@@ -1,9 +1,10 @@
-import React, {useMemo, useRef, useState} from 'react';
+import React, {useCallback, useMemo, useRef, useState} from 'react';
 import Box from '@site/src/components/ui/Box';
 import Stack from '@site/src/components/ui/Stack';
 import Typography from '@site/src/components/ui/Typography';
 import MathText from '@site/src/components/ProblemSet/MathText';
 import CEBlock from '@site/src/components/interactive/shell/CEBlock';
+import {discoverWikiForExplorer} from '@site/src/data/wiki/discover';
 import FormulaChart from './formulaExplorer/FormulaChart';
 import {getPreset} from './formulaExplorer/presets';
 import {fmt} from './formulaExplorer/probMath';
@@ -151,6 +152,10 @@ export function FormulaExplorerBody({preset, refNote, compact, onInteract, hideF
  */
 export default function FormulaExplorer({preset: presetId, compact, onInteract, hideFormula}) {
   const preset = getPreset(presetId);
+  const handleInteract = useCallback(() => {
+    discoverWikiForExplorer(presetId).catch(() => {});
+    onInteract?.();
+  }, [presetId, onInteract]);
 
   if (!preset) {
     return (
@@ -165,7 +170,7 @@ export default function FormulaExplorer({preset: presetId, compact, onInteract, 
       <FormulaExplorerBody
         preset={preset}
         compact={compact}
-        onInteract={onInteract}
+        onInteract={handleInteract}
         hideFormula={hideFormula}
       />
     </CEBlock>

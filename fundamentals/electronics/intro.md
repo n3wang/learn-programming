@@ -14,6 +14,9 @@ From a single resistor to a working microcontroller, this section builds up the 
 - Building an adder from logic gates (planned)
 - Flip-flops, latches, and simple sequential circuits (planned)
 
+### Statics
+- [Force-System Resultants and Equilibrium](./statics/force-system-resultants-and-equilibrium) — moments, couples, free-body diagrams, supports, friction
+
 ## Planned Topics
 
 ### Circuit Theory Basics
