@@ -1733,4 +1733,41 @@ export const PROCEDURES = [
       why: 'Moments → simulator → warm start → bidirectional climb → publish with stability rule.',
     },
   },
+  {
+    id: 'proc-classify-angle-kind',
+    kind: 'procedure',
+    title: '按度数给角命名',
+    description:
+      '把一个角的度数和 90°、180°、360° 比较：不到直角是锐角，刚好 90° 是直角，中间是钝角，刚好 180° 是平角，超过平角不到一周是优角，刚好 360° 是周角。余角、补角说的是两个角的和，不是这套名字。',
+    href: '/classes/math-1/angles',
+    order: {
+      prompt: '判断一个角叫什么名字（从上到下）。',
+      items: [
+        '和 360° 比：等于是周角；大于 180° 且小于 360° 是优角',
+        '写出这个角的度数',
+        '和 90° 比：小于是锐角，等于是直角',
+        '和 180° 比：小于 180° 且大于 90° 是钝角，等于是平角',
+      ],
+      order: [1, 2, 3, 0],
+      why: '先看度数，再依次跨过 90°、180°、360° 三条界线。',
+    },
+  },
+  {
+    id: 'proc-solve-inequality-system',
+    kind: 'procedure',
+    title: '解一元一次不等式组',
+    description:
+      '组里每一个不等式都要成立。先分别求出各不等式的解集，画在同一条数轴上，重叠的那段就是不等式组的解集；没有重叠就是无解。两个都向右取较大的下界，两个都向左取较小的上界。',
+    href: '/classes/math-2/inequality-systems',
+    order: {
+      prompt: '解一元一次不等式组时，这些步骤按什么顺序？（从分别求解到写出公共部分。）',
+      items: [
+        '写出公共部分；数轴上没有重叠就判定无解',
+        '分别解出组里每一个不等式的解集',
+        '把各个解集画在同一条数轴上，看重叠的一段',
+      ],
+      order: [1, 2, 0],
+      why: '先各自求解，再叠在数轴上，最后只保留大家都满足的那段。',
+    },
+  },
 ];

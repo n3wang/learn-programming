@@ -1160,4 +1160,13 @@ export const PROBLEMS = [
     sample: 'incoterms-quote-hygiene',
     href: '/fundamentals/international-business/export-import/incoterms-trade-terms',
   },
+  {
+    id: 'problem-ineq-system-integers',
+    kind: 'problem',
+    title: '不等式组的整数解',
+    description:
+      '先把两个（或更多）一元一次不等式联立，求出公共解集，再从中取出符合题意的整数。端点取不取到，看原来有没有等号。',
+    sample: 'ineq-sys-ex2',
+    href: '/classes/math-2/inequality-systems',
+  },
 ];

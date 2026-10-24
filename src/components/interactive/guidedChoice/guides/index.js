@@ -340,6 +340,9 @@ import solvingEx33 from './solving-ex3-3';
 import solvingEx34 from './solving-ex3-4';
 import ineqCarTime from './ineq-car-time';
 import ineqCarDistance from './ineq-car-distance';
+import ineqSysPump from './ineq-sys-pump';
+import ineqSysEx1 from './ineq-sys-ex1';
+import ineqSysEx2 from './ineq-sys-ex2';
 import rodBalance from './rod-balance';
 import segment2aB from './segment-2a-b';
 import solveFraction from './solve-fraction';
@@ -698,6 +701,9 @@ const GUIDES = {
   'solving-ex3-4': solvingEx34,
   'ineq-car-time': ineqCarTime,
   'ineq-car-distance': ineqCarDistance,
+  'ineq-sys-pump': ineqSysPump,
+  'ineq-sys-ex1': ineqSysEx1,
+  'ineq-sys-ex2': ineqSysEx2,
   'rod-balance': rodBalance,
   'segment-2a-b': segment2aB,
   'solve-fraction': solveFraction,
