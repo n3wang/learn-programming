@@ -9,10 +9,12 @@ export default function AngleRotationSimulator() {
   const [deg, setDeg] = useState(40);
   const end = rayEnd(deg, 92);
   const start = rayEnd(0, 92);
-  let name = '锐角或一般的角';
-  if (deg === 0 || deg === 360) name = '始边与终边重合，形成周角';
-  else if (deg === 180) name = '始边与终边成一条直线，形成平角';
-  else if (deg === 90) name = '直角';
+  let name = '锐角（大于 0°、小于 90°）';
+  if (deg === 0 || deg === 360) name = '周角（始边与终边重合，360°）';
+  else if (deg === 90) name = '直角（等于 90°）';
+  else if (deg > 90 && deg < 180) name = '钝角（大于 90°、小于 180°）';
+  else if (deg === 180) name = '平角（始边与终边成一条直线，180°）';
+  else if (deg > 180 && deg < 360) name = '优角（大于 180°、小于 360°）';
 
   return (
     <div>

@@ -24,3 +24,4 @@ title: 数学 初二
 3. [11.1.2 解不等式](./solving-inequalities)（例 3：化成 x &gt; m 或 x &lt; m，并在数轴上表示）
 4. [习题 11.1](./inequality-exercises)（复习巩固 1–3，地铁里程，对调数字，求差法比较）
 5. [11.2 一元一次不等式](./linear-inequalities)（移项，例 1–4：解集、晋级、能耗、超市优惠）
+6. [11.3 一元一次不等式组](./inequality-systems)（公共部分，数轴，整数解）
