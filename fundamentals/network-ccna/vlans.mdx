@@ -1,0 +1,305 @@
+---
+sidebar_position: 11
+title: VLANs
+---
+
+> **Track:** Network CCNA — eleventh chapter. Subnetting carved **Layer 3**. This chapter carves **Layer 2**: **VLANs**, **access vs trunk**, **802.1Q**, **native VLAN**, then **inter-VLAN routing** (three links, ROAS, SVIs). Exam **1.1.b**, **2.1**, **2.2**. DTP and VTP are the twelfth chapter.
+
+# VLANs
+
+A **subnet** is a Layer 3 cut. A **VLAN** (virtual LAN, said “V-LAN”) is a Layer 2 cut: one physical switch becomes several **virtual switches**, each its own **broadcast domain**. Frames do not flood between VLANs. Hosts in different VLANs meet only through a **router** or a **multilayer switch**.
+
+On the exam, treat **one subnet per VLAN**. Real designs sometimes stack more than one prefix on a VLAN; do not invent that here.
+
+<VlansSimulator />
+
+**PC1 broadcast** with no VLANs lights every PC. Assign 10 / 20 / 30 and the same flood stops at VLAN 10 (PC10 still hears it — the trunk carries that VLAN). **PC3 → PC10** needs ROAS or an SVI.
+
+## Why a subnet is not enough
+
+Engineering, HR, and Sales on `172.16.1.0/24` talk **directly**: dest MAC is the other host. That is a security and a performance problem.
+
+<LessonFigure src="/img/ccna/fig-12-1.png" alt="One flat LAN: every department in 172.16.1.0/24 talks directly through SW1." caption="Figure 12.1 — One flat LAN: every department in 172.16.1.0/24 talks directly through SW1." maxWidth={560} />
+
+Give each department a `/26` (`172.16.1.0/26`, `.64/26`, `.128/26`) and a default gateway on R1. Off-subnet packets go to the router. You can later filter on R1 (ACLs are a later part). The switch **still does not care**. A broadcast or unknown unicast from Engineering is flooded to HR and Sales. One LAN, three prefixes.
+
+<LessonFigure src="/img/ccna/fig-12-2.png" alt="Three /26 subnets for Engineering, HR, and Sales — traffic between them now goes through R1." caption="Figure 12.2 — Three /26 subnets for Engineering, HR, and Sales — traffic between them now goes through R1." maxWidth={560} />
+
+A **LAN** here means a **broadcast domain**: everyone who would receive `ffff.ffff.ffff` from anyone else in the group. Geography is a weak definition; flooding is the sharp one.
+
+<LessonFigure src="/img/ccna/fig-12-3.png" alt="Separate subnets, same broadcast domain: one department’s broadcast still floods to every port." caption="Figure 12.3 — Separate subnets, same broadcast domain: one department’s broadcast still floods to every port." maxWidth={560} />
+
+## Virtual switches
+
+Assign ports to VLAN **10**, **20**, **30** (the numbers are arbitrary inside the legal range). SW1 will not forward or flood a frame out a port in a different VLAN than the one it arrived on. Same rack, three broadcast domains.
+
+<LessonFigure src="/img/ccna/fig-12-4.png" alt="Ports assigned to three VLANs turn SW1 into three virtual switches, one broadcast domain each." caption="Figure 12.4 — Ports assigned to three VLANs turn SW1 into three virtual switches, one broadcast domain each." maxWidth={560} />
+
+VLAN IDs: **0** and **4095** are reserved. **1002–1005** exist for FDDI / Token Ring and cannot be used for Ethernet. Usable: **1–1001** and **1006–4094** (`2^12 = 4096` total; the VID field is 12 bits).
+
+## Create, name, assign
+
+Factory `show vlan brief`: every port in **VLAN 1**, the **default VLAN**. `show mac address-table` learns those MACs in VLAN 1. VLAN 1 cannot be deleted.
+
+```text
+SW1(config)# vlan 10
+SW1(config-vlan)# name Engineering
+SW1(config)# vlan 20
+SW1(config-vlan)# name HR
+SW1(config)# vlan 30
+SW1(config-vlan)# name Sales
+```
+
+No `name` → default `VLAN0010`. `shutdown` in VLAN config sets status **act/lshut** (exists in the LAN, locally down on this switch). `no vlan 10` deletes it.
+
+An **access port** (untagged port) belongs to **one** VLAN. Do not leave **DTP** to pick access vs trunk — set the mode.
+
+```text
+SW1(config)# interface range g0/0-3
+SW1(config-if-range)# switchport mode access
+SW1(config-if-range)# switchport access vlan 10
+```
+
+`switchport access vlan` on a missing VLAN **creates** it. The PC is not VLAN-aware; the **port** is.
+
+## Trunks and 802.1Q
+
+Two switches, hosts in 10 / 20 / 30 on both sides: one **trunk** (tagged port) beats three access links. The sender **tags**; the receiver reads the tag and places the frame in that VLAN. Wrong tag → it will not exit an access port in a different VLAN.
+
+<LessonFigure src="/img/ccna/fig-12-5.png" alt="A trunk between SW1 and SW2 carries all three VLANs over one link." caption="Figure 12.5 — A trunk between SW1 and SW2 carries all three VLANs over one link." maxWidth={600} />
+
+**IEEE 802.1Q** (“dot one Q”) inserts a **4-byte** tag between Source and EtherType:
+
+| Field | Bits | Job |
+| --- | --- | --- |
+| TPID | 16 | Always `0x8100` — “this is a tag,” sitting where EtherType used to |
+| PCP | 3 | QoS priority (later volume) |
+| DEI | 1 | QoS drop-eligible |
+| VID | 12 | VLAN ID |
+
+<LessonFigure src="/img/ccna/fig-12-6.png" alt="Where the 4-byte 802.1Q tag sits in the Ethernet frame: TPID, then PCP, DEI, and the 12-bit VLAN ID." caption="Figure 12.6 — Where the 4-byte 802.1Q tag sits in the Ethernet frame: TPID, then PCP, DEI, and the 12-bit VLAN ID." maxWidth={560} />
+
+Cisco **ISL** wrapped the whole frame (26-byte header + 4-byte FCS). Deprecated. Switches that still speak both 802.1Q and ISL **reject** `switchport mode trunk` until you pin encapsulation:
+
+```text
+SW1(config-if)# switchport trunk encapsulation dot1q
+SW1(config-if)# switchport mode trunk
+```
+
+802.1Q-only boxes do not have that command. After the port is a trunk it **vanishes** from `show vlan brief`. Use `show interfaces trunk`: Mode **on**, Encapsulation **802.1q**, Status **trunking**, Native vlan, then **allowed** vs **allowed and active**. Allowed defaults to **1–4094**. Active means the VLAN **exists** on this switch (1, 10, 20, 30 if that is what you created). “Management domain” is VTP — next chapter.
+
+### Allowed list
+
+Best practice: allow only what you need (smaller flood domains).
+
+```text
+switchport trunk allowed vlan 10,20,30
+switchport trunk allowed vlan add 1
+switchport trunk allowed vlan remove 30
+switchport trunk allowed vlan all
+switchport trunk allowed vlan none
+switchport trunk allowed vlan except 1-9,11-19
+```
+
+**WORD replaces the list.** `allowed vlan 40` after `10,20,30` leaves **only 40**. That is the exam trap. `add` / `remove` edit.
+
+### Native VLAN
+
+Untagged frames **in** a trunk join the **native VLAN**. Frames **in** the native VLAN go **out** untagged. Default native is VLAN 1. Per port; **match both ends**.
+
+<LessonFigure src="/img/ccna/fig-12-7.png" alt="Over the trunk, VLAN 10 frames are tagged while native-VLAN frames cross untagged." caption="Figure 12.7 — Over the trunk, VLAN 10 frames are tagged while native-VLAN frames cross untagged." maxWidth={600} />
+
+**Default VLAN** ≠ **native VLAN**. Default = where **access** ports start (VLAN 1, **cannot** change). Native = untagged on a **trunk** (starts at 1, **can** change).
+
+```text
+switchport trunk native vlan 30
+```
+
+Mismatch: SW1 native 10, SW2 native 30. PC1’s VLAN-10 frame leaves untagged; SW2 stamps it VLAN 30 and cannot deliver it to a VLAN-10 access port. That leak is **VLAN hopping**. PVST+ / Rapid-PVST+ may block the mismatched VLANs (later). CDP can **warn** and still forward (later).
+
+<LessonFigure src="/img/ccna/fig-12-8.png" alt="Native VLAN mismatch (10 on one side, 30 on the other): untagged frames land in the wrong VLAN." caption="Figure 12.8 — Native VLAN mismatch (10 on one side, 30 on the other): untagged frames land in the wrong VLAN." maxWidth={600} />
+
+You cannot truly “off” native. Point it at an **unused** VLAN that is **not** 1 (`native vlan 999` if 10/20/30 are live). Hubs that needed untagged trunks are gone; leaving native 1 is a gift to attackers.
+
+## Inter-VLAN routing
+
+Same LAN, different subnets/VLANs, still need to talk (and to leave the building). Three ways.
+
+### One router interface per VLAN
+
+SW1 access ports toward R1, one per VLAN. Works. Burns ports. Fine for three VLANs; grim for thirty.
+
+<LessonFigure src="/img/ccna/fig-12-9.png" alt="Inter-VLAN routing with one router interface per VLAN: PC3 in VLAN 20 reaches PC10 in VLAN 10 via R1." caption="Figure 12.9 — Inter-VLAN routing with one router interface per VLAN: PC3 in VLAN 20 reaches PC10 in VLAN 10 via R1." maxWidth={600} />
+
+### Router on a stick
+
+One **trunk** to the router. Physical `G0/0` is `no shutdown` and usually has **no** IP. **Subinterfaces** hold the addresses. The number after the dot is only a name — **`encapsulation dot1q N`** binds the VLAN. Match the numbers anyway.
+
+```text
+R1(config)# interface g0/0
+R1(config-if)# no shutdown
+R1(config-if)# interface g0/0.10
+R1(config-subif)# encapsulation dot1q 10
+R1(config-subif)# ip address 172.16.1.1 255.255.255.192
+```
+
+<LessonFigure src="/img/ccna/fig-12-10.png" alt="Router on a stick: one trunk to R1, with a subinterface per VLAN chosen by the tag." caption="Figure 12.10 — Router on a stick: one trunk to R1, with a subinterface per VLAN chosen by the tag." maxWidth={600} />
+
+Physical MAC is shared; the **tag** picks the subinterface. Native on ROAS: `encapsulation dot1q 10 native`, **or** put the native IP on the **physical** interface and skip `encapsulation` there. Match the switch.
+
+SW1 facing the router is an ordinary trunk: encapsulation if needed, `mode trunk`, tight allowed list, unused native.
+
+### Multilayer switch (SVI)
+
+A **Layer 3 switch** routes **and** switches. **SVI** = virtual router NIC, one MAC per VLAN, hosts use it as default gateway.
+
+```text
+SW1(config)# ip routing
+SW1(config)# interface vlan 10
+SW1(config-if)# ip address 172.16.1.1 255.255.255.192
+```
+
+<LessonFigure src="/img/ccna/fig-12-11.png" alt="A multilayer switch routes between its VLAN SVIs itself — no external router in the path." caption="Figure 12.11 — A multilayer switch routes between its VLAN SVIs itself — no external router in the path." maxWidth={600} />
+
+`vlan 10` is L2. `interface vlan 10` is L3. `show ip route` grows **C** and **L** for each SVI — no statics required inside the LAN.
+
+SVI **up/up** needs all four:
+
+1. The VLAN **exists**.
+2. An **up** access port in that VLAN, **or** an **up** trunk that **allows** it.
+3. The VLAN is not `shutdown`.
+4. The SVI is not `shutdown` (some platforms start SVIs admin-down).
+
+`ip routing` is what **forwards** between SVIs. It is not the same as bringing Protocol up.
+
+**Routed port** (WAN / other building): `no switchport`, then an IP, then a route (`ip route 0.0.0.0 0.0.0.0 172.16.1.194`). That port is a router interface, not an access or trunk.
+
+<LessonFigure src="/img/ccna/fig-12-13.png" alt="A host’s packet to an external network, routed by SW1 out its routed port to R1." caption="Figure 12.13 — A host’s packet to an external network, routed by SW1 out its routed port to R1." maxWidth={560} />
+
+<LessonFigure src="/img/ccna/fig-12-12.png" alt="A routed port on the multilayer switch (no switchport, with an IP) links it to R1 and the outside." caption="Figure 12.12 — A routed port on the multilayer switch (no switchport, with an IP) links it to R1 and the outside." maxWidth={560} />
+
+## Exam shapes
+
+- Port has `access vlan 5`, `trunk native vlan 10`, and `mode trunk` → it **is a trunk**. Untagged joins **10**. The access line is asleep until the mode changes.
+- Drag **default** vs **native**: access / cannot change / VLAN 1 vs trunk / can change / VLAN 1 by default.
+- Lab: access = `mode access` + `access vlan`. Trunk = `trunk encapsulation dot1q` (if the box has it) + `mode trunk` + a tight `allowed` list.
+
+<GuidedChoiceExplanation preset="ccna-vlans" />
+
+<FigureMatchGame preset="ccna-vlans" />
+
+<MultipleChoice
+  title="VLANs"
+  questions={[
+    {
+      prompt: 'Subnets without VLANs still fail a security/performance test because:',
+      choices: [
+        'A /26 cannot be assigned to a Cisco access port',
+        'Routers refuse to route between prefixes that share a switch',
+        'The switch floods broadcasts to every port — it is not Layer 3 aware',
+        'VLAN 1 is deleted as soon as you configure an IP address',
+      ],
+      answer: 2,
+      why: 'Layer 3 cuts do not split the flood domain. VLANs make virtual switches.',
+    },
+    {
+      prompt: 'An access port, compared with a trunk, is the port that:',
+      choices: [
+        'Sends and receives one VLAN, untagged; the PC does not see a tag',
+        'Tags every frame so the PC can pick a VLAN per application',
+        'Must connect only to another switch; PCs require trunks',
+        'Is the native VLAN of every trunk on that switch',
+      ],
+      answer: 0,
+      why: 'Access = untagged, one VLAN. Trunk = 802.1Q, many VLANs. Set the mode; do not trust DTP.',
+    },
+    {
+      prompt: 'Usable Ethernet VLAN IDs on Cisco IOS (normal + extended, minus reserved) are:',
+      choices: [
+        'Only 1–1001; 1006–4094 are ISL-only',
+        '0–4095 inclusive; 0 is the default VLAN',
+        '2–1005; VLAN 1 and 1002–1005 can be deleted and reused',
+        '1–1001 and 1006–4094. 0, 4095, and 1002–1005 are reserved',
+      ],
+      answer: 3,
+      why: 'VID is 12 bits (4096 values). 1002–1005 stay for FDDI/Token Ring even on new IOS.',
+    },
+    {
+      prompt: '802.1Q’s VID field is 12 bits. That is why there are:',
+      choices: [
+        '1024 VLANs; the other bits are TPID',
+        '4096 VLAN IDs (2^12), including reserved values',
+        '4094 usable IDs and no reserved space',
+        '32 VLANs, one per bit of the IPv4 header',
+      ],
+      answer: 1,
+      why: '2^12 = 4096. TPID is 0x8100 in the old EtherType seat. PCP/DEI are QoS.',
+    },
+    {
+      prompt: 'Allowed list is 10,20,30. You enter switchport trunk allowed vlan 40. The trunk now allows:',
+      choices: [
+        '10,20,30,40 — WORD always appends',
+        'Nothing; IOS requires the add keyword and rejects WORD',
+        'Only VLAN 40 — WORD replaced the list (you wanted add 40)',
+        '1–4094; 40 resets the port to the factory allow-all',
+      ],
+      answer: 2,
+      why: 'Replacing the list with one VLAN is a famous outage. add / remove edit; all / none / except are the others.',
+    },
+    {
+      prompt: 'Default VLAN vs native VLAN:',
+      choices: [
+        'Native is where access ports start; default is the untagged trunk VLAN',
+        'Default = access start (VLAN 1, cannot change). Native = untagged on a trunk (can change)',
+        'Both names mean VLAN 1 and neither command can move them',
+        'Default is 1002; native is always the highest allowed VLAN',
+      ],
+      answer: 1,
+      why: 'Factory both are 1. Only native moves, and only per trunk. Point native at an unused VLAN, not 1.',
+    },
+    {
+      prompt: 'interface G0/0 has access vlan 5, trunk native vlan 10, and mode trunk. Untagged frames join:',
+      choices: [
+        'VLAN 10 — the port is a trunk, so native applies',
+        'VLAN 5 — access vlan always wins',
+        'VLAN 1 — native cannot leave VLAN 1',
+        'No VLAN; a port with both commands is err-disabled',
+      ],
+      answer: 0,
+      why: 'mode trunk puts the access line to sleep. Same port as access would have used VLAN 5.',
+    },
+    {
+      prompt: 'SW1 native 10, SW2 native 30. PC1 (VLAN 10) sends to PC10 (VLAN 10) across the trunk:',
+      choices: [
+        'SW2 still reads VID 10 from the Ethernet payload and delivers',
+        'The trunk goes down; CDP always err-disables a mismatch',
+        'Both PCs move to VLAN 1 because native must match VLAN 1',
+        'SW1 sends untagged; SW2 assigns VLAN 30; PC10 never sees the frame',
+      ],
+      answer: 3,
+      why: 'VLAN hopping. Match native. PVST+ may block the pair later; CDP may only complain.',
+    },
+    {
+      prompt: 'ROAS: G0/0.10 should be VLAN 10’s gateway. The command that binds the VLAN is:',
+      choices: [
+        'switchport access vlan 10 on the router subinterface',
+        'The .10 in the interface name; encapsulation is documentation',
+        'encapsulation dot1q 10 (then the IP). The .10 is only a label',
+        'ip routing — that creates subinterfaces by itself',
+      ],
+      answer: 2,
+      why: 'Match the numbers so you can read the config. Physical G0/0 is no shutdown and usually has no IP.',
+    },
+    {
+      prompt: 'interface vlan 10 is up/down. Which check is about the SVI coming up (not about routing)?',
+      choices: [
+        'VLAN 10 exists, is not shut, and an up access or allowing trunk exists (and the SVI is not shut)',
+        'Only ip routing — Protocol tracks that command alone',
+        'A static default route; SVIs stay down until 0.0.0.0/0 exists',
+        'no switchport on every access port in VLAN 10',
+      ],
+      answer: 0,
+      why: 'Four up/up rules. ip routing forwards between SVIs. no switchport makes a routed port, which is a different tool.',
+    },
+  ]}
+/>

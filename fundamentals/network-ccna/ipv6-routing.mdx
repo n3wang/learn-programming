@@ -1,0 +1,281 @@
+---
+sidebar_position: 20
+title: IPv6 Routing
+---
+
+> **Track:** Network CCNA — twentieth chapter. IPv6 addressing (nineteenth) put **addresses** on the box. This chapter is **how packets move**: NDP, the IPv6 table, statics. Exam **3.1**, **3.2**, **3.3** again — now in hex. **No OSPFv3.**
+
+# IPv6 Routing
+
+IPv4 already taught you the table: connected, local, longest match, statics, defaults, floaters. IPv6 keeps that. Two new jobs: **Neighbor Discovery** instead of ARP, and a few IPv6-only traps on `ipv6 route`.
+
+Dynamic IPv6 routing is **not** on the exam. OSPFv2 is IPv4-only. Do not study OSPFv3 here.
+
+<Ipv6RoutingSimulator />
+
+**Next story** builds a solicited-node address, then NS/NA, SLAAC, DAD, C vs L, and the three static styles.
+
+## NDP, not ARP
+
+A packet still rides an Ethernet frame to the **next hop**. IPv4 asks ARP. IPv6 asks **NDP** (a slice of **ICMPv6**). Mappings live in the **IPv6 neighbor table** (`show ipv6 neighbors`), not the ARP table.
+
+NDP also does **router discovery** and **duplicate address detection**. Five ICMPv6 types to name:
+
+| Message | Type | Job |
+| --- | --- | --- |
+| Router Solicitation (RS) | 133 | “Any routers?” → `ff02::2` |
+| Router Advertisement (RA) | 134 | “I am, and here is the prefix” → usually `ff02::1` |
+| Neighbor Solicitation (NS) | 135 | ARP-request analogue |
+| Neighbor Advertisement (NA) | 136 | ARP-reply analogue |
+| Redirect | 137 | Know the name |
+
+Ping uses ICMPv6 Echo Request **128** / Reply **129** (IPv4 was 8 / 0).
+
+## Solicited-node multicast
+
+Some NS messages go to a **solicited-node** address, not to all-nodes. Build it from any unicast (GUA, ULA, or LLA):
+
+**`ff02::1:ff` + the last six hex digits.**
+
+`2001:db8:0:1:f2a:4fff:fea3:11b1` → last six `a3:11b1` → `ff02::1:ffa3:11b1`
+
+<LessonFigure src="/img/ccna/fig-21-1.png" alt="Building a solicited-node multicast address: ff02::1:ff + the last six hex digits of the unicast." caption="Figure 21.1 — Building a solicited-node multicast address: ff02::1:ff + the last six hex digits of the unicast." maxWidth={600} />
+
+Scope is link-local (`ff02`). An iface joins one solicited-node group **per unicast** it holds. `show ipv6 interface` lists `FF02::1`, `FF02::2`, and those `FF02::1:FF…` rows.
+
+Two unicasts can collide on the same solicited-node (same last six hex). The **Target Address** inside the NS body picks the real owner. Multicast MACs exist; skip the bit pattern.
+
+| Unicast | Solicited-node |
+| --- | --- |
+| `2001:db8:123::1` | `ff02::1:ff00:1` |
+| `fe80::99ff:fe12:1234` | `ff02::1:ff12:1234` |
+
+## Address resolution
+
+To learn a MAC: send **NS** to the neighbor’s solicited-node. Reply is a **unicast NA**. Then `show ipv6 neighbors`: address, age (minutes), MAC, **REACH** (what you want), interface. Ping a GUA and IOS often also learns the peer’s **LLA**.
+
+<LessonFigure src="/img/ccna/fig-21-2.png" alt="NDP between two routers: R1 sends a Neighbor Solicitation, R2 replies with a Neighbor Advertisement." caption="Figure 21.2 — NDP between two routers: R1 sends a Neighbor Solicitation, R2 replies with a Neighbor Advertisement." maxWidth={560} />
+
+Neighbor **state machine** beyond REACH / INCMP is out of scope.
+
+## Router discovery and SLAAC
+
+**RS** → all-routers `ff02::2`. **RA** answers, and routers also shout RA on a timer to all-nodes `ff02::1`.
+
+That is how **SLAAC** (“slack”) works: **stateless** — no server remembers who has what (DHCP is stateful; later). A host learns the **/64 prefix** from the RA and builds the IID. **IOS uses Modified EUI-64.** Some PCs randomize.
+
+```text
+R2(config-if)# ipv6 address autoconfig
+```
+
+<LessonFigure src="/img/ccna/fig-21-3.png" alt="SLAAC: R2 sends an RS, R1’s RA supplies the prefix, and R2 adds an EUI-64 interface ID." caption="Figure 21.3 — SLAAC: R2 sends an RS, R1’s RA supplies the prefix, and R2 adds an EUI-64 interface ID." maxWidth={560} />
+
+Compare `ipv6 address 2001:db8::/64 eui-64`: you typed the prefix. Autoconfig **learns** it.
+
+Add **`default`**: `ipv6 address autoconfig default` also installs a **default route** with the RA sender’s **LLA** as next hop.
+
+## DAD
+
+Before an address is usable it is **tentative**. On config **and** on iface up/up, the host DAD-checks every IPv6 address.
+
+Send **NS to your own solicited-node**, source often `::`. No NA → unique, use it. An NA → **duplicate**: syslog, show prints **DUP**, the address does not talk. Fix: `no` it and pick a unique one.
+
+<LessonFigure src="/img/ccna/fig-21-4.png" alt="DAD: R2 asks its own solicited-node address and, with no reply, keeps the address." caption="Figure 21.4 — DAD: R2 asks its own solicited-node address and, with no reply, keeps the address." maxWidth={560} />
+
+IPv6 made DAD **mandatory**. IPv4 never standardized it.
+
+## The IPv6 table
+
+`show ipv6 route`. Same letters: **C** connected, **L** local, **S** static. AD/metric in brackets. Still need **`ipv6 unicast-routing`**.
+
+<LessonFigure src="/img/ccna/fig-21-5.png" alt="A router with two connected IPv6 networks." caption="Figure 21.5 — A router with two connected IPv6 networks." maxWidth={480} />
+
+- **Connected:** the /64 on an up/up iface. Forward **to the host** on that LAN. A **network route** is /127 or shorter.
+- **Local:** your exact address as **/128**. **Receive** — this packet is for me. A **host route** is one address (/128 here; IPv4 used /32).
+- **No C/L for LLAs.** On-link only. An LLA may be a **next hop**, never a **destination** in the table.
+- **`FF00::/8` via Null0.** Auto. Stops **forwarding** multicast. The box may still **send and receive** NDP.
+
+Longest matching prefix wins. Two hits — `/128` beats `/64`. No match → drop. Same as IPv4.
+
+<LessonFigure src="/img/ccna/fig-21-6.png" alt="R1 picks the most specific match — the /128 local route — for a packet addressed to itself." caption="Figure 21.6 — R1 picks the most specific match — the /128 local route — for a packet addressed to itself." maxWidth={560} />
+
+## Static routes (`ipv6 route`)
+
+<LessonFigure src="/img/ccna/fig-21-7.png" alt="Three routers between PC1 and PC3: which static routes are needed?" caption="Figure 21.7 — Three routers between PC1 and PC3: which static routes are needed?" maxWidth={600} />
+
+Slash prefix, not a mask. Three shapes:
+
+| Style | What you type | Lookup |
+| --- | --- | --- |
+| Recursive | prefix + **next-hop only** | Find next hop, then find its iface |
+| Directly connected | prefix + **exit iface only** | Looks “directly connected” |
+| Fully specified | prefix + **iface + next hop** | One lookup, next hop known |
+
+<LessonFigure src="/img/ccna/fig-21-10.png" alt="Fully specified IPv6 static routes: exit interface and next hop." caption="Figure 21.10 — Fully specified IPv6 static routes: exit interface and next hop." maxWidth={600} />
+
+<LessonFigure src="/img/ccna/fig-21-8.png" alt="Recursive IPv6 static routes: next-hop address only." caption="Figure 21.8 — Recursive IPv6 static routes: next-hop address only." maxWidth={600} />
+
+Recursive and fully specified both work on Ethernet.
+
+**Directly connected IPv6 statics do not work on Ethernet.** IPv4 cheated with **proxy ARP**. Cisco has **no proxy NDP**. The route **shows** in `show ipv6 route static`. A ping then leaves an **INCMP** neighbor for the remote host — NS went out the exit iface looking for that host’s MAC on **this** LAN. Drop. Exam trick.
+
+<LessonFigure src="/img/ccna/fig-21-9.png" alt="Directly connected IPv6 static routes: exit interface only — which fails on Ethernet." caption="Figure 21.9 — Directly connected IPv6 static routes: exit interface only — which fails on Ethernet." maxWidth={600} />
+
+Serial (legacy point-to-point, no MAC) would work. Not on today’s blueprint.
+
+## Link-local next hops
+
+You cannot **route to** an LLA. You **can** next-hop via one. The LLA only names the neighbor on **this** wire.
+
+Transit links (R1–R2, R2–R3) often need **no GUA**. LLAs are enough.
+
+<LessonFigure src="/img/ccna/fig-21-11.png" alt="Static routes using link-local next hops, which must name the exit interface too." caption="Figure 21.11 — Static routes using link-local next hops, which must name the exit interface too." maxWidth={600} />
+
+Same LLA on two ifaces of one router is **legal** — uniqueness is per **link**. `ipv6 address fe80::2 link-local` on G0/0 and G0/1 is fine.
+
+A recursive LLA next hop is **ambiguous** (`fe80::/64` everywhere). IOS rejects it: **Interface has to be specified for a link-local nexthop.** Fully specify.
+
+## Default and floating
+
+Default = **`::/0`**. Least specific. Internet catch-all. Same idea as `0.0.0.0/0`.
+
+```text
+R1(config)# ipv6 route ::/0 2001:db8::2
+R1(config)# ipv6 route ::/0 2001:db8:1::2 2
+```
+
+<LessonFigure src="/img/ccna/fig-21-12.png" alt="An IPv6 default route (::/0) toward the internet." caption="Figure 21.12 — An IPv6 default route (::/0) toward the internet." maxWidth={480} />
+
+Static AD defaults to **1**. Trailing **2** makes a **floating** backup. Only the AD-1 row sits in the table. Shut the primary iface → the floater appears (`[2/0]`).
+
+<LessonFigure src="/img/ccna/fig-21-13.png" alt="A primary default via ISP-A and a floating default (AD 2) via ISP-B." caption="Figure 21.13 — A primary default via ISP-A and a floating default (AD 2) via ISP-B." maxWidth={560} />
+
+## Exam shapes
+
+- NDP: NS/NA (135/136), RS/RA (133/134). Neighbor table, not ARP.
+- Solicited-node = `ff02::1:ff` + last six hex.
+- SLAAC: RS/RA + EUI-64 on IOS. `autoconfig` vs `autoconfig default`.
+- DAD: NS to self; NA means DUP.
+- C /64, L /128, no LLA dest, `FF00::/8` Null0. Longest match.
+- Recursive vs fully specified. Ethernet + exit-only = INCMP.
+- LLA next hop must include the iface. `::/0`. Floating AD.
+
+<GuidedChoiceExplanation preset="ccna-ipv6-routing" />
+
+<FigureMatchGame preset="ccna-ipv6-routing" />
+
+<MultipleChoice
+  title="IPv6 Routing"
+  questions={[
+    {
+      prompt: 'Unicast 2001:db8:123::1. Solicited-node is:',
+      choices: [
+        'ff02::1',
+        'ff02::1:ff00:1',
+        'ff02::2',
+        'ff02::1:ff12:3001',
+      ],
+      answer: 1,
+      why: 'ff02::1:ff plus the last six hex (00:0001). ff02::1 is all-nodes; ff02::2 is all-routers.',
+    },
+    {
+      prompt: 'R1 needs R2’s MAC for 2001:db8::2. NDP does:',
+      choices: [
+        'Broadcast NS, like ARP request',
+        'Unicast NS to 2001:db8::2 first',
+        'RA to ff02::1 and wait',
+        'NS to R2’s solicited-node; R2 unicasts an NA back',
+      ],
+      answer: 3,
+      why: 'No broadcast. NS type 135, NA type 136. Then show ipv6 neighbors (REACH).',
+    },
+    {
+      prompt: 'ipv6 address autoconfig on R2 means:',
+      choices: [
+        'RS to ff02::2, learn the prefix from an RA, build the IID (EUI-64 on IOS)',
+        'Same as ipv6 address 2001:db8::/64 eui-64 — you already typed the prefix',
+        'Stateful DHCPv6 is required or the command is ignored',
+        'Only an LLA appears; a GUA needs eui-64',
+      ],
+      answer: 0,
+      why: 'SLAAC is stateless. Add default to also install ::/0 via the RA router’s LLA.',
+    },
+    {
+      prompt: 'DAD after ipv6 address 2001:db8::2/64:',
+      choices: [
+        'R2 ARPs 2001:db8::2',
+        'R2 pings ff02::1 and hopes nobody answers',
+        'R2 sends NS to its own solicited-node; an NA means DUP and the address stays unused',
+        'IOS skips DAD for manually typed addresses',
+      ],
+      answer: 2,
+      why: 'Tentative until DAD finishes. Also runs when the iface goes up/up. IPv6 made it mandatory.',
+    },
+    {
+      prompt: 'show ipv6 route after two /64 globals. You should see:',
+      choices: [
+        'C and L for each LLA, plus the globals',
+        'A C /64 and an L /128 per global, no LLA dest rows, and FF00::/8 via Null0',
+        'Only L /128 rows — IPv6 has no connected routes',
+        'FF00::/8 via Null0, which also blocks sending NS',
+      ],
+      answer: 1,
+      why: 'LLAs are not routed destinations. Null0 stops forwarding multicast, not local NDP.',
+    },
+    {
+      prompt: 'Packet dest 2001:db8:1::1. Table has C 2001:db8:1::/64 and L 2001:db8:1::1/128. R1:',
+      choices: [
+        'Receives it — longest match is the local /128',
+        'Forwards out G0/1 because C wins on AD 0',
+        'Drops it; two matches are a conflict',
+        'Load-shares C and L',
+      ],
+      answer: 0,
+      why: 'Longest prefix, not AD, picks among matches. /128 is a host route (exam 3.3.c).',
+    },
+    {
+      prompt: 'ipv6 route 2001:db8:3::/64 g0/0 on Ethernet. The row shows. A ping to PC3:',
+      choices: [
+        'Works — directly connected statics always work',
+        'Works after proxy NDP, like IPv4 proxy ARP',
+        'Works only if you also add ipv6 unicast-routing',
+        'Fails: NS for PC3 on this LAN, neighbor stays INCMP. No proxy NDP',
+      ],
+      answer: 3,
+      why: 'Exit-only IPv6 statics are a trick question on Ethernet. Use recursive or fully specified.',
+    },
+    {
+      prompt: 'ipv6 route 2001:db8:1::/64 fe80::1',
+      choices: [
+        'Installs a recursive LLA route',
+        'Becomes a default because fe80::/64 matches everything on-link',
+        'Rejected — a link-local next hop must name the exit iface',
+        'Works if both G0/0 and G0/1 use fe80::1',
+      ],
+      answer: 2,
+      why: 'IOS: Interface has to be specified for a link-local nexthop. Fully specify. Same LLA on two ifaces is legal; that is why recursion is ambiguous.',
+    },
+    {
+      prompt: 'ipv6 route 2001:db8:1:1::1/128 g0/1 fe80::2 is:',
+      choices: [
+        'A network route and recursive',
+        'A host route and fully specified',
+        'A directly connected host route',
+        'A default route because the next hop is link-local',
+      ],
+      answer: 1,
+      why: '/128 = one address = host route. Iface + next hop = fully specified. Network routes are /127 or shorter.',
+    },
+    {
+      prompt: 'ipv6 route ::/0 2001:db8::2 and ipv6 route ::/0 2001:db8:1::2 2. The table shows:',
+      choices: [
+        'Only the first (::/0 AD 1). The AD-2 row floats until the primary disappears',
+        'Both, ECMP, because destination matches',
+        'Only the AD-2 row — higher AD wins for IPv6',
+        'Neither until you add ipv6 address autoconfig default',
+      ],
+      answer: 0,
+      why: 'Default is ::/0 (exam 3.3.a). Floating (3.3.d) stays out until the better static is gone.',
+    },
+  ]}
+/>

@@ -1,0 +1,334 @@
+---
+sidebar_position: 17
+title: Open Shortest Path First
+---
+
+> **Track:** Network CCNA — seventeenth chapter. Dynamic routing (sixteenth) showed **who talks** and the OSPF **`network`** command. This chapter is **OSPFv2** itself: LSDB, cost, RID, neighbors, DR/BDR. Exam **3.4** (single-area). Do not configure OSPFv3 or stub areas. **FHRP** (eighteenth) is the hosts’ default gateway after the routers themselves stay up.
+
+# Open Shortest Path First
+
+**Open** = not Cisco-only. **Shortest Path First** = Dijkstra. The exam version is **OSPFv2** (IPv4). OSPFv3 is the IPv6 story; skip it here.
+
+Three jobs, in order:
+
+1. Become **neighbors** (hellos).
+2. Flood **LSAs** into one **LSDB** per area.
+3. Run **SPF** and install the cheapest path (or ECMP).
+
+The last chapter already taught `network` + a wildcard. This chapter keeps that and adds the **interface** form, **passive**, a **default**, and why two routers sit in **2-WAY** instead of **FULL**.
+
+<OspfSimulator />
+
+**Next story** builds one LSDB, then areas and cost, RID, `ip ospf 1 area 0`, passive, a default, neighbor states, DR/BDR, and point-to-point.
+
+## One map per area
+
+An LSA is a **link-state advertisement**: “I have these links, at these costs.” Every router in an **area** must hold the **same LSDB**. Flooding copies each LSA to every other router in that area. Then each box runs SPF on the **same map**. That is the opposite of RIP/EIGRP rumor: those protocols do not give you the whole diagram.
+
+<LessonFigure src="/img/ccna/fig-18-1.png" alt="Routers flood LSAs so every router in the area ends up with an identical LSDB." caption="Figure 18.1 — Routers flood LSAs so every router in the area ends up with an identical LSDB." maxWidth={600} />
+
+A change (interface up/down) refloods and **every** router in the area reruns SPF. In a LAN of six routers that is cheap. In a LAN of two hundred it is not.
+
+## Areas (know the words; configure one)
+
+An **area** = the set of routers that share one LSDB.
+
+- **Area 0** is the **backbone**. Non-backbone areas attach **only** to area 0. Inter-area traffic **crosses 0**.
+- Single-area labs should still use **area 0** so you can grow later.
+- Multi-area (exam does not make you build it): smaller LSDBs, faster SPF, a flap stays in one area.
+
+| Type | Means |
+| --- | --- |
+| Internal | Every OSPF interface in **one** area |
+| Backbone | At least one interface in **area 0** |
+| ABR | Connects a non-backbone area to **area 0** (also a backbone router; keeps **one LSDB per area**) |
+| ASBR | Injects **external** prefixes (internet, another AS) |
+
+<LessonFigure src="/img/ccna/fig-18-2.png" alt="Multi-area OSPF: areas 1, 2, and 3 all attach to backbone area 0." caption="Figure 18.2 — Multi-area OSPF: areas 1, 2, and 3 all attach to backbone area 0." maxWidth={600} />
+
+A box can wear more than one hat. An internet-facing router in area 0 is internal **and** backbone **and** ASBR. The internet interface itself is **not** in OSPF.
+
+Routes: **intra-area** (same area), **inter-area** (another area), **external** (from an ASBR). Code `O*E2` on a default is the last of those.
+
+## Cost
+
+OSPF’s metric is **cost**. A route’s cost is the **sum of outgoing interface costs** along the path — one side of each hop. Both ends of a link should match; treat the link as one number.
+
+```text
+cost = reference-bandwidth / interface-bandwidth
+```
+
+<LessonFigure src="/img/ccna/fig-18-3.png" alt="Route cost is the sum of outgoing interface costs: R1 to 192.168.3.0/24 costs 3." caption="Figure 18.3 — Route cost is the sum of outgoing interface costs: R1 to 192.168.3.0/24 costs 3." maxWidth={600} />
+
+Default reference = **100 Mbps**. Results below 1 become **1**. So 100 Mbps, 1 Gbps, and 10 Gbps all cost **1** unless you raise the reference.
+
+```text
+R1(config-router)# auto-cost reference-bandwidth 1000
+```
+
+Units: **Mbps** here. Set the **same** value on every router or SPF can disagree and **loop**. A common habit: match (or beat) the fastest link.
+
+<LessonFigure src="/img/ccna/fig-18-4.png" alt="With the default reference bandwidth, a gigabit path and a FastEthernet path cost the same." caption="Figure 18.4 — With the default reference bandwidth, a gigabit path and a FastEthernet path cost the same." maxWidth={560} />
+
+To bias **one** link, prefer `ip ospf cost` on the interface. `bandwidth` (in **kbps**) also feeds the formula, but QoS and EIGRP read it too — leave it alone unless you mean that. `bandwidth` does **not** change wire speed; `speed` does.
+
+`show ip ospf interface brief` prints each interface’s cost. A **loopback** adds **1**. Default **ECMP** keeps up to **four** equal-cost paths (`maximum-paths`).
+
+## Router ID
+
+A 32-bit dotted-decimal **name**, not an address. It **must be unique** in the AS. Process ID (`router ospf 1`) is **local** and may differ from the neighbor.
+
+Selection, first time you create the process:
+
+1. `router-id` (you cannot type this until you are already in router config — so the **first** pick ignores it).
+2. Highest IP on an **up/up loopback**.
+3. Highest IP on an **up/up physical**.
+
+Once chosen, a new loopback does **not** steal it — not even after `clear ip ospf process`. To change it: `router-id` then, if neighbors already exist, **clear**. Hardcode it. Use a loopback `/32` as the value people expect.
+
+A **loopback interface** is a virtual always-up iface (until `shutdown`). It is **not** 127.0.0.0/8. SSH to the loopback still needs **some** physical path.
+
+<LessonFigure src="/img/ccna/fig-18-6.png" alt="An admin reaches R1 through Loopback0, which stays up even when a physical interface fails." caption="Figure 18.6 — An admin reaches R1 through Loopback0, which stays up even when a physical interface fails." maxWidth={560} />
+
+`show ip protocols` prints the RID.
+
+## Activate OSPF
+
+Two legal ways (the sim tells you which if it cares):
+
+```text
+R1(config-router)# network 10.0.0.1 0.0.0.0 area 0
+R2(config-if)# ip ospf 1 area 0
+```
+
+`network` matches interface **IPs**. `ip ospf` names the **interface**. Both advertise that iface’s **prefix**. Do **not** activate the ISP-facing iface if you only need a default out that way.
+
+<LessonFigure src="/img/ccna/fig-18-5.png" alt="A single-area network: R3 has a passive LAN interface and R1 advertises a default route from the internet." caption="Figure 18.5 — A single-area network: R3 has a passive LAN interface and R1 advertises a default route from the internet." maxWidth={600} />
+
+## Passive interfaces
+
+An OSPF interface does two things: **hello** (try to neighbor) and **advertise** its prefix. A LAN of PCs needs the second, not the first. Hellos waste CPU and leak topology.
+
+```text
+R3(config-router)# passive-interface g0/2
+R3(config-router)# passive-interface l0
+```
+
+<LessonFigure src="/img/ccna/fig-18-7.png" alt="A passive interface: its network is advertised, but no hellos are sent out of it." caption="Figure 18.7 — A passive interface: its network is advertised, but no hellos are sent out of it." maxWidth={600} />
+
+Or `passive-interface default` then `no passive-interface g0/0` on the real peers. Loopbacks should be passive.
+
+## Default route
+
+On the ASBR:
+
+```text
+R1(config)# ip route 0.0.0.0 0.0.0.0 203.0.113.2
+R1(config-router)# default-information originate
+```
+
+<LessonFigure src="/img/ccna/fig-18-8.png" alt="R1 as ASBR: default-information originate advertises its default route into OSPF." caption="Figure 18.8 — R1 as ASBR: default-information originate advertises its default route into OSPF." maxWidth={600} />
+
+Without a default **in R1’s own table**, originate stays quiet (`always` exists; skip it). Neighbors install `O*E2 0.0.0.0/0 [110/1]`. `show ip protocols` then says **autonomous system boundary router**.
+
+## Neighbors and adjacencies
+
+| Type | Name | Job |
+| --- | --- | --- |
+| 1 | Hello | Find and keep neighbors. Dest **224.0.0.5** (all OSPF routers) |
+| 2 | DBD | Summary of my LSDB |
+| 3 | LSR | Ask for a missing LSA |
+| 4 | LSU | Carry LSAs (the envelope) |
+| 5 | LSAck | “Got the LSU” |
+
+<LessonFigure src="/img/ccna/fig-18-10.png" alt="A hello sent to 224.0.0.5: OSPF routers accept it, a router without OSPF ignores it." caption="Figure 18.10 — A hello sent to 224.0.0.5: OSPF routers accept it, a router without OSPF ignores it." maxWidth={480} />
+
+**224.0.0.6** = DR and BDR only.
+
+States (know the order, not the byte layout):
+
+**Down → Init → 2-Way → ExStart → Exchange → Loading → Full**
+
+- **Init**: I heard your hello; it did not list **my** RID yet.
+- **2-Way**: we listed each other. You are **neighbors**. Some pairs **stop here**.
+- **ExStart / Exchange**: pick Leader (higher RID; IOS still says Master) and trade DBDs.
+- **Loading**: LSR / LSU / LSAck.
+- **Full**: LSDBs match. You are **adjacent**.
+
+<LessonFigure src="/img/ccna/fig-18-9.png" alt="OSPF neighbor states, in order: Down, Init, 2-Way, ExStart, Exchange, Loading, Full." caption="Figure 18.9 — OSPF neighbor states, in order: Down, Init, 2-Way, ExStart, Exchange, Loading, Full." maxWidth={480} />
+
+Hello every **10 s**. Dead **40 s**. A down/down link drops the neighbor **now**; the dead timer is for a quiet-but-up iface.
+
+`show ip ospf neighbor`
+
+## Broadcast vs point-to-point
+
+Ethernet defaults to **broadcast**. `show ip ospf interface g0/0`.
+
+On a **broadcast** segment, 2-Way elects **DR** and **BDR**. Everyone else is **DROther**. Full adjacency only with the DR and BDR. Two DROthers stay **2WAY/DROTHER** — they still learn each other’s LSAs **through** the DR. Election is **per segment**, not per area.
+
+<LessonFigure src="/img/ccna/fig-18-11.png" alt="Six routers on one segment: 15 adjacencies without a DR/BDR, 9 with one." caption="Figure 18.11 — Six routers on one segment: 15 adjacencies without a DR/BDR, 9 with one." maxWidth={600} />
+
+Winner: highest **`ip ospf priority`** (default **1**), then highest **RID**. **Priority 0** = never DR/BDR. **No preemption**: raising priority later does nothing until `clear ip ospf process` on the current DR/BDR. If the DR dies, the **BDR becomes DR immediately**; then you elect a new BDR.
+
+<LessonFigure src="/img/ccna/fig-18-12.png" alt="DR/BDR elections happen per segment, not per area." caption="Figure 18.12 — DR/BDR elections happen per segment, not per area." maxWidth={600} />
+
+A lonely access iface calls itself DR. Make it **passive**.
+
+**Point-to-point** (two routers, no election): `ip ospf network point-to-point` on **both** ends. State prints **FULL/-**. Faster Full. Default on old serials; you must type it on Ethernet.
+
+<LessonFigure src="/img/ccna/fig-18-13.png" alt="A two-router link doesn’t need a DR election, so it’s set to point-to-point." caption="Figure 18.13 — A two-router link doesn’t need a DR election, so it’s set to point-to-point." maxWidth={600} />
+
+Both types: dynamic discovery, hello 10 / dead 40.
+
+## Neighbor requirements
+
+Must match: **area**, **subnet** (address **and** mask), **hello/dead**, **authentication** (know the sentence, not the knobs), and the process must **not** be `shutdown`. RIDs must be **unique**.
+
+Starred (neighbors can form, OSPF still breaks):
+
+- **IP MTU** mismatch → stuck **ExStart/Exchange**.
+- **Network type** mismatch → **FULL** on both sides, LSDBs **do not** sync (one shows `FULL/DR`, the other `FULL/-`; prefixes go missing).
+
+## LSA types (three names)
+
+| Type | Who | What |
+| --- | --- | --- |
+| 1 Router | Every router | My links |
+| 2 Network | **DR** of a broadcast segment | Who is on this segment |
+| 5 AS-External | **ASBR** | External (a default is one) |
+
+<LessonFigure src="/img/ccna/fig-18-14.png" alt="An LSDB: a type 1 LSA from every router, type 2 from the DR, type 5 from the ASBR." caption="Figure 18.14 — An LSDB: a type 1 LSA from every router, type 2 from the DR, type 5 from the ASBR." maxWidth={600} />
+
+A DR-in-name-only stub iface does **not** originate type 2. `show ip ospf database` should match on every router in the area. Do not parse sequence numbers on the exam.
+
+## Exam shapes
+
+- Same LSDB in an area. Area 0. ABR / ASBR / intra vs inter vs external.
+- Cost = ref / bw, floor 1. Raise ref to 1000+ and keep it **consistent**. Prefer `ip ospf cost` on one link.
+- RID: unique; manual / loopback / physical; clear after a late `router-id`.
+- `network` **or** `ip ospf 1 area 0`. Passive = advertise, no hello.
+- `default-information originate` after you have a default.
+- 2-Way = neighbor. Full = adjacent. 224.0.0.5 / .6. Hello 10, dead 40.
+- Broadcast: DR/BDR, no preempt, BDR promotes. Point-to-point: no DR.
+- Match list. MTU vs network-type failure modes. LSA 1 / 2 / 5.
+
+<GuidedChoiceExplanation preset="ccna-ospf" />
+
+<FigureMatchGame preset="ccna-ospf" />
+
+<MultipleChoice
+  title="Open Shortest Path First"
+  questions={[
+    {
+      prompt: 'All routers in one OSPF area must share:',
+      choices: [
+        'The same process ID, or they refuse to neighbor',
+        'A distance-vector rumor of next hops only — no map',
+        'The same LSDB, built by flooding LSAs, then each runs SPF',
+        'One RID for the whole area, copied from the ABR',
+      ],
+      answer: 2,
+      why: 'Process ID is local. RID must be unique. Link-state means the same map, then Dijkstra.',
+    },
+    {
+      prompt: 'Default OSPF reference bandwidth is 100 Mbps. A 1 Gbps interface costs:',
+      choices: [
+        '1 — the formula floors anything below 1',
+        '10 — 1000 / 100',
+        '0.1 — OSPF keeps fractions',
+        '1000 — reference is in kbps',
+      ],
+      answer: 0,
+      why: '100/1000 = 0.1 → 1. FastEthernet, Gigabit, and TenGig all look equal until auto-cost reference-bandwidth (same value on every router).',
+    },
+    {
+      prompt: 'RID after router ospf 1, no router-id yet, Loopback0 172.16.1.1/32 up, Gi0/2 203.0.113.1/30 up:',
+      choices: [
+        '203.0.113.1 — physical always wins',
+        '0.0.0.0 until you type router-id',
+        'The process ID, 1',
+        '172.16.1.1 — highest up/up loopback beats physical',
+      ],
+      answer: 3,
+      why: 'Order: manual, then loopback, then physical. A loopback added later does not steal an already-chosen RID; router-id plus clear does.',
+    },
+    {
+      prompt: 'passive-interface g0/2 on an OSPF-enabled LAN iface:',
+      choices: [
+        'Stops advertising that prefix; hellos still go out',
+        'Advertises the prefix and does not send hellos',
+        'Shuts OSPF on the whole process',
+        'Makes the iface the DR so PCs can flood LSAs',
+      ],
+      answer: 1,
+      why: 'Neighbors need hellos. PCs do not. Loopbacks should be passive too. passive-interface default + no passive-interface on real peers.',
+    },
+    {
+      prompt: 'default-information originate without a default in this router’s table:',
+      choices: [
+        'Floods 0.0.0.0/0 as O*E2 anyway',
+        'Converts every connected route into a default',
+        'Advertises nothing until a default exists (always is out of scope)',
+        'Installs a static 0.0.0.0/0 for you',
+      ],
+      answer: 2,
+      why: 'Put ip route 0.0.0.0 0.0.0.0 next-hop first. Then the box becomes an ASBR. Neighbors see O*E2 [110/1].',
+    },
+    {
+      prompt: 'Two routers have listed each other’s RID in hellos but have not exchanged LSAs. They are in:',
+      choices: [
+        '2-Way — neighbors, not yet adjacent',
+        'Full — LSDBs already match',
+        'Down — no hello heard',
+        'Loading — LSR/LSU in flight; that is already past DBD',
+      ],
+      answer: 0,
+      why: 'Init = hello without my RID. 2-Way = mutual. Full = adjacent. DROthers on broadcast often stay 2-Way with each other.',
+    },
+    {
+      prompt: 'Broadcast segment. All priorities 1. RIDs .2, .3, .5. Who is DR?',
+      choices: [
+        'Lowest RID (.2)',
+        'No DR on Ethernet — that is only serial',
+        'First router that came up, forever, ignoring RID',
+        '.5 — highest RID after a priority tie',
+      ],
+      answer: 3,
+      why: 'Highest priority, then highest RID. Election is per segment. No preemption; BDR becomes DR if the DR is cleared or dies.',
+    },
+    {
+      prompt: 'ip ospf network point-to-point on both ends of a two-router Ethernet:',
+      choices: [
+        'Forces a DR/BDR election so LSA count drops',
+        'Skips DR/BDR; neighbor shows FULL/- and reaches Full faster',
+        'Changes hello/dead to 30/120',
+        'Works on one side; the other may stay broadcast',
+      ],
+      answer: 1,
+      why: 'Type it on both. A mismatch can still print Full but will not sync LSDBs. Hello stays 10, dead 40.',
+    },
+    {
+      prompt: 'Which mismatch still shows Full but does not put the neighbor’s prefixes in your table?',
+      choices: [
+        'Area number',
+        'Duplicate RID',
+        'OSPF network type (broadcast vs point-to-point)',
+        'Hello timer',
+      ],
+      answer: 2,
+      why: 'Area, subnet, hello/dead, shutdown, duplicate RID: no neighbor. MTU: stuck ExStart/Exchange. Network type: Full, silent map.',
+    },
+    {
+      prompt: 'LSA types on the exam:',
+      choices: [
+        'Type 1 = every router’s links. Type 2 = DR lists the segment. Type 5 = ASBR external (including a default)',
+        'Type 2 is written by every DROther',
+        'Type 5 is the hello packet',
+        'Type 1 is only originated by ABRs',
+      ],
+      answer: 0,
+      why: 'show ip ospf database. A stub DR with no neighbors does not originate type 2. LSU is the envelope; LSA is the letter.',
+    },
+  ]}
+/>

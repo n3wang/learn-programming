@@ -1,0 +1,270 @@
+---
+sidebar_position: 14
+title: Rapid Spanning Tree Protocol
+---
+
+> **Track:** Network CCNA — fourteenth chapter. Classic STP (thirteenth) can take **50 s**. This chapter is **Rapid PVST+**: same tree, faster ports. Exam **2.5**. Do not learn the RSTP **sync handshake** — costs, states, roles, link types, and the extra toolkit.
+
+# Rapid Spanning Tree Protocol
+
+**802.1D** waits on timers. A silent root port can sit **20 s** (max age) plus **15+15** before the spare forwards. That was fine once. It is not fine now.
+
+**RSTP** (**802.1w**) keeps the **same algorithm** and talks neighbors into **forwarding now**. Cisco’s version is **Rapid PVST+**: one tree **per VLAN**, like PVST+ was to 802.1D.
+
+<RstpSimulator />
+
+**Next story** flips `ieee` to `rstp`, then alternate vs backup, 6 s vs 50 s, link types, Root Guard, Loop Guard, BPDU Filter.
+
+## Versions
+
+| Version | Whose | Trees |
+| --- | --- | --- |
+| STP (802.1D) | IEEE | One for the LAN |
+| PVST+ | Cisco | One per VLAN |
+| RSTP (802.1w) | IEEE | One for the LAN |
+| Rapid PVST+ | Cisco | One per VLAN |
+| MSTP (802.1s) | IEEE | You **group** VLANs into instances; uses RSTP speed |
+
+Cisco boxes run **PVST+** or **Rapid PVST+**, not the bare IEEE protocols. Default depends on model and IOS.
+
+```text
+SW1# show spanning-tree
+VLAN0001
+  Spanning tree enabled protocol ieee
+```
+
+**`ieee` = PVST+.** Configure Rapid PVST+ with `spanning-tree mode rapid-pvst`. The same line then says **`rstp`**. `spanning-tree mode pvst` puts **`ieee`** back.
+
+Per-VLAN trees cost CPU: 100 VLANs → 100 instances and 100 BPDUs out every designated port every 2 s. In real life you often want **two** trees (switch A root for half the VLANs, switch B for the rest). **MSTP** puts many VLANs in one instance. Know that sentence; do not configure MSTP here.
+
+<LessonFigure src="/img/ccna/fig-15-1.png" alt="MSTP: VLANs 1–50 share one instance and VLANs 51–100 another, each with its own tree." caption="Figure 15.1 — MSTP: VLANs 1–50 share one instance and VLANs 51–100 another, each with its own tree." maxWidth={560} />
+
+## Same algorithm, different leftovers
+
+Root, root port, designated port: **identical** to the last chapter (lowest BID; cost / neighbor BID / neighbor port ID; switch root cost / BID). Extra hub tiebreak — **lowest local port ID** — was already true for classic STP.
+
+Leftover ports: STP said **nondesignated**. RSTP says **alternate** or **backup**.
+
+<LessonFigure src="/img/ccna/fig-15-2.png" alt="The same tree under RSTP: the non-designated ports are now called alternate ports." caption="Figure 15.2 — The same tree under RSTP: the non-designated ports are now called alternate ports." maxWidth={560} />
+
+**BPDUs:** classic STP — only the **root** originates; others **forward** on designated ports. RSTP — **every** switch sends on its designated ports every **2 s**, even if the root went quiet.
+
+## Short and long costs
+
+Classic “short” costs stop at 10 Gbps = **2**. RSTP added **long** costs up to 10 Tbps.
+
+| Speed | Short | Long |
+| --- | --- | --- |
+| 10 Mbps | 100 | 2,000,000 |
+| 100 Mbps | 19 | 200,000 |
+| 1 Gbps | 4 | 20,000 |
+| 10 Gbps | 2 | 2,000 |
+| 100 Gbps | — | 200 |
+| 1 Tbps | — | 20 |
+| 10 Tbps | — | 2 |
+
+Anchor **10 Gbps = 2,000**. Ten times the speed → one-tenth the cost.
+
+A Rapid box may still use **short** by default. `show spanning-tree pathcost method`. `spanning-tree pathcost method` with `short` or `long`.
+
+## States
+
+RSTP folds STP **blocking + listening** (and disabled) into **discarding**. Then **learning**, then **forwarding**.
+
+A new port starts **discarding**. Alternate/backup stay there. Root/designated go to **forwarding** two ways:
+
+- **Sync works** (RSTP neighbor, full duplex) → **FWD now**.
+- **Sync fails** (PC, router, classic STP switch) → discarding 15 s, learning 15 s, then FWD — classic timers.
+
+<LessonFigure src="/img/ccna/fig-15-3.png" alt="RSTP port states: discarding, then straight to forwarding if sync succeeds, or learning first if it fails." caption="Figure 15.3 — RSTP port states: discarding, then straight to forwarding if sync succeeds, or learning first if it fails." maxWidth={420} />
+
+RSTP and STP can share a cable. That port on the Rapid side **behaves like STP**. `show spanning-tree` still prints **BLK** for discarding.
+
+PortFast still jumps a host port to FWD. Use it.
+
+## Roles: alternate and backup
+
+**Root** and **designated** are unchanged. **Designated bridge** = the switch that owns the designated port on a segment (both STP and RSTP).
+
+**Alternate** — spare path **toward the root**. Not root, not designated, and this switch is **not** the designated bridge. Picture: discarding port facing a **designated port on another switch**. Ready to FWD if the root port dies.
+
+<LessonFigure src="/img/ccna/fig-15-4.png" alt="Alternate ports: neither root nor designated, on a switch that isn’t the segment’s designated bridge." caption="Figure 15.4 — Alternate ports: neither root nor designated, on a switch that isn’t the segment’s designated bridge." maxWidth={560} />
+
+**Backup** — second path onto the **same segment** as a designated port **on this switch**. That means a **hub** (one collision domain, two of your ports). Not root, not designated, and this switch **is** the designated bridge. Picture: discarding port facing a designated port **on the same switch**. You will almost never see one. Exam still might.
+
+<LessonFigure src="/img/ccna/fig-15-5.png" alt="Two ports on one shared segment: SW1’s becomes alternate, SW3’s spare becomes a backup port." caption="Figure 15.5 — Two ports on one shared segment: SW1’s becomes alternate, SW3’s spare becomes a backup port." maxWidth={560} />
+
+On a hub, lowest **local** port ID wins DP or RP. The root bridge is the designated bridge for **every** segment — not “every port on the root is designated” if two root ports share a hub.
+
+## Topology change: 6 s, not 50
+
+Classic: wait **max age 20** after BPDUs stop (link still up), then 30 s of LIS+LRN.
+
+RSTP: wait **three missed hellos** (**6 s**), then sync → FWD. Port **down/down** skips the 6 s — often **under 1 s**.
+
+<LessonFigure src="/img/ccna/fig-15-6.png" alt="RSTP after a silent failure: about 6 seconds to reconverge instead of 50." caption="Figure 15.6 — RSTP after a silent failure: about 6 seconds to reconverge instead of 50." maxWidth={480} />
+
+Do not memorize the TC flood. Remember: RSTP fires TC when a **non-edge** port goes **forwarding**. Edge up/down is not a topology change. Classic STP fired on almost any FWD/BLK transition.
+
+## Link types
+
+- **Point-to-point** — **full duplex**. Sync allowed. Auto from duplex. Or `spanning-tree link-type point-to-point`.
+- **Shared** — **half duplex** (hub). No sync; 30 s walk. Auto, or `link-type shared`. Rare.
+- **Edge** — host + **PortFast**. FWD now without sync. **Not** `link-type`. `spanning-tree portfast` (or `portfast default` on access). No PortFast → a PC still waits 30 s.
+
+<LessonFigure src="/img/ccna/fig-15-7.png" alt="RSTP link types: point-to-point between switches, shared on a hub, edge toward hosts." caption="Figure 15.7 — RSTP link types: point-to-point between switches, shared on a hub, edge toward hosts." maxWidth={480} />
+
+`show spanning-tree` Type column: **P2p**, **Shr**, **P2p Edge** (full + PortFast) or **Shr Edge** (half + PortFast).
+
+Between switches: P2p. To a PC: P2p Edge.
+
+## Root Guard, Loop Guard, BPDU Filter
+
+PortFast and BPDU Guard were last chapter. These three work on **STP and RSTP**.
+
+**Root Guard** — stop a foreign switch with a **better BID** from becoming root (provider vs customer). `spanning-tree guard root`. Superior BPDU → **root-inconsistent** (`BKN *ROOT_Inc`). Customer raises its priority; superior BPDUs stop; port **recovers itself**.
+
+<LessonFigure src="/img/ccna/fig-15-8.png" alt="Root Guard on the provider’s ports blocks a customer switch advertising a better (superior) BPDU." caption="Figure 15.8 — Root Guard on the provider’s ports blocks a customer switch advertising a better (superior) BPDU." maxWidth={600} />
+
+**Loop Guard** — an alternate that **stops hearing BPDUs** (neighbor software fault) must **not** become designated/FWD and close a loop. `spanning-tree guard loop`. → **loop-inconsistent** (`BKN *LOOP_Inc`). BPDUs return → recover.
+
+<LessonFigure src="/img/ccna/fig-15-9.png" alt="Without Loop Guard: SW2 stops sending BPDUs, SW3’s alternate port starts forwarding, and a loop forms." caption="Figure 15.9 — Without Loop Guard: SW2 stops sending BPDUs, SW3’s alternate port starts forwarding, and a loop forms." maxWidth={560} />
+
+Root Guard and Loop Guard **cannot share a port**. One reacts to **superior** BPDUs; the other to **missing** BPDUs.
+
+**BPDU Filter** — usually a bad idea.
+
+- Interface `spanning-tree bpdufilter enable`: **no send, ignore receive**. STP is **off**. A second switch can loop the LAN.
+- Global `spanning-tree portfast bpdufilter default`: PortFast ports **stop sending**. A **received** BPDU turns **PortFast and Filter off**; the port becomes a normal STP/RSTP port.
+
+Prefer **BPDU Guard** on host ports. Filter is not Guard.
+
+## Exam shapes
+
+- `ieee` vs `rstp` in `show spanning-tree`. `mode pvst` / `rapid-pvst`.
+- MSTP = group VLANs, RSTP speed.
+- Same algorithm. All designated ports send BPDUs. Short vs long costs (10G long = 2,000).
+- Discarding = BLK+LIS. Alternate vs backup. Local port-ID hub tiebreak.
+- 3 × hello = 6 s. Edge ≠ TC.
+- P2p / shared / edge (PortFast).
+- Root Guard vs Loop Guard vs interface Filter (STP off).
+
+<GuidedChoiceExplanation preset="ccna-rstp" />
+
+<FigureMatchGame preset="ccna-rstp" />
+
+<MultipleChoice
+  title="Rapid Spanning Tree Protocol"
+  questions={[
+    {
+      prompt: 'show spanning-tree prints “protocol ieee”. The box is running:',
+      choices: [
+        'IEEE 802.1D with one tree for the whole LAN',
+        'Rapid PVST+ — ieee always means rapid',
+        'PVST+ (Cisco per-VLAN 802.1D). rapid-pvst would print rstp',
+        'MSTP instance 0',
+      ],
+      answer: 2,
+      why: 'Cisco does not run vanilla 802.1D/w. mode pvst → ieee. mode rapid-pvst → rstp.',
+    },
+    {
+      prompt: 'RSTP vs classic STP on the same cables. The tree is chosen by:',
+      choices: [
+        'The same algorithm; leftover ports are alternate or backup instead of nondesignated',
+        'Highest BID so the core is always root',
+        'Two root ports per switch so both uplinks forward',
+        'MSTP instance IDs, even if you never configured MSTP',
+      ],
+      answer: 0,
+      why: 'Speed and leftover names changed. Root / RP / DP math did not. RSTP also sends its own BPDUs on designated ports every 2 s.',
+    },
+    {
+      prompt: 'Long path-cost method. 10 Gbps = 2,000. 1 Gbps is:',
+      choices: [
+        '4 — long mode keeps the short table',
+        '2, same as 10 Gbps short',
+        '200,000 — that is 100 Mbps long',
+        '20,000 — ten times slower, ten times the cost',
+      ],
+      answer: 3,
+      why: 'show spanning-tree pathcost method. Many Rapid boxes still default short (1G = 4).',
+    },
+    {
+      prompt: 'RSTP port states, mapped from 802.1D:',
+      choices: [
+        'Blocking stays; discarding is only shutdown',
+        'Discarding = blocking + listening; then learning; then forwarding',
+        'Learning is deleted; every port is forwarding',
+        'Listening is renamed backup',
+      ],
+      answer: 1,
+      why: 'New port starts discarding. Sync success → FWD now. Sync fail → 15+15. show spanning-tree still says BLK.',
+    },
+    {
+      prompt: 'A backup port is the leftover port when:',
+      choices: [
+        'The switch is not the designated bridge — that is alternate',
+        'The port faces a PC with PortFast',
+        'This switch is the designated bridge on a hub segment (second port to the same collision domain)',
+        'Every nondesignated port on Rapid PVST+',
+      ],
+      answer: 2,
+      why: 'Discarding, facing a designated port on the same switch. Alternate faces a designated port on another switch. Lowest local port ID breaks the hub tie.',
+    },
+    {
+      prompt: 'Root port stays up but BPDUs stop. RSTP’s first wait, then sync, is about:',
+      choices: [
+        '50 s (max age 20 + 15 + 15)',
+        '6 s (three missed hellos), then sync to FWD',
+        '0 s always, even if the old port stays up/up',
+        '15 s of listening only',
+      ],
+      answer: 1,
+      why: 'down/down skips the 6 s. Classic used max age. Edge flaps are not topology changes.',
+    },
+    {
+      prompt: 'RSTP link types:',
+      choices: [
+        'P2p = full duplex (sync). Shared = half (no sync). Edge = PortFast, not link-type',
+        'Edge is configured with spanning-tree link-type edge',
+        'Every access port is Edge as soon as Rapid PVST+ is on',
+        'Shared is the default on gigabit switch-to-switch links',
+      ],
+      answer: 0,
+      why: 'Type column: P2p, Shr, P2p Edge. A PC without PortFast still waits 30 s.',
+    },
+    {
+      prompt: 'Root Guard on a port that hears a superior BPDU:',
+      choices: [
+        'Ignores the BPDU and stays forwarding',
+        'Goes loop-inconsistent because hellos stopped',
+        'Err-disables like BPDU Guard and needs shut / no shut',
+        'Goes root-inconsistent (BKN *ROOT_Inc) until superior BPDUs stop, then recovers',
+      ],
+      answer: 3,
+      why: 'spanning-tree guard root. Loop Guard is the missing-BPDU tool. They cannot share a port.',
+    },
+    {
+      prompt: 'Loop Guard on an alternate that stops receiving BPDUs:',
+      choices: [
+        'Becomes designated and forwards — that is the recovery',
+        'Goes root-inconsistent',
+        'Goes loop-inconsistent so it cannot close a loop; recovers when BPDUs return',
+        'Enables BPDU Filter automatically',
+      ],
+      answer: 2,
+      why: 'Without it, the alternate would promote and the triangle would flood. spanning-tree guard loop.',
+    },
+    {
+      prompt: 'spanning-tree bpdufilter enable (interface) means:',
+      choices: [
+        'No send and ignore receive — STP is off on that port (a peer switch can loop you)',
+        'The same as BPDU Guard: err-disable on any BPDU',
+        'Recommended on every trunk toward the core',
+        'Identical to global portfast bpdufilter default',
+      ],
+      answer: 0,
+      why: 'Global default only quiets PortFast ports; a received BPDU turns PortFast and Filter off. Prefer Guard on hosts.',
+    },
+  ]}
+/>

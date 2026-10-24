@@ -1,0 +1,253 @@
+---
+sidebar_position: 9
+title: The Life of a Packet
+---
+
+> **Track:** Network CCNA — ninth chapter. A **review walk**, not a new protocol. We take switching, ARP, IPv4, and the **routing table** you just filled, and watch **one ping** travel PC1 → R1 → R2 → R3 → PC3.
+
+# The Life of a Packet
+
+The dest **IP** is written once, at the sender, and it stays **PC3** the whole way. At every hop the packet is stuffed into a **new Ethernet frame** whose dest **MAC** is only the **next box**. Layer 3 is end-to-end. Layer 2 is hop-to-hop.
+
+<LifeOfAPacketSimulator />
+
+Walk the outbound hops, then **PC3 replies**. Orange is the current hop. Green is a router making a Layer 3 decision. Compare SW1’s **MAC table** (MAC → port) with PC1’s **ARP table** (IP → MAC).
+
+## The campus in one picture
+
+Four prefixes, three routers, two access switches:
+
+```text
+PC1 .11          R1               R2               R3          PC3 .11
+PC2 .12 — SW1 — G0/1 .1           |                G0/1 .1 — SW2 — PC4 .12
+                G0/0 .1 ——— .2 G0/0             G0/0 .2
+                     192.168.12.0/24   192.168.23.0/24
+     192.168.1.0/24                                    192.168.3.0/24
+```
+
+<LessonFigure src="/img/ccna/fig-10-1.png" alt="The whole trip at a glance: what PC1, the switches, and each router do." caption="Figure 10.1 — The whole trip at a glance: what PC1, the switches, and each router do." maxWidth={640} />
+
+PC1 pings **192.168.3.11**. The packet type could be anything; ICMP echo is just easy to name. What matters is the path.
+
+## PC1 to R1 — leave the LAN
+
+PC1 is `192.168.1.11/24`. Its local range is `192.168.1.0`–`192.168.1.255`. `192.168.3.11` is **not** in that range, so PC1 will not ARP for PC3. The two hosts do not share a Layer 2 domain. PC1 sends to its **default gateway** — here `192.168.1.1` on R1 G0/1 (often learned later via DHCP).
+
+It still needs a dest **MAC**. That is **ARP**:
+
+1. ARP **request** (broadcast dest `ffff.ffff.ffff`): who-has `192.168.1.1`?
+2. SW1 **learns** PC1’s MAC on the ingress port and **floods** the broadcast.
+3. PC2 hears it and **drops** — the target IP is not `.12`.
+4. R1 **replies unicast**, and **also** writes PC1 into its own ARP table. ARP is two-way learning.
+5. SW1 learns R1 G0/1 and **forwards** the known unicast to PC1.
+6. PC1 stores `192.168.1.1 → R1 G0/1 MAC`.
+
+Now the echo request can leave: dest IP **PC3**, dest MAC **R1 G0/1**. SW1 already has that MAC, so this frame is a thin known-unicast path.
+
+<LessonFigure src="/img/ccna/fig-10-2.png" alt="PC1 ARPs for its default gateway, R1 G0/1; SW1 floods the request and learns MACs." caption="Figure 10.2 — PC1 ARPs for its default gateway, R1 G0/1; SW1 floods the request and learns MACs." maxWidth={600} />
+
+Two tables, two jobs:
+
+- **MAC address table** (switch): MAC → **port**. Forward or flood frames. The switch does not rewrite the frame.
+- **ARP table** (host or router): IP → **MAC**. Build the next Ethernet header.
+
+## R1 to R2 — look up, then a new frame
+
+R1’s dest MAC is its own, so it **de-encapsulates** and reads the IPv4 header. Dest IP is still `192.168.3.11`. It walks the **routing table** and picks the **most specific matching route** — the match with the **longest prefix**.
+
+Simplified R1 table:
+
+| Route | Kind | Out |
+| --- | --- | --- |
+| 192.168.1.0/24 | connected (C) | G0/1 |
+| 192.168.1.1/32 | local (L) | G0/1 |
+| 192.168.12.0/24 | connected | G0/0 |
+| 192.168.3.0/24 | static (S) | via 192.168.12.2, G0/0 |
+
+`192.168.3.11` matches only the static `/24`. Next hop is **192.168.12.2** (R2 G0/0). R1 knows that IP, not the MAC, so it ARPs on the `192.168.12.0/24` link. No switch sits between R1 and R2 — the broadcast still goes out, but only R2 is there to hear it. Both routers add ARP rows. R1 builds a **new** frame: src R1 G0/0, dest R2 G0/0, same IPv4 header inside.
+
+<LessonFigure src="/img/ccna/fig-10-3.png" alt="R1: route lookup to 192.168.3.0/24 via R2, then ARP for R2’s MAC before forwarding." caption="Figure 10.3 — R1: route lookup to 192.168.3.0/24 via R2, then ARP for R2’s MAC before forwarding." maxWidth={600} />
+
+How that static row got into the table is a later chapter. For this walk you only need: **longest match wins**, then **ARP the next hop**.
+
+## R2 to R3 — same movie, next reel
+
+R2 de-encapsulates. Longest match is `S 192.168.3.0/24` via `192.168.23.2` out G0/1. ARP for R3 G0/0. New frame. Dest IP still PC3.
+
+<LessonFigure src="/img/ccna/fig-10-4.png" alt="R2: the same steps toward R3 — route lookup, ARP for the next hop, new frame." caption="Figure 10.4 — R2: the same steps toward R3 — route lookup, ARP for the next hop, new frame." maxWidth={600} />
+
+## R3 to PC3 — connected means “this LAN”
+
+R3’s longest match is **connected** `192.168.3.0/24` on G0/1. There is no further router. The next MAC is **PC3 itself**. R3 ARPs for `192.168.3.11`. SW2 floods. PC4 drops. PC3 replies. SW2 learns both MACs. R3 forwards the echo as a known unicast.
+
+<LessonFigure src="/img/ccna/fig-10-5.png" alt="R3: the destination is on a connected LAN, so it ARPs for PC3 itself and delivers." caption="Figure 10.5 — R3: the destination is on a connected LAN, so it ARPs for PC3 itself and delivers." maxWidth={600} />
+
+PC3 has the packet. For ping, it now builds an **ICMP echo reply** to `192.168.1.11`.
+
+## PC3 back to PC1 — same rules, warm tables
+
+The return trip uses the same ideas: dest IP is remote → frame to **R3** (PC3’s gateway) → each router longest-matches toward `192.168.1.0/24` → last hop R1 ARPs… except it **already has** PC1, and the switches **already have** the MACs.
+
+<LessonFigure src="/img/ccna/fig-10-6.png" alt="PC3’s reply to PC1: every ARP table is already warm, so no ARP this time." caption="Figure 10.6 — PC3’s reply to PC1: every ARP table is already warm, so no ARP this time." maxWidth={640} />
+
+So you see four frames, IPs swapped, MACs changing each hop, and **no** ARP request, **no** flood. That is not a special “reply protocol.” It is the same forwarding with caches already filled.
+
+```text
+PC3 → R3 G0/1     src IP .3.11  dest IP .1.11   dest MAC = gateway
+R3  → R2 G0/1     same IPs                      dest MAC = R2
+R2  → R1 G0/0     same IPs                      dest MAC = R1
+R1  → PC1         same IPs                      dest MAC = PC1
+```
+
+## What to keep
+
+- Off-LAN: host ARPs the **gateway**, never the remote dest.
+- Switch: learn source, flood broadcast / unknown unicast, forward known unicast. Frames are not rewritten.
+- Router: dest MAC is me → de-encap → **longest prefix match** → ARP next hop (or dest host if connected) → **new** frame.
+- Packet dest IP is constant. Frame dest MAC is the next hop only.
+- A second packet on a warm path skips ARP and flood.
+
+<GuidedChoiceExplanation preset="ccna-packet-life" />
+
+<FigureMatchGame preset="ccna-packet-life" />
+
+## Check
+
+<MultipleChoice
+  id="ccna-life-of-a-packet"
+  title="The life of a packet"
+  questions={[
+    {
+      prompt: 'PC1 (192.168.1.11/24) sends to 192.168.3.11. The first frame’s dest MAC is:',
+      choices: [
+        'PC3’s MAC, because Layer 2 always names the final host',
+        'SW1’s BIA, so the switch can insert itself as a router',
+        'R1 G0/1 — PC1’s default gateway — after ARP for 192.168.1.1',
+        'ffff.ffff.ffff on every hop until the packet reaches PC3',
+      ],
+      answer: 2,
+      why: 'Different /24. PC1 never needs PC3’s MAC. It needs the gateway’s.',
+    },
+    {
+      prompt: 'PC1’s ARP request is asking for:',
+      choices: [
+        'The MAC of 192.168.1.1 (the gateway), dest MAC ffff.ffff.ffff',
+        'The MAC of 192.168.3.11, flooded across R1, R2, and R3',
+        'SW1’s management IP, because switches answer all ARP',
+        'A DNS name; ARP is only for IPv6',
+      ],
+      answer: 0,
+      why: 'ARP is hop-local. Remote hosts are reached by routing, not by a campus-wide ARP.',
+    },
+    {
+      prompt: 'SW1 floods that ARP request because:',
+      choices: [
+        'The EtherType is 0x0800, which always means “flood”',
+        'R1 configured switchport flood arp on G0/0',
+        'PC2 is the intended dest, so SW1 copies it there only',
+        'Dest MAC is broadcast; flood every port except ingress. PC2 then drops',
+      ],
+      answer: 3,
+      why: 'Unknown unicast floods too. Broadcast is the same flood rule with a well-known dest.',
+    },
+    {
+      prompt: 'A switch MAC table versus a host/router ARP table:',
+      choices: [
+        'Both map IP → port; the names are historical synonyms',
+        'MAC table: MAC → port (forward). ARP table: IP → MAC (build the next frame)',
+        'MAC table: IP → MAC. ARP table: MAC → port on the switch ASIC',
+        'Only routers have either table; switches flood forever',
+      ],
+      answer: 1,
+      why: 'Different questions. The switch never needs the dest IP to pick a port.',
+    },
+    {
+      prompt: 'When a router receives a frame whose dest MAC is its own, it:',
+      choices: [
+        'Forwards the Ethernet header unchanged, like a switch',
+        'Drops it unless the dest IP is a connected address on that same port',
+        'De-encapsulates and looks up the dest IP; longest matching prefix wins',
+        'Rewrites the dest IP to the next hop before the lookup',
+      ],
+      answer: 2,
+      why: 'Layer 2 delivery is finished. Layer 3 decides the next hop (or this host, or drop).',
+    },
+    {
+      prompt: 'R1’s table has C 192.168.1.0/24 and S 192.168.3.0/24 via 192.168.12.2. Dest 192.168.3.11 uses:',
+      choices: [
+        'The static /24 via 192.168.12.2 — the only prefix that matches',
+        'The connected /24 the packet arrived on, because ingress wins',
+        'A default 0.0.0.0/0 that every Cisco router has out of the box',
+        'L 192.168.1.1/32, the most specific row anywhere in the table',
+      ],
+      answer: 0,
+      why: 'Most specific *matching* route. 192.168.1.0/24 does not contain .3.11. The /32 is R1 itself.',
+    },
+    {
+      prompt: 'After the lookup, R1 still needs R2’s MAC because:',
+      choices: [
+        'IOS erases ARP on every lookup so the next hop stays fresh',
+        'The packet dest IP was rewritten to 192.168.12.2 and must be ARPed again',
+        'R2 is in another building, so ARP must be flooded to PC3 first',
+        'The next frame’s dest MAC is the next hop, not PC3; ARP fills that mapping',
+      ],
+      answer: 3,
+      why: 'Same as PC1 and the gateway. IP of the next hop is known; MAC is not, until ARP.',
+    },
+    {
+      prompt: 'On the R1–R2 Ethernet, the forwarded echo has:',
+      choices: [
+        'Src/dest IP rewritten to 192.168.12.1 and .12.2, like a hop-by-hop NAT',
+        'Src MAC R1 G0/0, dest MAC R2 G0/0; IPs still 192.168.1.11 → 192.168.3.11',
+        'The original PC1 dest MAC, copied so PC3 can reply to it',
+        'No Ethernet header; routers send raw IPv4 on serial-looking Gigabit ports',
+      ],
+      answer: 1,
+      why: 'New frame each hop. The IPv4 header is the constant.',
+    },
+    {
+      prompt: 'R3’s best match is C 192.168.3.0/24. It ARPs for:',
+      choices: [
+        '192.168.23.1, so the packet can bounce back to R2 for delivery',
+        '255.255.255.255 only — connected routes never use a host MAC',
+        '192.168.3.11 (PC3), then frames to that MAC; SW2 floods the request',
+        'R1 G0/1, because the original sender must be named at Layer 2',
+      ],
+      answer: 2,
+      why: 'Connected last hop = this LAN. Deliver to the dest host, not to another router.',
+    },
+    {
+      prompt: 'PC3’s echo reply can skip ARP and flood because:',
+      choices: [
+        'ICMP replies are Layer 3 only and never use Ethernet',
+        'SW2 has become a router and no longer needs MAC rows',
+        'The dest IP 192.168.1.11 is now treated as local to 192.168.3.0/24',
+        'ARP caches and MAC tables already hold the gateway, next hops, and PC1',
+      ],
+      answer: 3,
+      why: 'Same algorithms, warm tables. A later packet on a cold box would ARP again.',
+    },
+    {
+      prompt: 'Which statement is true for the whole PC1→PC3 journey?',
+      choices: [
+        'Dest IP stays 192.168.3.11; dest MAC is rewritten at every hop',
+        'Dest MAC stays PC3; each router overwrites the dest IP with the next hop',
+        'Both IP and MAC are constant once PC1 ARPs for PC3 at the start',
+        'Switches decrement TTL; routers only change the FCS',
+      ],
+      answer: 0,
+      why: 'End-to-end IP, hop-to-hop Ethernet. TTL is decremented by routers, not by switches.',
+    },
+    {
+      prompt: 'A device receives an ARP request aimed at its own IP. Besides replying, it:',
+      choices: [
+        'Deletes its MAC table so the next frame can flood and relearn',
+        'Ignores the source; only the asker is allowed to create an ARP row',
+        'Installs an ARP entry for the asker’s IP and MAC (reverse learning)',
+        'Sends a second request for 255.255.255.255 to confirm the LAN',
+      ],
+      answer: 2,
+      why: 'The request already carried a useful mapping. R1 learned PC1 before PC1 learned R1.',
+    },
+  ]}
+/>

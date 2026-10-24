@@ -1,0 +1,349 @@
+---
+sidebar_position: 13
+title: Spanning Tree Protocol
+---
+
+> **Track:** Network CCNA — thirteenth chapter. DTP/VTP decided **who trunks** and **who copies VLANs**. This chapter keeps a meshed LAN from melting: **Spanning Tree Protocol**. Exam **2.5** names **Rapid PVST+**. Rapid STP is the fourteenth chapter. You cannot read Rapid until this one — **802.1D / PVST+ classic** — is in your hands.
+
+# Spanning Tree Protocol
+
+IPv4 has **TTL**. A router decrements it; **0** dies. That stops a **Layer 3** loop.
+
+The Ethernet header has **no such field**. A **Layer 2** loop — two switch paths and a flood — circulates **forever**. Enough looping **BUM** (broadcast, unknown unicast, multicast) and you have a **broadcast storm**: CPU and links go to 100%, hosts process the same frame again and again, and the LAN is gone in seconds.
+
+**STP** (IEEE **802.1D**, Cisco **PVST+**) is on every Cisco switch by default. It **blocks** spare links so any two nodes have **exactly one active path**. The blocked cable is still there; it takes over if the active path dies.
+
+<StpSimulator />
+
+**Next story** starts with a ring and no STP, then elects a root, a root port, a designated port. Costs in the lab are **1 Gbps = 4**.
+
+## Why a loop is inevitable
+
+**Redundancy** is the point of extra switches and extra cables: no single point of failure. Remove any one link in a triangle and the PCs still talk.
+
+Switches **flood** BUM. PC1 broadcasts. SW1 copies the frame out every other port. SW2 and SW3 flood their copies. You now have a clockwise copy and a counterclockwise copy, each re-flooded forever.
+
+<LessonFigure src="/img/ccna/fig-14-1.png" alt="No STP: one broadcast from PC1 loops around the triangle in both directions forever." caption="Figure 14.1 — No STP: one broadcast from PC1 loops around the triangle in both directions forever." maxWidth={560} />
+
+Two failures ride together:
+
+- **Broadcast storm** — the LAN is too busy to do useful work.
+- **MAC flapping** — SW1 learned PC1 on the access port, then sees the same source on G0/0, then on G0/1. The table never settles. Frames toward PC1 go out the wrong port.
+
+A **routing** loop is a bad config. A **Layer 2** loop is what a redundant LAN **does** unless STP (or something like it) blocks a port.
+
+## One sentence, then a tree
+
+STP’s job: **disable redundant connections** until the **logical** topology is a **tree** — one path between any two switches — that still **spans** every switch.
+
+<LessonFigure src="/img/ccna/fig-14-2.png" alt="With STP, SW3 blocks G0/1, cutting the SW2–SW3 link so the broadcast can’t loop." caption="Figure 14.2 — With STP, SW3 blocks G0/1, cutting the SW2–SW3 link so the broadcast can’t loop." maxWidth={560} />
+
+Physical mesh: loops everywhere. Logical STP topology: a subset of those cables, the rest **blocking**. Traffic does not use the dashed links. They are the spare.
+
+<LessonFigure src="/img/ccna/fig-14-3.png" alt="A meshed physical topology (left) and the loop-free tree STP builds from it (right)." caption="Figure 14.3 — A meshed physical topology (left) and the loop-free tree STP builds from it (right)." maxWidth={600} />
+
+**Bridge** in the names (**root bridge**, **BID**) is leftover from Ethernet bridges. Read **switch**.
+
+## The algorithm (three steps)
+
+Every decision rides in a **BPDU** (Bridge Protocol Data Unit), sent every **hello** (default **2 s**). After the LAN is stable, **only the root generates** new BPDUs. Everyone else **forwards** them out **designated** ports and updates a few fields (root cost, their own BID, the sending port ID).
+
+1. **Elect one root bridge** for the LAN (lowest **BID**).
+2. **Each non-root switch picks one root port** — best path **to** the root.
+3. **Each segment (switch-to-switch link) picks one designated port** — the end that faces **away** from the root. The other end is **non-designated** and **blocks**.
+
+All root-bridge ports are designated (they all face away). The port on the far side of a root port must be designated: that root port is the switch’s only path home.
+
+<LessonFigure src="/img/ccna/fig-14-4.png" alt="A converged LAN: SW3 is root, each other switch has one root port, the rest designated or blocking." caption="Figure 14.4 — A converged LAN: SW3 is root, each other switch has one root port, the rest designated or blocking." maxWidth={560} />
+
+`show spanning-tree` is the read-out: Root ID, Bridge ID, then each interface **Role** / **Sts** / **Cost** / **Prio.Nbr**.
+
+## Root bridge: the BID
+
+The **BID** is 64 bits: **16-bit bridge priority** + **48-bit switch MAC** (a chassis MAC, not G0/0’s).
+
+<LessonFigure src="/img/ccna/fig-14-6.png" alt="The 64-bit bridge ID: 4-bit priority + 12-bit extended system ID (VLAN), then the 48-bit MAC." caption="Figure 14.6 — The 64-bit bridge ID: 4-bit priority + 12-bit extended system ID (VLAN), then the 48-bit MAC." maxWidth={600} />
+
+Bridge priority itself is **configurable priority** (default **32768**) plus the **Extended System ID** = **VLAN ID**. Displayed priority in VLAN 1 is **32769**.
+
+Cisco runs **PVST+**: one STP **instance per VLAN**, so different VLANs can block different links. That is why the VLAN ID sits in the BID — each instance needs a unique BID to match 802.1D. **PVST** (no plus) was ISL-only; modern boxes run **PVST+**. For the rest of this chapter, think **one VLAN**. Do not expect a “build two trees” question.
+
+<LessonFigure src="/img/ccna/fig-14-7.png" alt="PVST+: VLAN 1 and VLAN 2 block different links, so each VLAN uses its own tree." caption="Figure 14.7 — PVST+: VLAN 1 and VLAN 2 block different links, so each VLAN uses its own tree." maxWidth={560} />
+
+Lowest **numerical** BID wins. Compare **priority first** (most significant bits), then the MAC the same way you compare `1999` and `9111` — leftmost digit first. Same default priority, lowest MAC is root.
+
+A switch that just booted claims **I am the root** (`My BID` = `Root BID`) on every port. A **superior** BPDU (lower My BID) and it yields.
+
+```text
+SW1# show spanning-tree
+VLAN0001
+  Spanning tree enabled protocol ieee
+  Root ID    Priority    32769
+             Address     5254.000f.adab
+             This bridge is the root
+  Bridge ID  Priority    32769 (priority 32768 sys-id-ext 1)
+             Address     5254.000f.adab
+```
+
+<LessonFigure src="/img/ccna/fig-14-5.png" alt="Right after boot every switch claims to be root and floods BPDUs saying so." caption="Figure 14.5 — Right after boot every switch claims to be root and floods BPDUs saying so." maxWidth={560} />
+
+Put the root next to the LAN’s exit (the router the PCs use). Everyone’s “best path to the root” is then a short path out.
+
+`spanning-tree vlan 1 priority` accepts **only multiples of 4096**. The configurable field is the **four high bits** (32768, 16384, 8192, 4096). The low **12** bits are the VLAN ID. `priority 20000` is rejected.
+
+```text
+SW3(config)# spanning-tree vlan 1 priority 24576
+SW4(config)# spanning-tree vlan 1 priority 28672
+```
+
+SW3 becomes **24577** (plus VLAN 1). SW4 is **28673** — secondary if SW3 dies and a new election runs.
+
+<LessonFigure src="/img/ccna/fig-14-8.png" alt="SW3’s priority lowered to 24576: every switch’s BPDUs now agree SW3 is root." caption="Figure 14.8 — SW3’s priority lowered to 24576: every switch’s BPDUs now agree SW3 is root." maxWidth={560} />
+
+`spanning-tree vlan 1 root primary` tries **24576**, or the next multiple of 4096 that would win — **it will not set 0**. `root secondary` is **28672**. If another switch is already at 4096, primary **fails**. If someone else is under 28672, secondary is not next in line.
+
+**Exam habit:** `spanning-tree vlan 1 priority 0`. The only way to steal the root is the same command plus a **lower MAC**.
+
+## Root port: cost, then neighbor, then their port
+
+One **root port** per non-root switch. Order:
+
+1. **Lowest root cost**
+2. **Lowest neighbor BID**
+3. **Lowest neighbor port ID**
+
+<LessonFigure src="/img/ccna/fig-14-9.png" alt="Root port selection: lowest root cost, then lowest neighbor BID, then lowest neighbor port ID." caption="Figure 14.9 — Root port selection: lowest root cost, then lowest neighbor BID, then lowest neighbor port ID." maxWidth={600} />
+
+**Port cost** by speed: **10 Mbps = 100**, **100 Mbps = 19**, **1 Gbps = 4**, **10 Gbps = 2**.
+
+**Root cost** is the **sum** toward the root, not the one link. The root advertises **0**. A non-root **adds the cost of the port it received the BPDU on**, then forwards. Hear 0 on a gig port → your cost via that port is **4**. Hear 4, add 4 → **8**.
+
+<LessonFigure src="/img/ccna/fig-14-10.png" alt="Each switch advertises its own root cost in BPDUs: 0 at the root, 4 one hop out, 8 two hops out." caption="Figure 14.10 — Each switch advertises its own root cost in BPDUs: 0 at the root, 4 one hop out, 8 two hops out." maxWidth={600} />
+
+Tied costs: pick the neighbor with the **lower BID**. Still tied (two cables to the **same** neighbor): pick the **neighbor’s** lower **port ID**.
+
+<LessonFigure src="/img/ccna/fig-14-11.png" alt="Equal root costs: SW2 breaks the tie by picking the port facing the lower neighbor BID." caption="Figure 14.11 — Equal root costs: SW2 breaks the tie by picking the port facing the lower neighbor BID." maxWidth={600} />
+
+Port ID = **priority** (default **128**) + a sequence (`128.1` is G0/0, `128.2` is G0/1 on a typical box). You **can** set `spanning-tree vlan 1 port-priority` on the far switch; do not expect that command on the exam. Compare names: **G0/0 beats G0/1**.
+
+**Trap:** the tiebreak is the **neighbor’s** Prio.Nbr, not yours. SW1 G0/0 facing SW3 G0/1 (`128.2`) loses to SW1 G0/1 facing SW3 G0/0 (`128.1`).
+
+<LessonFigure src="/img/ccna/fig-14-12.png" alt="Last tiebreaker: SW1 picks the port connected to SW3’s lower port ID (128.1)." caption="Figure 14.12 — Last tiebreaker: SW1 picks the port connected to SW3’s lower port ID (128.1)." maxWidth={480} />
+
+## Designated port: one per segment
+
+A **segment** here is a **Layer 1** link (one cable between two switches; also the old hub collision domain). Exactly **one designated** port per segment. Designated faces **away** from the root and **forwards**.
+
+Already decided before you look at leftovers:
+
+- every port on the root
+- every port that faces a neighbor’s root port
+
+<LessonFigure src="/img/ccna/fig-14-13.png" alt="One designated port per segment: all root-bridge ports, every port facing a root port, and one per leftover link." caption="Figure 14.13 — One designated port per segment: all root-bridge ports, every port facing a root port, and one per leftover link." maxWidth={600} />
+
+Leftovers, in order:
+
+1. Port on the switch with the **lower root cost** (the switch’s cost **via its root port**, not the leftover port’s own cost)
+2. Port on the switch with the **lower BID**
+
+<LessonFigure src="/img/ccna/fig-14-14.png" alt="On the SW1–SW2 link, SW1’s lower root cost (4 vs 8) makes its port designated." caption="Figure 14.14 — On the SW1–SW2 link, SW1’s lower root cost (4 vs 8) makes its port designated." maxWidth={560} />
+
+The other end is **non-designated** and **blocks**. IOS may print the role as **Altn** (alternate) even on classic STP — Rapid’s word, used on the same screen.
+
+<LessonFigure src="/img/ccna/fig-14-15.png" alt="Equal root costs on the SW1–SW4 link: SW4’s lower BID makes its port designated." caption="Figure 14.15 — Equal root costs on the SW1–SW4 link: SW4’s lower BID makes its port designated." maxWidth={480} />
+
+**Wording:** “the port **on the switch** with the lowest root cost,” not “the leftover port with the lowest cost.”
+
+BPDUs leave **designated** ports only. A brand-new switch thinks it is root, so it sends on everything; once it has a root port or a blocker, those ports go quiet.
+
+## States and timers
+
+Roles: **root**, **designated**, **non-designated**. States are a different axis.
+
+| State | Data frames | Learn MACs | Stable? |
+| --- | --- | --- | --- |
+| Blocking (BLK) | no | no | yes (non-designated) |
+| Listening (LIS) | no (BPDUs only) | no | transitional |
+| Learning (LRN) | no | yes | transitional |
+| Forwarding (FWD) | yes | yes | yes (root, designated) |
+
+**Disabled** is a port that is `shutdown` or unplugged. STP is not running there.
+
+A port that just came up starts in **listening** (pick a role). Non-designated → **blocking** at once. Root or designated → **learning** after the forward delay, then **forwarding**. From any state you can jump to **blocking**. You cannot jump to **forwarding**; you walk LIS then LRN.
+
+<LessonFigure src="/img/ccna/fig-14-16.png" alt="STP port states: listening, then learning and forwarding, or back to blocking." caption="Figure 14.16 — STP port states: listening, then learning and forwarding, or back to blocking." maxWidth={420} />
+
+`show ip interface brief` still says **up/up** on a blocker. `show spanning-tree` says **BLK**. The port is listening for BPDUs, ready to wake up.
+
+Timers (the **root’s** timers are the LAN’s timers):
+
+| Timer | Default | Job |
+| --- | --- | --- |
+| Hello | 2 s | How often BPDUs leave the root |
+| Forward delay | 15 s **each** | Length of listening **and** of learning |
+| Max age | 20 s | How long to wait after BPDUs stop before recomputing |
+
+New access port, no extras: **30 s** (15 + 15) before the PC can talk.
+
+Silent failure (BPDUs stop, link still up): up to **50 s** (20 + 15 + 15) before the spare forwards. If the old port goes **down/down**, skip max age — still **30 s** of LIS+LRN.
+
+<LessonFigure src="/img/ccna/fig-14-17.png" alt="A silent failure: the root port waits out max age, then listening and learning — 50 seconds of no forwarding." caption="Figure 14.17 — A silent failure: the root port waits out max age, then listening and learning — 50 seconds of no forwarding." maxWidth={480} />
+
+Slow is the feature. A port that forwards too soon **is** a loop. Do not tune the timers for the exam. **PortFast** (below) and **Rapid STP** (next chapter) are how Cisco sped this up.
+
+## PortFast and BPDU Guard
+
+STP runs on **PC ports** too. That port will be designated — a PC does not speak STP — but it still sits through **30 s** of LIS+LRN. Users hate it.
+
+**PortFast** jumps **straight to forwarding**.
+
+```text
+SW1(config)# interface g1/0
+SW1(config-if)# spanning-tree portfast
+```
+
+<LessonFigure src="/img/ccna/fig-14-18.png" alt="Without PortFast a new host waits 30 seconds; with PortFast its port forwards immediately." caption="Figure 14.18 — Without PortFast a new host waits 30 seconds; with PortFast its port forwards immediately." maxWidth={560} />
+
+`spanning-tree portfast default` (global) turns it on for **access** ports only, not trunks. IOS warns you: do **not** point PortFast at a hub or another switch. A loop can form before STP notices.
+
+**BPDU Guard** shuts the port if a **BPDU arrives**. That is the careless extra switch on a desk drop. The new box cannot become root.
+
+```text
+SW1(config-if)# spanning-tree bpduguard enable
+```
+
+`spanning-tree portfast bpduguard default` arms Guard on **every PortFast** port.
+
+A hit is **err-disable**: `%SPANTREE-2-BLOCK_BPDUGUARD`, `%PM-4-ERR_DISABLE`, status **down/down**. Unplug the extra switch, then `shutdown` / `no shutdown`.
+
+Best practice: **PortFast and BPDU Guard together, host ports only.** Either feature alone is legal; the pair is the habit.
+
+## Exam shapes
+
+- Why Ethernet loops and IPv4 does not (no TTL vs TTL).
+- BID: **32768 + VLAN**, MAC tiebreak, increments of **4096**, **priority 0**.
+- Root port: **cost, neighbor BID, neighbor port ID** (theirs).
+- Costs: 100 / 19 / 4 / 2. Root sends 0; add the **receiving** port.
+- Designated: **switch** root cost, then BID. One D per cable.
+- States BLK / LIS / LRN / FWD. **30 s** up, **50 s** silent fail.
+- PortFast + Guard; err-disable bounce.
+
+<GuidedChoiceExplanation preset="ccna-stp" />
+
+<FigureMatchGame preset="ccna-stp" />
+
+<MultipleChoice
+  title="Spanning Tree Protocol"
+  questions={[
+    {
+      prompt: 'A Layer 2 loop is worse than a routing loop because:',
+      choices: [
+        'Switches decrement TTL and drop at 1, so only broadcasts loop',
+        'STP is off by default; you must enable it after the first storm',
+        'Ethernet has no TTL — flooded BUM circulates until STP blocks a port',
+        'Routers flood unknown unicasts; switches never flood',
+      ],
+      answer: 2,
+      why: 'Redundant cables plus flood = two circulating copies, a storm, and MAC flap. STP leaves one active path.',
+    },
+    {
+      prompt: 'STP’s job in one line:',
+      choices: [
+        'Block spare links so any two nodes have one active path',
+        'Hash each flow onto a different uplink (that is EtherChannel)',
+        'Replace VLANs so each department is its own spanning tree by default',
+        'Add TTL to the Ethernet header on Cisco ports',
+      ],
+      answer: 0,
+      why: 'The blocked link is a spare, not a load-share. PVST+ can pick different blockers per VLAN; the idea is still one path per instance.',
+    },
+    {
+      prompt: 'Four switches, default priority, VLAN 1. The root is the switch with:',
+      choices: [
+        'The most trunks; IOS prefers a distribution box',
+        'The highest MAC so the “core” wins',
+        'Priority 0 already — that is the factory default',
+        'The lowest BID: 32769, then the lowest switch MAC',
+      ],
+      answer: 3,
+      why: 'Displayed priority is 32768 + VLAN ID. Same priority → MAC. Chassis MAC, not G0/0.',
+    },
+    {
+      prompt: 'spanning-tree vlan 1 priority 20000. IOS:',
+      choices: [
+        'Accepts it and displays 20001 in VLAN 1',
+        'Rejects it — priority must be a multiple of 4096',
+        'Rounds down to 16384 without telling you',
+        'Treats 20000 as root primary and sets 0',
+      ],
+      answer: 1,
+      why: 'Four configurable bits. 0, 4096, … 24576, 28672, 32768, … 61440. priority 0 is the surest root.',
+    },
+    {
+      prompt: 'Root port selection, in order:',
+      choices: [
+        'Lowest local port name, then your BID, then cost',
+        'Highest cost so the backup stays idle',
+        'Lowest root cost, then lowest neighbor BID, then lowest neighbor port ID',
+        'Lowest neighbor port ID first; cost is only a tiebreak',
+      ],
+      answer: 2,
+      why: 'Root sends cost 0. You add the receiving port (1 Gbps = 4). Neighbor Prio.Nbr — not yours.',
+    },
+    {
+      prompt: 'SW1 faces SW3 on two equal-cost links: SW1 G0/0↔SW3 G0/1 and SW1 G0/1↔SW3 G0/0. SW1’s root port is:',
+      choices: [
+        'G0/0 because the local name is lower',
+        'G0/1 because the neighbor port ID 128.1 beats 128.2',
+        'Both; two root ports are legal on one switch',
+        'Neither; equal cost means both block',
+      ],
+      answer: 1,
+      why: 'Same cost, same neighbor BID, last tiebreak is the far port ID. Exam trap is “use the local lower name.”',
+    },
+    {
+      prompt: 'On a leftover segment, designated is the port on the switch with:',
+      choices: [
+        'The lower root cost (via its root port); tie → lower BID',
+        'The higher leftover-port cost so the spare is obvious',
+        'The higher BID; designated means “backup”',
+        'Neither end; leftover segments keep both ports blocking',
+      ],
+      answer: 0,
+      why: 'Compare the switches, not the leftover ports’ own costs. Root-bridge ports and the far side of a root port are already D.',
+    },
+    {
+      prompt: 'A port that just came up, no PortFast. Order of states if it will forward:',
+      choices: [
+        'Forwarding, then learning if a BPDU arrives',
+        'Blocking for 50 s, then forwarding',
+        'Learning, then listening, then forwarding',
+        'Listening (role), then learning (MACs), then forwarding',
+      ],
+      answer: 3,
+      why: 'LIS 15, LRN 15, FWD. Non-designated jumps to BLK from anywhere. You never skip into FWD on classic STP.',
+    },
+    {
+      prompt: 'BPDUs stop on the root port but the line stays up. Worst-case time before a blocker forwards:',
+      choices: [
+        '2 s — the next missed hello',
+        '15 s — one forward delay',
+        '50 s — max age 20 plus listening 15 plus learning 15',
+        'Immediate; max age is only for PortFast ports',
+      ],
+      answer: 2,
+      why: 'Down/down skips max age (still 30 s). Hello 2 s. Timers follow the root.',
+    },
+    {
+      prompt: 'PortFast and BPDU Guard, best practice:',
+      choices: [
+        'Both on end-host access ports; a BPDU err-disables; unplug, then shut / no shut',
+        'PortFast on every trunk so the core skips listening',
+        'BPDU Guard on the root only; PortFast is global and cannot be per-port',
+        'Neither on access ports; they are only for routed interfaces',
+      ],
+      answer: 0,
+      why: 'portfast or portfast default (access). bpduguard enable or portfast bpduguard default. Together, host ports only.',
+    },
+  ]}
+/>

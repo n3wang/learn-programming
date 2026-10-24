@@ -1,0 +1,295 @@
+---
+sidebar_position: 7
+title: Router and Switch Interfaces
+---
+
+> **Track:** Network CCNA — seventh chapter. Last chapter put an **IPv4 address** on a router (Layer 3). This one is mostly **Layer 1**: description, **speed**, **duplex**, **autonegotiation**, and the counters that fire when a link is sick. Exam 1.3.b (shared media vs point-to-point) and 1.4 (collisions, errors, speed/duplex mismatch).
+
+# Router and Switch Interfaces
+
+People say **port** and **interface** as if they were twins. A useful split: **port** is the plastic hole; **interface** is the IOS object (`interface g0/1`). Cisco docs mix them. This lesson says *port* for the connector and *interface* for the config, except where the industry has already picked a winner.
+
+<RouterSwitchInterfacesSimulator />
+
+Set both ends of **Gi0/1**. `a-full` / `a-1000` means autoneg chose it. Hard-set only one end and watch a **duplex mismatch** stay **up/up**. Hard-set two different speeds and the line goes **down/down**. **Burst traffic** only counts when the mismatch is duplex.
+
+## Two defaults you will mix up
+
+Router interfaces start **shutdown**. You already typed `no shutdown` to give them an address.
+
+Switch interfaces start **enabled**. That is how a switch can be **plug-and-play**: cable a PC, frames flow, no config. An **unmanaged** switch is that idea as a product. The CCNA is about **managed** switches — you *can* configure them, and in a real campus you will.
+
+Security habit: **`shutdown` unused switch ports.** An empty jack is an invitation.
+
+Switches do **not** need IPv4 on each access port to forward frames. Addressing a switch (SVI, later) is for *managing* the box, not for MAC learning.
+
+## Description, and `interface range`
+
+```text
+SW1(config)# interface range f0/1-2
+SW1(config-if)# description access PCs
+SW1(config-if)# interface g0/1
+SW1(config-if)# description to R1
+SW1(config-if)# interface range f0/3-8, g0/2
+SW1(config-if)# description unused
+SW1(config-if)# shutdown
+```
+
+`interface range type slot/first-last` paints many ports at once. Mix types with a **comma**: `f0/3-8, g0/2`. The prompt still says `config-if`; it does not list which members you are in. Read the last `range` twice.
+
+`description` is optional and worth it. Some labs wrap the string in `##` so it pops in a wall of output. The hashes are not syntax.
+
+<LessonFigure src="/img/ccna/fig-8-1.png" alt="Interface config on R1 and SW1: description, speed, and duplex, plus interface range and shutting down unused ports." caption="Figure 8.1 — Interface config on R1 and SW1: description, speed, and duplex, plus interface range and shutting down unused ports." maxWidth={600} />
+
+Verify:
+
+- `show interfaces description` — Status (L1) and Protocol (L2) plus the string. Works on routers and switches.
+- `show interfaces status` — **switches only**. Name, connected/notconnect/disabled, VLAN, Duplex, Speed, Type.
+
+`show running-config interface g0/1` (or `show running-config | section interface`) is the typed config. **Defaults are often hidden.** `speed auto` and `duplex auto` will not appear even though they are on.
+
+## Speed
+
+**Speed** is the bit rate the interface will try to run, in Mbps. A FastEthernet jack is usually **10/100**. A GigabitEthernet jack is usually **10/100/1000**. You want the fastest both ends share. If the neighbor is an old 100 Mbps NIC, the Gigabit side must step down.
+
+```text
+SW1(config-if)# speed {10 | 100 | 1000 | auto}
+```
+
+Curly braces in a command write-up mean **pick one**. Default is **`auto`**. Leave it on for PCs — you will not walk every desk. Some engineers hard-set **both** ends of a router–switch link. If you hard-set only one end, keep reading.
+
+`show interfaces status`: `a-100` means autoneg picked 100. Bare `1000` means someone typed `speed 1000`.
+
+## Duplex
+
+- **Half duplex** — send **or** receive, not both. Wi-Fi is the everyday example (later volume). A **hub** forces half duplex on a wire.
+- **Full duplex** — send **and** receive at once. Every modern switched Ethernet port.
+- **Simplex** — one direction only (keyboard → PC). Not an Ethernet mode.
+
+```text
+SW1(config-if)# duplex {auto | full | half}
+```
+
+Default **`auto`**. In a wired campus you expect **full**. You still have to *know* half duplex, because that is how mismatches and leftover hubs show up.
+
+`a-full` = autoneg chose full. `full` = you typed `duplex full`.
+
+## Hubs, collision domains, CSMA/CD
+
+A **hub** is Layer 1: electrical **repeat**. No MAC table, **no buffer**. Two frames arriving together leave as noise. That noise is a **collision**. Every device on the hub sits in **one collision domain**. Only one talker at a time.
+
+<LessonFigure src="/img/ccna/fig-8-2.png" alt="Four PCs on a hub: one collision domain, so two senders at once collide." caption="Figure 8.2 — Four PCs on a hub: one collision domain, so two senders at once collide." maxWidth={480} />
+
+A **switch** stores frames and sends them in order. **Each port is its own collision domain.** Full duplex is legal. Collisions on a switched port are a **bug**, not a tax.
+
+<LessonFigure src="/img/ccna/fig-8-3.png" alt="Four PCs on a switch: each port is its own collision domain, so frames are buffered instead of colliding." caption="Figure 8.3 — Four PCs on a switch: each port is its own collision domain, so frames are buffered instead of colliding." maxWidth={480} />
+
+Exam 1.3.b wording:
+
+- Hub (or the old shared coax): **Ethernet shared media**. Take turns.
+- Switch port to one host: **point-to-point**. No sharing.
+
+**CSMA/CD** is how half-duplex Ethernet survives a shared medium:
+
+1. **Carrier-sense** — listen before you talk.
+2. **Multiple access** — more than one station uses the medium.
+3. **Collision detection** — if you hear a smash, send a **jam**, wait a **random backoff**, try again.
+
+Collisions that matter for CSMA/CD happen in the first **64 bytes**. A collision **after** that is a **late collision** — usually “this side is half duplex and the other side is still talking.”
+
+## Autonegotiation
+
+Both ends **advertise** what they can do and pick the **best common** mode. Faster beats slower. Full beats half.
+
+| Priority | Mode |
+| --- | --- |
+| 1 | 10 Gbps full (no half at 10G+) |
+| 2 | 1 Gbps full |
+| 3 | 100 Mbps full |
+| 4 | 100 Mbps half |
+| 5 | 10 Mbps full |
+| 6 | 10 Mbps half |
+
+1 Gbps half exists in the wild and is basically extinct; Cisco will not let you configure it.
+
+<LessonFigure src="/img/ccna/fig-8-4.png" alt="Autonegotiation: R1 and SW1 advertise what they support and settle on the best shared mode, 100 Mbps full duplex." caption="Figure 8.4 — Autonegotiation: R1 and SW1 advertise what they support and settle on the best shared mode, 100 Mbps full duplex." maxWidth={560} />
+
+**Both auto:** a Gigabit router on a Gigabit switch becomes **1000/full** (`a-1000`, `a-full`). A Gigabit router on a FastEthernet switch port becomes **100/full**.
+
+**Only one side auto** — memorize this:
+
+- **Speed:** try to **sense** the neighbor. If that fails, use your **slowest** speed (10 on a 10/100/1000).
+- **Duplex:** if the speed you landed on is **10 or 100 → half**. If it is **1000 or more → full**.
+
+Classic trap: neighbor is `speed 100` `duplex full`. Auto side senses 100, then chooses **half**. Link is **up/up**. Performance falls over. That is a **duplex mismatch**, not a down interface.
+
+<LessonFigure src="/img/ccna/fig-8-5.png" alt="Only R1 autonegotiates: it senses 100 Mbps but falls back to half duplex, mismatching SW1’s full duplex." caption="Figure 8.5 — Only R1 autonegotiates: it senses 100 Mbps but falls back to half duplex, mismatching SW1’s full duplex." maxWidth={560} />
+
+## When the counters move
+
+`show interfaces` (or `show interfaces f0/1`) keeps counters. Know these names:
+
+| Counter | Meaning |
+| --- | --- |
+| **Runts** | Frame &lt; 64 bytes (should have been padded). Collisions can make them. |
+| **Giants** | Payload bigger than MTU (usually 1500). Often mixed MTU configs. |
+| **Input errors** | All receive errors rolled up. |
+| **CRC** | FCS failed. EMI, bad cable, or a jam leftover. |
+| **Output errors** | All transmit errors rolled up. |
+| **Collisions** | Smash while *this* device was sending. Expected on a hub. Should stay 0 on a switch. |
+| **Late collision** | Smash after byte 64. Think duplex mismatch, not a healthy hub. |
+
+### Speed mismatch
+
+Different hard-set speeds (`100` vs `1000`). Both ends **down/down** on `show ip interface brief`. No traffic. Fix the typing.
+
+<LessonFigure src="/img/ccna/fig-8-6.png" alt="Hard-set speeds that differ (1000 vs 100): both interfaces go down/down." caption="Figure 8.6 — Hard-set speeds that differ (1000 vs 100): both interfaces go down/down." maxWidth={560} />
+
+### Duplex mismatch
+
+One half, one full. Both ends **up/up**. The half-duplex side **false-collides** when the full-duplex side talks (the copper can actually carry both directions; CSMA/CD just does not believe it). Half-duplex counters: **collisions**, **late collisions**. Full-duplex counters: **runts**, **CRC** (it received the jam wreckage).
+
+<GuidedChoiceExplanation preset="ccna-iface-link" />
+
+<FigureMatchGame preset="ccna-interfaces" />
+
+## Check
+
+<MultipleChoice
+  id="ccna-router-switch-interfaces"
+  title="Router and switch interfaces"
+  questions={[
+    {
+      prompt: 'Factory-default Ethernet: which statement is true?',
+      choices: [
+        'Router and switch ports both start shutdown until the first cable click',
+        'Switch ports start shutdown; router ports start up so WAN links never wait',
+        'Router ports start shutdown; switch ports start enabled (plug-and-play)',
+        'Neither starts up until you type speed auto and duplex auto',
+      ],
+      answer: 2,
+      why: 'Unmanaged-switch behavior is the default on a managed access port. Routers still need no shutdown.',
+    },
+    {
+      prompt: 'Unused switch ports should be:',
+      choices: [
+        'shutdown — an empty jack is an attack surface',
+        'speed 10 duplex half, so a visitor NIC cannot go fast',
+        'Left up; shutdown is only legal on router WAN interfaces',
+        'Put in VLAN 1 with a description and nothing else',
+      ],
+      answer: 0,
+      why: 'Best practice in this chapter. You can always no shutdown when you need the jack.',
+    },
+    {
+      prompt: 'interface range f0/3-8, g0/2 configures:',
+      choices: [
+        'Only F0/3 and G0/2; the hyphen is a comment',
+        'A VLAN range named 3–8; ports are unchanged',
+        'F0/3 through F0/8 as one group, then you must re-enter for G0/2',
+        'F0/3–F0/8 and G0/2 in one shot — comma mixes interface types',
+      ],
+      answer: 3,
+      why: 'Hyphen is a numeric span. Comma starts another list, possibly another type.',
+    },
+    {
+      prompt: 'show interfaces status is useful because it:',
+      choices: [
+        'Works on routers and switches and prints the IPv4 mask',
+        'Is switch-only and shows Name, connected/disabled, Duplex, Speed (a- means autoneg)',
+        'Clears CRC counters so you can watch them climb from zero',
+        'Is the only place a description can be configured',
+      ],
+      answer: 1,
+      why: 'Routers use show interfaces description / show ip interface brief instead.',
+    },
+    {
+      prompt: 'speed auto and duplex auto in the running-config:',
+      choices: [
+        'Must appear, or the port is not actually negotiating',
+        'Are illegal together; IOS makes you pick one knob',
+        'Are defaults, so they are usually hidden even though they are active',
+        'Print as a-auto in show running-config interface',
+      ],
+      answer: 2,
+      why: 'show running-config interface is the exceptions, not the defaults.',
+    },
+    {
+      prompt: 'A hub versus a switch, collision domains:',
+      choices: [
+        'Hub: one shared domain (half duplex, CSMA/CD). Switch: one domain per port (full duplex)',
+        'Both are one domain; the difference is only the MAC address table',
+        'Switch: one domain for the chassis. Hub: one domain per cable',
+        'Neither has collisions on copper; CSMA/CD is Wi-Fi only',
+      ],
+      answer: 0,
+      why: 'Hubs repeat with no buffer. Switches store-and-forward. That is exam 1.3.b shared vs point-to-point.',
+    },
+    {
+      prompt: 'CSMA/CD in order is:',
+      choices: [
+        'Jam first, then listen, then send at a fixed slot time',
+        'Send immediately; collisions are repaired by the FCS only',
+        'Wait for OSPF to elect a designated talker, then transmit',
+        'Listen, send if idle, jam + random backoff if you hear a collision',
+      ],
+      answer: 3,
+      why: 'Carrier-sense, multiple access, collision detection. Late collisions mean someone skipped the listen.',
+    },
+    {
+      prompt: 'Both ends speed auto duplex auto on 10/100/1000 jacks. They run:',
+      choices: [
+        '10 / half, because auto always starts at the floor',
+        '1000 / full — fastest common, full over half; shown as a-1000 a-full',
+        '100 / half, the only mode every Ethernet NIC must implement',
+        '1000 / half, which Cisco prefers for infrastructure links',
+      ],
+      answer: 1,
+      why: 'Priority list. 1 Gbps half is not a Cisco knob and is not the tie-break.',
+    },
+    {
+      prompt: 'Neighbor is hard-set speed 100 duplex full. This side is auto/auto. This side:',
+      choices: [
+        'Copies full duplex after it senses 100 Mbps',
+        'Goes down/down because auto refuses a manual neighbor',
+        'Senses 100, then chooses half duplex — duplex mismatch, still up/up',
+        'Falls back to 10 / full, the written “slowest then full” rule',
+      ],
+      answer: 2,
+      why: 'Sense speed. 10 or 100 → half. 1000+ → full. This is the exam trap.',
+    },
+    {
+      prompt: 'A speed mismatch (100 vs 1000) makes both interfaces:',
+      choices: [
+        'up/up with incrementing late collisions on the slower side',
+        'err-disabled until you type shutdown / no shutdown',
+        'up/up but only ARP works; IP unicast is dropped',
+        'down/down — no operational link until the speeds match',
+      ],
+      answer: 3,
+      why: 'Simple and loud. Duplex mismatch is the quiet one that stays up.',
+    },
+    {
+      prompt: 'Duplex mismatch on a copper switch link typically shows:',
+      choices: [
+        'up/up; late collisions on the half-duplex side; runts/CRC on the full-duplex side',
+        'down/down on show ip interface brief, same as a speed mismatch',
+        'A clean zero on every counter, because UTP cannot collide',
+        'Giants only — duplex is an MTU problem',
+      ],
+      answer: 0,
+      why: 'The wire can still carry both directions. Half-duplex CSMA/CD mis-hears the neighbor as a collision and jams.',
+    },
+    {
+      prompt: 'Late collisions are special because they:',
+      choices: [
+        'Are the normal price of a healthy full-duplex switch port',
+        'Count frames smaller than 64 bytes; another name for runts',
+        'Happen after byte 64, so they usually mean duplex mismatch, not a textbook hub collision',
+        'Increment only when the FCS passes, proving the frame was fine',
+      ],
+      answer: 2,
+      why: 'CSMA/CD collisions belong in the first 64 bytes. After that, someone was not listening — often the half-duplex end.',
+    },
+  ]}
+/>

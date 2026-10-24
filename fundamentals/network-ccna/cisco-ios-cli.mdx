@@ -1,0 +1,325 @@
+---
+sidebar_position: 4
+title: The Cisco IOS CLI
+---
+
+> **Track:** Network CCNA — fourth chapter. The last three chapters were a map. This one is a **keyboard**: how you actually talk to a Cisco router or switch, save what you typed, and lock privileged EXEC.
+
+# The Cisco IOS CLI
+
+Exam language splits in two. Some topics say *explain* or *identify* — you need the idea. Many others say **configure** or **configure and verify** — you need the idea **and** the commands. This chapter is the shared floor under every later “type this on the box” topic. We will touch local passwords (`enable` / `enable secret`) as a first real change. Telnet, SSH, and the wireless LAN controller GUI wait for later.
+
+Routers and switches in this track both run **Cisco IOS**. The commands here work on both.
+
+<CiscoIosCliSimulator />
+
+Skip the setup wizard (type `no` is already done in the lab). Work the stories: **enable**, **hostname R1**, **write** then **reload**, then **enable secret**. The right-hand column is RAM versus NVRAM.
+
+## Two kinds of shell
+
+A **shell** is the outer face of an operating system: the program you use to talk to the machine.
+
+A **GUI** is windows, menus, a pointer. You already live in one on a PC or a phone. The CCNA still expects one Cisco GUI later: the **wireless LAN controller (WLC)** in a browser. Not this chapter.
+
+<LessonFigure src="/img/ccna/fig-5-1.png" alt="A wireless LAN controller managed through its web GUI in a browser." caption="Figure 5.1 — A wireless LAN controller managed through its web GUI in a browser." maxWidth={560} />
+
+A **CLI** is text. You type a line, press Enter, the device answers. Windows Command Prompt is a cousin. Cisco IOS is the CLI this exam lives in. It looks sharp the first week and becomes muscle memory if you type, not only read. Packet Tracer (or a real box) is the right homework.
+
+<LessonFigure src="/img/ccna/fig-5-2.png" alt="A Windows Command Prompt: a CLI running inside the GUI." caption="Figure 5.2 — A Windows Command Prompt: a CLI running inside the GUI." maxWidth={480} />
+
+## How you reach the CLI
+
+Two doors:
+
+- A **console** cable into the device’s **console port** — you must be in the room. The cable is short. The port is **not** a network interface; it cannot carry user traffic.
+- **Telnet** or **SSH** across the network — later.
+
+Many chassis offer both a **USB Mini-B** console and an **RJ45** console. Use one at a time.
+
+<LessonFigure src="/img/ccna/fig-5-3.png" alt="Two console ports on a Cisco switch: USB Mini-B and RJ45." caption="Figure 5.3 — Two console ports on a Cisco switch: USB Mini-B and RJ45." maxWidth={420} />
+
+USB console is often just a USB cable with the right ends. RJ45 console wants a **rollover** cable, not the straight-through or crossover from the cables chapter. Rollover is pin 1 to 8, 2 to 7, 3 to 6, 4 to 5, and the mirror back.
+
+<LessonFigure src="/img/ccna/fig-5-4.png" alt="Rollover cable wiring: pin 1 meets pin 8, pin 2 meets pin 7, and so on." caption="Figure 5.4 — Rollover cable wiring: pin 1 meets pin 8, pin 2 meets pin 7, and so on." maxWidth={480} />
+
+Then you need a **terminal emulator** (PuTTY is a common free one on Windows). Typical Cisco console serial settings, when you have hardware: **9600** baud, **8** data bits, **1** stop bit, **parity none**, **flow control none**. The exam will not grade your PuTTY clicks. In Packet Tracer you click the icon and you are on the CLI.
+
+<LessonFigure src="/img/ccna/fig-5-5.png" alt="PuTTY set up for a serial console: 9600 baud, 8 data bits, 1 stop bit, no parity, no flow control." caption="Figure 5.5 — PuTTY set up for a serial console: 9600 baud, 8 data bits, 1 stop bit, no parity, no flow control." maxWidth={420} />
+
+## Modes: the prompt is the map
+
+A brand-new box may offer a **system configuration dialog**. Decline it (`no`). You do not need that wizard.
+
+You land in **user EXEC**. The prompt is `hostname>` — default hostname `Router` on a router:
+
+```text
+Router>
+```
+
+User EXEC can look, a little. `show clock` is fine. It cannot change the config, and it cannot `reload` the box. Intrusive verbs fail with a `%` message from IOS.
+
+**Privileged EXEC** is the next rung. `enable` (or `en` if that prefix is unique). The `>` becomes `#`:
+
+```text
+Router> enable
+Router#
+```
+
+Now `show` is complete, and operational verbs work: **reload**, save, move files. `disable` goes back to user EXEC. Almost nobody bothers; privileged can already do everything user can.
+
+Neither EXEC mode **edits** the configuration. For that, from privileged EXEC:
+
+```text
+Router# configure terminal
+Router(config)#
+```
+
+**Global configuration** is the first config mode. Later chapters add interface config and others; you reach those from here. `hostname R1` takes effect **immediately**. The prompt becomes `R1(config)#`. In a lab we use `R1`, `SW1`. In a building, people often bake in a site name.
+
+`no` undoes a line: `no hostname R1` returns the default `Router`.
+
+<LessonFigure src="/img/ccna/fig-5-6.png" alt="Moving between user EXEC, privileged EXEC, and global configuration mode." caption="Figure 5.6 — Moving between user EXEC, privileged EXEC, and global configuration mode." maxWidth={560} />
+
+Back to privileged EXEC: `end`, `exit` (from global config), **Ctrl-C**, or **Ctrl-Z**. From a *nested* config mode, `exit` climbs one step to global config; `end` / Ctrl-C / Ctrl-Z jump all the way to privileged. Careful with **Ctrl-Z**: if you are mid-line it behaves like Enter, then `end`. **Ctrl-C** just aborts.
+
+`show` does not run in config modes. Prefix it with **`do`**: `do show clock` keeps you in `(config)#`.
+
+```text
+user EXEC          Router>
+       enable ↓  ↑ disable
+privileged EXEC    Router#
+  configure terminal ↓  ↑ end / exit / Ctrl-C / Ctrl-Z
+global config      Router(config)#
+```
+
+## Keys and context-sensitive help
+
+While a line is still being edited:
+
+- Arrows move the cursor; **Ctrl-A** start of line, **Ctrl-E** end, **Ctrl-U** delete left of the cursor.
+- **Up** / **Down** walk the command history.
+
+**Context-sensitive help** — the question mark, no Enter needed:
+
+| You type | IOS shows |
+| --- | --- |
+| `?` | commands legal in *this* mode |
+| `show ?` | keywords that may follow `show` |
+| `en?` | commands that start with `en` |
+| `en` then **Tab** | completes to `enable` if that is the only match |
+| `en` then **Enter** | runs `enable` if unique; `e` Enter is “ambiguous command” |
+
+`<cr>` in a `?` list means Enter is legal now. A pipe (`|`) filters `show` output — we will use `| include` in a moment.
+
+`conf t` is enough for `configure terminal`. Practice the short forms until they are boring.
+
+## Two config files
+
+IOS keeps **two** text files.
+
+**running-config** lives in **RAM**. It is what the box is doing *now*. Every config command edits it and takes effect at once. RAM dies on power-off or **reload**.
+
+**startup-config** lives in **NVRAM** (non-volatile). It does not run the box until boot. At boot, IOS **copies startup-config into RAM**. No startup-config file means **factory-default** (the device as it left the factory).
+
+Save, from privileged EXEC — all three do the same copy, RAM → NVRAM:
+
+- `write`
+- `write memory`
+- `copy running-config startup-config`
+
+A first boot has no startup-config until you save once.
+
+Wipe NVRAM (`write erase`, `erase nvram:`, or `erase startup-config`) and **reload** to get factory-default again.
+
+`show running-config` and `show startup-config` print the files. Long output pauses at `--More--`: Enter for one line, space for a screen.
+
+## Locking privileged EXEC
+
+Privileged EXEC is the door to `configure terminal`. Give it a password.
+
+**`enable password`** (global config) is the old door. Case-sensitive. After it exists, `enable` asks `Password:` and hides what you type. The problem: the word sits in running-config in **cleartext**. Anyone who can `show run` can read it.
+
+`service password-encryption` turns current and future passwords into **type 7** ciphertext. Type 7 is weak — it stops a shoulder, not a serious reader. `no service password-encryption` does not unwrap passwords already stored; it only stops encrypting new ones.
+
+**`enable secret`** is the door you should actually use. It stores a **hash** (one-way), not reversible type 7. `enable secret cisco` (or whatever word). If **both** password and secret are configured, **only the secret works**. The `enable password` line can remain in the file and still not let anyone in.
+
+The hash type depends on the IOS train. **Type 9** (scrypt) is stronger than **type 5** (MD5). Prefer 9 when the box offers it. Picking an algorithm by hand is a later chapter.
+
+```text
+R1(config)# enable secret lab
+R1# show running-config | include enable
+```
+
+The pipe keeps only lines that contain `enable`.
+
+<GuidedChoiceExplanation preset="ccna-ios-cli" />
+
+## How to make a change that survives reboot
+
+1. Console in (rollover or USB). Decline the wizard.
+2. `enable` → privileged EXEC (`#`).
+3. `configure terminal` → `(config)#`.
+4. Type the change (`hostname R1`, `enable secret …`).
+5. `end` back to `#`.
+6. `write` (or `copy running-config startup-config`).
+7. Only now is it safe to `reload`.
+
+Forgot step 6? You configured a ghost. The next boot is last week’s box.
+
+<FigureMatchGame preset="ccna-ios-cli" />
+
+## Summary
+
+| Idea | Meaning |
+| --- | --- |
+| Shell | Face of the OS: GUI or CLI |
+| Console port | Local CLI only; not a data NIC |
+| Rollover | 1↔8, 2↔7, … into the RJ45 console |
+| User EXEC `>` | Look, a little; no config, no reload |
+| Privileged EXEC `#` | Full `show`, reload, save; still no config edits |
+| Global config `(config)#` | Edits running-config now |
+| `do` | Run an EXEC command without leaving config |
+| running-config | RAM, live, lost on reload |
+| startup-config | NVRAM, loaded at boot |
+| `write` / `copy run start` | RAM → NVRAM |
+| `enable password` | Legacy, cleartext (type 7 if you ask) |
+| `enable secret` | Hash; wins if both are set |
+
+<MultipleChoice
+  id="ccna-cisco-ios-cli"
+  title="The Cisco IOS CLI"
+  questions={[
+    {
+      prompt: 'What is a shell in this chapter?',
+      choices: [
+        'The metal jacket around a UTP pair',
+        'A Layer 3 protocol that replaces IP on Cisco boxes',
+        'The program that lets a human talk to the operating system — GUI or CLI',
+        'The NVRAM chip that holds startup-config',
+      ],
+      answer: 2,
+      why: 'Shell = outer interface. Windows desktop is a GUI shell; IOS is a CLI shell.',
+    },
+    {
+      prompt: 'A console port on a Cisco switch is for:',
+      choices: [
+        'Local CLI access; it does not carry user network traffic',
+        'Uplinking the LAN to the internet at Layer 3',
+        'PoE to cameras, because it is just another access port',
+        'Telnet only, and only after an enable secret exists',
+      ],
+      answer: 0,
+      why: 'You sit next to the box with a short cable. Data plane traffic uses other ports. Telnet/SSH are the remote door, later.',
+    },
+    {
+      prompt: 'The cable into an RJ45 console port is a:',
+      choices: [
+        'straight-through Cat 5e, pin 1 to pin 1',
+        'crossover that swaps 1–2 with 3–6',
+        'fiber pair into an SFP',
+        'rollover: pin 1 to 8, 2 to 7, 3 to 6, 4 to 5, and the reverse',
+      ],
+      answer: 3,
+      why: 'Console rollover is not the Ethernet pin stories from the cables chapter.',
+    },
+    {
+      prompt: 'Router> means you are in:',
+      choices: [
+        'global configuration, because the hostname is still default',
+        'user EXEC — least privilege, look but do not reload or configure',
+        'privileged EXEC, because every new box starts at #',
+        'the system configuration dialog, which cannot be skipped',
+      ],
+      answer: 1,
+      why: '`>` is user EXEC. `#` is privileged. `(config)#` is global config.',
+    },
+    {
+      prompt: 'Which pair is the usual climb from a fresh console?',
+      choices: [
+        'reload, then disable, then show clock',
+        'exit, then no hostname, then write erase',
+        'enable, then configure terminal',
+        'enable secret from user EXEC, then Tab on a GUI',
+      ],
+      answer: 2,
+      why: '`enable` for `#`, `configure terminal` (or `conf t`) for `(config)#`.',
+    },
+    {
+      prompt: 'Why does show clock fail at R1(config)# unless you prefix do?',
+      choices: [
+        'Config modes accept config verbs; EXEC verbs need do, or you go back to #',
+        'Clocks only exist in startup-config',
+        'User EXEC deleted the clock when you typed enable',
+        'Tab completion forbids any command that starts with s',
+      ],
+      answer: 0,
+      why: '`do show clock` is the shortcut that keeps you in global config.',
+    },
+    {
+      prompt: 'running-config differs from startup-config because:',
+      choices: [
+        'Both live in NVRAM, but only startup uses type 7',
+        'running-config is a GUI file the WLC writes over IOS',
+        'startup-config is what RAM is executing this second',
+        'running-config is RAM and live; startup-config is NVRAM and used at boot',
+      ],
+      answer: 3,
+      why: 'Edit RAM, it happens now. Copy to NVRAM or a reload forgets you.',
+    },
+    {
+      prompt: 'Which command set copies RAM onto NVRAM?',
+      choices: [
+        'disable, then enable, then show clock',
+        'write, write memory, or copy running-config startup-config',
+        'write erase, then reload, then hostname',
+        'service password-encryption alone',
+      ],
+      answer: 1,
+      why: 'Three spellings, one copy. Erase commands delete startup-config instead.',
+    },
+    {
+      prompt: 'The enable password, by itself, is a poor lock because:',
+      choices: [
+        'It cannot be typed at the Password: prompt',
+        'IOS forbids it on every switch manufactured after 1999',
+        'It sits in the config in cleartext unless you add weak type 7',
+        'It hashes with type 9 and cannot be replaced by a secret',
+      ],
+      answer: 2,
+      why: '`show run` reads the word. Type 7 is still reversible. Use enable secret.',
+    },
+    {
+      prompt: 'If both enable password and enable secret are configured:',
+      choices: [
+        'Either string works at the Password: prompt',
+        'Neither works until you delete running-config',
+        'Only the enable password works; the secret is documentation',
+        'Only the enable secret is accepted; the password line may still be in the file',
+      ],
+      answer: 3,
+      why: 'Secret wins. The leftover password command is a museum piece in the config.',
+    },
+    {
+      prompt: 'en then Enter reaches privileged EXEC because:',
+      choices: [
+        'IOS runs a command when the prefix is unique; e is ambiguous, en is not',
+        'Every one-letter command is reserved for enable',
+        'Tab is required; Enter never completes a word',
+        'User EXEC rewrites en into configure terminal',
+      ],
+      answer: 0,
+      why: 'Unique prefix, or Tab to finish the word. `e` matches enable, ethernet, exit.',
+    },
+    {
+      prompt: 'Ctrl-Z from (config)# is riskier than Ctrl-C because:',
+      choices: [
+        'Ctrl-Z erases NVRAM without asking',
+        'Ctrl-C always executes the half-typed line, then reloads',
+        'Ctrl-Z is treated like Enter plus end, so a half-typed line may run first',
+        'Ctrl-Z opens the WLC GUI on the same console',
+      ],
+      answer: 2,
+      why: 'Ctrl-C aborts. Ctrl-Z commits what is on the line, then jumps to privileged EXEC.',
+    },
+  ]}
+/>

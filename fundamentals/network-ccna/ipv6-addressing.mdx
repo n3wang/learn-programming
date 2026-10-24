@@ -1,0 +1,317 @@
+---
+sidebar_position: 19
+title: IPv6 Addressing
+---
+
+> **Track:** Network CCNA — nineteenth chapter. FHRP (eighteenth) kept the **IPv4** gateway up. This chapter is **IPv6**: why it exists, hex, the address, Cisco CLI, and the **types**. Exam **1.8** (configure/verify) and **1.9** (describe types). **IPv6 routing** (twentieth) is NDP and statics.
+
+# IPv6 Addressing
+
+IPv4 is from 1981. Thirty-two bits give **4,294,967,296** addresses (`2^32`). Class D (multicast) and class E (experimental) never go on hosts. Even the rest is not enough. That shortage is **IPv4 address exhaustion**.
+
+IANA hands blocks to five **RIRs** (ARIN, RIPE NCC, APNIC, LACNIC, AFRINIC). Those pools have already gone dry in several regions. CIDR, private IPv4, and NAT bought time. The long-term answer is **IPv6**.
+
+<LessonFigure src="/img/ccna/fig-20-1.png" alt="The five Regional Internet Registries: ARIN, RIPE NCC, APNIC, LACNIC, AFRINIC." caption="Figure 20.1 — The five Regional Internet Registries: ARIN, RIPE NCC, APNIC, LACNIC, AFRINIC." maxWidth={560} />
+
+IPv6 is **128 bits**. Each extra bit **doubles** the space — it is not “four times IPv4.” `2^128` is about **340 undecillion**. Grains of sand on Earth are roughly `10^20` to `10^24`. You will not run out.
+
+Same job as IPv4: wrap a TCP or UDP segment, give it a source and a destination, then put that packet in an Ethernet frame at each hop.
+
+**IPv5?** Internet Stream Protocol used version **5** in the header. It was never “IPv5,” but the next IP skipped to **6** so nobody mixed them up.
+
+<Ipv6AddressingSimulator />
+
+**Next story** converts a nibble, shortens an address, finds a /64 prefix, then `ipv6 unicast-routing`, EUI-64, and the type table.
+
+## Hex first
+
+IPv6 is written in **hexadecimal**, not dotted decimal. One hex digit is **four bits** (a **nibble**): `2^4 = 16`. Digits are `0–9` and `a–f`. Learn `a=10` … `f=15`.
+
+A 16-bit chunk (one **hextet**) converts in three steps. Binary `1101 1011 0010 1111`:
+
+1. Split into nibbles.
+2. Each nibble → decimal: 13, 11, 2, 15.
+3. Each decimal → hex: `d`, `b`, `2`, `f` → `db2f`.
+
+The other way: `41ae` → `4, 1, a, e` → `0100 0001 1010 1110`.
+
+Write IPv6 in **lowercase**. IOS `show` often prints uppercase. Both are the same bits.
+
+## The header (context, not an exam dump)
+
+Fixed **40 bytes**. No IHL, no options stuffed in the base header.
+
+| Field | Size | IPv4 cousin |
+| --- | --- | --- |
+| Version | 4 bits | Always `0110` (6) |
+| Traffic Class | 8 bits | DSCP + ECN (QoS later) |
+| Flow Label | 20 bits | Labels a flow |
+| Payload Length | 16 bits | Size of what follows the header |
+| Next Header | 8 bits | IPv4 Protocol: 6 TCP, 17 UDP, 58 ICMPv6, 89 OSPF |
+| Hop Limit | 8 bits | IPv4 TTL — decrement; drop at 0 |
+| Source / Destination | 128 + 128 | The addresses |
+
+<LessonFigure src="/img/ccna/fig-20-2.png" alt="The fixed 40-byte IPv6 header: version, traffic class, flow label, payload length, next header, hop limit, addresses." caption="Figure 20.2 — The fixed 40-byte IPv6 header: version, traffic class, flow label, payload length, next header, hop limit, addresses." maxWidth={560} />
+
+## Eight hextets and /64
+
+128 bits → eight groups of 16, colon-separated:
+
+`2001:0db8:5917:eabd:6562:17ea:c92d:59bd`
+
+<LessonFigure src="/img/ccna/fig-20-3.png" alt="A full IPv6 address in hex and binary; with /64, the first half is the network portion." caption="Figure 20.3 — A full IPv6 address in hex and binary; with /64, the first half is the network portion." maxWidth={600} />
+
+**Hextet** is informal (a pedant says hexadectet). The slash is the prefix length. Labs almost always use **/64**: first four hextets = network, last four = host. That wastes space on purpose. The space is huge; simple boundaries win.
+
+`2001:db8::/32` is reserved for **documentation**. Most examples here live there.
+
+## Abbreviate (RFC 5952 habits)
+
+Two rules, used together:
+
+1. Drop **leading** zeros in a hextet. `0db8` → `db8`. `0020` → `20`. A hextet of `0000` becomes `0` — you cannot delete the last zero this way.
+2. Replace **one** run of two or more all-zero hextets with `::`. Longest run wins. Tie → **leftmost**. Never `::` a single `0`. Never two `::` in one address.
+
+`2001:0db8:0000:0000:002f:0001:0000:34bd` → `2001:db8::2f:1:0:34bd`
+
+`::1` is loopback. `::` is the unspecified address (source when you have no address yet; destination of an IPv6 default is `::/0`).
+
+| Full | Short |
+| --- | --- |
+| `ff02:0000:0000:0000:0000:0000:0000:0002` | `ff02::2` |
+| `fe80:0000:0000:0000:1010:000a:0bad:cafe` | `fe80::1010:a:bad:cafe` |
+| `0000:0000:0000:0000:0000:0000:0000:0001` | `::1` |
+
+## Find the prefix
+
+Same idea as IPv4: network address + length. On **/64**, zero the last four hextets.
+
+`2001:db8:1:2:a:b:c:d/64` → `2001:db8:1:2::/64`
+
+Odd lengths (`/55`, `/73`) are hex-binary homework. Production IPv6 is `/64`.
+
+## Configure it
+
+Swap `ip` for `ipv6`. Prefix is **slash**, not a dotted mask.
+
+```text
+R1(config)# ipv6 unicast-routing
+R1(config)# interface g0/0
+R1(config-if)# ipv6 address 2001:db8::1/64
+R1(config-if)# no shutdown
+```
+
+<LessonFigure src="/img/ccna/fig-20-4.png" alt="A router with three IPv6 networks: ipv6 unicast-routing plus an address on each interface." caption="Figure 20.4 — A router with three IPv6 networks: ipv6 unicast-routing plus an address on each interface." maxWidth={560} />
+
+**`ipv6 unicast-routing` first.** IPv4 routing is on by default. IPv6 forwarding is **off** until you type that. You can still put addresses on interfaces; the box will not **route** between them.
+
+`show ipv6 interface brief` prints a **link-local** (`fe80::…`) plus the address you typed. IOS shortens and often uppercases.
+
+A second `ipv6 address` **adds**. It does not replace. Remove the old one with `no ipv6 address …`. IPv4 `ip address` overwrites (unless you add `secondary` — know the sentence).
+
+`ipv6 enable` turns IPv6 on with **only** an auto LLA. `show ipv6 route` and `ipv6 route` exist; statics wait.
+
+## Modified EUI-64
+
+Ask IOS for the prefix and let it build the host half from the **MAC**:
+
+```text
+R1(config-if)# ipv6 address 2001:db8:0:2::/64 eui-64
+```
+
+Three steps from a 48-bit MAC:
+
+1. Split in half.
+2. Insert `fffe` in the middle.
+3. **Invert the seventh bit** (third bit of the second hex digit).
+
+MAC `0060.2f62.b803` → `0060 2f | 62 b803` → `0060:2fff:fe62:b803` → invert `0` to `2` → `0260:2fff:fe62:b803`. Full address: `2001:db8:0:2:260:2fff:fe62:b803`.
+
+<LessonFigure src="/img/ccna/fig-20-5.png" alt="Modified EUI-64: split the MAC, insert fffe in the middle, flip the 7th bit." caption="Figure 20.5 — Modified EUI-64: split the MAC, insert fffe in the middle, flip the 7th bit." maxWidth={600} />
+
+That flip is why it is **Modified**. The seventh bit is the U/L bit; IPv6 reverses its meaning. Exam 1.9.d wants the three steps, not the history.
+
+The auto LLA uses the same interface ID, so G0/2’s LLA host half matches the EUI-64 global.
+
+| MAC | Interface ID |
+| --- | --- |
+| `7f2b.cbac.1813` | `7d2b:cbff:feac:1813` |
+| `1548.4fff.2101` | `1748:4fff:feff:2101` |
+| `84ec.4389.fd23` | `86ec:43ff:fe89:fd23` |
+
+## Address types (1.9)
+
+<LessonFigure src="/img/ccna/fig-20-6.png" alt="IPv6 address types on one map: global unicast, unique local, link-local, multicast, anycast." caption="Figure 20.6 — IPv6 address types on one map: global unicast, unique local, link-local, multicast, anycast." maxWidth={560} />
+
+**Global unicast (GUA).** Public, unique, internet. Originally `2000::/3` (`2000::`–`3fff:…`). Now: any address not reserved for something else. Typical assignment: **/48 global routing prefix**, then **16-bit subnet ID**, then **64-bit interface ID**. `2001:db8:8b00::/48` → `2001:db8:8b00::/64`, `…:1::/64`, `…:2::/64`. IPv4 cousin: public space.
+
+<LessonFigure src="/img/ccna/fig-20-7.png" alt="A global unicast address: 48-bit global routing prefix, 16-bit subnet ID, 64-bit interface ID." caption="Figure 20.7 — A global unicast address: 48-bit global routing prefix, 16-bit subnet ID, 64-bit interface ID." maxWidth={560} />
+
+**Unique local (ULA).** Private unicast. `fc00::/7`, but `fc00::/8` is reserved — **use `fd00::/8`**. After `fd`, a **40-bit global ID** (pick at random so mergers do not collide), 16-bit subnet, 64-bit host. ISPs drop these. IPv4 cousins: `10.0.0.0/8`, `172.16.0.0/12`, `192.168.0.0/16`.
+
+<LessonFigure src="/img/ccna/fig-20-8.png" alt="A unique local address: fd, a random 40-bit global ID, subnet ID, interface ID." caption="Figure 20.8 — A unique local address: fd, a random 40-bit global ID, subnet ID, interface ID." maxWidth={560} />
+
+**Link-local (LLA).** `fe80::/10`, and the next 54 bits are zero → **`fe80::/64`**. Auto on every IPv6 iface (EUI-64). Exactly **one** per iface; a new `ipv6 address fe80::1 link-local` **replaces** it (no prefix length). Only talks on **this segment**. IPv4 cousin `169.254.0.0/16` is optional; IPv6 **requires** an LLA.
+
+<LessonFigure src="/img/ccna/fig-20-9.png" alt="Link-local addresses work between R1–R2 and R2–R3, but never from R1 to R3." caption="Figure 20.9 — Link-local addresses work between R1–R2 and R2–R3, but never from R1 to R3." maxWidth={560} />
+
+**Multicast.** Starts with `ff`. One-to-many. IPv4 class D. Scope is the last nibble of the first hextet:
+
+| Scope | First hextet | Reach |
+| --- | --- | --- |
+| Interface-local | `ff01` | This box only |
+| Link-local | `ff02` | This segment — routers do not forward |
+| Site-local | `ff05` | One site |
+| Organization-local | `ff08` | The enterprise |
+| Global | `ff0e` | No edge |
+
+<LessonFigure src="/img/ccna/fig-20-10.png" alt="Multicast scopes as nested rings: link-local, site-local, organization-local, global." caption="Figure 20.10 — Multicast scopes as nested rings: link-local, site-local, organization-local, global." maxWidth={480} />
+
+Memorize names and hextets. How a router fences `ff05`/`ff08` is out of scope.
+
+| Purpose | IPv6 | IPv4 |
+| --- | --- | --- |
+| All nodes | `ff02::1` | `224.0.0.1` |
+| All routers | `ff02::2` | `224.0.0.2` |
+| All OSPF | `ff02::5` | `224.0.0.5` |
+| OSPF DR/BDR | `ff02::6` | `224.0.0.6` |
+| RIP | `ff02::9` | `224.0.0.9` |
+| EIGRP | `ff02::a` | `224.0.0.10` |
+
+IPv6 has **no broadcast**. All-nodes (`ff02::1`) is the “everyone on this link” stand-in. `show ipv6 interface` lists joined groups. Solicited-node groups show up too — next chapter.
+
+<LessonFigure src="/img/ccna/fig-20-11.png" alt="Unicast is one-to-one, broadcast one-to-all, multicast one-to-many, anycast one-to-nearest." caption="Figure 20.11 — Unicast is one-to-one, broadcast one-to-all, multicast one-to-many, anycast one-to-nearest." maxWidth={600} />
+
+**Anycast.** Same unicast address on several hosts. Routers pick the **closest**. No reserved range. `ipv6 address …/64 anycast` only **marks** it (`ANY` in show). CDN anycast is the picture.
+
+**Reserved leftovers.** `::` unspecified. `::1` loopback (IPv4 `127.0.0.0/8`).
+
+## Exam shapes
+
+- 32 vs 128 bits. Extra bit doubles. IPv5 was ST. RIRs ran out of IPv4.
+- Nibble = 4 bits. Eight hextets. Usually /64.
+- Leading zeros off. One `::` (longest, then left). Lowercase.
+- Prefix: zero the host half.
+- `ipv6 unicast-routing`. `ipv6 address` with a slash. Seconds **add**. LLA appears alone with `ipv6 enable`.
+- EUI-64: split, `fffe`, flip bit 7.
+- GUA / ULA `fd` / LLA `fe80::/64` / multicast `ff` + scope / anycast / `::` / `::1`. `ff02::1` and `ff02::2`.
+
+<GuidedChoiceExplanation preset="ccna-ipv6-addressing" />
+
+<FigureMatchGame preset="ccna-ipv6-addressing" />
+
+<MultipleChoice
+  title="IPv6 Addressing"
+  questions={[
+    {
+      prompt: 'IPv6 is 128 bits. Compared with IPv4’s 32 bits that means:',
+      choices: [
+        'Four times as many addresses (128 / 32)',
+        'The same count; only the writing changed',
+        '2^128 addresses — each extra bit doubles the space',
+        '2^96 more addresses than IPv4, added on the right',
+      ],
+      answer: 2,
+      why: '32 extra bits is not “plus 96 addresses.” 2^128 is the whole space. NAT and private IPv4 only delay exhaustion.',
+    },
+    {
+      prompt: 'Binary 1101 1011 0010 1111 as a hextet is:',
+      choices: [
+        'db2f',
+        'bd2f',
+        'd2bf',
+        '13b2f',
+      ],
+      answer: 0,
+      why: '13, 11, 2, 15 → d b 2 f. A nibble is four bits, not a decimal dump.',
+    },
+    {
+      prompt: 'RFC 5952-style short form of 2001:0db8:0000:0000:0000:0000:0002:0001:',
+      choices: [
+        '2001:0db8::2:1',
+        '2001:db8:0:0:0:0:2:1',
+        '2001:db8::0:2:1',
+        '2001:db8::2:1',
+      ],
+      answer: 3,
+      why: 'Strip every leading zero. Collapse the longest zero run. Do not leave a leftover 0 inside ::.',
+    },
+    {
+      prompt: 'Two equal-length zero runs: 2001:db8:0:0:1:0:0:1. The :: goes:',
+      choices: [
+        'On the right: 2001:db8:0:0:1::1',
+        'On the left: 2001:db8::1:0:0:1',
+        'On both: 2001:db8::1::1',
+        'Nowhere — a single 0 cannot use ::, so write every hextet',
+      ],
+      answer: 1,
+      why: 'Longest first; a tie prefers leftmost. Two :: are illegal. A lone 0 stays as 0.',
+    },
+    {
+      prompt: 'Host 2001:db8:babe:cafe:2100:101:0:1/64. Prefix is:',
+      choices: [
+        '2001:db8:babe:cafe::/64',
+        '2001:db8:babe:cafe:2100::/64',
+        '2001:db8::/64',
+        '2001:db8:babe:cafe:2100:101:0:1/64',
+      ],
+      answer: 0,
+      why: '/64 zeros the last four hextets. The host address is not the prefix.',
+    },
+    {
+      prompt: 'Addresses are on G0/0 and G0/1. Packets still do not cross. First missing command:',
+      choices: [
+        'ipv6 enable on both ifaces',
+        'ip routing — IPv4 routing also starts IPv6',
+        'ipv6 unicast-routing in global config',
+        'ipv6 address with eui-64 so the LLA appears',
+      ],
+      answer: 2,
+      why: 'IPv6 forwarding starts off. Addresses (and auto LLAs) do not turn routing on.',
+    },
+    {
+      prompt: 'MAC 0060.2f62.b803 → Modified EUI-64 interface ID:',
+      choices: [
+        '0060:2fff:fe62:b803',
+        '0260:2fff:fe62:b803',
+        '0060:2f62:fffe:b803',
+        'fe80::260:2fff:fe62:b803',
+      ],
+      answer: 1,
+      why: 'Split, insert fffe, flip the seventh bit (00 → 02). fe80::… is a full LLA, not the 64-bit ID alone.',
+    },
+    {
+      prompt: 'A second ipv6 address on an iface that already has one:',
+      choices: [
+        'Overwrites, like ip address',
+        'Is rejected unless you add secondary',
+        'Becomes the LLA and drops the global',
+        'Stays — both globals remain until you no the old one',
+      ],
+      answer: 3,
+      why: 'IPv6 unicast addresses stack. The LLA is the exception: exactly one, and a new link-local replaces it.',
+    },
+    {
+      prompt: 'Which row is true?',
+      choices: [
+        'ULA lives in fd00::/8; LLA is fe80::/64; multicast starts with ff',
+        'ULA is 2000::/3; LLA is ff02::/64',
+        'GUA must start with fd; unique-local is public',
+        'ff02::1 is all routers; ff02::2 is all nodes',
+      ],
+      answer: 0,
+      why: 'fc00::/8 is reserved. GUA was 2000::/3 and now “not otherwise reserved.” All-nodes is ff02::1; all-routers is ff02::2.',
+    },
+    {
+      prompt: 'Anycast in IPv6 is:',
+      choices: [
+        'A reserved ff00::/8 block, like multicast',
+        'Broadcast to every host on the link',
+        'The same unicast on several hosts; routers pick the closest',
+        'fe80::/64 with the anycast bit set in the seventh position',
+      ],
+      answer: 2,
+      why: 'No reserved anycast range. The anycast keyword only labels show output. IPv6 has no broadcast; use ff02::1.',
+    },
+  ]}
+/>

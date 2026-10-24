@@ -1,0 +1,332 @@
+---
+sidebar_position: 5
+title: Ethernet LAN Switching
+---
+
+> **Track:** Network CCNA — fifth chapter. The last chapter was a keyboard. This one is **what a switch does with a frame**: learn a source MAC, look up a dest MAC, flood or forward. ARP and ping close the loop so a host even *has* a dest MAC.
+
+# Ethernet LAN Switching
+
+A **frame** is the Layer 2 PDU: Ethernet header, payload, trailer. When a host puts one on the wire, the switch’s job is to get it to the right port — or to every other port, if it does not yet know.
+
+Exam domain 1.0 names this set: MAC learning and aging, frame switching, frame flooding, the MAC address table. People say “switches are Layer 2” because they **forward from the Ethernet header**. Routers forward from the IP header; that is a later part of this track. Stay inside one LAN here.
+
+<EthernetLanSwitchingSimulator />
+
+Empty tables, then **PC1 → PC3**. Watch the flood, the drops, and the new table rows. **PC3 → PC1** after that should be a thin known-unicast path. **ARP for .3** and **ping** fill in how the PCs learned those MACs at all.
+
+## A LAN is how you are wired, not only where you sit
+
+A **LAN** is a group of devices that can reach each other **without a router**. Same office is a common picture. The sharper cut is the **Layer 2 domain**: frames are switched; nobody in the group needs a Layer 3 hop to talk.
+
+Two switches in one building can still be two LANs if each hangs off a different router port. The router’s job is to join LANs, not to be a transparent extra switch. Two switches **cabled to each other** are one LAN: a PC on SW3 talks to a PC on SW4 and the frames never climb to IP forwarding.
+
+<LessonFigure src="/img/ccna/fig-6-1.png" alt="Office A: two switches on different router ports are two LANs. Office B: two switches cabled together are one LAN." caption="Figure 6.1 — Office A: two switches on different router ports are two LANs. Office B: two switches cabled together are one LAN." maxWidth={640} />
+
+Keep that picture. Everything below is “how frames move inside one Layer 2 domain.”
+
+## What rides with each Ethernet frame
+
+Switches read the Ethernet **header**. The **trailer** is for the receiver’s error check. Two more fields leave with every frame but are **not** part of the frame: they are Layer 1 timing.
+
+```text
+Preamble  SFD | Destination  Source  Type/Length | payload | FCS
+  7 B     1 B |     6 B       6 B        2 B     |         | 4 B
+  Layer 1     |            header 14 B           |         | trailer
+```
+
+<LessonFigure src="/img/ccna/fig-6-2.png" alt="The Ethernet header (preamble, SFD, destination, source, type/length) and trailer (FCS), with field sizes." caption="Figure 6.2 — The Ethernet header (preamble, SFD, destination, source, type/length) and trailer (FCS), with field sizes." maxWidth={560} />
+
+### Preamble and SFD (Layer 1)
+
+The **Preamble** is 7 bytes of `10101010`. The **Start Frame Delimiter (SFD)** is one byte, `10101011`. Together they let the receiver lock its **bit clock** — how long one bit is on the wire — and see “the frame starts now.” They do not tell the switch which port to use. That is why they are not in the Layer 2 frame.
+
+### Destination and Source
+
+Each is **6 bytes (48 bits)**: a **MAC address**. Layer 2 is hop-to-hop. The dest MAC is “this next box.” The source MAC is “who just sent this,” and that is how a switch **learns**.
+
+A **MAC address** is assigned by the manufacturer and should be **globally unique**. Another name: **burned-in address (BIA)**. You *can* override one; almost nobody does.
+
+We write MACs in **hexadecimal** (16 digits: 0–9 then A–F). Twelve hex characters beat forty-eight bits of 1 and 0. Prefixes `0d` and `0x` mark decimal versus hex when both appear (`0d10` is ten; `0x10` is sixteen).
+
+| Dec | Hex | Dec | Hex |
+| --- | --- | --- | --- |
+| 0 | 0 | 8 | 8 |
+| 1 | 1 | 9 | 9 |
+| 2 | 2 | 10 | A |
+| 3 | 3 | 11 | B |
+| 4 | 4 | 12 | C |
+| 5 | 5 | 13 | D |
+| 6 | 6 | 14 | E |
+| 7 | 7 | 15 | F |
+
+Cisco IOS prints `0cf5.a452.b101`. Windows often uses `0C-F5-A4-52-B1-01`. macOS often uses `0c:f5:a4:52:b1:01`. Same 48 bits.
+
+The first 3 bytes are an **OUI** (organizationally unique identifier) the IEEE hands the vendor. The last 3 bytes the vendor spends on ports. Ports on one chassis are usually sequential. Cisco owns many OUIs; `0cf5.a4` is one of them.
+
+### Type/Length
+
+Two bytes. **≤ 1500** (decimal): length of the payload in bytes. **≥ 1536**: **EtherType** — what the payload *is*. 1501–1535 stay unused.
+
+Almost everything you meet now is EtherType. IPv4 is `0x0800`. IPv6 is `0x86DD`. The original IEEE 802.3 story used length plus an LLC/SNAP header; that is off the exam.
+
+### Frame Check Sequence
+
+The only trailer field. **4 bytes**. The sender runs an algorithm and appends a checksum. The receiver runs the same algorithm. Match: keep the frame. Mismatch (noise, EMI): **discard**. The algorithm family is a **cyclic redundancy check (CRC)**. *Cyclic* is the math. *Redundancy* means extra bits that carry no new user data. *Check* is the point.
+
+## How a switch builds a MAC table
+
+On every receive, the switch reads the **source** MAC and writes “this address lives out this ingress port.” Next time that address is a *destination*, the switch already has an exit. That is **MAC address learning**.
+
+<LessonFigure src="/img/ccna/fig-6-3.png" alt="Two switches whose MAC address tables have learned all four PCs and the ports they sit behind." caption="Figure 6.3 — Two switches whose MAC address tables have learned all four PCs and the ports they sit behind." maxWidth={600} />
+
+The table is also called a **CAM table** (content-addressable memory — the chip that holds it).
+
+Entries learned this way are **dynamic**. **MAC aging** deletes a dynamic row after **5 minutes** with no frame from that address. **Static** rows (typed by an admin) are rare.
+
+Cisco port names start with a speed letter — **E** Ethernet 10, **F** FastEthernet 100, **G** Gigabit 1G, **T** TenGig 10G — then slot/port (`G0/1`). Real hardware often numbers from 1. Many CML labs number from 0 (`G0/0`). This lesson’s lab uses `G0/0` as the SW1–SW2 link.
+
+## Flood versus forward
+
+A frame aimed at **one** dest MAC is **unicast**.
+
+- **Known unicast** — dest is in the table → **forward** that one port.
+- **Unknown unicast** — dest is missing → **flood**: every port **except** the ingress.
+
+Flooding is a hope: the dest (or someone who will reply) is out there. The reply’s source teaches the missing row. After that, the same conversation is a thin forward.
+
+<LessonFigure src="/img/ccna/fig-6-4.png" alt="PC1 → PC3 with empty tables: both switches flood, PC2 and PC4 drop the frame, and each switch learns PC1." caption="Figure 6.4 — PC1 → PC3 with empty tables: both switches flood, PC2 and PC4 drop the frame, and each switch learns PC1." maxWidth={600} />
+
+Hosts are picky. If the dest MAC is not theirs and is not broadcast, they **drop**. Only the intended dest processes the payload.
+
+<LessonFigure src="/img/ccna/fig-6-5.png" alt="PC3 replies: the switches already know PC1, so the frame is forwarded instead of flooded, and they learn PC3." caption="Figure 6.5 — PC3 replies: the switches already know PC1, so the frame is forwarded instead of flooded, and they learn PC3." maxWidth={600} />
+
+A switch is **transparent**. PC1 addresses PC3, not SW1. Crossing a switch is **not a hop**. The switch does **not** rewrite the frame; it copies it out a port.
+
+**Broadcast** dest `ffff.ffff.ffff` is also flooded, on purpose: one-to-all in the LAN. **Multicast** (one-to-some) shows up later.
+
+```text
+SW1# show mac address-table
+          Mac Address Table
+-------------------------------------------
+Vlan    Mac Address       Type        Ports
+----    -----------       --------    -----
+   1    d8bb.c1cc.ff01    DYNAMIC     Gi0/1
+   1    d8bb.c1cc.ff03    DYNAMIC     Gi0/0
+```
+
+`Gi` is IOS for GigabitEthernet. The **Vlan** column is VLAN 1 until chapter 12. **Type** is DYNAMIC or STATIC. You may also see the neighbor switch’s port MAC; switches chatter with each other.
+
+You can wipe dynamic rows:
+
+```text
+clear mac address-table dynamic
+clear mac address-table dynamic address d8bb.c1cc.ff01
+clear mac address-table dynamic interface gi0/1
+```
+
+IOS says **interface** more often than **port**. Aging usually does this job for you.
+
+## Address Resolution Protocol
+
+A host that knows an **IP** and needs a **MAC** uses **ARP**.
+
+- **ARP request** — “who has 192.168.1.3?” inside a **broadcast** frame.
+- **ARP reply** — “I do; my MAC is …” as a **unicast** back to the asker.
+
+Switches flood the request (broadcast). PC2 and PC4 see it, notice the IP is not theirs, drop it. PC3 answers. Both hosts store the mapping in an **ARP table**, so the next packet does not wait on another request. The switches, meanwhile, have already learned both MACs from the request and the reply — the first data frame can be a known unicast.
+
+<LessonFigure src="/img/ccna/fig-6-6.png" alt="ARP: PC1 broadcasts “who has 192.168.1.3?” and PC3 answers with a unicast reply." caption="Figure 6.6 — ARP: PC1 broadcasts “who has 192.168.1.3?” and PC3 answers with a unicast reply." maxWidth={600} />
+
+ARP is the **bridge between Layer 3 and Layer 2**: known IP → unknown MAC.
+
+The set of devices that receive one another’s broadcasts is a **broadcast domain**. In this chapter it is the same circle as the LAN / Layer 2 domain.
+
+How did the host know the dest *IP*? Sometimes a human typed it (`ping`). Sometimes **DNS** will turn a name into an address — later.
+
+## Ping
+
+**Ping** asks “can I reach that IP?” It is part of **ICMP**, a helper sitting next to IP. The command is `ping ip-address` on IOS, Windows, Linux, macOS.
+
+Two unicast messages: **ICMP echo request** and **ICMP echo reply**. Cisco IOS sends **five**. `!` means a reply arrived. `.` means that request timed out. The line also prints min / avg / max **round-trip time**.
+
+```text
+R1# ping 10.0.0.12
+Sending 5, 100-byte ICMP Echos to 10.0.0.12, timeout is 2 seconds:
+!!!!!
+Success rate is 100 percent (5/5), round-trip min/avg/max = 3/3/4 ms
+```
+
+Ping is not a switching feature. It is the tool this track will keep using, and it is one honest way a host is told the dest IP so ARP (then switching) can start.
+
+<GuidedChoiceExplanation preset="ccna-lan-switching" />
+
+## What a switch does to one frame
+
+1. A host sends a frame (unicast, broadcast, or — later — multicast).
+2. The switch **learns** the **source** MAC on the ingress port.
+3. It **looks up** the **destination** MAC.
+4. Known unicast → **forward** that port. Unknown unicast or broadcast → **flood** every other port.
+5. Hosts that are not the dest **drop**. The dest (if it heard the flood or the forward) processes.
+
+Skip step 2 in your head and the table never fills. Skip the lookup and you flood forever.
+
+<FigureMatchGame preset="ccna-lan-switching" />
+
+## Summary
+
+| Idea | Meaning |
+| --- | --- |
+| LAN / L2 domain | Frames switch; no router required between the hosts |
+| Broadcast domain | Who hears `ffff.ffff.ffff` — same circle, this chapter |
+| Preamble + SFD | Layer 1 clock; not in the frame |
+| Dest / Src | 6-byte MACs; dest = next hop, src = learn |
+| Type/Length | ≤1500 length; ≥1536 EtherType (`0x0800` IPv4) |
+| FCS | CRC trailer; mismatch → discard |
+| MAC / BIA | 48 bits, hex, OUI + vendor half, unique |
+| Learn | Source MAC → ingress port |
+| Age | Dynamic row dies after 5 quiet minutes |
+| Known unicast | Forward the table port |
+| Unknown unicast | Flood all ports except ingress |
+| `show mac address-table` | VLAN, MAC, DYNAMIC/STATIC, port |
+| ARP | Broadcast request, unicast reply; IP → MAC |
+| Ping | ICMP echo request/reply; both unicast |
+
+<MultipleChoice
+  id="ccna-ethernet-lan-switching"
+  title="Ethernet LAN switching"
+  questions={[
+    {
+      prompt: 'In this chapter a LAN is best defined as:',
+      choices: [
+        'Any two devices that share a city name on the shipping label',
+        'A WAN circuit the provider sells as “Layer 2 VPN gold”',
+        'A Layer 2 domain: hosts reach each other by switching, with no router in the middle',
+        'Exactly one switch, because two switches are always two LANs',
+      ],
+      answer: 2,
+      why: 'Cabled switches are one LAN. A router between them splits the domain.',
+    },
+    {
+      prompt: 'Preamble and SFD are sent with every Ethernet frame, yet they are not “in the frame” because:',
+      choices: [
+        'They are Layer 1 clocking; they do not change the Layer 2 forwarding decision',
+        'IOS strips them in NVRAM before show mac address-table',
+        'They hold the dest MAC, which the trailer already repeats',
+        'They are IPv6-only and this chapter is IPv4',
+      ],
+      answer: 0,
+      why: '7 bytes of 10101010 plus SFD 10101011 lock the bit clock. The switch still keys on dest/src.',
+    },
+    {
+      prompt: 'A MAC address is:',
+      choices: [
+        '4 bytes the admin types, like an IPv4 address',
+        '2 bytes of EtherType plus a 2-byte checksum',
+        '12 decimal digits the IEEE assigns to each building',
+        '6 bytes (48 bits), usually 12 hex characters; OUI + vendor half; a BIA',
+      ],
+      answer: 3,
+      why: 'Manufacturer-burned, globally unique. Cisco prints aaaa.bbbb.cccc.',
+    },
+    {
+      prompt: 'Type/Length is 2 bytes. Which reading is right?',
+      choices: [
+        'Every value is a payload length; EtherType lives in the FCS',
+        '≤1500 means length in bytes; ≥1536 means EtherType (IPv4 is 0x0800)',
+        'The field is unused after 1999; length is signaled only in the preamble',
+        'Values 1501–1535 are the only legal EtherTypes for ICMP',
+      ],
+      answer: 1,
+      why: '1501–1535 stay unused. Today you almost always see type, not length.',
+    },
+    {
+      prompt: 'The Ethernet FCS is there so that:',
+      choices: [
+        'The switch can rewrite the dest MAC on every hop',
+        'ARP can store IP-to-port mappings in NVRAM',
+        'The receiver recomputes a CRC and discards a corrupted frame',
+        'IOS can age MAC rows after five successful checksums',
+      ],
+      answer: 2,
+      why: 'Same algorithm on both ends. Mismatch means noise won; drop the frame.',
+    },
+    {
+      prompt: 'A switch fills its MAC address table by reading:',
+      choices: [
+        'The source MAC of frames it receives, bound to the ingress port',
+        'The dest MAC only, because that is who must be found',
+        'The OUI of the chassis serial number at boot',
+        'The ARP table on the nearest router, copied every five minutes',
+      ],
+      answer: 0,
+      why: '“I heard X on port Y, so later I send to X out Y.” Dest is the lookup, not the lesson.',
+    },
+    {
+      prompt: 'An unknown unicast frame makes a switch:',
+      choices: [
+        'Forward only the uplink, on the guess that the dest is off-box',
+        'Drop the frame and send an ICMP unreachable to the source',
+        'Rewrite the dest MAC to ffff.ffff.ffff and wait for OSPF',
+        'Flood it out every port except the one it arrived on',
+      ],
+      answer: 3,
+      why: 'Flood is the search. The reply’s source teaches the missing row.',
+    },
+    {
+      prompt: 'A known unicast frame makes a switch:',
+      choices: [
+        'Flood anyway, so every host can snoop the conversation',
+        'Forward it out only the port listed for that dest MAC',
+        'Send it to a router; switches never reverse a learned path',
+        'Clear the table row so the next frame can flood and relearn',
+      ],
+      answer: 1,
+      why: 'Table hit → one exit. That is the whole point of learning.',
+    },
+    {
+      prompt: 'MAC aging on a dynamic entry means:',
+      choices: [
+        'The OUI expires and the IEEE reissues the first three bytes',
+        'The row becomes STATIC after five successful forwards',
+        'Five minutes with no frame from that MAC, then the row is deleted',
+        'The switch reloads unless you type write memory',
+      ],
+      answer: 2,
+      why: 'Quiet for 5 minutes → gone. Next frame to that dest is unknown again.',
+    },
+    {
+      prompt: 'An ARP request is carried in a frame whose dest MAC is:',
+      choices: [
+        'The default gateway’s MAC, because ARP is a Layer 3 protocol',
+        'The switch’s G0/0 MAC, because the switch must proxy every ask',
+        'The dest host’s MAC, which the sender already stored in NVRAM',
+        'ffff.ffff.ffff — broadcast — so every host in the LAN hears the question',
+      ],
+      answer: 3,
+      why: 'The asker does not have the MAC yet. Only the host whose IP matches replies, unicast.',
+    },
+    {
+      prompt: 'A broadcast domain in this chapter is:',
+      choices: [
+        'The same circle as the LAN: devices that receive one another’s broadcasts',
+        'Only the two ports of a router, because routers flood broadcasts',
+        'Every host on the internet that shares an EtherType of 0x0800',
+        'The set of MAC rows that have already aged out',
+      ],
+      answer: 0,
+      why: 'Switches flood broadcasts. A router is the usual wall between domains.',
+    },
+    {
+      prompt: 'ping 192.168.1.3 on Cisco IOS is best described as:',
+      choices: [
+        'A broadcast ARP that never expects a reply',
+        'Five Telnet sessions to port 23, shown as #####',
+        'Five unicast ICMP echo requests; ! is a reply, . is a timeout',
+        'A Layer 1 preamble test that skips Ethernet entirely',
+      ],
+      answer: 2,
+      why: 'ICMP helper for IP. After ARP has the MAC, both echo messages are unicast.',
+    },
+  ]}
+/>

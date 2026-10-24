@@ -1,0 +1,418 @@
+---
+sidebar_position: 6
+title: IPv4 Addressing
+---
+
+> **Track:** Network CCNA — sixth chapter. Switches forwarded from the Ethernet header. **Routers** forward from the **IPv4 header**. This chapter is the packet’s addresses, the binary you need to read them, and how to put an address on a Cisco interface. Subnetting (the rest of exam topic 1.6) is the tenth chapter.
+
+# IPv4 Addressing
+
+Layer 3’s job is **end-to-end**: get this packet to the intended host, even if that host is several routers away. The address that names that host lives in the **Internet Protocol version 4 (IPv4)** header, defined in RFC 791.
+
+IPv6 exists and has its own later part of this track. Until then, every address on the page is 32 bits.
+
+<Ipv4AddressingSimulator />
+
+Click the eight weights until the octet is 206. Decode `/8`, `/16`, and `/24`. Then on **R1**, enter interface config, type `ip address` with a **netmask**, and `no shutdown`. `show ip interface brief` is how you prove it stuck.
+
+## The IPv4 header is the envelope
+
+Ethernet’s header is short. IPv4’s is not. Without options it is **20 bytes**; with a full Options field it can reach **60**. Options are rare and off the exam. Count bits from **0**. Each row in the diagram is **32 bits (4 bytes)**.
+
+```text
+ 0                   1                   2                   3
+ 0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1
++-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+|Version|  IHL  |  DSCP   |ECN|          Total Length           |
++-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+|         Identification        |Flags|      Fragment Offset    |
++-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+|  Time to Live |    Protocol   |         Header Checksum       |
++-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+|                       Source Address                          |
++-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+|                    Destination Address                        |
++-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+|                    Options (if IHL > 5)                       |
++-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+```
+
+<LessonFigure src="/img/ccna/fig-7-1.png" alt="The IPv4 header in 32-bit rows: 20 bytes, plus up to 40 bytes of options." caption="Figure 7.1 — The IPv4 header in 32-bit rows: 20 bytes, plus up to 40 bytes of options." maxWidth={560} />
+
+Do not memorize field widths for trivia. Know **why** each field is there. This chapter lives in the two address fields; the others show up again when a later topic needs them.
+
+### Version
+
+**4 bits.** `0100` (decimal 4) is IPv4. `0110` (decimal 6) is IPv6. The receiver uses this to parse the rest of the header.
+
+### Internet Header Length (IHL)
+
+**4 bits.** Length of **this header only**, in **4-byte units**. `5` means 20 bytes (the minimum — no Options). `15` means 60 bytes (maximum). A value below 5 is illegal because the header cannot shrink past 20 bytes.
+
+### DSCP and ECN
+
+Six bits plus two bits. Together they used to be called Type of Service. They mark packets for **Quality of Service (QoS)** — voice and video get a better seat than a bulk download. QoS is its own later topic.
+
+### Total Length
+
+**16 bits.** Size of the **whole packet** (header + payload) in **bytes**, not 4-byte chunks. IHL is “how tall is the header.” Total Length is “how tall is the packet.” The Ethernet header and trailer wrap the packet; they are not counted here.
+
+<LessonFigure src="/img/ccna/fig-7-2.png" alt="IHL measures only the IPv4 header; Total Length measures the whole packet." caption="Figure 7.2 — IHL measures only the IPv4 header; Total Length measures the whole packet." maxWidth={420} />
+
+### Identification, Flags, Fragment Offset
+
+Thirty-two bits that exist so a router can **split** a packet that is bigger than the next hop’s **maximum transmission unit (MTU)** and so the destination can **reassemble**. Typical MTU is **1500 bytes**.
+
+- **Identification** (16 bits): all fragments of one original packet share this value.
+- **Flags** (3 bits): bit 0 reserved (always 0). Bit 1 is **Don’t Fragment (DF)** — if set and the packet is too big, drop it instead of splitting. Bit 2 is **More Fragments (MF)** — 1 means “not the last piece.”
+- **Fragment Offset** (13 bits): where this piece sat in the original, so out-of-order fragments still reassemble.
+
+### Time To Live (TTL)
+
+**8 bits.** The sender picks a starting value (64 is common). **Every router that forwards the packet subtracts 1.** When the value would become 0, the router **drops** the packet. That is how a forwarding loop dies instead of circling until the heat death of the universe.
+
+<LessonFigure src="/img/ccna/fig-7-3.png" alt="A routing loop: TTL drops by 1 at each router until the packet is discarded at 0." caption="Figure 7.3 — A routing loop: TTL drops by 1 at each router until the packet is discarded at 0." maxWidth={420} />
+
+### Protocol
+
+**8 bits.** What is inside the packet, the same idea as Ethernet’s EtherType.
+
+| Value | Payload |
+| --- | --- |
+| 1 | ICMP |
+| 6 | TCP |
+| 17 | UDP |
+| 89 | OSPF |
+
+### Header Checksum
+
+**16 bits.** Error check for the **IPv4 header only**. Ethernet’s FCS covers the **entire frame**. If the IP header is corrupt, drop the packet; do not trust a dest address you cannot verify.
+
+### Source and Destination Address
+
+**32 bits each.** Who sent it, who should receive it. The rest of this chapter is those 32 bits.
+
+### Options
+
+Zero to 40 bytes. Rare. The reason IHL exists.
+
+## Binary, because 32 ones and zeros are the real address
+
+Computers count in **base 2**. We print IPv4 in decimal so humans can read it. You must convert **one octet (8 bits)** in both directions. The CCNA timer is two hours; do not spend it on long division.
+
+### Decimal recap (base 10)
+
+Ten digits, 0–9. Each place is ten times the one to its right: ones, tens, hundreds, thousands.
+
+### Binary (base 2)
+
+Two digits, 0 and 1. Each place **doubles**: 1, 2, 4, 8, 16, 32, 64, 128.
+
+The rightmost bit is **least significant**. The leftmost of an octet is **most significant** (the 128s place).
+
+An 8-bit number runs from `00000000` (decimal 0) to `11111111` (decimal **255**). That is **256** possible values. That is why each dotted-decimal octet is 0–255.
+
+<LessonFigure src="/img/ccna/fig-7-4.png" alt="Bit weights over one octet: 10101101 = 128 + 32 + 8 + 4 + 1 = 173." caption="Figure 7.4 — Bit weights over one octet: 10101101 = 128 + 32 + 8 + 4 + 1 = 173." maxWidth={420} />
+
+### Binary → decimal
+
+Add the weights whose bits are 1.
+
+`00101111` = 32 + 8 + 4 + 2 + 1 = **47**.
+
+<LessonFigure src="/img/ccna/fig-7-5.png" alt="00101111 = 32 + 8 + 4 + 2 + 1 = 47." caption="Figure 7.5 — 00101111 = 32 + 8 + 4 + 2 + 1 = 47." maxWidth={420} />
+
+Practice until you do it without writing the weights.
+
+### Decimal → binary
+
+Start at 128. If that weight **fits** in the remaining value, write 1 and subtract; else write 0. Then 64, 32, 16, 8, 4, 2, 1.
+
+206: 128 fits (78 left) → 1. 64 fits (14 left) → 1. 32 and 16 do not → 00. 8 fits (6) → 1. 4 fits (2) → 1. 2 fits (0) → 1. Last bit 0. Result: **11001110**.
+
+<LessonFigure src="/img/ccna/fig-7-6.png" alt="Decimal 206 to binary by subtracting the weights left to right: 11001110." caption="Figure 7.6 — Decimal 206 to binary by subtracting the weights left to right: 11001110." maxWidth={480} />
+
+You can add from the left instead of subtract; same bits. Either method is fine if you are fast.
+
+Cisco’s [Binary Game](https://learningnetwork.cisco.com/s/binary-game) is extra practice. Subnetting, IPv6, longest-match routing, and ACLs all need this skill.
+
+## Dotted decimal, prefix, netmask
+
+A 32-bit string is unfriendly. Split it into **four octets**, convert each to decimal, join with dots: **dotted decimal**. `192.168.100.100`.
+
+<LessonFigure src="/img/ccna/fig-7-7.png" alt="192.168.100.100/24 in dotted decimal and binary, split into network and host portions." caption="Figure 7.7 — 192.168.100.100/24 in dotted decimal and binary, split into network and host portions." maxWidth={560} />
+
+**Octet** always means 8 bits. **Byte** almost always means 8 bits too, but historically a byte was “whatever the machine reads at once,” which was not always 8. For IPv4, say octet.
+
+### Network portion and host portion
+
+Every IPv4 address is two halves:
+
+- **Network portion (prefix):** shared by every host on that LAN.
+- **Host portion:** unique on that LAN.
+
+A **prefix length** `/X` is the number of network bits. `/24` means 24 network bits, 8 host bits. Hosts on `192.168.100.0/24` all start `192.168.100`; the last octet changes.
+
+A **router** joins LANs. Each of its interfaces sits in a different prefix. Switches in those LANs do not need IPv4 to *switch frames*; they are not Layer 3–aware unless you add management addressing.
+
+<LessonFigure src="/img/ccna/fig-7-8.png" alt="Two LANs joined by R1: hosts in each LAN share a network portion (192.168.1 vs 192.168.2)." caption="Figure 7.8 — Two LANs joined by R1: hosts in each LAN share a network portion (192.168.1 vs 192.168.2)." maxWidth={600} />
+
+“Network” in diagrams sometimes means the whole campus. In addressing, treat **network ≈ LAN**: hosts that talk without a router.
+
+### Netmask (subnet mask)
+
+IOS does not take `/24` on `ip address`. It takes a **netmask**: another 32-bit string. A **1** means “this bit is network.” A **0** means “this bit is host.” Written dotted decimal like the address.
+
+| Prefix | Netmask |
+| --- | --- |
+| /8 | 255.0.0.0 |
+| /16 | 255.255.0.0 |
+| /24 | 255.255.255.0 |
+
+<LessonFigure src="/img/ccna/fig-7-9.png" alt="An address over its netmask: 16 one-bits mark the network portion, so /16." caption="Figure 7.9 — An address over its netmask: 16 one-bits mark the network portion, so /16." maxWidth={560} />
+
+A mask is always **a run of 1s, then a run of 0s**. `0.0.0.255` and `255.0.255.0` are not masks.
+
+## Putting an address on a Cisco router
+
+PCs usually get IPv4 from DHCP (later). **Routers** get addresses typed by an engineer.
+
+Default: every interface is **administratively down** and has **no IP**. Enable it. Give it an address. Verify.
+
+```text
+R1> enable
+R1# configure terminal
+R1(config)# interface g0/0
+R1(config-if)# ip address 192.168.1.1 255.255.255.0
+R1(config-if)# no shutdown
+R1(config-if)# interface g0/1
+R1(config-if)# ip address 192.168.2.1 255.255.255.0
+R1(config-if)# no shutdown
+```
+
+<LessonFigure src="/img/ccna/fig-7-10.png" alt="Configuring R1: ip address and no shutdown on G0/0 and G0/1." caption="Figure 7.10 — Configuring R1: ip address and no shutdown on G0/0 and G0/1." maxWidth={480} />
+
+`interface g0/0` is enough; you do not type `GigabitEthernet`. From `config-if` you can jump to another interface without going back to `config`. The prompt does **not** name which interface you are in — read the last `interface` command twice.
+
+`no shutdown` removes the default `shutdown`. You should see link-up and line-protocol-up syslog.
+
+### Verify
+
+`show ip interface brief` (user EXEC or privileged EXEC):
+
+- **IP-Address** — `unassigned` until you configure one.
+- **Status** — physical / admin: `up`, `down`, or `administratively down`.
+- **Protocol** — Layer 2 of the interface. Ethernet: Protocol follows Status. `up/up` is the happy pair.
+
+Brief does **not** print the mask. `show ip interface [g0/0]` does, as `/24`, plus **MTU 1500** and the all-ones **255.255.255.255** local broadcast.
+
+From config mode, prefix with `do`: `do show ip interface brief`.
+
+Save when it is right (`write` / `copy running-config startup-config`).
+
+A router with an address on each connected LAN can already forward **between those two LANs**. Remote prefixes need routes; that is later. Layer 3 is end-to-end (the packet’s dest IP stays PC3). Layer 2 is hop-to-hop (PC1 frames to R1’s MAC, R1 frames to PC3’s MAC). ARP still fills those MACs.
+
+<LessonFigure src="/img/ccna/fig-7-11.png" alt="PC1 → PC3 through R1: the destination IP stays PC3 while the frame is readdressed to R1, then to PC3." caption="Figure 7.11 — PC1 → PC3 through R1: the destination IP stays PC3 while the frame is readdressed to R1, then to PC3." maxWidth={600} />
+
+## Attributes of one IPv4 network
+
+For any prefix you should be able to name five things.
+
+**Network address** — first address; **host bits all 0**. Names the LAN. Never assigned to a host. `192.168.100.0/24`.
+
+<LessonFigure src="/img/ccna/fig-7-12.png" alt="Host bits all 0: 192.168.100.0 is the network address." caption="Figure 7.12 — Host bits all 0: 192.168.100.0 is the network address." maxWidth={560} />
+
+**Broadcast address** — last address; **host bits all 1**. Directed broadcast to every host in that prefix. `192.168.100.255/24`. Hosts on the *local* LAN more often send to **255.255.255.255** (limited broadcast). A host *in another* network uses the directed broadcast if it must hit everyone in `192.168.100.0/24`.
+
+<LessonFigure src="/img/ccna/fig-7-13.png" alt="Host bits all 1: 192.168.100.255 is the broadcast address." caption="Figure 7.13 — Host bits all 1: 192.168.100.255 is the broadcast address." maxWidth={560} />
+
+**Maximum hosts** — total addresses minus network and broadcast:
+
+$$2^{y} - 2$$
+
+where \(y\) is the number of **host bits** (32 minus prefix length).
+
+| Prefix | Host bits | Usable hosts |
+| --- | --- | --- |
+| /8 | 24 | 16,777,214 |
+| /16 | 16 | 65,534 |
+| /24 | 8 | 254 |
+
+**First usable** — network address + 1. Often the router. `192.168.100.1`.
+
+<LessonFigure src="/img/ccna/fig-7-14.png" alt="Network address + 1: 192.168.100.1 is the first usable host." caption="Figure 7.14 — Network address + 1: 192.168.100.1 is the first usable host." maxWidth={560} />
+
+**Last usable** — broadcast − 1. `192.168.100.254`.
+
+<LessonFigure src="/img/ccna/fig-7-15.png" alt="Broadcast − 1: 192.168.100.254 is the last usable host." caption="Figure 7.15 — Broadcast − 1: 192.168.100.254 is the last usable host." maxWidth={560} />
+
+Usable range for `/24`: `.1` through `.254`.
+
+On `/8` `/16` `/24` the split sits **on an octet boundary**, so you can zero or 255 the host octets in decimal. Example: `172.20.20.127/16` → network `172.20.0.0`, broadcast `172.20.255.255`, usable **`172.20.0.1`–`172.20.255.254`**. Do not freeze the third octet at 20; those 16 host bits include it.
+
+When the prefix is `/19` or `/28`, you will convert the messy octet to binary. That is the subnetting chapter.
+
+## Classful A, B, C (legacy, still on the exam)
+
+The first IPv4 plan used **`/8` for everything**. That is only 256 possible networks. Classes stretched the idea:
+
+| Class | First bits | First octet | Classful prefix | Used for |
+| --- | --- | --- | --- | --- |
+| A | `0…` | 0–127 | /8 | Huge orgs |
+| B | `10…` | 128–191 | /16 | Medium–large |
+| C | `110…` | 192–223 | /24 | Small–medium |
+| D | `1110…` | 224–239 | — | Multicast |
+| E | `1111…` | 240–255 | — | Experimental |
+
+<LessonFigure src="/img/ccna/fig-7-16.png" alt="Classes A, B, and C: 8, 16, or 24 network bits, and the host bits left over." caption="Figure 7.16 — Classes A, B, and C: 8, 16, or 24 network bits, and the host bits left over." maxWidth={420} />
+
+Hosts get A, B, or C. Some ranges inside those classes are reserved: **`0.0.0.0/8`** and **`127.0.0.0/8`** (loopback — `ping 127.0.0.1` never leaves the box). First octet 0 and 127 are not for ordinary hosts.
+
+Fewer bits in the prefix → fewer networks, each with more hosts. More prefix bits → many small networks. Class A’s first bit is fixed `0`, so you do not get \(2^{8}\) class A nets; you get \(2^{7}\). Same idea for B (`10` fixed) and C (`110` fixed).
+
+**Classful** means “the prefix is dictated by the first bits.” It is **obsolete**. **Classless** addressing lets you pick `/19` or `/28` regardless of class. That is subnetting. You still *identify* class from the first octet on the exam.
+
+<GuidedChoiceExplanation preset="ccna-ipv4-addressing" />
+
+<FigureMatchGame preset="ccna-ipv4-addressing" />
+
+## Check
+
+<MultipleChoice
+  id="ccna-ipv4-addressing"
+  title="IPv4 addressing"
+  questions={[
+    {
+      prompt: 'IHL versus Total Length:',
+      choices: [
+        'Both count the Ethernet frame, including FCS, in 4-byte units',
+        'IHL is payload bytes; Total Length is only the two address fields',
+        'IHL is header size in 4-byte units; Total Length is the whole packet in bytes',
+        'Total Length is always 20; IHL is the MTU of the outbound interface',
+      ],
+      answer: 2,
+      why: 'Minimum IHL 5 → 20-byte header. Total Length includes that header plus whatever it carries.',
+    },
+    {
+      prompt: 'TTL exists so that:',
+      choices: [
+        'A looping packet is dropped when the field reaches 0 after each hop decrements it',
+        'The packet expires at midnight local time on the destination host',
+        'Switches can age MAC rows; routers copy TTL into the FCS',
+        'QoS can mark voice with a TTL of 255 and data with a TTL of 1',
+      ],
+      answer: 0,
+      why: 'Sender sets it (often 64). Each forwarding router subtracts 1. Zero → drop, not forward.',
+    },
+    {
+      prompt: 'Protocol field 6 inside an IPv4 packet means the payload is:',
+      choices: [
+        'ICMP, the same family as ping',
+        'OSPF, because 6 is “open” in the RFC mnemonic',
+        'UDP, used by DNS and DHCP',
+        'TCP — 1 is ICMP, 17 is UDP, 89 is OSPF',
+      ],
+      answer: 3,
+      why: 'EtherType named the packet; Protocol names what sits on top of IP.',
+    },
+    {
+      prompt: 'One IPv4 octet is 8 bits. Its decimal range is:',
+      choices: [
+        '1 through 256, because computers count from 1',
+        '0 through 255 (256 values); 11111111 is 255',
+        '0 through 128, the most-significant bit’s weight',
+        '0 through 7, because there are eight bits to index',
+      ],
+      answer: 1,
+      why: '00000000 = 0. 11111111 = 128+64+32+16+8+4+2+1 = 255.',
+    },
+    {
+      prompt: '00101111 in decimal is:',
+      choices: [
+        '206, because you always add 128 and 64 first',
+        '255, because any 1 in the lower nibble saturates the octet',
+        '47 (32+8+4+2+1)',
+        '23, counting only the rightmost five 1s as 16+4+2+1',
+      ],
+      answer: 2,
+      why: 'Weights on the 1s: 32, 8, 4, 2, 1. 128 and 64 are 0 in this octet.',
+    },
+    {
+      prompt: 'Dotted decimal 192.168.100.100 is:',
+      choices: [
+        'Four 8-bit octets written in decimal and joined by dots',
+        'A 24-bit MAC with a /100 prefix for the vendor OUI',
+        'One 32-digit decimal number with three decorative periods',
+        'Two hex pairs; Cisco prints the same value as 192.168.64.64',
+      ],
+      answer: 0,
+      why: '32 bits → four groups of 8 → four decimals 0–255. That is why CCNA binary stops at 8 bits.',
+    },
+    {
+      prompt: '192.168.100.100/24 means:',
+      choices: [
+        'The host may send only 24 packets before DHCP renews',
+        'The last 24 bits identify the LAN; 192 is the unique host',
+        'There are 24 hosts on the LAN, addressed .1 through .24',
+        'The first 24 bits (192.168.100) are the shared prefix; .100 is this host',
+      ],
+      answer: 3,
+      why: 'Prefix length is bit count of the network half. Neighbors keep 192.168.100 and change the last octet.',
+    },
+    {
+      prompt: 'The netmask that matches /24, and that IOS wants on ip address, is:',
+      choices: [
+        '0.0.0.255, because the host bits are the 1s',
+        '255.255.255.0 — twenty-four 1s, then eight 0s',
+        '255.255.0.0, which is /24 when the first octet is 192',
+        '192.168.100.0, copied from the network address',
+      ],
+      answer: 1,
+      why: '1 = network bit. Masks are contiguous 1s then 0s. /8 → 255.0.0.0; /16 → 255.255.0.0.',
+    },
+    {
+      prompt: 'A Cisco router interface is shutdown by default. After ip address, you still need:',
+      choices: [
+        'reload, because addresses write only to NVRAM',
+        'switchport mode access, or the router remains a hub',
+        'no shutdown, so Status/Protocol can go up/up (if the cable is live)',
+        'ip default-gateway, which routers require on every LAN interface',
+      ],
+      answer: 2,
+      why: 'no removes the default shutdown. Then verify with show ip interface brief.',
+    },
+    {
+      prompt: 'show ip interface brief is missing the mask. To see /24 and MTU you run:',
+      choices: [
+        'show mac address-table, which prints prefixes next to each BIA',
+        'write memory, which dumps masks into the syslog',
+        'ping 255.255.255.255, whose replies list each neighbor’s prefix',
+        'show ip interface [g0/0] — prefix, 255.255.255.255 broadcast, MTU 1500',
+      ],
+      answer: 3,
+      why: 'Brief is the status cheat sheet. The longer show is the addressing cheat sheet.',
+    },
+    {
+      prompt: 'PC1 is 172.20.20.127/16. Usable addresses on that network are:',
+      choices: [
+        '172.20.0.1 through 172.20.255.254',
+        '172.20.20.1 through 172.20.20.254',
+        '172.20.0.0 through 172.20.255.255, including network and broadcast',
+        '172.20.20.0 through 172.20.20.127, because .127 is the last usable',
+      ],
+      answer: 0,
+      why: 'Host bits are the last two octets. Network 172.20.0.0, broadcast 172.20.255.255, then ±1.',
+    },
+    {
+      prompt: '192.168.1.1 is which class, with which classful prefix?',
+      choices: [
+        'Class A, /8, because 192 is larger than 127',
+        'Class B, /16, because 168 is in the 128–191 window',
+        'Class C, /24 — first octet 192–223, first bits 110',
+        'Class D multicast, so it must not be configured on a router interface',
+      ],
+      answer: 2,
+      why: 'Look at the first octet, not later ones. Classful /24 is the old default; classless prefixes come next.',
+    },
+  ]}
+/>

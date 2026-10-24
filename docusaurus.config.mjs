@@ -318,6 +318,10 @@ export default async function createConfig() {
                 label: 'CS Fundamentals',
               },
               {
+                to: '/fundamentals/network-ccna/network-devices',
+                label: 'Network CCNA',
+              },
+              {
                 to: '/fundamentals/math-and-science/intro',
                 label: 'Math and Science',
               },

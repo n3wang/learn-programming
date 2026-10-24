@@ -9,6 +9,7 @@
 import exportImport from './decks/export-import.json';
 import inventoryOptimization from './decks/inventory-optimization.json';
 import computerEngineering from './decks/computer-engineering.json';
+import networkCcna from './decks/network-ccna.json';
 import gameEngine from './decks/game-engine.json';
 import scalableSystems from './decks/scalable-systems.json';
 import englishChuyi from './decks/english-chuyi.json';
@@ -21,6 +22,7 @@ const DECK_FILES = [
   exportImport,
   inventoryOptimization,
   computerEngineering,
+  networkCcna,
   gameEngine,
   scalableSystems,
   englishChuyi,

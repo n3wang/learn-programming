@@ -1,0 +1,247 @@
+---
+sidebar_position: 18
+title: First Hop Redundancy Protocols
+---
+
+> **Track:** Network CCNA — eighteenth chapter. OSPF (seventeenth) kept the **routers** talking. Hosts still nail their **default gateway** to one address. This chapter is **FHRP**: a shared VIP so the LAN survives a router death. Exam **3.5** says **describe**. Still learn basic **HSRP**. **IPv6 addressing** (nineteenth) is the next hop after IPv4.
+
+# First Hop Redundancy Protocols
+
+Two routers on the LAN is not a redundant gateway. Hosts ARP for **10.0.0.1**. If that box dies, they keep sending to a MAC that no longer forwards. Re-typing every PC is not a recovery plan.
+
+<LessonFigure src="/img/ccna/fig-19-1.png" alt="R1 fails and the hosts keep using it as their gateway; without an FHRP, R2 can’t take over." caption="Figure 19.1 — R1 fails and the hosts keep using it as their gateway; without an FHRP, R2 can’t take over." maxWidth={560} />
+
+An **FHRP** lets a **group** of routers share one **virtual IP (VIP)** — the address you put on hosts (or in DHCP). The **active** member answers ARP for the VIP with a **virtual MAC**, not its burned-in address. The **standby** watches multicast hellos. When hellos stop, it **fails over**, sends **gratuitous ARP** (broadcast, source = virtual MAC), and switches re-learn that MAC toward the new active. Hosts do **not** change their gateway or ARP row.
+
+<LessonFigure src="/img/ccna/fig-19-2.png" alt="R1 and R2 share a virtual IP that the hosts use as gateway, so R2 takes over when R1 fails." caption="Figure 19.2 — R1 and R2 share a virtual IP that the hosts use as gateway, so R2 takes over when R1 fails." maxWidth={560} />
+
+“First hop” = the default gateway is hop one out of the LAN.
+
+<FhrpSimulator />
+
+**Next story** kills R1 without a VIP, then shares VIP + vMAC, GARP, HSRP vs VRRP vs GLBP, and `standby` CLI.
+
+## One VIP, one virtual MAC
+
+Each router still owns a **real** interface IP (hellos are sourced from it). The VIP is extra and **shared**. One box can sit in **several groups** — one group per subnet, so each VLAN has its own gateway address.
+
+Hellos are **multicast**, not broadcast, so PCs ignore them. The group address depends on the protocol (below). Same idea as OSPF: flood on the LAN, only FHRP speakers care.
+
+<LessonFigure src="/img/ccna/fig-19-3.png" alt="Multicast hellos between R1 (active) and R2 (standby) keep the group alive." caption="Figure 19.3 — Multicast hellos between R1 (active) and R2 (standby) keep the group alive." maxWidth={560} />
+
+HSRP words: **active** / **standby**. VRRP: **master** / **backup**. GLBP: **AVG** / **AVF**.
+
+## Failover and preemption
+
+Failover = standby becomes active. VIP and virtual MAC **stay**. Only the **switch CAM** must move — that is what GARP is for (`dst ffff.ffff.ffff`, `src` = virtual MAC).
+
+<LessonFigure src="/img/ccna/fig-19-4.png" alt="Failover: R2 becomes active and sends gratuitous ARP so the switches relearn the virtual MAC." caption="Figure 19.4 — Failover: R2 becomes active and sends gratuitous ARP so the switches relearn the virtual MAC." maxWidth={600} />
+
+After the old active returns:
+
+- **Preempt** = it takes the role back (if it still wins the election).
+- No preempt = it becomes the new standby.
+
+Same word as OSPF DR, different protocol.
+
+## Compare the three
+
+Cisco speaks all three. A Juniper neighbor cannot run HSRP or GLBP — use **VRRP**.
+
+| | HSRP | VRRP | GLBP |
+| --- | --- | --- | --- |
+| Words | Active / Standby | Master / Backup | AVG / AVF |
+| Hello dest | v1 **224.0.0.2** · v2 **224.0.0.102** | **224.0.0.18** | **224.0.0.102** |
+| Virtual MAC | v1 `0000.0c07.acXX` · v2 `0000.0c9f.fXXX` | `0000.5e00.01XX` | `0007.b400.XXYY` |
+| Whose | Cisco | Standard | Cisco |
+| Load-balance | Per **subnet** | Per **subnet** | Per **host** |
+| Preempt default | **Off** | **On** | AVG **off** · AVF **on** |
+
+`XX` / `XXX` / `YY` are the **group** (and GLBP **AVF** number) in hex. Group 1 v1 → `0000.0c07.ac01`. Group 15 v1 → `0000.0c07.ac0f`. Group 12 VRRP → `0000.5e00.010c`. GLBP group 1 AVF 1 → `0007.b400.0101`.
+
+Memorize the table. That is most of 3.5.
+
+## HSRP
+
+Cisco only. **Hot** standby = the spare is already forwarding-ready, not a box in a closet.
+
+Two versions — they **do not** interoperate. Turn **v2 on both** sides if you use v2.
+
+| | v1 | v2 |
+| --- | --- | --- |
+| Hello | 224.0.0.2 (all-routers) | 224.0.0.102 (HSRPv2 + GLBP) |
+| Groups | 0–255 (two hex digits) | 0–4095 (three hex digits) |
+| IPv6 | No | Yes (IPv6 waits) |
+
+Election: highest **priority** (default **100**), then highest **interface IP**. Preempt **off** unless you type it.
+
+Per-subnet load-balance: R1 active on VLAN 10, R2 active on VLAN 20. One subnet still pins every host to **one** active.
+
+<LessonFigure src="/img/ccna/fig-19-5.png" alt="HSRP load sharing per subnet: R1 active for subnet 1, R2 active for subnet 2." caption="Figure 19.5 — HSRP load sharing per subnet: R1 active for subnet 1, R2 active for subnet 2." maxWidth={560} />
+
+## VRRP
+
+IETF. Any vendor. Master / backup. Preempt **on**. Hello **224.0.0.18**. Same per-subnet load-balance idea. Use it when the peer is not Cisco.
+
+## GLBP
+
+Cisco. One VIP, **several virtual MACs**. The **AVG** answers ARP and hands out AVF MACs **round-robin** (up to **four** AVFs; the AVG can be one). Hosts in the **same** subnet split across routers.
+
+<LessonFigure src="/img/ccna/fig-19-6.png" alt="GLBP: one virtual IP, two virtual MACs — half the hosts forward via R1 and half via R2." caption="Figure 19.6 — GLBP: one virtual IP, two virtual MACs — half the hosts forward via R1 and half via R2." maxWidth={560} />
+
+AVG preempt off; AVF preempt on. Hello 224.0.0.102 (same as HSRPv2 — different protocol).
+
+## Basic HSRP (worth typing)
+
+Exam wording is **describe**, but `standby` shows up. Group number and VIP must **match**. v1 and v2 must **match**.
+
+```text
+R1(config)# interface g0/0
+R1(config-if)# ip address 10.0.0.2 255.255.255.0
+R1(config-if)# standby version 2
+R1(config-if)# standby 1 ip 10.0.0.1
+R1(config-if)# standby 1 priority 105
+R1(config-if)# standby 1 preempt
+```
+
+R2 gets the same version and VIP, keeps priority **100**, no need for preempt. Real IPs stay **.2** and **.3** — never put the VIP on `ip address`.
+
+```text
+R1# show standby brief
+Interface  Grp  Pri  P  State    Active   Standby   Virtual IP
+Gi0/0      1    105  P  Active   local    10.0.0.3  10.0.0.1
+```
+
+`P` = preempt configured. `local` under Active = this box is active. `show standby` (no `brief`) prints version, virtual MAC (`0000.0c9f.f001` for v2 group 1), hello **3** / hold **10**.
+
+<LessonFigure src="/img/ccna/fig-19-7.png" alt="An HSRPv2 group configured on R1 and R2, with priority and preemption set on R1." caption="Figure 19.7 — An HSRPv2 group configured on R1 and R2, with priority and preemption set on R1." maxWidth={560} />
+
+VRRP / GLBP swap the word `standby` for `vrrp` or `glbp`. Do not expect those labs.
+
+## Exam shapes
+
+- Two routers ≠ redundant gateway. VIP + virtual MAC. Hosts never rewrite ARP on failover.
+- GARP updates **switches**. Hellos are multicast.
+- HSRP active/standby, Cisco, preempt off. VRRP master/backup, standard, preempt on. GLBP AVG/AVF, per-host.
+- Multicast and vMAC table. v1 `acXX` vs v2 `fXXX`. Group 15 = `0f`.
+- Priority then IP. `standby version 2`, `standby 1 ip`, `priority`, `preempt`. `show standby brief`.
+
+<GuidedChoiceExplanation preset="ccna-fhrp" />
+
+<FigureMatchGame preset="ccna-fhrp" />
+
+<MultipleChoice
+  title="First Hop Redundancy Protocols"
+  questions={[
+    {
+      prompt: 'R1 10.0.0.1 is every PC’s gateway. R1 dies. R2 is 10.0.0.2. No FHRP. Hosts:',
+      choices: [
+        'ARP for 10.0.0.2 automatically because it is on the same LAN',
+        'Keep sending to R1’s MAC until someone changes the gateway',
+        'Learn R2 from OSPF hellos and rewrite their default route',
+        'Use broadcast as a gateway until R1 returns',
+      ],
+      answer: 1,
+      why: 'The first hop is a host setting. A second router does not steal .1 unless they share a VIP.',
+    },
+    {
+      prompt: 'After HSRP failover, a PC’s ARP row for the VIP:',
+      choices: [
+        'Must be cleared or the PC black-holes',
+        'Changes to the new active’s burned-in MAC',
+        'Is deleted until the next DHCP renew',
+        'Stays: same VIP, same virtual MAC. Switches re-learn via GARP',
+      ],
+      answer: 3,
+      why: 'GARP is broadcast, source = virtual MAC, so CAM moves. Hosts are not in the loop.',
+    },
+    {
+      prompt: 'HSRPv1 hello destination and virtual MAC for group 1:',
+      choices: [
+        '224.0.0.2 and 0000.0c07.ac01',
+        '224.0.0.102 and 0000.0c9f.f001',
+        '224.0.0.18 and 0000.5e00.0101',
+        '224.0.0.5 and 0007.b400.0101',
+      ],
+      answer: 0,
+      why: 'v2 is 224.0.0.102 and 0000.0c9f.fXXX. VRRP is .18 / 0000.5e00.01XX. GLBP is .102 / 0007.b400.XXYY.',
+    },
+    {
+      prompt: 'A Cisco router and a Juniper must share a gateway. You run:',
+      choices: [
+        'HSRPv2 — v2 is the multi-vendor edition',
+        'GLBP — AVG can assign a Juniper as AVF',
+        'VRRP — the only standard FHRP of the three',
+        'HSRPv1 to 224.0.0.2 so every router hears it',
+      ],
+      answer: 2,
+      why: 'HSRP and GLBP are Cisco-proprietary. 224.0.0.2 is “all routers,” not “Juniper speaks HSRP.”',
+    },
+    {
+      prompt: 'Default preemption:',
+      choices: [
+        'On for HSRP and VRRP; off for GLBP AVG',
+        'Off for HSRP, on for VRRP; GLBP AVG off and AVF on',
+        'Off for every FHRP until you type preempt',
+        'On for HSRP because “hot standby” means it steals the role back',
+      ],
+      answer: 1,
+      why: 'HSRP preempt is a knob (standby 1 preempt). VRRP comes on. GLBP splits AVG vs AVF.',
+    },
+    {
+      prompt: 'Load-balancing inside one subnet (some PCs use R1, others R2) is:',
+      choices: [
+        'GLBP — AVG answers ARP with rotating AVF virtual MACs',
+        'HSRP — one active always owns the whole subnet',
+        'VRRP — master/backup already splits hosts',
+        'Any FHRP, if you raise both priorities to 105',
+      ],
+      answer: 0,
+      why: 'HSRP/VRRP split by putting a different active/master on different subnets. GLBP is per-host, one VIP.',
+    },
+    {
+      prompt: 'HSRP active election (both up, first time):',
+      choices: [
+        'Lowest priority, then lowest IP',
+        'Highest RID, like OSPF DR',
+        'First to finish no shutdown, forever',
+        'Highest priority (default 100), then highest interface IP',
+      ],
+      answer: 3,
+      why: 'Raise standby 1 priority 105 so .2 beats .3. Preempt decides what happens after a return from death.',
+    },
+    {
+      prompt: 'HSRPv1 group 15 virtual MAC:',
+      choices: [
+        '0000.0c9f.f00f',
+        '0000.5e00.010f',
+        '0000.0c07.ac0f',
+        '0007.b400.010f',
+      ],
+      answer: 2,
+      why: 'v1 uses two hex digits after ac. 15 = 0f. v2 would be 0000.0c9f.f00f.',
+    },
+    {
+      prompt: 'standby 1 ip 10.0.0.1 on both routers, v2 on R1 only:',
+      choices: [
+        'Works — version is local like an OSPF process ID',
+        'They will not form a group; v1 and v2 do not interoperate',
+        'R2 becomes AVG automatically',
+        'Only the VIP must match; version is ignored',
+      ],
+      answer: 1,
+      why: 'Group number, VIP, and version must match. Each box still needs its own real ip address.',
+    },
+    {
+      prompt: 'show standby brief on R1 prints State Active, Active local, Standby 10.0.0.3, Pri 105 P. That means:',
+      choices: [
+        'R1 is active, preempt is on, R2 is standby at .3',
+        'R1 is standby; local means the VIP lives only on R1',
+        'P means passive-interface; HSRP is not sending hellos',
+        '105 is the hold timer, not priority',
+      ],
+      answer: 0,
+      why: 'P = preempt. show standby (long) adds vMAC and hello 3 / hold 10.',
+    },
+  ]}
+/>

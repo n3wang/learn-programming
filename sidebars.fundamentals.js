@@ -34,6 +34,7 @@ function keptFolderSet() {
     'algorithms',
     'artificial-intelligence',
     'computer-engineering',
+    'network-ccna',
     'data-science',
     'electronics',
     'finance',
@@ -66,6 +67,7 @@ const sidebars = {};
 const tutorialCategories = [
   {folder: 'artificial-intelligence', label: 'Artificial Intelligence'},
   {folder: 'computer-engineering', label: 'Computer Engineering'},
+  {folder: 'network-ccna', label: 'Network CCNA'},
   {folder: 'algorithms', label: 'Algorithms'},
   {folder: 'game-engine-development', label: 'Game Engine'},
   {folder: 'graphics', label: 'Graphics'},

@@ -1,0 +1,305 @@
+---
+sidebar_position: 15
+title: EtherChannel
+---
+
+> **Track:** Network CCNA — fifteenth chapter. STP and Rapid STP (thirteenth and fourteenth) **block** extra cables. This chapter **bundles** them so STP sees one port. Exam **2.4**: Layer 2 / Layer 3 EtherChannel (**LACP**). Dynamic Routing is the sixteenth chapter.
+
+# EtherChannel
+
+You add a second, third, fourth gigabit between two switches. Users still complain. **STP** (or RSTP) still forwards on **one** of those cables and puts the rest in **discarding**. Extra copper bought you a spare, not more bandwidth.
+
+<LessonFigure src="/img/ccna/fig-16-1.png" alt="Four links between SW1 and SW2, but STP blocks all except one." caption="Figure 16.1 — Four links between SW1 and SW2, but STP blocks all except one." maxWidth={600} />
+
+**EtherChannel** (Cisco’s name for a **port channel**) glues those physical links into **one logical port**. Switching and STP treat **Po1**. All members can forward. A broadcast that arrives on one member is **not** flooded out the other members of the **same** bundle — so the pair of switches does not loop on that group.
+
+<LessonFigure src="/img/ccna/fig-16-2.png" alt="EtherChannel bundles the four 1 Gbps links into one logical 4 Gbps Po1." caption="Figure 16.2 — EtherChannel bundles the four 1 Gbps links into one logical 4 Gbps Po1." maxWidth={600} />
+
+It does **not** retire STP. In a square of bundles, some **Po** interfaces still sit **Altn BLK**. You just get more **active** copper for the same tree.
+
+<LessonFigure src="/img/ccna/fig-16-3.png" alt="A broadcast crosses the EtherChannel once and is never flooded back over another member link." caption="Figure 16.3 — A broadcast crosses the EtherChannel once and is never flooded back over another member link." maxWidth={600} />
+
+`show spanning-tree` lists **Po1**, **Po2** — not Gi0/0. Combined bandwidth can drop the STP cost (two gigabits often print **3**, not **4**).
+
+<EtherChannelSimulator />
+
+**Next story** starts with four blocked extras, then PAgP vs LACP vs `on`, flags, a mismatch, flow hashing, and a Layer 3 bundle.
+
+<LessonFigure src="/img/ccna/fig-16-4.png" alt="Four switches joined by EtherChannels: STP still blocks some bundles, but whole bundles at a time." caption="Figure 16.4 — Four switches joined by EtherChannels: STP still blocks some bundles, but whole bundles at a time." maxWidth={480} />
+
+## Same idea as a trunk: negotiate or force
+
+**Dynamic** — a protocol compares settings and forms the bundle, or refuses. Prefer this.
+
+**Static** — `mode on`. No messages. The ports **assume** a bundle. A mismatch can **loop**. Use it when the neighbor cannot speak PAgP or LACP (a WLC later in the track).
+
+Group number is **local**. SW1 `channel-group 1` can face SW2 `channel-group 8`.
+
+`channel-group` creates **Port-channelN**. Configure the **logical** interface (trunk, allowed VLANs, IP). Members **inherit**; inheritance also runs the other way. After the bundle is live, change **Po**, not the members — a member edit can **flap** the channel.
+
+## PAgP (Cisco only)
+
+**Port Aggregation Protocol.** Up to **8** members.
+
+```text
+SW1(config)# interface range g0/0-1
+SW1(config-if-range)# channel-group 1 mode desirable
+SW1(config-if-range)# interface po1
+SW1(config-if)# switchport mode trunk
+```
+
+| Local | Neighbor | Bundle? |
+| --- | --- | --- |
+| desirable | desirable | yes |
+| desirable | auto | yes |
+| auto | auto | **no** |
+
+**desirable** sends. **auto** answers. Two listeners never start.
+
+<LessonFigure src="/img/ccna/fig-16-5.png" alt="PAgP: desirable on SW1, auto on SW2, and switchport mode trunk on the port-channel." caption="Figure 16.5 — PAgP: desirable on SW1, auto on SW2, and switchport mode trunk on the port-channel." maxWidth={560} />
+
+`show pagp neighbor`: partner flag **A** means the neighbor is **auto**. No **A** → the neighbor is **desirable**.
+
+<LessonFigure src="/img/ccna/fig-16-6.png" alt="Physically two 1 Gbps links; logically one 2 Gbps Po1." caption="Figure 16.6 — Physically two 1 Gbps links; logically one 2 Gbps Po1." maxWidth={480} />
+
+If PAgP (or LACP) does not form, the cables are **ordinary** links. STP blocks the extras. Flags: members **I** (independent / stand-alone), Po **D** (down).
+
+## LACP (the exam protocol)
+
+**Link Aggregation Control Protocol**, IEEE **802.3ad**. Any vendor. The question that says “non-Cisco switch” wants **LACP**.
+
+Same CLI, different words:
+
+```text
+SW1(config-if-range)# channel-group 1 mode active
+SW2(config-if-range)# channel-group 1 mode passive
+```
+
+| Local | Neighbor | Bundle? |
+| --- | --- | --- |
+| active | active | yes |
+| active | passive | yes |
+| passive | passive | **no** |
+
+**active** ≈ desirable. **passive** ≈ auto.
+
+<LessonFigure src="/img/ccna/fig-16-7.png" alt="LACP: active on SW1, passive on SW2." caption="Figure 16.7 — LACP: active on SW1, passive on SW2." maxWidth={560} />
+
+LACP allows **16** members; only **8** forward. The rest are **hot-standby** (**H** in the flag legend).
+
+`show lacp neighbor`: partner **P** = passive, **A** = active. If the neighbor is passive and the channel is **up**, **you** are active — two passives would not have formed.
+
+**active + desirable does not form.** Different languages.
+
+## Static: mode on
+
+Both sides **on**. No PAgP, no LACP. **on + active**, **on + desirable**, **on + auto**, **on + passive** → **no** bundle.
+
+```text
+SW1(config-if-range)# channel-group 1 mode on
+```
+
+<LessonFigure src="/img/ccna/fig-16-8.png" alt="A static EtherChannel: both sides in mode on, with no negotiation protocol." caption="Figure 16.8 — A static EtherChannel: both sides in mode on, with no negotiation protocol." maxWidth={560} />
+
+Prefer LACP unless the neighbor cannot speak it.
+
+## show etherchannel summary
+
+```text
+Flags:  D - down        P - bundled in port-channel
+        I - stand-alone s - suspended
+        H - Hot-standby (LACP only)
+        R - Layer3      S - Layer2
+        U - in use
+```
+
+| Print | Meaning |
+| --- | --- |
+| **Po1(SU)** | Layer **2**, **in use** |
+| **Po1(SD)** | Layer 2, **down** (other end not ready) |
+| **Po2(RU)** | Layer **3**, in use |
+| **Gi0/0(P)** | bundled |
+| **Gi0/0(I)** | stand-alone (negotiation failed) |
+| **Gi0/0(s)** | **suspended** (this port’s settings do not match) |
+
+**S** and **s** are different. **S** = switchport (L2). **s** = suspended.
+
+`show interfaces trunk` lists **Po1**, not the members.
+
+## Settings that must match
+
+Among members **and** with the neighbor: **speed**, **duplex**, **access vs trunk**, **allowed VLANs**, **native VLAN**, **access VLAN**.
+
+A native-VLAN change on **one** member → that port **(s)** until you put it back. `description` can differ.
+
+```text
+SW1(config-if)# no switchport trunk native vlan 10
+```
+
+<LessonFigure src="/img/ccna/fig-16-9.png" alt="A native VLAN changed on one member: G0/0 shows as (s), suspended from the bundle." caption="Figure 16.9 — A native VLAN changed on one member: G0/0 shows as (s), suspended from the bundle." maxWidth={560} />
+
+`no` restores the default (native VLAN 1).
+
+## Load balance by flow
+
+Switching says “out **Po1**.” A second check picks **which member**. A **flow** (one direction between two nodes) stays on **one** physical link. Four 1 Gbps members = **4 Gbps bandwidth**. One conversation still tops out at **1 Gbps** (highway lanes: more capacity, same speed limit). Congestion may drop, so a flow can run closer to that limit.
+
+```text
+SW1(config)# port-channel load-balance src-dst-ip
+SW1# show etherchannel load-balance
+```
+
+<LessonFigure src="/img/ccna/fig-16-10.png" alt="Switching picks Po1; load balancing then picks which member link each frame uses." caption="Figure 16.10 — Switching picks Po1; load balancing then picks which member link each frame uses." maxWidth={600} />
+
+Common keys: `src-mac`, `dst-mac`, `src-dst-mac`, `src-ip`, `dst-ip`, `src-dst-ip`. Default depends on the box; many use **src-dst-ip**. Non-IP frames fall back to MAC XOR. `dst-mac` alone can pin every frame to the gateway on **one** member.
+
+<LessonFigure src="/img/ccna/fig-16-11.png" alt="Flows are spread across member links — each source/destination pair sticks to one link." caption="Figure 16.11 — Flows are spread across member links — each source/destination pair sticks to one link." maxWidth={600} />
+
+You do not have to pick the “best” hash on the exam. Know: **by flow**, **not** packet-by-packet spraying, and the **show** / **port-channel** name split.
+
+## Layer 3 EtherChannel
+
+Routed ports (`no switchport`) do not loop at Layer 2, so STP is not why you bundle them. You still want **one** IP, **one** routing neighbor, and a hash across the cables.
+
+```text
+SW3(config)# interface range g0/2-3
+SW3(config-if-range)# no switchport
+SW3(config-if-range)# channel-group 2 mode active
+SW3(config-if-range)# interface po2
+SW3(config-if)# ip address 192.168.1.1 255.255.255.252
+```
+
+Put the address on **Po2**, never on Gi0/2. The neighbor gets `.2`. `show etherchannel summary` → **Po2(RU)**.
+
+<LessonFigure src="/img/ccna/fig-16-12.png" alt="A Layer 3 EtherChannel between two multilayer switches, with Layer 2 bundles down to the access switches." caption="Figure 16.12 — A Layer 3 EtherChannel between two multilayer switches, with Layer 2 bundles down to the access switches." maxWidth={600} />
+
+`no switchport` **before** `channel-group`. Same mode rules as Layer 2 (LACP / PAgP / `on`).
+
+## Exam shapes
+
+- STP blocked the extras. Bundle → one STP port. BUM does not bounce out sibling members.
+- PAgP **desirable / auto**. LACP **active / passive**. Non-Cisco → LACP. `on` + `on` only.
+- Flags: **SU** / **RU** / **P** / **I** / **s**. Group number is local.
+- Match speed, duplex, mode, VLANs. Change live settings on **Po**.
+- Load-balance **by flow**. Bandwidth ≠ per-flow speed.
+- L3: `no switchport`, IP on the **port-channel**.
+
+<GuidedChoiceExplanation preset="ccna-etherchannel" />
+
+<FigureMatchGame preset="ccna-etherchannel" />
+
+<MultipleChoice
+  title="EtherChannel"
+  questions={[
+    {
+      prompt: 'Four 1 Gbps links between two switches, no EtherChannel. Users still see one gigabit because:',
+      choices: [
+        'IOS rate-limits every extra cable to zero until you buy a license',
+        'STP (or RSTP) forwards on one link and discards the rest to avoid a loop',
+        'GigabitEthernet cannot run in parallel on Cisco silicon',
+        'The extra ports stay down/down until you set a higher STP priority',
+      ],
+      answer: 1,
+      why: 'Redundancy without a bundle is a spare, not more bandwidth. EtherChannel makes STP see one port.',
+    },
+    {
+      prompt: 'A broadcast arrives on Gi0/0, a member of Po1 toward SW2. SW2:',
+      choices: [
+        'Floods it out Gi0/1, Gi0/2, and Gi0/3 because they face the same LAN',
+        'Drops every broadcast that entered a port-channel',
+        'Floods it to local hosts but not out the other Po1 members',
+        'Converts it to a unicast on the lowest member port ID',
+      ],
+      answer: 2,
+      why: 'Members are one logical port. Flooding back out the bundle would be a loop on that pair.',
+    },
+    {
+      prompt: 'Non-Cisco switch on the other end. You must use:',
+      choices: [
+        'PAgP desirable — it is Cisco’s only EtherChannel language',
+        'mode on — standards switches refuse every negotiation protocol',
+        'PAgP auto so you do not send Cisco TLVs',
+        'LACP (active or passive). PAgP is Cisco-proprietary',
+      ],
+      answer: 3,
+      why: 'LACP is 802.3ad. PAgP stays on Cisco. active + desirable never forms.',
+    },
+    {
+      prompt: 'Which pair forms an EtherChannel?',
+      choices: [
+        'auto + auto',
+        'active + desirable',
+        'desirable + auto',
+        'on + passive',
+      ],
+      answer: 2,
+      why: 'PAgP: desirable with desirable or auto. LACP: active with active or passive. on only with on. Cross-protocol = no.',
+    },
+    {
+      prompt: 'show etherchannel summary prints Po1(SU) and Gi0/0(P) Gi0/1(P). That means:',
+      choices: [
+        'Layer 2 bundle in use; both members are bundled',
+        'Layer 3 bundle down; members are stand-alone',
+        'Suspended members; Po1 is hot-standby only',
+        'Layer 2 down; P means passive LACP',
+      ],
+      answer: 0,
+      why: 'S = Layer 2, U = in use, P on a member = bundled. Member I = independent. Member s = suspended. R = Layer 3.',
+    },
+    {
+      prompt: 'show lacp neighbor shows the partner as Passive, and the channel is up. You are:',
+      choices: [
+        'passive too — two listeners still form LACP',
+        'active — two passives would not have formed',
+        'on — neighbor flags do not apply to static',
+        'desirable — LACP partners always print PAgP words',
+      ],
+      answer: 1,
+      why: 'Read the neighbor, then deduce your mode. Same trick as show pagp neighbor and the auto A flag.',
+    },
+    {
+      prompt: 'You change the native VLAN on one member only. That port:',
+      choices: [
+        'Stays bundled; native VLAN is ignored inside a channel',
+        'Takes the whole Po down until every member matches',
+        'Is suspended (s) until its settings match the rest of the channel',
+        'Becomes the only forwarding member; the others go independent',
+      ],
+      answer: 2,
+      why: 'Speed, duplex, access/trunk, allowed and native VLANs, access VLAN must match. description may differ.',
+    },
+    {
+      prompt: 'EtherChannel load balancing. Four 1 Gbps members. One TCP flow:',
+      choices: [
+        'Sprays packets across all four so that flow hits 4 Gbps',
+        'Stays on one member (max 1 Gbps). The bundle’s bandwidth is 4 Gbps',
+        'Always uses src-mac only; IP keys are not supported',
+        'Uses a different member every hello interval',
+      ],
+      answer: 1,
+      why: 'Hash by flow (often src-dst-ip). Highway: more lanes, same speed limit. port-channel load-balance / show etherchannel load-balance.',
+    },
+    {
+      prompt: 'After Po1 is up and carrying traffic, you should change allowed VLANs on:',
+      choices: [
+        'Each member first so inheritance cannot miss a port',
+        'The port-channel interface, so members stay consistent and you avoid a flap',
+        'Only the lowest port ID; the others copy STP',
+        'Neither — VLAN lists are ignored on bundled ports',
+      ],
+      answer: 1,
+      why: 'Inheritance is bidirectional when you first build. Live edits belong on Po.',
+    },
+    {
+      prompt: 'Layer 3 EtherChannel on a multilayer switch:',
+      choices: [
+        'no switchport on the members, channel-group, IP address on the port-channel (RU when up)',
+        'IP on each member; the port-channel only holds STP',
+        'switchport mode trunk and an IP on Gi0/0 — Po is Layer 2 only',
+        'Requires PAgP; LACP cannot bundle routed ports',
+      ],
+      answer: 0,
+      why: 'One IP, one routing statement. Same mode rules. STP is not the reason — management and hashing are.',
+    },
+  ]}
+/>

@@ -1,0 +1,300 @@
+---
+sidebar_position: 8
+title: Routing Fundamentals
+---
+
+> **Track:** Network CCNA — eighth chapter. Packets stay on one LAN until a **router** forwards them. This chapter is **how a host chooses a dest MAC**, how a router **fills** and **reads** `show ip route`, and how you **type a static**. Exam 3.1 (read the table), 3.2 (default forwarding), 3.3 (IPv4 statics). IPv6 statics wait for a later chapter.
+
+# Routing Fundamentals
+
+**Routing** is two jobs that share a name. First: the router **builds a routing table** — known prefixes and what to do with them. Second: it **forwards packets** using that table. Switches fill a MAC table by watching frames. A router’s table starts **empty**. Connected and local rows appear when you address an interface and bring it **up/up**. Everything else is **static** (you type it) or **dynamic** (a protocol such as OSPF, later).
+
+A packet is never sent on the wire by itself. It always rides in a **frame**. Layer 3 names the **end host**. Layer 2 names the **next box**.
+
+<RoutingFundamentalsSimulator />
+
+PC1, R1, R2, R3, PC3. C and L are already installed. Remote prefixes are not. On **R1**, `enable`, `conf t`, then `ip route 192.168.3.0 255.255.255.0 192.168.12.2`. **Static on R2/R3** fills the return path. **PC1 ping PC3** walks the longest match.
+
+## Same LAN versus a remote dest
+
+PC1 is `192.168.1.11/24`. That prefix is `192.168.1.0`–`192.168.1.255`.
+
+If the dest IP is **inside** that range (PC2 at `.12`), PC1 frames **directly to PC2’s MAC**. No router is in the path. If PC1 does not yet have that MAC, it **ARPs** `192.168.1.12`.
+
+<LessonFigure src="/img/ccna/fig-9-1.png" alt="Same LAN: PC1 frames the packet straight to PC2’s MAC; the router isn’t involved." caption="Figure 9.1 — Same LAN: PC1 frames the packet straight to PC2’s MAC; the router isn’t involved." maxWidth={480} />
+
+If the dest IP is **outside** that range (PC3 at `192.168.3.11`), PC1 still writes **PC3** in the IPv4 dest. The Ethernet dest is the **default gateway** — here R1 `192.168.1.1` on G0/1. PC1 ARPs **the gateway IP**, not the remote host. Broadcast ARP never leaves the LAN, so a campus-wide ARP for PC3 would not work.
+
+<LessonFigure src="/img/ccna/fig-9-2.png" alt="Different LAN: PC1 frames the packet to its default gateway, R1, which forwards it on." caption="Figure 9.2 — Different LAN: PC1 frames the packet to its default gateway, R1, which forwards it on." maxWidth={600} />
+
+The gateway IP is often the **first usable** address of the LAN (`.1`). That is custom, not a protocol rule. Hosts usually learn it from **DHCP** (later). On Windows, `ipconfig` prints IPv4 address, subnet mask, and default gateway. The gateway is stored as an **IP**. The MAC still comes from ARP.
+
+A **cloud** on a drawing is “stuff we are not unpacking.” It might be the internet. It might be the rest of the campus.
+
+## What the gateway actually does
+
+R1 receives a frame whose dest MAC is **its own**. Not its MAC? Discard the frame — routers do not flood.
+
+<LessonFigure src="/img/ccna/fig-9-3.png" alt="Inside R1: receive the frame, look up the destination IP, re-frame it out G0/1." caption="Figure 9.3 — Inside R1: receive the frame, look up the destination IP, re-frame it out G0/1." maxWidth={560} />
+
+Inside, dest IP is either:
+
+- **This router** (a local `/32`) — keep de-encapsulating. The packet is for R1.
+- **Someone else** — look up the dest IP in the routing table.
+  - A matching **non-local** route → encapsulate in a **new** frame and send it out the interface the route names (directly to the dest host if the net is connected, otherwise to the **next hop**).
+  - **No match** → **drop**. Routers never flood packets. Switches sometimes flood unknown unicasts. Different layer, different rule.
+
+`show ip route` is the table. With no addresses yet you get the legend of codes and **Gateway of last resort is not set** — no default route.
+
+Address G0/0 `192.168.1.1 255.255.255.0` and G0/1 `192.168.2.1 255.255.255.0`, `no shutdown`, and four rows appear:
+
+```text
+     192.168.1.0/24 is variably subnetted, 2 subnets, 2 masks
+C       192.168.1.0/24 is directly connected, GigabitEthernet0/0
+L       192.168.1.1/32 is directly connected, GigabitEthernet0/0
+```
+
+**Variably subnetted** is a heading, not a route. It means “two prefixes that sit inside that classful block, two different masks.”
+
+- **C (connected)** — the **network** on that interface. Prefix length matches the configured mask (`/24` here). Forward **directly to the dest host** (ARP that host).
+- **L (local)** — the interface’s **own** IP with **/32**. Receive for self. Without L, a lone C would try to hairpin packets for `192.168.1.1` out G0/0.
+
+Filter: `show ip route | include C` or `| include L`.
+
+Exam 3.3 language:
+
+- **Network route** — more than one dest IP, prefix **shorter than /32**. Connected routes are network routes.
+- **Host route** — exactly one dest IP, **/32**. Local routes are host routes.
+
+A `/24` route covers 256 addresses (last octet free). A `/32` covers one. That is why L beats C for the router’s own address.
+
+<LessonFigure src="/img/ccna/fig-9-5.png" alt="A /32 local route: every bit is fixed, so it matches exactly one address." caption="Figure 9.5 — A /32 local route: every bit is fixed, so it matches exactly one address." maxWidth={560} />
+
+<LessonFigure src="/img/ccna/fig-9-4.png" alt="A /24 route: the first three octets are fixed, the last octet can be anything." caption="Figure 9.4 — A /24 route: the first three octets are fixed, the last octet can be anything." maxWidth={560} />
+
+## Most specific matching route
+
+**Matching** = the dest IP sits inside the route’s prefix. **Most specific** = **longest prefix length**.
+
+Dest `192.168.1.1` matches both `192.168.1.0/24` and `192.168.1.1/32`. R1 picks **/32** and **receives**. Dest `192.168.1.12` matches only the `/24`, so R1 ARPs PC2 and forwards.
+
+<LessonFigure src="/img/ccna/fig-9-6.png" alt="Two routes match and R1 picks the most specific: the /32 local route beats the /24." caption="Figure 9.6 — Two routes match and R1 picks the most specific: the /32 local route beats the /24." maxWidth={560} />
+
+`/32` is the longest useful IPv4 prefix. `/0` is the shortest — every IPv4 address. A `/32` always wins if it matches.
+
+Layer 2 vs Layer 3:
+
+- Switch: dest MAC in the table → **exact** match, or flood.
+- Router: dest IP in the table → **longest prefix**, or drop (or use a default).
+
+| Match | Action |
+| --- | --- |
+| One or more non-local routes | Forward on the longest match |
+| A local `/32` | Receive for self |
+| Nothing | Drop |
+
+## Static routes for remote prefixes
+
+Connected and local cover **this** box’s interfaces. They do **not** cover a LAN three hops away. Two ways to learn those:
+
+- **Dynamic** — OSPF and friends, later chapters.
+- **Static** — you type `ip route`.
+
+To send toward a remote dest, the router builds a frame to the **next hop** (the next router), not to the dest host. Dest **IP** stays the original host.
+
+<LessonFigure src="/img/ccna/fig-9-7.png" alt="PC1 → PC3 across R1, R2, and R3: a routing lookup and a new frame at every router." caption="Figure 9.7 — PC1 → PC3 across R1, R2, and R3: a routing lookup and a new frame at every router." maxWidth={600} />
+
+You do **not** have to teach every transit prefix. For PC1 ↔ PC3, each router needs a path to **192.168.1.0/24** and **192.168.3.0/24**. R1 already has `.1.0/24` connected. R3 already has `.3.0/24`. Minimum statics:
+
+| Router | Prefix | Next hop |
+| --- | --- | --- |
+| R1 | 192.168.3.0/24 | 192.168.12.2 (R2) |
+| R2 | 192.168.1.0/24 | 192.168.12.1 (R1) |
+| R2 | 192.168.3.0/24 | 192.168.23.2 (R3) |
+| R3 | 192.168.1.0/24 | 192.168.23.1 (R2) |
+
+R1 does not need `192.168.23.0/24`. It only needs “toward `.3.0/24`, give it to R2.”
+
+<LessonFigure src="/img/ccna/fig-9-8.png" alt="R1 doesn’t know the path past R2; its static route just hands the packet to R2." caption="Figure 9.8 — R1 doesn’t know the path past R2; its static route just hands the packet to R2." maxWidth={560} />
+
+Three shapes, all from global config:
+
+```text
+ip route dest-network netmask next-hop
+ip route dest-network netmask exit-interface
+ip route dest-network netmask exit-interface next-hop
+```
+
+<LessonFigure src="/img/ccna/fig-9-9.png" alt="The static routes R1, R2, and R3 need so PC1 and PC3 can reach each other both ways." caption="Figure 9.9 — The static routes R1, R2, and R3 need so PC1 and PC3 can reach each other both ways." maxWidth={600} />
+
+### Recursive — next-hop IP only
+
+```text
+R1(config)# ip route 192.168.3.0 255.255.255.0 192.168.12.2
+```
+
+`show ip route` prints `S 192.168.3.0/24 [1/0] via 192.168.12.2`. Code **S**. `[1/0]` is administrative distance and metric — chapter 17. Two lookups: the static names the next-hop **IP**; a second lookup (the connected `/24`) names **G0/0**. Then ARP for that next hop. One ARP entry serves the whole remote prefix.
+
+### Directly connected static — exit interface only
+
+```text
+R1(config)# ip route 192.168.3.0 255.255.255.0 g0/0
+```
+
+The table lies a little: `S 192.168.3.0/24 is directly connected, GigabitEthernet0/0`. R1 tries to ARP **PC3** on G0/0. That broadcast dies on R2’s LAN. It works only if R2 **proxy ARPs** — replies with **R2’s** MAC because R2 **has a route** to `.3.0/24`. Cisco routers proxy-ARP by default; other vendors may not. Even when it works, R1 stores **one ARP per remote host**. Prefer recursive or fully specified in a real net. Know the term for the exam.
+
+<LessonFigure src="/img/ccna/fig-9-10.png" alt="Proxy ARP: R2 answers R1’s ARP for PC3’s address because it has a route there." caption="Figure 9.10 — Proxy ARP: R2 answers R1’s ARP for PC3’s address because it has a route there." maxWidth={560} />
+
+### Fully specified — both
+
+```text
+R1(config)# ip route 192.168.3.0 255.255.255.0 g0/0 192.168.12.2
+```
+
+Table: `S 192.168.3.0/24 [1/0] via 192.168.12.2, GigabitEthernet0/0`. Exit interface and next hop are already known. No second lookup, no proxy ARP. Recursive vs fully specified is a wash on a LAN Ethernet. Directly connected statics are the ones to avoid.
+
+## Default route — `0.0.0.0/0`
+
+A **default route** matches **every** IPv4 address. It is the **least** specific prefix, so it is used only when **nothing longer** matches. Typical use: one hop toward the **internet**. Nobody’s access router holds the global table.
+
+```text
+R1(config)# ip route 0.0.0.0 0.0.0.0 203.0.113.2
+```
+
+<LessonFigure src="/img/ccna/fig-9-11.png" alt="Two specific routes plus a default route (0.0.0.0/0) toward the internet." caption="Figure 9.11 — Two specific routes plus a default route (0.0.0.0/0) toward the internet." maxWidth={560} />
+
+After that, `Gateway of last resort is 203.0.113.2 to network 0.0.0.0` and `S* 0.0.0.0/0 [1/0] via 203.0.113.2`. The star marks a **candidate default**. Gateway of last resort is the router’s name for a default gateway.
+
+With a default installed, “no match” stops happening: leftovers go to the ISP. More-specific statics (campus LANs) still win because they are longer than `/0`.
+
+`show ip route static` prints only S rows.
+
+## Lab notes the exam likes
+
+`ip route 10.0.0.0 255.0.0.0 192.0.2.1` is a **network** route (`/8`, not `/32`) and a **recursive** route (next-hop IP only).
+
+Drag-and-drop the three static *forms*: exit interface only → **directly connected**; next-hop IP only → **recursive**; both → **fully specified**. A `0.0.0.0/0` next-hop-only line is still recursive; it is also a default.
+
+In a sim, draw the dest LANs first, then type the four (or six) `ip route` lines. The question will say if it wants recursive, fully specified, or exit-interface.
+
+The next chapter is a **walk** of one ping across this same campus — tables, ARP, and a new frame at every hop.
+
+<GuidedChoiceExplanation preset="ccna-static-routing" />
+
+<FigureMatchGame preset="ccna-routing" />
+
+<MultipleChoice
+  title="Routing table and statics"
+  questions={[
+    {
+      prompt: 'PC1 192.168.1.11/24 sends to 192.168.1.12. Dest MAC is:',
+      choices: [
+        'R1 G0/1, because every IPv4 packet is handed to a gateway first',
+        'ffff.ffff.ffff, because IPv4 never unicasts on Ethernet',
+        'PC2’s MAC (ARP if needed). Same prefix — no router in the path',
+        'R1 G0/0, the interface that faces the rest of the campus',
+      ],
+      answer: 2,
+      why: 'Compare dest IP to the local prefix. Inside the prefix, frame the dest host.',
+    },
+    {
+      prompt: 'PC1 sends to 192.168.3.11. The IPv4 dest and the first Ethernet dest are:',
+      choices: [
+        'IPv4 dest 192.168.3.11; Ethernet dest = R1 G0/1 (gateway) MAC',
+        'IPv4 dest rewritten to 192.168.1.1; Ethernet dest = PC3',
+        'Both dests = PC3, learned by a campus-wide ARP request',
+        'IPv4 dest 192.168.1.1; Ethernet dest = ffff.ffff.ffff until R3 answers',
+      ],
+      answer: 0,
+      why: 'Dest IP is end-to-end. Dest MAC is the next box. Off-LAN next box is the default gateway.',
+    },
+    {
+      prompt: 'R1 G0/0 is 192.168.1.1/24 and up/up. show ip route gained:',
+      choices: [
+        'Nothing until you also type ip route 192.168.1.0 255.255.255.0 g0/0',
+        'OSPF type O rows for every prefix in the class C block',
+        'Only L 192.168.1.1/32; connected /24 routes are never automatic',
+        'C 192.168.1.0/24 (network) and L 192.168.1.1/32 (host / local)',
+      ],
+      answer: 3,
+      why: 'Address + up/up installs C and L. Remote prefixes still need static or a protocol.',
+    },
+    {
+      prompt: 'A host route, as the exam uses the term, is:',
+      choices: [
+        'Any connected C row, because hosts live on that LAN',
+        'A /32 — one dest IP. Local L rows are the usual example',
+        'A /0 default, because it can reach every host on the internet',
+        'A /24 with the last octet set to the PC’s address',
+      ],
+      answer: 1,
+      why: 'Host = one address = /32. Network route = prefix shorter than /32.',
+    },
+    {
+      prompt: 'Dest 192.168.1.1 matches C 192.168.1.0/24 and L 192.168.1.1/32. R1:',
+      choices: [
+        'Picks L /32 and receives the packet for itself',
+        'Picks C /24 and hairpins it out G0/0 toward .1',
+        'ECMP both rows and duplicates the packet',
+        'Floods, because two hits mean the dest is unknown',
+      ],
+      answer: 0,
+      why: 'Longest matching prefix. /32 beats /24. Local means “this is me.”',
+    },
+    {
+      prompt: 'Dest 192.168.3.11, R1 has only C/L for its own interfaces. R1:',
+      choices: [
+        'Floods every interface except ingress, like an unknown unicast',
+        'Drops the packet. Routers do not flood. A /0 would have caught it',
+        'ARPs 192.168.3.11 on every connected LAN until someone answers',
+        'Sends it to 255.255.255.255 and hopes R2 is listening',
+      ],
+      answer: 1,
+      why: 'No matching route → drop. Default 0.0.0.0/0 is how leftovers leave toward an ISP.',
+    },
+    {
+      prompt: 'ip route 192.168.3.0 255.255.255.0 192.168.12.2 creates:',
+      choices: [
+        'A directly connected static that ARPs PC3 on the exit interface',
+        'A fully specified static, because IOS infers G0/0 from the next hop',
+        'A host route, because .2 is a single next-hop address',
+        'A recursive network route: S via 192.168.12.2, then a second lookup for G0/0',
+      ],
+      answer: 3,
+      why: 'Next-hop IP only = recursive. Dest /24 is a network, not a host. Interface is not in the command.',
+    },
+    {
+      prompt: 'A directly connected static (exit interface, no next hop) is painful because:',
+      choices: [
+        'IOS refuses the command unless proxy ARP is globally disabled',
+        'R1 ARPs the dest host; it needs proxy ARP and one ARP entry per remote host',
+        'The route cannot appear in show ip route until you also type a /32',
+        'The next hop is looked up twice, which Ethernet cannot do',
+      ],
+      answer: 1,
+      why: 'The table pretends the remote net is on G0/0. Proxy ARP may be off. Recursive/fully specified ARP only the neighbor.',
+    },
+    {
+      prompt: 'S* 0.0.0.0/0 via 203.0.113.2 is selected when:',
+      choices: [
+        'No longer prefix matches, including random internet dests',
+        'Always — /0 is the most specific route IOS can install',
+        'The dest sits in 192.168.0.0/16, the RFC 1918 default',
+        'The packet’s dest MAC is unknown, so Layer 3 copies Layer 2 flood',
+      ],
+      answer: 0,
+      why: 'Least specific. Candidate default. Gateway of last resort. Longer campus prefixes still win.',
+    },
+    {
+      prompt: 'ip route 10.0.0.0 255.0.0.0 GigabitEthernet0/1 192.0.2.1 is:',
+      choices: [
+        'Recursive, because 192.0.2.1 is an IP, and the interface is ignored',
+        'A host route to 10.0.0.0/32 with a backup next hop',
+        'Fully specified: exit interface and next hop. Dest 10.0.0.0/8 is a network route',
+        'Directly connected static; the IP is only a description string',
+      ],
+      answer: 2,
+      why: 'Both exit-interface and next-hop → fully specified. /8 is many addresses → network route.',
+    },
+  ]}
+/>

@@ -51,6 +51,7 @@ export const FUNDAMENTALS_FOLDERS = [
   'algorithms',
   'artificial-intelligence',
   'computer-engineering',
+  'network-ccna',
   'data-science',
   'electronics',
   'finance',

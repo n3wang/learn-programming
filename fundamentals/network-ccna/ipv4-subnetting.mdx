@@ -1,0 +1,311 @@
+---
+sidebar_position: 10
+title: Subnetting IPv4 Networks
+---
+
+> **Track:** Network CCNA — tenth chapter. Chapter 6 stopped at **classful** `/8` `/16` `/24`. This is the rest of exam **1.6**: **borrow host bits**, read the **five attributes**, **FLSM** (equal sizes) and **VLSM** (pack largest first). Skill, not trivia — do the lab until the binary is boring. **VLANs** (Layer 2 cuts) are the eleventh chapter.
+
+# Subnetting IPv4 Networks
+
+Classful addressing was simple and wasteful. A class C LAN has **254** usable addresses — too many for a dozen PCs, too few for a campus, so the next step was a whole class B (**65,534**). Class A is millions. The 1981 rules in RFC 791 did not imagine that many networks.
+
+**Classless Inter-Domain Routing (CIDR)** (1993, said “cider”) drops the “prefix must be 8, 16, or 24” rule. The cut can sit **inside** an octet: `/23`, `/26`, `/28`. `/X` is **CIDR notation**. IOS still wants a **subnet mask** (same bits as a netmask) on `ip address` and `ip route`.
+
+An **address block** is a range you are allowed to use, written as its network address and prefix — `192.168.1.0/24` is `.0` through `.255`. **Subnetting** is carving that block into smaller **subnets**. Each extra prefix bit **doubles** the number of subnets and **halves** the addresses in each one.
+
+<Ipv4SubnettingSimulator />
+
+Grey bits are the original network — you cannot change them. Blue bits are **borrowed** from the host half. Empty bits are still host. Click a bar, read the five attributes. **VLSM** on `10.89.100.0/24` packs 122, 59, 30, 11, then 2 hosts.
+
+## Why the old sizes fail
+
+| Classful block | Usable hosts | Typical mismatch |
+| --- | --- | --- |
+| Class C `/24` | 254 | Home or small office needs dozens |
+| Class B `/16` | 65,534 | One campus rarely needs that many on **one** LAN |
+| Class A `/8` | 16,777,214 | Never one broadcast domain |
+
+You still **identify** class from the first octet on the exam. You do **not** have to *use* the classful prefix when you subnet.
+
+<LessonFigure src="/img/ccna/fig-11-1.png" alt="192.168.1.0/24 split into ever-smaller subnets: /25, /26, /27, /28." caption="Figure 11.1 — 192.168.1.0/24 split into ever-smaller subnets: /25, /26, /27, /28." maxWidth={560} />
+
+## Borrow bits (FLSM)
+
+The original network bits stay put. Host bits are yours. To make subnets you **borrow** some host bits and treat them as extra network bits. Flip those borrowed bits through every binary value.
+
+`192.168.1.0/24`, borrow **1**:
+
+- Borrowed bit `0` → **`192.168.1.0/25`** (`.0`–`.127`)
+- Borrowed bit `1` → **`192.168.1.128/25`** (`.128`–`.255`)
+
+<LessonFigure src="/img/ccna/fig-11-2.png" alt="Borrow 1 host bit: two /25 subnets, .0 and .128." caption="Figure 11.2 — Borrow 1 host bit: two /25 subnets, .0 and .128." maxWidth={560} />
+
+The network address no longer has to end in `.0`. `.128` is a perfectly legal network address once the cut is mid-octet.
+
+Borrow **2** from the same `/24` → `2^2 = 4` subnets of `/26`:
+
+`.0` / `.64` / `.128` / `.192`
+
+<LessonFigure src="/img/ccna/fig-11-3.png" alt="Borrow 2 host bits: four /26 subnets, .0, .64, .128, and .192." caption="Figure 11.3 — Borrow 2 host bits: four /26 subnets, .0, .64, .128, and .192." maxWidth={560} />
+
+Count the borrowed bits in binary: `00`, `01`, `10`, `11`. Same counting you already did in chapter 6, two digits only.
+
+Number of equal subnets: **`2^x`**, where *x* is **borrowed bits**. You often cannot hit an exact count — 2,000 subnets needs **11** bits (`2^11 = 2048`). Ten bits is only 1,024. Extra subnets are spare capacity, not a bug.
+
+**Fixed-Length Subnet Masking (FLSM)** = every subnet the same size. Real designs usually want **VLSM** (later). FLSM is the exam stepping stone and still shows up as “carve this block into *n* equal pieces.”
+
+## Five attributes, still
+
+Same five numbers as a classful LAN. The only change: **borrowed bits are network**, so “host portion all 0 / all 1” starts **after** them.
+
+- **Network** — first address; host bits all **0**.
+- **Broadcast** — last address; host bits all **1**.
+- **First usable** — network **+ 1**.
+- **Last usable** — broadcast **− 1**.
+- **Maximum hosts** — `2^y − 2`, *y* = remaining host bits. Subtract network and broadcast.
+
+Example: **`192.168.1.64/26`**. Prefix 26 → 6 host bits.
+
+| Attribute | Value |
+| --- | --- |
+| Network | 192.168.1.64 |
+| Broadcast | 192.168.1.127 |
+| First usable | 192.168.1.65 |
+| Last usable | 192.168.1.126 |
+| Hosts | `2^6 − 2 = 62` |
+
+<LessonFigure src="/img/ccna/fig-11-4.png" alt="The five attributes of 192.168.1.64/26: network, broadcast, first and last usable, and 62 max hosts." caption="Figure 11.4 — The five attributes of 192.168.1.64/26: network, broadcast, first and last usable, and 62 max hosts." maxWidth={560} />
+
+Exam staple: *PC is `172.16.20.27/28`. Network address?*
+
+1. Last octet `27` = `00011011`.
+2. `/28` → last **4** bits are host. Force them to `0000` → `00010000` = **16**.
+3. **`172.16.20.16`**.
+
+Do the same with all 1s for broadcast (`00011111` = 31). Usable `.17`–`.30`.
+
+`/16` and `/8` blocks use the **same** arithmetic. Borrow 2 from `192.168.0.0/16` → four `/18`s: `192.168.0.0`, `.64.0`, `.128.0`, `.192.0`. Host bits can span two octets; dotted decimal is only for humans. `10.0.0.0/8` borrow 12 → 4,096 `/20`s. You will not write them all. You **will** be asked for the first, the last, or “how many hosts in each.”
+
+<LessonFigure src="/img/ccna/fig-11-8.png" alt="Borrow 12 bits from 10.0.0.0/8: 4,096 /20 subnets, from 10.0.0.0 to 10.255.240.0." caption="Figure 11.8 — Borrow 12 bits from 10.0.0.0/8: 4,096 /20 subnets, from 10.0.0.0 to 10.255.240.0." maxWidth={560} />
+
+<LessonFigure src="/img/ccna/fig-11-7.png" alt="The five attributes of 192.168.128.0/18, with 16,382 usable hosts." caption="Figure 11.7 — The five attributes of 192.168.128.0/18, with 16,382 usable hosts." maxWidth={560} />
+
+<LessonFigure src="/img/ccna/fig-11-6.png" alt="Borrow 2 bits from 192.168.0.0/16: four /18 subnets." caption="Figure 11.6 — Borrow 2 bits from 192.168.0.0/16: four /18 subnets." maxWidth={560} />
+
+## Masks you will type
+
+IOS does not take `/25` on `ip address`. It takes **255.255.255.128**. One contiguous run of 1s, then 0s.
+
+| Prefix | Mask | Usable hosts |
+| --- | --- | --- |
+| /24 | 255.255.255.0 | 254 |
+| /25 | 255.255.255.128 | 126 |
+| /26 | 255.255.255.192 | 62 |
+| /27 | 255.255.255.224 | 30 |
+| /28 | 255.255.255.240 | 14 |
+| /29 | 255.255.255.248 | 6 |
+| /30 | 255.255.255.252 | 2 |
+| /31 | 255.255.255.254 | 2 (P2P exception) |
+| /32 | 255.255.255.255 | 1 (a host route, rarely on an interface) |
+
+The third-octet cousins for `/16` blocks: `/17` → `255.255.128.0`, `/18` → `255.255.192.0`, … `/24` → `255.255.255.0`. Same 128, 192, 224, 240, 248, 252 pattern, just one octet left.
+
+### `/30` and `/31` on a point-to-point link
+
+Two routers, two addresses. **`/30`** still has a network and a broadcast (four addresses total, two usable). **`/31`** (RFC 3021) spends **only** those two addresses — no net/bcast. IOS warns: use `/31` on a non-P2P interface cautiously. `/30` remains the more common lab choice. `/32` on an interface is an OSPF later exception, not a LAN.
+
+<LessonFigure src="/img/ccna/fig-11-5.png" alt="A point-to-point link between R1 and R2: a /30 (option 1) or the more efficient /31 (option 2)." caption="Figure 11.5 — A point-to-point link between R1 and R2: a /30 (option 1) or the more efficient /31 (option 2)." maxWidth={560} />
+
+## FLSM walk
+
+Block **`172.25.190.0/23`**. Need **four** equal LANs on R1 G0/0–G0/3.
+
+<LessonFigure src="/img/ccna/fig-11-9.png" alt="FLSM scenario: split 172.25.190.0/23 into four subnets for R1’s four LANs." caption="Figure 11.9 — FLSM scenario: split 172.25.190.0/23 into four subnets for R1’s four LANs." maxWidth={480} />
+
+- `2^x ≥ 4` → borrow **2**. New prefix **`/25`**. Mask **`255.255.255.128`**.
+- Host bits left: 7 → **126** usable each.
+- Borrowed bits count `00` `01` `10` `11` in the last nine host bits of the `/23`:
+
+`172.25.190.0/25`, `172.25.190.128/25`, `172.25.191.0/25`, `172.25.191.128/25`.
+
+<LessonFigure src="/img/ccna/fig-11-10.png" alt="The four /25 subnets of 172.25.190.0/23 — the borrowed bits cross an octet boundary." caption="Figure 11.10 — The four /25 subnets of 172.25.190.0/23 — the borrowed bits cross an octet boundary." maxWidth={560} />
+
+First usable on each interface: **`.190.1`**, **`.190.129`**, **`.191.1`**, **`.191.129`**.
+
+```text
+R1(config-if)# ip address 172.25.190.1 255.255.255.128
+```
+
+Second text drill: block `10.224.0.0/11`, need **2,000** subnets. `2^11 = 2048` (ten bits is 1024 — not enough). Prefix **`/22`**. Host bits left: 10 → **1022** usable.
+
+<LessonFigure src="/img/ccna/fig-11-11.png" alt="Borrow 11 bits from 10.224.0.0/11: 2,048 /22 subnets." caption="Figure 11.11 — Borrow 11 bits from 10.224.0.0/11: 2,048 /22 subnets." maxWidth={560} />
+
+## VLSM — different sizes, largest first
+
+**Variable-Length Subnet Masking** assigns each LAN only the prefix it needs. FLSM would either starve Toronto (122 hosts) or throw away most of a `/25` on a two-address WAN.
+
+Recipe:
+
+1. Sort needs **largest → smallest**.
+2. Smallest prefix with `2^y − 2` covering that need.
+3. Place it at the **start of what is left** (aligned on its size).
+4. Next network address = **this broadcast + 1**.
+5. Repeat.
+
+On the exam, pick the **tightest** fit. In a real net, leave headroom for growth.
+
+<LessonFigure src="/img/ccna/fig-11-12.png" alt="VLSM scenario: two LANs in Toronto, two in Tokyo, and a WAN link, all from 10.89.100.0/24." caption="Figure 11.12 — VLSM scenario: two LANs in Toronto, two in Tokyo, and a WAN link, all from 10.89.100.0/24." maxWidth={600} />
+
+Block **`10.89.100.0/24`** (254 usable). Needs 122 + 59 + 30 + 11 + 2 = 226 — it fits if we mix sizes.
+
+| Order | Need | Prefix | Subnet | Usable |
+| --- | --- | --- | --- | --- |
+| Toronto A | 122 | /25 (126) | 10.89.100.0/25 | .1–.126 |
+| Tokyo A | 59 | /26 (62) | 10.89.100.128/26 | .129–.190 |
+| Toronto B | 30 | /27 (30) | 10.89.100.192/27 | .193–.222 |
+| Tokyo B | 11 | /28 (14) | 10.89.100.224/28 | .225–.238 |
+| WAN | 2 | /30 (2) | 10.89.100.240/30 | .241–.242 |
+
+<LessonFigure src="/img/ccna/fig-11-18.png" alt="The WAN link (2 hosts): 10.89.100.240/30." caption="Figure 11.18 — The WAN link (2 hosts): 10.89.100.240/30." maxWidth={560} />
+
+<LessonFigure src="/img/ccna/fig-11-17.png" alt="Tokyo LAN B (11 hosts): 10.89.100.224/28." caption="Figure 11.17 — Tokyo LAN B (11 hosts): 10.89.100.224/28." maxWidth={560} />
+
+<LessonFigure src="/img/ccna/fig-11-16.png" alt="Toronto LAN B (30 hosts): 10.89.100.192/27." caption="Figure 11.16 — Toronto LAN B (30 hosts): 10.89.100.192/27." maxWidth={560} />
+
+<LessonFigure src="/img/ccna/fig-11-15.png" alt="Tokyo LAN A (59 hosts): 10.89.100.128/26." caption="Figure 11.15 — Tokyo LAN A (59 hosts): 10.89.100.128/26." maxWidth={560} />
+
+<LessonFigure src="/img/ccna/fig-11-14.png" alt="Toronto LAN A (122 hosts): 10.89.100.0/25." caption="Figure 11.14 — Toronto LAN A (122 hosts): 10.89.100.0/25." maxWidth={560} />
+
+<LessonFigure src="/img/ccna/fig-11-13.png" alt="10.89.100.0/24 carved largest-first into /25, /26, /27, /28, and /30." caption="Figure 11.13 — 10.89.100.0/24 carved largest-first into /25, /26, /27, /28, and /30." maxWidth={420} />
+
+Leftover `.244`–`.255`. A `/31` WAN would save two more addresses; `/30` is the usual exam pick unless the question asks for most efficient.
+
+Router addresses **count** in the host total. “End host” still means PC/server when you need to distinguish them from R1.
+
+## Exam shapes
+
+- Mask pairs: `/29` = **255.255.255.248**, `/18` = **255.255.192.0**. `/25` is **128**, not 192.
+- Drag a prefix to its usable range: find first usable and last usable of **that** prefix, not a neighbor with a different length. `10.23.24.128/25` is `.129`–`.254`. The `/27` at the same `.128` is only `.129`–`.158`.
+- Practice sites may hide the original block. If they give `172.26.0.0 255.255.252.0` and ask “how many subnets,” treat the **classful** size as the block (here class B → `/16`, then `/22` is 6 borrowed bits → 64 subnets, 1022 hosts). Skip **wildcard mask** items until ACLs / OSPF.
+
+Do not learn a “magic number” that hides the bits. Binary gets fast. It also feeds every later topic that still uses masks.
+
+<GuidedChoiceExplanation preset="ccna-ipv4-subnetting" />
+
+<FigureMatchGame preset="ccna-subnetting" />
+
+<MultipleChoice
+  title="Subnetting IPv4"
+  questions={[
+    {
+      prompt: 'CIDR, compared with classful addressing, is the idea that:',
+      choices: [
+        'Only class C may be subnetted; A and B must stay /8 and /16',
+        'Every LAN must still be /24; /X is only a documentation shorthand',
+        'The network/host cut can sit mid-octet (/23, /26, /28), not only /8 /16 /24',
+        'Prefix length is illegal on Cisco; you may only write wildcard masks',
+      ],
+      answer: 2,
+      why: 'Classful sizes wasted space. CIDR lets an enterprise take a block and carve it.',
+    },
+    {
+      prompt: 'Borrowing x bits from a block makes how many equal (FLSM) subnets?',
+      choices: [
+        '2^x — each extra bit doubles the subnet count and halves the size',
+        'x^2, so 3 borrowed bits make 9 subnets',
+        'x, one new subnet per borrowed bit',
+        '2^(x−2), after subtracting network and broadcast subnets',
+      ],
+      answer: 0,
+      why: 'Hosts still use 2^y−2. Subnet count does not subtract 2. You often get extra subnets.',
+    },
+    {
+      prompt: '192.168.1.0/24 borrowed 1 bit yields:',
+      choices: [
+        'Four /26s starting at .0 .64 .128 .192',
+        'Still one /24; the last octet cannot be a network address unless it is .0',
+        'Two /24s: 192.168.1.0 and 192.168.2.0',
+        '192.168.1.0/25 (.0–.127) and 192.168.1.128/25 (.128–.255)',
+      ],
+      answer: 3,
+      why: 'Borrowed bit 0 then 1. .128 is a legal network address when the cut is bit 25.',
+    },
+    {
+      prompt: '192.168.1.64/26 — broadcast and usable host count:',
+      choices: [
+        '.255 and 254, because the address is class C',
+        '.127 and 62 (six host bits; all 1s = .127; 2^6−2)',
+        '.95 and 30, as if the prefix were /27',
+        '.64 and 64, counting the network address as a host',
+      ],
+      answer: 1,
+      why: 'Last 6 bits are host. .64 is 01000000; those six bits all 1 → 01111111 = .127. 2^6−2 = 62.',
+    },
+    {
+      prompt: 'PC 172.16.20.27/28 lives in which subnet (network address)?',
+      choices: [
+        '172.16.20.0, zeroing the entire last octet',
+        '172.16.20.27, because a host address is already unique',
+        '172.16.20.16 — last octet 00011011, host nibble cleared to 0000',
+        '172.16.16.0, treating /28 like a /20 in the third octet',
+      ],
+      answer: 2,
+      why: 'Write binary, zero host bits, convert back. That is every “what subnet is this host in” item.',
+    },
+    {
+      prompt: 'Which prefix–mask pair is correct?',
+      choices: [
+        '/25 = 255.255.255.192 and /27 = 255.255.255.240',
+        '/29 = 255.255.255.248 and /18 = 255.255.192.0',
+        '/15 = 255.252.0.0 and /10 = 255.224.0.0',
+        '/26 = 255.255.255.128 and /30 = 255.255.255.248',
+      ],
+      answer: 1,
+      why: '1s then 0s. /29 is 29 ones (248 in the last octet). /18 is 18 ones (192 in the third).',
+    },
+    {
+      prompt: 'A point-to-point link between two routers. Most efficient option that is still legal:',
+      choices: [
+        '/31 — two addresses, no net/bcast; /30 also works and is more common',
+        '/32 on each interface so each router is a one-host LAN',
+        '/24, because Cisco will not accept a mask longer than class C',
+        '/30 only; /31 always yields zero hosts by 2^y−2',
+      ],
+      answer: 0,
+      why: 'RFC 3021. IOS warns if you put /31 on a multi-access interface. Labs often still use /30.',
+    },
+    {
+      prompt: 'FLSM: 172.25.190.0/23 into four equal subnets. Second subnet’s first usable:',
+      choices: [
+        '172.25.190.1/24, splitting on the third octet only',
+        '172.25.190.65/26, borrowing 3 bits instead of 2',
+        '172.25.191.1/25, which is actually the third subnet',
+        '172.25.190.129/25 — borrow 2, subnets .190.0 .190.128 .191.0 .191.128',
+      ],
+      answer: 3,
+      why: '2^2 = 4. Prefix 23+2 = 25. Mask 255.255.255.128. Second network .190.128, plus one.',
+    },
+    {
+      prompt: 'VLSM on 10.89.100.0/24 for 122, 59, 30, 11, then 2 hosts. First two placements:',
+      choices: [
+        'Four equal /26s from .0, leftover /30 for the WAN',
+        '/30 WAN at .0, then the 122-host LAN at .4',
+        '10.89.100.0/25 (126 hosts) then 10.89.100.128/26 (62 hosts)',
+        '10.89.100.0/26 (62 hosts) twice, hoping 122 fits in the second',
+      ],
+      answer: 2,
+      why: 'Largest first. Next network is previous broadcast + 1. /26 cannot hold 122.',
+    },
+    {
+      prompt: '10.23.24.128/27 usable range is:',
+      choices: [
+        '10.23.24.129 – 10.23.24.158 (network .128, broadcast .159)',
+        '10.23.24.129 – 10.23.24.254, copying the /25 that starts at the same .128',
+        '10.23.24.128 – 10.23.24.159, including network and broadcast as hosts',
+        '10.23.24.65 – 10.23.24.126, which is the /26 that starts at .64',
+      ],
+      answer: 0,
+      why: '/27 is 32 addresses. .128 + 31 = .159 broadcast. Usable skips both ends.',
+    },
+  ]}
+/>

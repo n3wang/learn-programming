@@ -1,0 +1,339 @@
+---
+sidebar_position: 16
+title: Dynamic Routing
+---
+
+> **Track:** Network CCNA — sixteenth chapter. Statics (eighth chapter) do not move when a link dies. This chapter is **routing protocols**: who talks, how a row **enters** `show ip route`, and the OSPF **`network`** command. Exam **3.1**, **3.2**, **3.3**, **3.4**. OSPFv2 (neighbors, LSDB, DR/BDR) is the seventeenth chapter. EtherChannel is the fifteenth chapter.
+
+# Dynamic Routing
+
+A **routing protocol** is how routers **advertise** prefixes to each other and **build** a table without you typing every `ip route`. **Dynamic** is that process. **Static** is still useful — predictable, exact path — and you can run both on one box.
+
+<DynamicRoutingSimulator />
+
+**Next story** cuts R2–R3 on a static, then on OSPF. Then metric, AD, ECMP, a floating static, overlapping prefixes, and a wildcard.
+
+<LessonFigure src="/img/ccna/fig-17-1.png" alt="R1, R2, and R3 advertise their LANs to each other with a routing protocol." caption="Figure 17.1 — R1, R2, and R3 advertise their LANs to each other with a routing protocol." maxWidth={560} />
+
+## Adaptability
+
+A static does not notice that the **path behind** its next hop is dead. If the next hop itself is unreachable, IOS **removes** the route — any kind of route. If the next hop is still up, the row **stays**.
+
+R1 → R2 → R3 → `192.168.30.0/24`. R2–R3 fails. R2 loses the dest (next hop gone) and drops. R1 still has `S via R2`. Black hole. An alternate via R4 sits unused because nobody typed it on R1, and R1 cannot see the cut.
+
+<LessonFigure src="/img/ccna/fig-17-2.png" alt="A static route can’t adapt: the R2–R3 link fails and R1 keeps sending into a dead end." caption="Figure 17.2 — A static route can’t adapt: the R2–R3 link fails and R1 keeps sending into a dead end." maxWidth={600} />
+
+With a protocol, neighbors **withdraw** the dead path and **install** the next-best in seconds. Replace the cable and the old path returns. That is **resilience** statics cannot give you alone.
+
+<LessonFigure src="/img/ccna/fig-17-3.png" alt="With dynamic routing, R2 withdraws the dead route and R1 learns the alternate path via R4." caption="Figure 17.3 — With dynamic routing, R2 withdraws the dead route and R1 learns the alternate path via R4." maxWidth={600} />
+
+Code **D** in the table is **EIGRP** (DUAL). **O** is OSPF. **R** is RIP.
+
+## Scalability
+
+Six routers, a handful of LAN prefixes, two ISP edges: a static to every dest on every router is slow and error-prone. Turn on a protocol and let them advertise.
+
+<LessonFigure src="/img/ccna/fig-17-4.png" alt="A modest network with many subnets — far too many static routes to maintain by hand." caption="Figure 17.4 — A modest network with many subnets — far too many static routes to maintain by hand." maxWidth={560} />
+
+Statics still win when you want **one** path, no surprises. Mix them.
+
+## IGP, EGP, algorithm
+
+**Gateway** is an old word for router (default gateway).
+
+- **IGP** — inside one **autonomous system** (one organization).
+- **EGP** — between ASes (enterprise to ISP, ISP to ISP).
+
+<LessonFigure src="/img/ccna/fig-17-5.png" alt="IGPs run inside each autonomous system; an EGP runs between enterprises and ISPs." caption="Figure 17.5 — IGPs run inside each autonomous system; an EGP runs between enterprises and ISPs." maxWidth={600} />
+
+IGP algorithms:
+
+- **Distance-vector** — **RIP** (simple hop count, labs) and **EIGRP** (Cisco-born; RFC 7868 exists, few others implement it). Each neighbor sends “I can reach X with metric N.” You pick the lowest metric. You do **not** own a map past that neighbor. **Routing by rumor.**
+- **Link-state** — **OSPF** (exam) and **IS-IS** (providers, skip). Every router floods **link state** (connected prefixes, cost). Everyone builds the same **LSDB** map, then computes a path. More CPU/memory; **areas** (later) split the map.
+
+<LessonFigure src="/img/ccna/fig-17-9.png" alt="Link state: R1 builds a full map of the network and calculates the route itself." caption="Figure 17.9 — Link state: R1 builds a full map of the network and calculates the route itself." maxWidth={560} />
+
+<LessonFigure src="/img/ccna/fig-17-8.png" alt="R1 only knows what R2 and R5 told it; the network behind them is a cloud." caption="Figure 17.8 — R1 only knows what R2 and R5 told it; the network behind them is a cloud." maxWidth={560} />
+
+<LessonFigure src="/img/ccna/fig-17-7.png" alt="Distance vector: each router tells its neighbors “I can reach LAN A, my metric is N.”" caption="Figure 17.7 — Distance vector: each router tells its neighbors “I can reach LAN A, my metric is N.”" maxWidth={600} />
+
+<LessonFigure src="/img/ccna/fig-17-6.png" alt="The five protocols: RIP and EIGRP (distance vector), OSPF and IS-IS (link state), BGP (path vector)." caption="Figure 17.6 — The five protocols: RIP and EIGRP (distance vector), OSPF and IS-IS (link state), BGP (path vector)." maxWidth={560} />
+
+The only common EGP is **BGP**: **path-vector**. The “path” is a list of **ASes**, not a list of routers. Attributes are more than hop count; this exam does not grade BGP math.
+
+<LessonFigure src="/img/ccna/fig-17-10.png" alt="Path vector (BGP): the path is a list of autonomous systems — ISP A, ISP B, Enterprise B." caption="Figure 17.10 — Path vector (BGP): the path is a list of autonomous systems — ISP A, ISP B, Enterprise B." maxWidth={600} />
+
+## Two meanings of “route selection”
+
+1. **Table population** — which learned (or typed) routes **enter** `show ip route`. Not every advertisement is installed.
+2. **Packet forwarding** — among rows **already in** the table, which one forwards **this** packet.
+
+A row that is not in the table cannot forward.
+
+Same **destination** means same **network number and prefix length**. `10.0.0.0/8` and `10.0.0.0/16` are two destinations. Both can sit in the table.
+
+## Metric (same protocol)
+
+**Lower is better.** Used only among routes to the **same dest** from the **same** protocol.
+
+| Protocol | Metric |
+| --- | --- |
+| RIP | Hop count |
+| EIGRP | Bandwidth + delay (and knobs). Numbers run large. |
+| OSPF | **Cost** from bandwidth, summed along the path |
+
+<LessonFigure src="/img/ccna/fig-17-11.png" alt="Two routes to the same network: R1 installs the one with the lower metric, 2 instead of 3." caption="Figure 17.11 — Two routes to the same network: R1 installs the one with the lower metric, 2 instead of 3." maxWidth={600} />
+
+`show ip route` prints `[AD/metric]`:
+
+```text
+O  192.168.3.0/24 [110/2] via 192.168.1.6, 00:08:35, GigabitEthernet0/0
+```
+
+Shut the good interface. The cost-4 path replaces it: `[110/4]`.
+
+**ECMP:** same protocol, same dest, **same** metric → **all** of them install (default **four**) and traffic splits.
+
+<LessonFigure src="/img/ccna/fig-17-13.png" alt="ECMP: two OSPF routes with the same cost both go into the table." caption="Figure 17.13 — ECMP: two OSPF routes with the same cost both go into the table." maxWidth={600} />
+
+## Administrative distance (different protocols)
+
+Metrics are not comparable across protocols — kilograms vs kilometers. **AD** is IOS’s **trust** ranking. **Lower** wins.
+
+| Type | Default AD |
+| --- | --- |
+| Connected | 0 |
+| Static | 1 |
+| External BGP (eBGP) | 20 |
+| EIGRP | 90 |
+| OSPF | 110 |
+| IS-IS | 115 |
+| RIP | 120 |
+| Internal BGP (iBGP) | 200 |
+| Unusable | 255 |
+
+Connected always wins. **255** means unusable — not installed. Memorize the table.
+
+EIGRP `[90/3584]` vs OSPF `[110/4]` to `10.0.0.0/24`: **D** installs. 3584 vs 4 is noise.
+
+<LessonFigure src="/img/ccna/fig-17-12.png" alt="EIGRP and OSPF both offer 10.0.0.0/24: EIGRP’s lower AD (90 vs 110) wins." caption="Figure 17.12 — EIGRP and OSPF both offer 10.0.0.0/24: EIGRP’s lower AD (90 vs 110) wins." maxWidth={600} />
+
+## Floating static
+
+Default static AD **1** beats every protocol. To hold a static as **backup**, raise its AD **above** the primary protocol (OSPF → **111** or more):
+
+```text
+R1(config)# ip route 10.0.0.0 255.255.255.0 192.168.1.2 111
+```
+
+OSPF stays `[110/4]`. Kill the OSPF path; `S [111/0]` appears. Static **metric is always 0**.
+
+<LessonFigure src="/img/ccna/fig-17-14.png" alt="A floating static route with AD 111 sits behind the OSPF route as a backup." caption="Figure 17.14 — A floating static route with AD 111 sits behind the OSPF route as a backup." maxWidth={600} />
+
+**Same AD as the protocol still prefers static.** Go **higher**. Use a float toward a neighbor you do **not** peer with, or when you want a known backup path.
+
+## Install vs forward
+
+Learned:
+
+- `203.0.113.0/24` static
+- `/25` RIP metric 4
+- `/26` EIGRP
+- `/27` OSPF
+
+**All four install.** Same number, different lengths → different dests. Overlap on the number line does not matter for install. Longest match is **not** an install rule.
+
+Learned:
+
+- `10.0.0.0/8` EIGRP and OSPF → keep **EIGRP** (AD)
+- `10.0.0.0/16` OSPF metric 20 and OSPF metric 5 → keep **metric 5**
+
+**Forwarding** a packet to `203.0.113.65` with those four rows in the table: ignore AD and metric. Keep **matching** routes, then the **longest** prefix.
+
+Last octet only (first 24 bits already match):
+
+- `.0` = `00000000`
+- `.65` = `01000001`
+
+`/24` and `/25` match (bit 25 is 0). `/26` and `/27` need bit 26 = 0; `.65` has 1. Winner: **`/25`** via `192.168.1.6`.
+
+<LessonFigure src="/img/ccna/fig-17-15.png" alt="Overlapping routes: 203.0.113.0/24, /25, /26, and /27 each cover a smaller slice." caption="Figure 17.15 — Overlapping routes: 203.0.113.0/24, /25, /26, and /27 each cover a smaller slice." maxWidth={480} />
+
+Exam wording: **most specific matching route**, not “longest prefix” alone (a longer prefix that does not match loses).
+
+## The `network` command
+
+RIP, EIGRP, and OSPF all **activate on interfaces**, then **advertise each interface’s prefix**. The shared knob is **`network`**. This exam wants the **OSPF** form. Areas stay at **0** until the OSPF chapter.
+
+```text
+R1(config)# router ospf 1
+R1(config-router)# network 192.168.1.0 0.0.0.3 area 0
+```
+
+<LessonFigure src="/img/ccna/fig-17-16.png" alt="Activating OSPF with network commands and wildcard masks, one interface at a time." caption="Figure 17.16 — Activating OSPF with network commands and wildcard masks, one interface at a time." maxWidth={560} />
+
+`1` is a **process ID** (multiple processes exist; skip why). Syntax: `network ip-address wildcard-mask area area-id`.
+
+A **wildcard** is 32 bits. **0** = that bit **must match** between the command IP and the interface IP. **1** = don’t care. It **looks** like an inverted mask and is **not** a mask.
+
+<LessonFigure src="/img/ccna/fig-17-17.png" alt="A /30 netmask (255.255.255.252) and its wildcard (0.0.0.3): every bit flipped." caption="Figure 17.17 — A /30 netmask (255.255.255.252) and its wildcard (0.0.0.3): every bit flipped." maxWidth={560} />
+
+Shortcut: each mask octet from **255** is the wildcard octet. `/30` `255.255.255.252` → `0.0.0.3`. `/24` → `0.0.0.255`. `/32` → `0.0.0.0`.
+
+| Prefix | Mask | Wildcard (last octet) |
+| --- | --- | --- |
+| /24 | 255.255.255.0 | 0.0.0.255 |
+| /25 | 255.255.255.128 | 0.0.0.127 |
+| /26 | 255.255.255.192 | 0.0.0.63 |
+| /27 | 255.255.255.224 | 0.0.0.31 |
+| /28 | 255.255.255.240 | 0.0.0.15 |
+| /29 | 255.255.255.248 | 0.0.0.7 |
+| /30 | 255.255.255.252 | 0.0.0.3 |
+| /31 | 255.255.255.254 | 0.0.0.1 |
+| /32 | 255.255.255.255 | 0.0.0.0 |
+
+The command IP **need not** be the network address, and the wildcard **need not** equal the interface mask. If the 0-bits match, OSPF starts on that iface.
+
+`network 192.168.1.0 0.0.0.7 area 0` hits `192.168.1.0`–`.7` (G0/0 `.1` and G0/1 `.5`). Advertises **`192.168.1.0/30` and `192.168.1.4/30`**, not a /29.
+
+<LessonFigure src="/img/ccna/fig-17-18.png" alt="One wider network command covers two interfaces; a second covers the third." caption="Figure 17.18 — One wider network command covers two interfaces; a second covers the third." maxWidth={560} />
+
+`network 192.168.2.1 0.0.0.0 area 0` hits only `.1`. Advertises **`192.168.2.0/24`**, not `/32`.
+
+**Habit:** interface IP + **`0.0.0.0`** so you do not arm a surprise iface. Lab-all: `network 0.0.0.0 255.255.255.255 area 0`. Do not do that in production.
+
+Two myths:
+
+1. Wildcard must equal the iface mask — **no**.
+2. `network` lists prefixes to advertise — **no**. It lists **interfaces to activate**. The prefix that goes out is the **interface’s** prefix.
+
+The next chapter has `ip ospf 1 area 0` on the interface. You still need `network` and wildcards on the exam.
+
+## Exam shapes
+
+- Static stays after a downstream cut; dynamic withdraws and reroutes.
+- IGP/EGP. DV rumor vs LS map. BGP path-vector.
+- `[AD/metric]`. Same dest + same protocol → metric (or ECMP). Different protocol → AD.
+- AD table. Float = static AD **higher** than the protocol.
+- Different lengths = different dests (all install). Forward = **most specific match**.
+- `router ospf`, `network` + wildcard: activate ifaces, advertise iface prefixes.
+
+<GuidedChoiceExplanation preset="ccna-dynamic-routing" />
+
+<FigureMatchGame preset="ccna-dynamic-routing" />
+
+<MultipleChoice
+  title="Dynamic Routing"
+  questions={[
+    {
+      prompt: 'R2–R3 fails. R1 has a static to 192.168.30.0/24 via R2, whose next hop is still up. Packets:',
+      choices: [
+        'R1 deletes the static because it can no longer ping the dest LAN',
+        'R1 automatically installs a static via R4',
+        'R1 keeps forwarding to R2; R2 drops (next hop to .30 is gone)',
+        'R1 holds the packets until the hello timer expires',
+      ],
+      answer: 2,
+      why: 'A route dies when its own next hop is unreachable. A downstream cut behind a live next hop is invisible to a static.',
+    },
+    {
+      prompt: 'Distance-vector vs link-state vs BGP:',
+      choices: [
+        'DV (RIP, EIGRP) is rumor. LS (OSPF, IS-IS) builds a shared map. BGP is path-vector between ASes',
+        'OSPF is the EGP; BGP is hop-count inside the AS',
+        'EIGRP and OSPF are both path-vector; RIP is link-state',
+        'All IGPs flood a full topology; only statics are rumor',
+      ],
+      answer: 0,
+      why: 'IGP = one AS. EGP = between ASes. DUAL is EIGRP; LSDB is OSPF/IS-IS.',
+    },
+    {
+      prompt: 'Two OSPF routes to the same /24, costs 2 and 4. The table keeps:',
+      choices: [
+        'Both, because AD 110 is the same',
+        'Neither until a static exists',
+        'The cost-4 path; higher cost means more bandwidth',
+        'The cost-2 path — same protocol, same dest, lowest metric',
+      ],
+      answer: 3,
+      why: 'AD is for different protocols. Equal metrics would be ECMP (up to four).',
+    },
+    {
+      prompt: 'EIGRP [90/3584] and OSPF [110/4] to 10.0.0.0/24. Installed:',
+      choices: [
+        'OSPF — 4 beats 3584',
+        'EIGRP — AD 90 beats 110; metrics are not comparable',
+        'Both; mixed protocols always load-share',
+        'Neither; 255 means “pick later”',
+      ],
+      answer: 1,
+      why: 'Kilograms vs kilometers. EIGRP numbers run large. Code D vs O.',
+    },
+    {
+      prompt: 'Default administrative distances (pick the true row):',
+      choices: [
+        'Static 90, OSPF 1, EIGRP 110, RIP 20',
+        'Connected 1, static 0, OSPF 90, eBGP 200',
+        'Connected 0, static 1, eBGP 20, EIGRP 90, OSPF 110, IS-IS 115, RIP 120, iBGP 200, unusable 255',
+        'RIP 90, EIGRP 120, OSPF 110, static 255',
+      ],
+      answer: 2,
+      why: 'Lower is more trusted. 255 is unusable and does not install.',
+    },
+    {
+      prompt: 'A floating static behind OSPF is configured as:',
+      choices: [
+        'ip route … with no AD, because statics already float',
+        'ip route dest mask next-hop 111 (AD greater than 110)',
+        'ip route dest mask next-hop 110 so it ties OSPF and load-shares',
+        'ip route dest mask next-hop 1 to outrank OSPF on purpose',
+      ],
+      answer: 1,
+      why: 'AD 1 is a primary static. Equal AD still prefers static. Metric on a static is 0: [111/0].',
+    },
+    {
+      prompt: 'S 203.0.113.0/24, RIP /25, EIGRP /26, OSPF /27. Routing table population:',
+      choices: [
+        'All four install — different prefix lengths are different destinations',
+        'Only the static; AD 1 wins the set',
+        'Only the /27; longest prefix is the install rule',
+        'RIP and OSPF only; statics never sit next to dynamic rows',
+      ],
+      answer: 0,
+      why: 'Longest match is for forwarding. Overlap on the number line does not merge dests.',
+    },
+    {
+      prompt: 'Those four rows are installed. Packet dest 203.0.113.65. Forward on:',
+      choices: [
+        'The static /24 because AD 1 always forwards',
+        'The /27 because 27 is the largest prefix number',
+        'ECMP across all four',
+        'The /25 — it matches, and it is longer than /24 (/26 and /27 miss bit 26)',
+      ],
+      answer: 3,
+      why: '.65 is 01000001. /26 and /27 need bit 26 = 0. Forwarding ignores AD and metric.',
+    },
+    {
+      prompt: 'network 192.168.2.1 0.0.0.0 area 0 tells the router to:',
+      choices: [
+        'Advertise 192.168.2.1/32 and no other prefix',
+        'Reject the command unless the iface mask is /32',
+        'Activate OSPF on the iface with that IP and advertise that iface’s prefix (e.g. /24)',
+        'Create area 0 as a VLAN spanning-tree instance',
+      ],
+      answer: 2,
+      why: '0 bits must match. The wildcard is not the advertised mask. Prefer host + 0.0.0.0 so you do not arm extras.',
+    },
+    {
+      prompt: 'network 192.168.1.0 0.0.0.7 area 0 on a router with 192.168.1.1/30 and 192.168.1.5/30:',
+      choices: [
+        'Activates both ifaces and advertises 192.168.1.0/30 and 192.168.1.4/30',
+        'Advertises a single 192.168.1.0/29 prefix',
+        'Matches nothing; the wildcard must be 0.0.0.3',
+        'Is a lab-all command equivalent to 255.255.255.255',
+      ],
+      answer: 0,
+      why: '0.0.0.7 covers .0–.7. Each iface still advertises its own prefix. 0.0.0.0 255.255.255.255 is the lab-all form.',
+    },
+  ]}
+/>

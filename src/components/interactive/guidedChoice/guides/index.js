@@ -142,6 +142,26 @@ import agencyClauses from './agency-clauses';
 import transportModeChoice from './transport-mode-choice';
 import transportDocuments from './transport-documents';
 import cargoInsurance from './cargo-insurance';
+import ccnaCableChoice from './ccna-cable-choice';
+import ccnaDeviceRoles from './ccna-device-roles';
+import ccnaIosCli from './ccna-ios-cli';
+import ccnaLanSwitching from './ccna-lan-switching';
+import ccnaIpv4Addressing from './ccna-ipv4-addressing';
+import ccnaIpv4Subnetting from './ccna-ipv4-subnetting';
+import ccnaVlans from './ccna-vlans';
+import ccnaDtpVtp from './ccna-dtp-vtp';
+import ccnaStp from './ccna-stp';
+import ccnaRstp from './ccna-rstp';
+import ccnaEtherchannel from './ccna-etherchannel';
+import ccnaDynamicRouting from './ccna-dynamic-routing';
+import ccnaOspf from './ccna-ospf';
+import ccnaFhrp from './ccna-fhrp';
+import ccnaIpv6Addressing from './ccna-ipv6-addressing';
+import ccnaIpv6Routing from './ccna-ipv6-routing';
+import ccnaPacketLife from './ccna-packet-life';
+import ccnaIfaceLink from './ccna-iface-link';
+import ccnaStaticRouting from './ccna-static-routing';
+import ccnaTcpipLayers from './ccna-tcpip-layers';
 import ecomLandedCost from './ecom-landed-cost';
 import ecomEsignature from './ecom-esignature';
 import ecomPolicy from './ecom-policy';
@@ -500,6 +520,26 @@ const GUIDES = {
   'transport-mode-choice': transportModeChoice,
   'transport-documents': transportDocuments,
   'cargo-insurance': cargoInsurance,
+  'ccna-cable-choice': ccnaCableChoice,
+  'ccna-device-roles': ccnaDeviceRoles,
+  'ccna-ios-cli': ccnaIosCli,
+  'ccna-lan-switching': ccnaLanSwitching,
+  'ccna-ipv4-addressing': ccnaIpv4Addressing,
+  'ccna-ipv4-subnetting': ccnaIpv4Subnetting,
+  'ccna-vlans': ccnaVlans,
+  'ccna-dtp-vtp': ccnaDtpVtp,
+  'ccna-stp': ccnaStp,
+  'ccna-rstp': ccnaRstp,
+  'ccna-etherchannel': ccnaEtherchannel,
+  'ccna-dynamic-routing': ccnaDynamicRouting,
+  'ccna-ospf': ccnaOspf,
+  'ccna-fhrp': ccnaFhrp,
+  'ccna-ipv6-addressing': ccnaIpv6Addressing,
+  'ccna-ipv6-routing': ccnaIpv6Routing,
+  'ccna-packet-life': ccnaPacketLife,
+  'ccna-iface-link': ccnaIfaceLink,
+  'ccna-static-routing': ccnaStaticRouting,
+  'ccna-tcpip-layers': ccnaTcpipLayers,
   'ecom-landed-cost': ecomLandedCost,
   'ecom-esignature': ecomEsignature,
   'ecom-policy': ecomPolicy,

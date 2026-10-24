@@ -1,0 +1,282 @@
+---
+sidebar_position: 12
+title: DTP and VTP
+---
+
+> **Track:** Network CCNA — twelfth chapter. VLANs gave you **access vs trunk**. This chapter is the two Cisco helpers that sit on top: **DTP** (who becomes a trunk) and **VTP** (who copies the VLAN list). Exam **2.1**, **2.2**. They are not named on the blueprint; you still configure them every time you touch a Cisco switch. Spanning Tree is the thirteenth chapter.
+
+# DTP and VTP
+
+**Dynamic Trunking Protocol (DTP)** decides whether a Cisco switch port **operates** as access or trunk. **VLAN Trunking Protocol (VTP)** copies the **VLAN database** (`vlan.dat` in flash) among Cisco switches in one **domain**.
+
+Both are **Cisco-proprietary**. A non-Cisco switch will not speak them. Pin **`switchport mode trunk`** toward another vendor, and do not expect VTP to create VLANs there.
+
+<DtpVtpSimulator />
+
+**Next story** walks the DTP matrix, then VTP revision. Factory **auto + auto** stays **access**. **Desirable + auto** trunks.
+
+The exam still lists **2.1** (VLANs spanning switches) and **2.2** (interswitch connectivity). DTP and VTP were pulled from the 2020 topic list by name; they were not pulled from the gear.
+
+## Administrative vs operational
+
+**Administrative mode** is what you typed with `switchport mode`. **Operational mode** is access or trunk after the two ends have talked.
+
+If you pin the mode, they match:
+
+- `switchport mode access` → always **access**. The port does **not** send DTP.
+- `switchport mode trunk` → always **trunk**. The port **still sends DTP**, so a dynamic neighbor can join the trunk.
+
+`show interfaces g0/0 switchport` prints both lines, plus `Negotiation of Trunking: On|Off`.
+
+A router has no DTP. **ROAS** needs a **manual** trunk on the switch. Same rule toward any non-Cisco switch.
+
+## DTP negotiation
+
+Two more modes tell the port to **use DTP** instead of pinning:
+
+- **`dynamic auto`** — default on Cisco ports. Willing to trunk, will **not** start it.
+- **`dynamic desirable`** — willing, and **asks**.
+
+Until both sides agree, a dynamic port **operates as access**.
+
+```text
+SW1# show interfaces g0/0 switchport
+Administrative Mode: dynamic auto
+Operational Mode: static access
+```
+
+**Static access** means the VLAN is the one in `switchport access vlan` (or VLAN 1). Dynamic access (VLAN from the connected host) is out of scope.
+
+**auto + auto = access.** Two factory Cisco switches, cabled, stay access. That surprises people who expected a trunk.
+
+<LessonFigure src="/img/ccna/fig-13-1.png" alt="Two ports left at dynamic auto exchange DTP and settle on access." caption="Figure 13.1 — Two ports left at dynamic auto exchange DTP and settle on access." maxWidth={480} />
+
+Change SW1 to **desirable**. Auto on SW2 agrees. Operational mode is **trunk**.
+
+<LessonFigure src="/img/ccna/fig-13-2.png" alt="Dynamic desirable on one side and dynamic auto on the other: DTP forms a trunk." caption="Figure 13.2 — Dynamic desirable on one side and dynamic auto on the other: DTP forms a trunk." maxWidth={480} />
+
+Memorize the matrix. **access + trunk is invalid** — do not use it. The switches may detect the mismatch and block, or only the access VLAN and the trunk’s **native** VLAN (both untagged) will pass.
+
+|  | access | trunk | desirable | auto |
+| --- | --- | --- | --- | --- |
+| **access** | access | invalid | access | access |
+| **trunk** | invalid | trunk | trunk | trunk |
+| **desirable** | access | trunk | trunk | trunk |
+| **auto** | access | trunk | trunk | access |
+
+Who sends DTP? **access: no. trunk / auto / desirable: yes.**
+
+Old boxes that still have **ISL** can also negotiate encapsulation (`switchport trunk encapsulation negotiate`). Two **negotiate** sides pick **ISL**. One side **dot1q** or **isl**, the other **negotiate**, follows. A mismatch is a misconfiguration. Modern Cisco is **802.1Q only** — set `dot1q` if the command exists, as in the VLAN chapter. Do not expect ISL questions.
+
+## Disable DTP
+
+DTP was meant to save typing. It is also a hole: a host that **speaks DTP** can turn a **dynamic auto** port into a **trunk** and see every VLAN. End hosts normally send no DTP, so auto facing a PC stays access — until someone forges the messages. Do not leave that door open.
+
+<LessonFigure src="/img/ccna/fig-13-3.png" alt="An attacker speaks DTP to a dynamic port, forms a trunk, and reaches every VLAN." caption="Figure 13.3 — An attacker speaks DTP to a dynamic port, forms a trunk, and reaches every VLAN." maxWidth={480} />
+
+Two ways to silence it:
+
+1. `switchport mode access` — access sends no DTP. `Negotiation of Trunking: Off`.
+2. `switchport nonegotiate` — never send DTP, **even on a trunk**.
+
+Pin **trunk**, then **nonegotiate**, when the far end is already a trunk (router, other vendor, or another Cisco you pinned). Best practice: **always** pin the mode **and** `nonegotiate`, so a later `mode trunk` does not start talking DTP again.
+
+```text
+SW1(config)# interface g0/0
+SW1(config-if)# switchport mode access
+SW1(config-if)# switchport nonegotiate
+```
+
+## VTP copies vlan.dat
+
+`show vlan brief` is the VLAN database. The file is **`vlan.dat`** in flash (`dir flash:` / `show flash:`). If SW2 never learned VLAN 4, a tagged frame for VLAN 4 arriving on a trunk is **dropped**. Small lab: type `vlan 4` on SW2. Dozens of switches: that typing is how you create **drift**.
+
+<LessonFigure src="/img/ccna/fig-13-4.png" alt="SW2 drops PC1’s frame because VLAN 4 is missing from its VLAN database." caption="Figure 13.4 — SW2 drops PC1’s frame because VLAN 4 is missing from its VLAN database." maxWidth={560} />
+
+VTP floods VLAN **create / delete / rename** to other Cisco switches in the same **domain**, out **trunks only**, not access ports.
+
+<LessonFigure src="/img/ccna/fig-13-5.png" alt="SW1 creates VLANs 2–4; the other switches in domain Manning sync and copy its revision number." caption="Figure 13.5 — SW1 creates VLANs 2–4; the other switches in domain Manning sync and copy its revision number." maxWidth={560} />
+
+A **revision number** starts at **0** and increments by **1** per database change. A switch **syncs** only to a **higher** revision in the **same domain**. Equal or lower is old news.
+
+Factory domain name is **blank** — domain **NULL**. You can still create VLANs; you **do not advertise**. `vtp domain Manning` on one switch is enough: other NULLs **adopt** the name from the first VTP message they hear on a trunk.
+
+```text
+SW1(config)# vtp domain Manning
+Changing VTP domain name from NULL to Manning
+SW1(config)# vlan 2
+SW1(config-vlan)# vlan 3
+SW1(config-vlan)# vlan 4
+```
+
+`show vtp status` then shows domain **Manning**, **8** existing VLANs (1, 2–4, plus reserved **1002–1005**), **Configuration Revision : 3**. Neighbors that joined the domain match that revision.
+
+VLANs **1002–1005** cannot be removed (Token Ring / FDDI leftovers from the VLAN chapter). Ignore them except when the “existing VLANs” count jumps from 5 to 8.
+
+## VTP modes
+
+`vtp mode` is **server** (default), **client**, **transparent**, or **off**.
+
+- **Server** — create / rename / delete. Advertises. Syncs to a higher revision.
+- **Client** — **cannot** `vlan N`. Otherwise like a server. IOS: `VTP VLAN configuration not allowed when device is in CLIENT mode.`
+- **Transparent** — own database, **revision always 0**, does **not** advertise or sync. **Forwards** VTP for the rest of the domain. Use it when this switch must be managed alone without breaking the others.
+- **Off** — own database, no advertise, no sync, **no forward**. If the LAN is not using VTP, `vtp mode off` on every switch.
+
+<LessonFigure src="/img/ccna/fig-13-6.png" alt="SW2 in transparent mode passes VTP messages along but keeps its own VLAN database." caption="Figure 13.6 — SW2 in transparent mode passes VTP messages along but keeps its own VLAN database." maxWidth={560} />
+
+Cisco’s current advice: leave capable switches as **servers**. Memory is not the 1990s problem. You do not need a client tier for the exam topology.
+
+## Versions, primary server, extended range
+
+`show vtp status` lists **Version capable : 1 to 3** and **version running : 1** (default). `vtp version 3` is the one you want if you run VTP at all.
+
+v1 and v2 are close. v2’s extra is Token Ring — skip it.
+
+**Off mode** arrived in **version 3**. Boxes that can run v3 can still use **off** while running v1 or v2. Before that, **transparent on everyone** was the only “mostly off.”
+
+**Version 3 primary server.** Only **one** switch may edit VLANs. Other servers are **secondary** — same as clients until you promote them. `vtp primary` is **privileged EXEC**, not global config (`do vtp primary` from `(config)#`). A second `vtp primary` demotes the first. That is how v3 stops a lab switch from overwriting the LAN.
+
+**Extended-range VLANs (1006–4094)** propagate only in **version 3**. v1/v2 servers handle **normal range 1–1005**. The old workaround was transparent, which also left the domain.
+
+## The revision trap
+
+v1/v2 sync to the **highest revision in the domain**, whoever sent it. A lab switch at revision **50**, same domain, trunked into a LAN at revision **5**, replaces VLANs **10 / 20 / 30** with whatever the lab still has. Hosts in the vanished VLANs go dark.
+
+<LessonFigure src="/img/ccna/fig-13-7.png" alt="A newly connected SW4 with a higher revision number wipes out everyone else’s VLANs." caption="Figure 13.7 — A newly connected SW4 with a higher revision number wipes out everyone else’s VLANs." maxWidth={600} />
+
+Reset revision to **0** **before** the first production trunk:
+
+1. Change the **domain name** to something else, then **back** (all versions).
+2. `vtp mode transparent`, then back to server or client (**v1/v2 only**).
+3. `vtp mode off`, then back to server or client (**v1/v2 only**).
+
+Version 3 does not sync to a random newcomer — only to the **primary**. That is the reason v3 exists for this exam.
+
+## Exam shapes
+
+- Table: auto+auto access, desirable+anything-but-access trunk, access+trunk invalid.
+- `show interfaces g0/0 switchport`: admin vs operational vs **Negotiation of Trunking**.
+- Best practice: **mode** + **`nonegotiate`**.
+- `show vtp status`: NULL, revision, mode, version. Client cannot `vlan`. Transparent rev **0**, still forwards.
+- v3: **`vtp primary`** in **enable**, extended VLANs, revision bomb is gone.
+- Reset rev 0: domain bounce; or (v1/v2) transparent / off bounce.
+
+<GuidedChoiceExplanation preset="ccna-dtp-vtp" />
+
+<FigureMatchGame preset="ccna-dtp-vtp" />
+
+<MultipleChoice
+  title="DTP and VTP"
+  questions={[
+    {
+      prompt: 'Administrative mode vs operational mode:',
+      choices: [
+        'Administrative is always trunk; operational is the native VLAN',
+        'They are the same string; show vlan brief prints both',
+        'Admin is switchport mode; operational is access or trunk after DTP',
+        'Operational is only used on routers; switches have admin only',
+      ],
+      answer: 2,
+      why: 'Pin access or trunk and they match. Dynamic modes can differ: admin auto, operational static access.',
+    },
+    {
+      prompt: 'Two factory Cisco switch ports, cabled. Operational mode is:',
+      choices: [
+        'Access — dynamic auto + dynamic auto does not trunk',
+        'Trunk — Cisco-to-Cisco always runs 802.1Q',
+        'Invalid; auto cannot face auto',
+        'Desirable; the default asks for a trunk',
+      ],
+      answer: 0,
+      why: 'Default admin is dynamic auto. Auto does not ask for a trunk. Someone must be desirable or trunk.',
+    },
+    {
+      prompt: 'SW1 dynamic desirable, SW2 dynamic auto. The link:',
+      choices: [
+        'Stays access because auto refuses every trunk',
+        'Is invalid, same as access + trunk',
+        'Becomes a tunnel; DTP is only for ISL',
+        'Becomes a trunk — desirable asks, auto agrees',
+      ],
+      answer: 3,
+      why: 'Desirable + auto / trunk / desirable = trunk. Auto + auto = access. Access + trunk = do not.',
+    },
+    {
+      prompt: 'Which statement about DTP messages is true?',
+      choices: [
+        'Only the two dynamic modes send DTP; a manual trunk is silent',
+        'trunk still sends DTP; access does not; nonegotiate silences any mode',
+        'access sends DTP so a PC can refuse a trunk',
+        'nonegotiate is global; it cannot be set per port',
+      ],
+      answer: 1,
+      why: 'Manual trunk still advertises so a dynamic neighbor can join. Pin + nonegotiate is the habit.',
+    },
+    {
+      prompt: 'A switch port faces a router for ROAS. To make it a trunk you:',
+      choices: [
+        'Leave dynamic auto; the router will send DTP',
+        'Use vtp mode transparent so the router learns VLAN 1',
+        'Configure switchport mode trunk (routers do not speak DTP)',
+        'Configure switchport mode dynamic desirable and wait',
+      ],
+      answer: 2,
+      why: 'DTP is switch-to-switch, Cisco-to-Cisco. Non-Cisco switch: same manual trunk.',
+    },
+    {
+      prompt: 'Why disable DTP on access ports facing PCs?',
+      choices: [
+        'DTP is required for 802.1Q; without it the PC cannot ping',
+        'A host that speaks DTP can negotiate a trunk and see every VLAN',
+        'nonegotiate is the only way to assign switchport access vlan',
+        'VTP will otherwise copy the PC’s NIC into vlan.dat',
+      ],
+      answer: 1,
+      why: 'Auto facing a quiet PC stays access. Auto facing forged DTP becomes a trunk. Pin the mode and nonegotiate.',
+    },
+    {
+      prompt: 'VTP advertisements leave which ports, and NULL domain means:',
+      choices: [
+        'Trunks only; a blank domain name does not advertise',
+        'Every access port in VLAN 1; NULL means version 3',
+        'Only the native VLAN; NULL means revision 0 forever',
+        'Routed ports; NULL means the switch is a client',
+      ],
+      answer: 0,
+      why: 'Access ports do not carry VTP. First vtp domain name is adopted by other NULLs.',
+    },
+    {
+      prompt: 'VTP client vs transparent vs off:',
+      choices: [
+        'Client is the only mode that can vlan N',
+        'Transparent syncs like a server but will not forward VTP',
+        'Off and transparent both sync; they differ only in the revision',
+        'Client cannot vlan N. Transparent has its own DB (rev 0) and forwards. Off does not forward',
+      ],
+      answer: 3,
+      why: 'Server (default) edits and syncs. Client syncs only. Transparent is a VTP repeater with a private list.',
+    },
+    {
+      prompt: 'VTP version 3, compared with v1/v2, is the version that:',
+      choices: [
+        'Removes server mode; every switch must be a client',
+        'Uses Token Ring VLANs 1002–1005 as the only allowed IDs',
+        'Adds a primary server, extended-range VLANs, and a real off mode',
+        'Syncs to any higher revision, which v1 refused to do',
+      ],
+      answer: 2,
+      why: 'vtp primary is enable-mode. Secondaries act like clients. v1/v2 cannot propagate 1006–4094.',
+    },
+    {
+      prompt: 'Lab switch, same domain, revision 50, trunks into a v1 LAN at revision 5. You should have:',
+      choices: [
+        'Reset its revision to 0 (domain bounce, or v1/v2 transparent/off bounce) before cabling',
+        'Relied on “lower never overwrites higher” — 50 cannot win',
+        'Set vtp mode client on the lab box so it cannot send',
+        'Ignored it; only the primary server in v1 can overwrite',
+      ],
+      answer: 0,
+      why: 'Highest revision wins in v1/v2. Client still advertises its database. v3 would ignore a non-primary.',
+    },
+  ]}
+/>
