@@ -12,7 +12,7 @@ function resultChips(correct, wrongs) {
   ];
 }
 
-const PAGES = [
+export const PAGES = [
   {
     lead,
     note: '第（3）问已经填好。第（4）问的乘数是负数。',

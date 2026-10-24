@@ -55,7 +55,7 @@ function sayPage(deg, kind, lo, hi, note) {
   };
 }
 
-const PAGES = [
+export const PAGES = [
   {
     lead: '除了余角、补角（说的是两个角的和），还可以按一个角自己的大小起名字。把名称拖到对应的范围。',
     note: '锐、直、钝、平、优、周是一个角的名字；余角、补角是两个角之间的关系。',

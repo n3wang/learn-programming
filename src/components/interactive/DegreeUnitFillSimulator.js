@@ -2,7 +2,7 @@ import React from 'react';
 import PlaceBoard from '@site/src/components/interactive/shell/PlaceBoard';
 
 /** 课本「问题 5」：量角器与度、分、秒定义，拖词填空。 */
-const PAGES = [
+export const PAGES = [
   {
     lead: '在小学，角是怎样度量的？度量角的常用单位是什么？',
     note: '把卡片拖进空位（或点选）。空心提示在课本里用蓝色标出的关键词。',

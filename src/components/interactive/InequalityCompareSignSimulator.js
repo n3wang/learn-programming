@@ -8,7 +8,7 @@ function signs(gt, lt) {
   return chips;
 }
 
-const PAGES = [
+export const PAGES = [
   {
     lead: '已知 a < b，用「<」或「>」填空。',
     note: 'a 比 b 小。加同一个数、乘正数，方向不变；乘负数，方向改变。',

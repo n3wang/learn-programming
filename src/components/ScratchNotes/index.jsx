@@ -532,7 +532,9 @@ export default function ScratchNotes() {
   }
 
   return (
-    <div ref={dockRef} className={styles.dock} data-open={open ? 'true' : 'false'}>
+    // `scratch-notes-dock` is a stable hook so a full-screen page (the party
+    // controller) can hide the dock without depending on hashed class names.
+    <div ref={dockRef} className={`${styles.dock} scratch-notes-dock`} data-open={open ? 'true' : 'false'}>
       {open ? (
         <section className={styles.panel} aria-label="Scratch notes">
           <header className={styles.header}>

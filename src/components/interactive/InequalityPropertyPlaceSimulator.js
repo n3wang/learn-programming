@@ -21,7 +21,7 @@ function signChips(gt, lt) {
   return chips;
 }
 
-const PAGES = [
+export const PAGES = [
   {
     lead,
     note: '第（1）问已经填好。把性质拖到后面的空位。',
