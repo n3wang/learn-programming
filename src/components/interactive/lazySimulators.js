@@ -111,6 +111,7 @@ export const lazySimulators = {
   InequalitySolveExampleSimulator: lazyMdxComponent(() => import('@site/src/components/interactive/InequalitySolveExampleSimulator.js')),
   InequalitySolutionReadSimulator: lazyMdxComponent(() => import('@site/src/components/interactive/InequalitySolutionReadSimulator.js')),
   InequalitySolvePracticeSimulator: lazyMdxComponent(() => import('@site/src/components/interactive/InequalitySolvePracticeSimulator.js')),
+  InequalitySystemGenerateSimulator: lazyMdxComponent(() => import('@site/src/components/interactive/InequalitySystemGenerateSimulator.js')),
   InequalitySystemIntersectSimulator: lazyMdxComponent(() => import('@site/src/components/interactive/InequalitySystemIntersectSimulator.js')),
   InequalitySystemIntegerSimulator: lazyMdxComponent(() => import('@site/src/components/interactive/InequalitySystemIntegerSimulator.js')),
   InequalitySystemSolveSimulator: lazyMdxComponent(() => import('@site/src/components/interactive/InequalitySystemSolveSimulator.js')),
