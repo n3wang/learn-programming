@@ -53,7 +53,11 @@ const STRINGS = {
     // host: rounds
     questionOf: '{topic} · Question {n} of {total}',
     typeGuess: 'Type your guess on your phone',
-    placeChips: 'Place coins on the guess closest to the answer. Your A1 always comes back.',
+    placeChips:
+      'Highest guess at or below the answer wins. Example: 90, with 10 and 95 → 10 wins (95 went over). A1 always comes back.',
+    winRule: 'Highest guess at or below the answer wins.',
+    winRuleExample:
+      'Example: answer 90, guesses 10 and 95 → 10 wins (95 went over). If every guess is over, “Smaller than all” wins.',
     placeCoins: 'Put one coin on the answer you think is right. A1 pays 2 and always returns.',
     why: 'Why: {hint}',
     dragHint: 'Drag a coin onto a card, or tap the card.',
@@ -183,7 +187,9 @@ const STRINGS = {
     removeConfirm: '要把 {name} 移出游戏吗？',
     questionOf: '{topic} · 第 {n} 题，共 {total} 题',
     typeGuess: '请在手机上输入你的猜测',
-    placeChips: '把硬币押在你认为最接近答案的猜测上。A1 永远会回来。',
+    placeChips: '押在不超过答案的最高猜测上。例如答案 90，猜测 10 和 95 → 10 赢（95 超了）。A1 永远会回来。',
+    winRule: '不超过答案的最高猜测获胜。',
+    winRuleExample: '例如：答案 90，猜测 10 和 95 → 10 赢（95 超了）。如果所有猜测都超过答案，则“比所有猜测都小”获胜。',
     placeCoins: '每道选择题只能押一枚硬币。押对的 A1 赢 2 枚，并且会回来。',
     why: '理由：{hint}',
     dragHint: '把硬币拖到卡片上，或点卡片。',

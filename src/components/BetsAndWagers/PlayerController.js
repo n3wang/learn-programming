@@ -645,6 +645,7 @@ function GuessPad({view, lang, onSend}) {
 
   return (
     <form className={styles.pad} onSubmit={submit}>
+      <WinRule lang={lang} />
       {/* Number and its read-back in one box, to keep the pad on one screen. */}
       <div className={styles.numpadDisplay} data-empty={!digits}>
         <output aria-live="polite">{digits || '0'}</output>
@@ -836,6 +837,7 @@ function BetPad({view, lang, onSend}) {
 
   return (
     <div className={styles.pad}>
+      {!place && <WinRule lang={lang} />}
       <p className={styles.chipsLeft}>
         {t(lang, left === 1 ? 'chipLeft' : 'chipsLeft', {n: left})}{' '}
         <span className={styles.muted}>{t(lang, place ? 'oneCoinOnly' : 'chipsNote')}</span>
@@ -962,8 +964,18 @@ function CoinLot({color, avatar, coins, delta, playKey}) {
   );
 }
 
+function WinRule({lang}) {
+  return (
+    <p className={styles.winRule}>
+      <strong>{t(lang, 'winRule')}</strong>
+      <span className={styles.winRuleExample}>{t(lang, 'winRuleExample')}</span>
+    </p>
+  );
+}
+
 function Reveal({view, lang}) {
   const winner = view.board.find((slot) => slot.key === view.result.winner);
+  const numberLine = view.question && view.question.type !== 'place';
   return (
     <div className={styles.reveal}>
       <p className={styles.revealAnswer}>
@@ -976,6 +988,7 @@ function Reveal({view, lang}) {
           odds: winner?.odds,
         })}
       </p>
+      {numberLine && <WinRule lang={lang} />}
       {view.result.hint && <p className={styles.revealHint}>{t(lang, 'why', {hint: view.result.hint})}</p>}
     </div>
   );

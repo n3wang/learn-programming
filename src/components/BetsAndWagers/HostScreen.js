@@ -842,6 +842,12 @@ export default function HostScreen() {
                     </span>
                   )}
                 </div>
+                {g.phase === 'reveal' && question.type !== 'place' && (
+                  <p className={styles.winRule}>
+                    <strong>{t(lang, 'winRule')}</strong>
+                    <span className={styles.winRuleExample}>{t(lang, 'winRuleExample')}</span>
+                  </p>
+                )}
                 {g.phase === 'reveal' && g.result.hint && (
                   <p className={styles.revealHint}>{t(lang, 'why', {hint: g.result.hint})}</p>
                 )}

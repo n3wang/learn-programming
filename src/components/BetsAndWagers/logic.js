@@ -179,24 +179,22 @@ export function buildBoard(guesses, unit) {
   return [{key: SMALLER_KEY, value: null, label: 'Smaller than all', odds: SMALLER_ODDS, authors: []}, ...slots];
 }
 
-/** Nearest guess by |value − answer|. Over or under does not matter.
- *  "Smaller than all" is not a number, so it never wins when any guess exists. */
+/** Highest guess that does not go over the answer. If every guess is over,
+ *  "smaller" wins only when that slot is actually on the board. */
 export function winningSlotKey(board, answer) {
   const target = typeof answer === 'number' && Number.isFinite(answer) ? answer : parseGuess(answer);
-  if (target == null) return null;
+  if (target == null) {
+    return board.some((slot) => slot.key === SMALLER_KEY) ? SMALLER_KEY : null;
+  }
   let winner = null;
-  let bestDist = Infinity;
   for (const slot of board) {
     if (slot.value == null) continue;
     const value = Number(slot.value);
     if (!Number.isFinite(value)) continue;
-    const dist = Math.abs(value - target);
-    if (dist < bestDist) {
-      bestDist = dist;
-      winner = slot.key;
-    }
+    if (value <= target) winner = slot.key;
   }
-  return winner;
+  if (winner) return winner;
+  return board.some((slot) => slot.key === SMALLER_KEY) ? SMALLER_KEY : null;
 }
 
 /** A coin question's options as board slots, all paying PLACE_ODDS. */
