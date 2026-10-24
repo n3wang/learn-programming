@@ -68,6 +68,68 @@ export function PlayerDot({color}) {
   return <span className={styles.playerDot} style={{background: color}} />;
 }
 
+/** More than this and the host pile collapses to a count plus one sample. */
+export const PILE_FACE_LIMIT = 5;
+
+/**
+ * A placed coin: the player's face, with a black rim (bank) or the seat
+ * colour rim (reusable A1).
+ */
+export function Coin({kind = 'bank', color, avatar, size = 'md', onPointerDown, title}) {
+  const a1 = kind === 'a1';
+  const face = isValidAvatar(avatar);
+  const src = useBaseUrl(avatarPath(face ? avatar : 1));
+  return (
+    <span
+      className={`${styles.coin} ${a1 ? styles.coinA1 : styles.coinBank}`}
+      data-size={size}
+      data-kind={kind}
+      data-face={face || undefined}
+      style={{'--coin': color || '#e4572e'}}
+      onPointerDown={onPointerDown}
+      title={title}
+      role="presentation">
+      {face ? <img src={src} alt="" draggable={false} /> : a1 ? '1' : ''}
+    </span>
+  );
+}
+
+/**
+ * Coins on one option. Up to five faces so you can see who bet here; past
+ * that, just the number and one sample coin.
+ */
+export function CoinPile({tokens = [], lang = 'en', size = 'sm', who = false, perch = false}) {
+  const overflow = tokens.length > PILE_FACE_LIMIT;
+  const shown = overflow ? tokens.slice(0, 1) : tokens;
+  const names = [...new Set(tokens.map((tok) => tok.name).filter(Boolean))];
+  return (
+    <span
+      className={styles.slotPile}
+      data-overflow={overflow || undefined}
+      data-empty={tokens.length === 0 || undefined}
+      data-perch={perch || undefined}>
+      <span className={styles.slotPileCoins}>
+        {tokens.length === 0 && perch && <span className={styles.coinWell} aria-hidden="true" />}
+        {shown.map((tok, i) => (
+          <Coin
+            key={`${tok.playerId || i}-${tok.kind}-${i}`}
+            kind={tok.kind}
+            color={tok.color}
+            avatar={tok.avatar}
+            size={size}
+            title={tok.name}
+          />
+        ))}
+        {overflow && <b className={styles.slotPileCount}>{tokens.length}</b>}
+      </span>
+      {who && !overflow && names.length > 0 && <span className={styles.slotWho}>{names.join(' · ')}</span>}
+      {tokens.length === 0 && !perch && (
+        <span className={styles.slotTotal}>{t(lang, 'coins', {n: 0})}</span>
+      )}
+    </span>
+  );
+}
+
 /**
  * A player's picture in a ring of their seat colour, so two students who pick
  * the same avatar are still told apart. No avatar → the plain colour dot.

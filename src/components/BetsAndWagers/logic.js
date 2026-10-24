@@ -9,13 +9,16 @@
 import mathPack from '@site/src/data/party/math.json';
 import physicsPack from '@site/src/data/party/physics.json';
 import electronicsPack from '@site/src/data/party/electronics.json';
+import roboticsPack from '@site/src/data/party/robotics.json';
 import {PLACE_ODDS, placePack} from './placePack';
 
-export const PACKS = [mathPack, physicsPack, electronicsPack, placePack];
+export const PACKS = [mathPack, physicsPack, electronicsPack, roboticsPack, placePack];
 export {PLACE_ODDS};
-export const FREE_CHIPS = 2;
+/** The reusable A1 coin every seat always has. It is never spent. */
+export const A1_COINS = 1;
 export const WRITER_BONUS = 3;
-export const SMALLER_ODDS = 6;
+/** The rare "smaller than all" slot, when it appears, pays 2 to 1. */
+export const SMALLER_ODDS = 2;
 export const MAX_ODDS = 5;
 export const GUESS_SECONDS = 30;
 export const BET_SECONDS = 30;
@@ -24,6 +27,8 @@ export const PLACE_SECONDS = 40;
 export const MIN_PLAYERS = 3;
 /** Keep in sync with PartyRoom.MAX_MEMBERS in springbackend. */
 export const MAX_PLAYERS = 12;
+/** Host-only seats. They never join the relay. */
+export const BOT_ID_PREFIX = 'bot:';
 export const ROUND_CHOICES = [5, 7, 10];
 export const SMALLER_KEY = 'smaller';
 export const MAX_GUESS_DIGITS = 5;
@@ -145,8 +150,7 @@ export function findQuestion(id) {
 
 /**
  * Sort guesses into slots. The middle guess (or the two middle guesses) pays
- * 2 to 1, each step outward pays one more, capped at 5 to 1. The fixed
- * "smaller than all" slot pays 6 to 1.
+ * 2 to 1, each step outward pays one more, capped at 5 to 1.
  *
  * @param guesses {[playerId]: number}
  */
@@ -175,13 +179,15 @@ export function buildBoard(guesses, unit) {
   return [{key: SMALLER_KEY, value: null, label: 'Smaller than all', odds: SMALLER_ODDS, authors: []}, ...slots];
 }
 
-/** Highest guess that does not go over the answer; "smaller" when all are over. */
+/** Highest guess that does not go over the answer. If every guess is over,
+ *  "smaller" wins only when that slot is actually on the board. */
 export function winningSlotKey(board, answer) {
-  let winner = SMALLER_KEY;
+  let winner = null;
   for (const slot of board) {
     if (slot.value != null && slot.value <= Number(answer)) winner = slot.key;
   }
-  return winner;
+  if (winner) return winner;
+  return board.some((slot) => slot.key === SMALLER_KEY) ? SMALLER_KEY : null;
 }
 
 /** A coin question's options as board slots, all paying PLACE_ODDS. */
@@ -196,76 +202,219 @@ export function placeBoard(question) {
   }));
 }
 
+/** Bank coins a seat actually holds. Older saves stored this as `score`. */
+export function playerCoins(player) {
+  if (!player) return 0;
+  if (typeof player.coins === 'number' && Number.isFinite(player.coins)) {
+    return Math.max(0, Math.floor(player.coins));
+  }
+  return Math.max(0, Math.floor(player.score || 0));
+}
+
+export function isBotId(playerId) {
+  return typeof playerId === 'string' && playerId.startsWith(BOT_ID_PREFIX);
+}
+
+export function isBot(player, playerId) {
+  return Boolean(player && player.bot) || isBotId(playerId);
+}
+
+/** First unused seat colour, wrapping the palette if a room somehow fills it. */
+export function nextPlayerColor(used = []) {
+  return PLAYER_COLORS.find((c) => !used.includes(c)) || PLAYER_COLORS[used.length % PLAYER_COLORS.length];
+}
+
+export function normalizePlayer(player) {
+  if (!player) return player;
+  player.coins = playerCoins(player);
+  player.bot = Boolean(player.bot);
+  return player;
+}
+
+/** A1 (always 1) plus banked coins that can actually be lost. */
+export function chipAllowance(player) {
+  return A1_COINS + playerCoins(player);
+}
+
+function chipCount(chip) {
+  return (chip.a1 ? 1 : 0) + Math.max(0, Math.floor(Number(chip.amount) || 0));
+}
+
+/** How many coins (A1 + bank) sit on one slot across every locked bet. */
+export function slotCoinCount(bets, slotKey) {
+  let total = 0;
+  for (const chips of Object.values(bets || {})) {
+    for (const chip of chips || []) {
+      if (chip.slot === slotKey) total += chipCount(chip);
+    }
+  }
+  return total;
+}
+
+/** Coloured tokens on a slot, A1 first, so the board can draw the pile. */
+export function slotTokens(bets, players, slotKey) {
+  const tokens = [];
+  for (const [playerId, chips] of Object.entries(bets || {})) {
+    const player = players[playerId];
+    if (!player) continue;
+    for (const chip of chips || []) {
+      if (chip.slot !== slotKey) continue;
+      if (chip.a1) tokens.push({playerId, name: player.name, color: player.color, avatar: player.avatar, kind: 'a1'});
+      const bank = Math.max(0, Math.floor(Number(chip.amount) || 0));
+      for (let i = 0; i < bank; i++) tokens.push({playerId, name: player.name, color: player.color, avatar: player.avatar, kind: 'bank'});
+    }
+  }
+  return tokens;
+}
+
+function settleChips(chips, winnerKey, odds, writerBonus = 0) {
+  let bank = 0;
+  let bankWon = 0;
+  let a1Won = false;
+  for (const chip of chips || []) {
+    const amount = Math.max(0, Math.floor(Number(chip.amount) || 0));
+    bank += amount;
+    if (chip.slot !== winnerKey) continue;
+    bankWon += amount;
+    if (chip.a1) a1Won = true;
+  }
+  // Bank coins are spent. A1 always returns, and pays `odds` extra coins on a hit.
+  return -bank + bankWon * odds + (a1Won ? odds : 0) + writerBonus;
+}
+
 /**
- * Score a coin question: each coin on the right option pays PLACE_ODDS, coins
- * elsewhere are lost, and coins beyond the free ones still cost points.
+ * Score a multiple-choice question in coins: A1 on the right option pays
+ * PLACE_ODDS and comes back; bank coins on it pay the same and are returned
+ * in the payout. Coins on any other option are lost (A1 still returns).
  */
 export function settlePlace({question, bets, playerIds}) {
   const deltas = {};
   for (const playerId of playerIds) {
-    const chips = bets[playerId] || [];
-    const placed = chips.reduce((sum, chip) => sum + chip.amount, 0);
-    const paid = Math.max(0, placed - FREE_CHIPS);
-    const won = chips.filter((chip) => chip.slot === question.answer).reduce((sum, chip) => sum + chip.amount, 0);
-    deltas[playerId] = won * PLACE_ODDS - paid;
+    deltas[playerId] = settleChips(bets[playerId], question.answer, PLACE_ODDS);
   }
   return {winner: question.answer, deltas};
 }
 
-/** How many chips a player may place: the free ones plus points already banked. */
-export function chipAllowance(score) {
-  return FREE_CHIPS + Math.max(0, Math.floor(score || 0));
-}
-
-/** Drop unknown slots and bad amounts; refuse a bet over the allowance. */
-export function sanitizeBet(chips, board, score) {
-  if (!Array.isArray(chips)) return null;
+/**
+ * Drop unknown slots and bad amounts. Each seat may place its one A1 plus
+ * at most its bank. Multiple-choice (`place`) may hold only one coin total.
+ */
+export function sanitizeBet(chips, board, player, options = {}) {
+  if (!Array.isArray(chips) || !board) return null;
   const keys = new Set(board.map((slot) => slot.key));
-  const totals = new Map();
+  const bySlot = new Map();
+  let a1Count = 0;
   for (const chip of chips) {
-    const amount = Math.floor(Number(chip && chip.amount));
-    if (!chip || !keys.has(chip.slot) || !(amount > 0)) continue;
-    totals.set(chip.slot, (totals.get(chip.slot) || 0) + amount);
+    if (!chip || !keys.has(chip.slot)) continue;
+    const amount = Math.max(0, Math.floor(Number(chip.amount) || 0));
+    const a1 = chip.a1 ? 1 : 0;
+    if (!amount && !a1) continue;
+    a1Count += a1;
+    const prev = bySlot.get(chip.slot) || {slot: chip.slot, amount: 0, a1: 0};
+    prev.amount += amount;
+    prev.a1 += a1;
+    bySlot.set(chip.slot, prev);
   }
-  const clean = [...totals].map(([slot, amount]) => ({slot, amount}));
-  const placed = clean.reduce((sum, chip) => sum + chip.amount, 0);
-  return placed <= chipAllowance(score) ? clean : null;
+  if (a1Count > 1) return null;
+  const clean = [...bySlot.values()].filter((chip) => chip.amount > 0 || chip.a1);
+  const bank = clean.reduce((sum, chip) => sum + chip.amount, 0);
+  const tokens = bank + a1Count;
+  if (bank > playerCoins(player)) return null;
+  if (options.place && tokens > 1) return null;
+  return clean;
 }
 
 /**
- * Score one round. Chips on the winning slot pay amount × odds. Chips beyond
- * the free ones are paid for out of the player's score, win or lose. Whoever
- * wrote the winning guess gets a flat bonus.
+ * Score a number-line round in coins. Bank coins on the winning slot pay
+ * amount × odds (those coins are spent). A1 on it pays the odds and returns.
+ * Whoever wrote the winning guess gets a flat coin bonus.
  *
  * @returns {winner, deltas: {[playerId]: number}}
  */
 export function settleRound({board, answer, bets, playerIds}) {
   const winner = winningSlotKey(board, answer);
-  const winning = board.find((slot) => slot.key === winner);
+  const winning = winner ? board.find((slot) => slot.key === winner) : null;
   const deltas = {};
   for (const playerId of playerIds) {
-    const chips = bets[playerId] || [];
-    const placed = chips.reduce((sum, chip) => sum + chip.amount, 0);
-    const paid = Math.max(0, placed - FREE_CHIPS);
-    const won = chips
-      .filter((chip) => chip.slot === winner)
-      .reduce((sum, chip) => sum + chip.amount * winning.odds, 0);
-    const bonus = winning.authors.includes(playerId) ? WRITER_BONUS : 0;
-    deltas[playerId] = won + bonus - paid;
+    const bonus = winning && winning.authors.includes(playerId) ? WRITER_BONUS : 0;
+    deltas[playerId] = settleChips(bets[playerId], winner, winning ? winning.odds : 0, bonus);
   }
   return {winner, deltas};
 }
 
-/** Highest score first; equal scores share a rank. */
+/** Most coins first; equal piles share a rank. */
 export function rankPlayers(players) {
   const sorted = Object.entries(players)
-    .map(([playerId, p]) => ({playerId, name: p.name, color: p.color, avatar: p.avatar, score: p.score}))
-    .sort((a, b) => b.score - a.score);
+    .map(([playerId, p]) => ({
+      playerId,
+      name: p.name,
+      color: p.color,
+      avatar: p.avatar,
+      bot: Boolean(p.bot),
+      coins: playerCoins(p),
+    }))
+    .sort((a, b) => b.coins - a.coins);
   let rank = 0;
   return sorted.map((row, i) => {
-    if (i === 0 || row.score !== sorted[i - 1].score) rank = i + 1;
+    if (i === 0 || row.coins !== sorted[i - 1].coins) rank = i + 1;
     return {...row, rank};
   });
+}
+
+/** A slightly messy guess around the real answer, so bots look like a class. */
+export function botGuessValue(question, rng = Math.random) {
+  const answer = Number(question && question.answer);
+  let value;
+  if (question && question.unit === 'year' && Number.isFinite(answer)) {
+    value = Math.round(answer + (rng() - 0.42) * (16 + rng() * 70));
+  } else if (Number.isFinite(answer) && answer > 0) {
+    const noise = (rng() - 0.38) * (0.35 + rng() * 0.85);
+    value = 10 ** (Math.log10(answer) + noise);
+    value = answer >= 20 || Number.isInteger(answer) ? Math.round(value) : Math.round(value * 100) / 100;
+  } else {
+    value = Math.round(rng() * 900);
+  }
+  if (!(value >= 0)) value = 0;
+  if (digitCount(String(value)) > MAX_GUESS_DIGITS) {
+    value = Number(String(Math.floor(Math.abs(value))).slice(0, MAX_GUESS_DIGITS));
+  }
+  return isValidGuess(value) ? value : Math.min(MAX_GUESS, Math.max(0, Math.round(Math.abs(Number(value)) || 1)));
+}
+
+/** One A1, sometimes a spare bank coin, biased toward the bot's own guess. */
+export function botChips(question, board, player, playerId, rng = Math.random) {
+  if (!board || !board.length) return [];
+  const place = question && question.type === 'place';
+  let slot;
+  if (place) {
+    slot = rng() < 0.35 ? board.find((s) => s.key === question.answer) : board[Math.floor(rng() * board.length)];
+  } else {
+    const own = board.find((s) => s.authors.includes(playerId));
+    if (rng() < 0.16) slot = board[0];
+    else slot = own && rng() < 0.7 ? own : board[1 + Math.floor(rng() * Math.max(1, board.length - 1))];
+  }
+  if (!slot) slot = board[0];
+  const spend = place ? 0 : Math.min(playerCoins(player), rng() < 0.45 ? 1 + Math.floor(rng() * 2) : 0);
+  return [{slot: slot.key, amount: spend, a1: 1}];
+}
+
+/** Fill in any bot that has not guessed or bet yet. Returns whether anyone moved. */
+export function applyBotMoves(g, rng = Math.random) {
+  const question = g.questionIds && g.questionIds[g.round] != null ? findQuestion(g.questionIds[g.round]) : null;
+  if (!question) return false;
+  let moved = false;
+  for (const [playerId, player] of Object.entries(g.players || {})) {
+    if (!isBot(player, playerId)) continue;
+    if (g.phase === 'guess' && g.guesses[playerId] == null) {
+      g.guesses[playerId] = botGuessValue(question, rng);
+      moved = true;
+    }
+    if (g.phase === 'bet' && g.board && g.bets[playerId] == null) {
+      g.bets[playerId] = botChips(question, g.board, player, playerId, rng);
+      moved = true;
+    }
+  }
+  return moved;
 }
 
 /** "Sam" twice becomes "Sam 2". */

@@ -2,22 +2,28 @@ import React, {useEffect, useRef, useState} from 'react';
 import {apiOverride, createPartySocket} from '@site/src/api/partyClient';
 import {
   BET_SECONDS,
+  BOT_ID_PREFIX,
   GUESS_SECONDS,
   MAX_PLAYERS,
   MIN_PLAYERS,
   PACKS,
-  PLAYER_COLORS,
   ROUND_CHOICES,
+  applyBotMoves,
   buildBoard,
   chipAllowance,
   findQuestion,
   formatNumber,
   PLACE_SECONDS,
   SMALLER_KEY,
+  isBot,
+  nextPlayerColor,
+  normalizePlayer,
+  playerCoins,
   reactionEmoji,
   isValidAvatar,
   isValidGuess,
   placeBoard,
+  randomAvatar,
   settlePlace,
   localized,
   unitSuffix,
@@ -26,9 +32,10 @@ import {
   rankPlayers,
   sanitizeBet,
   settleRound,
+  slotTokens,
   uniqueName,
 } from './logic';
-import {Avatar, ConnectionBadge, Countdown, QuestionImage, boardDensity, readJson, writeJson} from './ui';
+import {Avatar, Coin, CoinPile, ConnectionBadge, Countdown, QuestionImage, boardDensity, readJson, writeJson} from './ui';
 import {LangSwitch, t, tx, useLang} from './strings';
 import {generateName, isGeneratedName} from './names';
 import styles from './styles.module.css';
@@ -75,7 +82,50 @@ function newGame(settings = {}) {
     board: null,
     bets: {},
     result: null,
+    nextBot: 1,
   };
+}
+
+function resetCoins(players) {
+  for (const p of Object.values(players)) {
+    normalizePlayer(p);
+    p.coins = 0;
+  }
+}
+
+function seatPlayer(g, playerId, fields) {
+  const others = Object.values(g.players);
+  g.players[playerId] = normalizePlayer({
+    name: fields.name,
+    color: nextPlayerColor(others.map((p) => p.color)),
+    avatar: isValidAvatar(fields.avatar) ? fields.avatar : fields.bot ? randomAvatar() : null,
+    coins: 0,
+    connected: true,
+    bot: Boolean(fields.bot),
+  });
+}
+
+function addBotSeat(g, lang) {
+  if (Object.keys(g.players).length >= MAX_PLAYERS) return false;
+  const n = g.nextBot || 1;
+  g.nextBot = n + 1;
+  const id = `${BOT_ID_PREFIX}${n}`;
+  seatPlayer(g, id, {
+    name: generateName(lang, Object.values(g.players).map((p) => p.name)),
+    avatar: randomAvatar(),
+    bot: true,
+  });
+  return true;
+}
+
+function migrateGame(raw) {
+  const g = raw && typeof raw === 'object' ? raw : newGame();
+  if (!g.nextBot) g.nextBot = 1;
+  for (const [id, p] of Object.entries(g.players || {})) {
+    normalizePlayer(p);
+    if (isBot(p, id)) p.connected = true;
+  }
+  return g;
 }
 
 // ------------------------------------------------- phase transitions (drafts)
@@ -111,7 +161,8 @@ function endBet(g) {
     ? settlePlace({question, bets: g.bets, playerIds})
     : settleRound({board: g.board, answer: question.answer, bets: g.bets, playerIds});
   for (const [playerId, delta] of Object.entries(deltas)) {
-    g.players[playerId].score += delta;
+    if (!g.players[playerId]) continue;
+    g.players[playerId].coins = Math.max(0, playerCoins(g.players[playerId]) + delta);
   }
   const answerLabel = place
     ? question.options.find((option) => option.key === question.answer).label
@@ -169,20 +220,32 @@ function viewFor(g, playerId, now) {
     },
     board:
       g.board && (g.phase === 'bet' || g.phase === 'reveal')
-        ? g.board.map((s) => ({
-            key: s.key,
-            label: s.label,
-            detail: s.detail || '',
-            odds: s.odds,
-            mine: s.authors.includes(playerId),
-          }))
+        ? g.board.map((s) => {
+            const tokens = slotTokens(g.bets, g.players, s.key);
+            return {
+              key: s.key,
+              label: s.label,
+              detail: s.detail || '',
+              odds: s.odds,
+              mine: s.authors.includes(playerId),
+              coins: tokens.length,
+              tokens: tokens.map((tok) => ({
+                color: tok.color,
+                kind: tok.kind,
+                avatar: tok.avatar,
+                name: tok.name,
+                mine: tok.playerId === playerId,
+              })),
+            };
+          })
         : null,
     you: {
       name: p.name,
       color: p.color,
       avatar: p.avatar,
-      score: p.score,
-      allowance: chipAllowance(p.score),
+      coins: playerCoins(p),
+      a1: true,
+      allowance: chipAllowance(p),
       guess: g.guesses[playerId] != null ? formatNumber(g.guesses[playerId], q && q.unit) : null,
       bet: g.bets[playerId] || null,
       delta: g.result ? g.result.deltas[playerId] ?? 0 : null,
@@ -200,7 +263,7 @@ function viewFor(g, playerId, now) {
 export default function HostScreen() {
   const saved = useRef(null);
   if (saved.current === null) saved.current = readJson(HOST_KEY) || {};
-  const gameRef = useRef(saved.current.game || newGame());
+  const gameRef = useRef(migrateGame(saved.current.game));
   const roomRef = useRef({code: saved.current.code || null, hostToken: saved.current.hostToken || null});
   const socketRef = useRef(null);
   const hostRef = useRef(null);
@@ -212,6 +275,7 @@ export default function HostScreen() {
   /** Emoji pop-ups on screen now: [{uid, playerId, emoji, x}]. Not part of the saved game. */
   const [reactions, setReactions] = useState([]);
   const lastReactionRef = useRef({});
+  const botTimerRef = useRef(null);
 
   const rerender = () => setTick((t) => t + 1);
   /** Another window reclaimed this room; this one goes quiet until taken back. */
@@ -232,7 +296,10 @@ export default function HostScreen() {
     if (!socket || replacedRef.current) return;
     const g = gameRef.current;
     const now = Date.now();
-    for (const playerId of activeIds(g)) socket.send(viewFor(g, playerId, now));
+    for (const playerId of activeIds(g)) {
+      if (isBot(g.players[playerId], playerId)) continue;
+      socket.send(viewFor(g, playerId, now));
+    }
   }
 
   /** Every change goes through here: mutate a copy, save, push views, redraw. */
@@ -243,6 +310,25 @@ export default function HostScreen() {
     persist();
     broadcast();
     rerender();
+    scheduleBots();
+  }
+
+  /** Bots lock in shortly after a phase starts so the host can see them move. */
+  function scheduleBots() {
+    window.clearTimeout(botTimerRef.current);
+    const g = gameRef.current;
+    if (g.phase !== 'guess' && g.phase !== 'bet') return;
+    const waiting = Object.entries(g.players).some(
+      ([id, p]) => isBot(p, id) && (g.phase === 'guess' ? g.guesses[id] == null : g.bets[id] == null),
+    );
+    if (!waiting) return;
+    botTimerRef.current = window.setTimeout(() => {
+      commit((draft, now) => {
+        if (!applyBotMoves(draft)) return false;
+        if (draft.phase === 'guess' && everyoneDid(draft, draft.guesses)) endGuess(draft, now);
+        else if (draft.phase === 'bet' && everyoneDid(draft, draft.bets)) endBet(draft);
+      });
+    }, 700);
   }
 
   function handleMessage(msg) {
@@ -257,6 +343,11 @@ export default function HostScreen() {
             return;
           }
           for (const [playerId, p] of Object.entries(g.players)) {
+            normalizePlayer(p);
+            if (isBot(p, playerId)) {
+              p.connected = true;
+              continue;
+            }
             const row = msg.players.find((r) => r.playerId === playerId);
             p.connected = Boolean(row && row.connected);
             if (row && isValidAvatar(row.avatar)) p.avatar = row.avatar;
@@ -269,6 +360,7 @@ export default function HostScreen() {
         commit((g) => {
           const existing = g.players[id];
           if (existing) {
+            normalizePlayer(existing);
             existing.connected = true;
             // A rejoin from the lobby may carry a newly picked avatar or name.
             if (isValidAvatar(msg.avatar)) existing.avatar = msg.avatar;
@@ -280,18 +372,14 @@ export default function HostScreen() {
           }
           if (Object.keys(g.players).length >= MAX_PLAYERS) return false;
           const others = Object.values(g.players);
-          const usedColors = others.map((p) => p.color);
-          g.players[id] = {
+          seatPlayer(g, id, {
             // Locked rooms never show a typed name, even from a tampered phone.
             name:
               g.lockedNames && !isGeneratedName(msg.name)
                 ? generateName(lang, others.map((p) => p.name))
                 : uniqueName(msg.name, others.map((p) => p.name)),
-            color: PLAYER_COLORS.find((c) => !usedColors.includes(c)) || PLAYER_COLORS[0],
             avatar: isValidAvatar(msg.avatar) ? msg.avatar : null,
-            score: 0,
-            connected: true,
-          };
+          });
         });
         break;
       case 'player_left':
@@ -320,8 +408,11 @@ export default function HostScreen() {
         break;
       case 'bet':
         commit((g) => {
-          if (g.phase !== 'bet' || !g.players[id]) return false;
-          const chips = sanitizeBet(msg.chips, g.board, g.players[id].score);
+          if (g.phase !== 'bet' || !g.players[id] || isBot(g.players[id], id)) return false;
+          const question = findQuestion(g.questionIds[g.round]);
+          const chips = sanitizeBet(msg.chips, g.board, g.players[id], {
+            place: question && question.type === 'place',
+          });
           if (!chips) return false;
           g.bets[id] = chips;
           if (everyoneDid(g, g.bets)) endBet(g);
@@ -378,7 +469,10 @@ export default function HostScreen() {
       },
     });
     socketRef.current = socket;
-    return () => socket.close();
+    return () => {
+      window.clearTimeout(botTimerRef.current);
+      socket.close();
+    };
   }, []);
 
   // Timers: advance when the clock runs out, redraw the countdown meanwhile.
@@ -425,7 +519,7 @@ export default function HostScreen() {
     commit((g, now) => {
       g.questionIds = pickQuestionIds(g.packs, g.rounds);
       g.round = 0;
-      for (const p of Object.values(g.players)) p.score = 0;
+      resetCoins(g.players);
       startGuess(g, now);
     });
   const skip = () =>
@@ -440,7 +534,7 @@ export default function HostScreen() {
       const players = g.players;
       Object.assign(g, newGame({packs: g.packs, rounds: g.rounds, lockedNames: g.lockedNames}));
       g.players = players;
-      for (const p of Object.values(players)) p.score = 0;
+      resetCoins(players);
     });
   const newRoom = () => {
     socketRef.current.send({type: 'leave'});
@@ -477,9 +571,28 @@ export default function HostScreen() {
   const kick = (playerId) => {
     const p = gameRef.current.players[playerId];
     if (!p || !window.confirm(t(lang, 'removeConfirm', {name: p.name}))) return;
+    if (isBot(p, playerId)) {
+      commit((g, now) => {
+        delete g.players[playerId];
+        delete g.guesses[playerId];
+        delete g.bets[playerId];
+        if (g.phase === 'guess' && everyoneDid(g, g.guesses)) endGuess(g, now);
+        else if (g.phase === 'bet' && everyoneDid(g, g.bets)) endBet(g);
+      });
+      return;
+    }
     // The relay confirms with player_left (reason "kicked"), which drops the seat here.
     socketRef.current.send({type: 'kick', playerId});
   };
+  const addBots = (count = 1) =>
+    commit((g) => {
+      let added = 0;
+      for (let i = 0; i < count; i++) {
+        if (!addBotSeat(g, lang)) break;
+        added += 1;
+      }
+      return added ? undefined : false;
+    });
   const toggleFullscreen = () => {
     // Only the game goes full screen, not the site navbar around it.
     if (document.fullscreenElement) document.exitFullscreen().catch(() => {});
@@ -515,6 +628,41 @@ export default function HostScreen() {
     : null;
   const available = questionsForPacks(g.packs).length;
   const shown = localized(question, lang);
+
+  const seatDone = (pid) =>
+    g.phase === 'guess' ? g.guesses[pid] != null : g.phase === 'bet' || g.phase === 'reveal' ? g.bets[pid] != null : false;
+
+  const seatRow = (pid) => {
+    const p = g.players[pid];
+    const delta = g.phase === 'reveal' && g.result ? g.result.deltas[pid] : 0;
+    return (
+      <li
+        key={pid}
+        data-done={seatDone(pid) || undefined}
+        className={p.connected ? '' : styles.offline}
+        style={{'--seat': p.color}}>
+        <Coin kind="a1" color={p.color} avatar={p.avatar} size="sm" />
+        <b className={styles.chipCoins}>{playerCoins(p)}</b>
+        {delta ? (
+          <em className={delta > 0 ? styles.gain : styles.loss}>{delta > 0 ? `+${delta}` : delta}</em>
+        ) : null}
+        <span className={styles.sideName}>
+          {p.name}
+          {isBot(p, pid) && <span className={styles.botTag}>{t(lang, 'bot')}</span>}
+          {!p.connected && <span className={styles.muted}> {t(lang, 'reconnecting')}</span>}
+        </span>
+        {seatDone(pid) ? <span className={styles.sideDone}>✓</span> : null}
+        <button
+          type="button"
+          className={styles.kick}
+          onClick={() => kick(pid)}
+          aria-label={t(lang, 'removeName', {name: p.name})}
+          title={t(lang, 'removePlayer')}>
+          ×
+        </button>
+      </li>
+    );
+  };
 
   return (
     <div className={styles.host} ref={hostRef} lang={lang === 'zh' ? 'zh-Hans' : 'en'}>
@@ -568,9 +716,14 @@ export default function HostScreen() {
             ) : (
               <ul className={styles.playerList}>
                 {playerIds.map((pid) => (
-                  <li key={pid} className={g.players[pid].connected ? '' : styles.offline}>
-                    <Avatar avatar={g.players[pid].avatar} color={g.players[pid].color} />
+                  <li
+                    key={pid}
+                    className={g.players[pid].connected ? '' : styles.offline}
+                    style={{'--seat': g.players[pid].color, borderColor: g.players[pid].color}}>
+                    <Coin kind="a1" color={g.players[pid].color} avatar={g.players[pid].avatar} size="sm" />
+                    <b className={styles.chipCoins}>{playerCoins(g.players[pid])}</b>
                     {g.players[pid].name}
+                    {isBot(g.players[pid], pid) && <span className={styles.botTag}>{t(lang, 'bot')}</span>}
                     <button
                       type="button"
                       className={styles.kick}
@@ -583,6 +736,22 @@ export default function HostScreen() {
                 ))}
               </ul>
             )}
+            <div className={styles.packRow}>
+              <button
+                type="button"
+                className="button button--sm button--secondary"
+                disabled={playerIds.length >= MAX_PLAYERS}
+                onClick={() => addBots(1)}>
+                {t(lang, 'addBot')}
+              </button>
+              <button
+                type="button"
+                className="button button--sm button--secondary"
+                disabled={playerIds.length >= MAX_PLAYERS}
+                onClick={() => addBots(3)}>
+                {t(lang, 'addBots', {n: 3})}
+              </button>
+            </div>
 
             <h2>{t(lang, 'topics')}</h2>
             <div className={styles.packRow}>
@@ -640,8 +809,7 @@ export default function HostScreen() {
       )}
 
       {question && (
-        // More than 8 players: the board takes the full width, scores sit under it.
-        <div className={styles.stage} data-wide={playerIds.length > 8}>
+        <div className={styles.stage}>
           <div className={styles.stageMain}>
             <p className={styles.kicker}>
               {t(lang, 'questionOf', {topic: shown.topic, n: g.round + 1, total: g.questionIds.length})}
@@ -652,21 +820,10 @@ export default function HostScreen() {
             </div>
 
             {g.phase === 'guess' && (
-              <>
-                <div className={styles.phaseRow}>
-                  <span>{t(lang, 'typeGuess')}</span>
-                  <Countdown msLeft={g.deadline - now} lang={lang} />
-                </div>
-                <ul className={styles.statusChips}>
-                  {playerIds.map((pid) => (
-                    <li key={pid} data-done={g.guesses[pid] != null} className={g.players[pid].connected ? '' : styles.offline}>
-                      <Avatar avatar={g.players[pid].avatar} color={g.players[pid].color} />
-                      {g.players[pid].name}
-                      {g.guesses[pid] != null && ' ✓'}
-                    </li>
-                  ))}
-                </ul>
-              </>
+              <div className={styles.phaseRow}>
+                <span>{t(lang, 'typeGuess')}</span>
+                <Countdown msLeft={g.deadline - now} lang={lang} />
+              </div>
             )}
 
             {(g.phase === 'bet' || g.phase === 'reveal') && (
@@ -693,47 +850,42 @@ export default function HostScreen() {
                   data-density={boardDensity(g.board.length)}
                   style={{'--slots': g.board.length}}>
                   {g.board.map((slot) => {
-                    const chips = Object.values(g.bets).flat().filter((c) => c.slot === slot.key);
+                    const tokens = slotTokens(g.bets, g.players, slot.key);
                     const won = g.phase === 'reveal' && g.result.winner === slot.key;
                     return (
                       <li
                         key={slot.key}
                         className={`${styles.slot} ${won ? styles.slotWon : ''}`}
-                        data-kind={slot.value == null ? 'smaller' : 'guess'}>
-                        <span className={styles.slotOdds}>{slot.odds}:1</span>
-                        <span className={styles.slotLabel}>
-                          {slot.key === SMALLER_KEY ? t(lang, 'smallerThanAll') : slot.label}
-                        </span>
-                        {slot.detail && <span className={styles.slotDetail}>{slot.detail}</span>}
-                        <span className={styles.slotAuthors}>
-                          {slot.authors.map((pid) =>
-                            g.players[pid] ? (
-                              <Avatar key={pid} avatar={g.players[pid].avatar} color={g.players[pid].color} size="xs" />
-                            ) : null,
-                          )}
-                        </span>
-                        {g.phase === 'reveal' && (
-                          <span className={styles.slotChips}>
-                            {t(lang, chips.reduce((s, c) => s + c.amount, 0) === 1 ? 'chip' : 'chips', {
-                              n: chips.reduce((s, c) => s + c.amount, 0),
-                            })}
+                        data-kind={slot.value == null ? 'smaller' : 'guess'}
+                        data-place={question.type === 'place' ? 'true' : undefined}>
+                        <div className={styles.cardCoins}>
+                          <CoinPile tokens={tokens} lang={lang} size="sm" who perch />
+                        </div>
+                        <div className={styles.cardFace}>
+                          <span className={styles.slotOdds}>{slot.odds}:1</span>
+                          <span className={styles.slotLabel}>
+                            {slot.key === SMALLER_KEY ? t(lang, 'smallerThanAll') : slot.label}
                           </span>
-                        )}
+                          {slot.detail && <span className={styles.slotDetail}>{slot.detail}</span>}
+                          <span className={styles.slotAuthors}>
+                            {slot.authors.map((pid) =>
+                              g.players[pid] ? (
+                                <Coin
+                                  key={pid}
+                                  kind="a1"
+                                  color={g.players[pid].color}
+                                  avatar={g.players[pid].avatar}
+                                  size="xs"
+                                  title={g.players[pid].name}
+                                />
+                              ) : null,
+                            )}
+                          </span>
+                        </div>
                       </li>
                     );
                   })}
                 </ol>
-                {g.phase === 'bet' && (
-                  <ul className={styles.statusChips}>
-                    {playerIds.map((pid) => (
-                      <li key={pid} data-done={g.bets[pid] != null} className={g.players[pid].connected ? '' : styles.offline}>
-                        <Avatar avatar={g.players[pid].avatar} color={g.players[pid].color} />
-                        {g.players[pid].name}
-                        {g.bets[pid] != null && ' ✓'}
-                      </li>
-                    ))}
-                  </ul>
-                )}
               </>
             )}
 
@@ -754,41 +906,13 @@ export default function HostScreen() {
                 </button>
               )}
             </div>
-          </div>
-
-          <aside className={styles.scoreboard}>
-            <h2>{t(lang, 'scores')}</h2>
-            <ol>
-              {rankPlayers(g.players).map((row) => (
-                <li key={row.playerId} className={g.players[row.playerId].connected ? '' : styles.offline}>
-                  <Avatar avatar={row.avatar} color={row.color} />
-                  <span className={styles.scoreName}>
-                    {row.name}
-                    {!g.players[row.playerId].connected && <span className={styles.muted}> {t(lang, 'reconnecting')}</span>}
-                  </span>
-                  <span className={styles.scoreValue}>
-                    {row.score}
-                    {g.phase === 'reveal' && g.result.deltas[row.playerId] ? (
-                      <em className={g.result.deltas[row.playerId] > 0 ? styles.gain : styles.loss}>
-                        {g.result.deltas[row.playerId] > 0 ? ' +' : ' '}
-                        {g.result.deltas[row.playerId]}
-                      </em>
-                    ) : null}
-                  </span>
-                  <button
-                    type="button"
-                    className={styles.kick}
-                    onClick={() => kick(row.playerId)}
-                    aria-label={t(lang, 'removeName', {name: row.name})}
-                    title={t(lang, 'removePlayer')}>
-                    ×
-                  </button>
-                </li>
-              ))}
-            </ol>
             <p className={styles.muted}>
               {tx(lang, 'lateJoin', {code: <b>{code}</b>})}
             </p>
+          </div>
+          <aside className={styles.sidePanel} aria-label={t(lang, 'players')}>
+            <h2>{t(lang, 'scores')}</h2>
+            <ul>{rankPlayers(g.players).map((row) => seatRow(row.playerId))}</ul>
           </aside>
         </div>
       )}
@@ -808,7 +932,7 @@ export default function HostScreen() {
                     <span className={styles.podiumName}>
                       <Avatar avatar={row.avatar} color={row.color} size="lg" /> {row.name}
                     </span>
-                    <span className={styles.podiumScore}>{t(lang, 'pts', {n: row.score})}</span>
+                    <span className={styles.podiumScore}>{t(lang, 'pts', {n: row.coins})}</span>
                     <span className={styles.podiumStep} style={{borderTopColor: row.color}}>
                       {row.rank}
                     </span>
@@ -822,8 +946,11 @@ export default function HostScreen() {
               <li key={row.playerId} data-rank={row.rank}>
                 <span className={styles.rank}>{row.rank}</span>
                 <Avatar avatar={row.avatar} color={row.color} />
-                <span className={styles.scoreName}>{row.name}</span>
-                <span className={styles.scoreValue}>{row.score}</span>
+                <span className={styles.scoreName}>
+                  {row.name}
+                  {row.bot && <span className={styles.botTag}>{t(lang, 'bot')}</span>}
+                </span>
+                <span className={styles.scoreValue}>{row.coins}</span>
               </li>
             ))}
           </ol>

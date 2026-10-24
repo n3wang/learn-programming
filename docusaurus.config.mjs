@@ -386,6 +386,10 @@ export default async function createConfig() {
           items: [{
             label: 'Fighting Game',
             to: '/misc/fighting-game',
+          },
+          {
+            label: 'Party (Bets & Wagers)',
+            to: '/party/host',
           },],
         }, {
           title: 'Community',

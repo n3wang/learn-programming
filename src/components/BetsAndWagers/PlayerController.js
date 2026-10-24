@@ -13,7 +13,7 @@ import {
   randomAvatar,
   unitSuffix,
 } from './logic';
-import {Avatar, AvatarPicker, ConnectionBadge, Countdown, boardDensity, readJson, writeJson} from './ui';
+import {Avatar, AvatarPicker, Coin, CoinPile, ConnectionBadge, Countdown, boardDensity, readJson, writeJson} from './ui';
 import {LangSwitch, t, useLang} from './strings';
 import {generateName, isGeneratedName} from './names';
 import styles from './styles.module.css';
@@ -488,10 +488,15 @@ export default function PlayerController() {
 
       {seat && view && (
         <>
-          <div className={styles.youBar}>
-            <Avatar avatar={view.you.avatar} color={view.you.color} size="md" />
+          <div className={styles.youBar} style={{'--seat': view.you.color, borderLeftColor: view.you.color}}>
             <span>{view.you.name}</span>
-            <span className={styles.youScore}>{t(lang, 'pts', {n: view.you.score})}</span>
+            <CoinLot
+              color={view.you.color}
+              avatar={view.you.avatar}
+              coins={view.you.coins ?? view.you.score ?? 0}
+              delta={view.phase === 'reveal' ? view.you.delta || 0 : 0}
+              playKey={`${view.round}-${view.phase}`}
+            />
           </div>
 
           {/* Only this middle part scrolls (if it must); header and emoji dock stay put. */}
@@ -527,8 +532,6 @@ export default function PlayerController() {
                   {t(lang, 'roundOf', {topic: shown.topic, n: view.round, total: view.rounds})}
                   {view.endsIn > 0 && <Countdown msLeft={msLeft} lang={lang} />}
                 </p>
-                {/* No question text here: it is on the big screen only. */}
-                <p className={styles.lookUp}>{t(lang, 'lookAtScreen')}</p>
               </div>
             )}
 
@@ -680,10 +683,10 @@ function GuessPad({view, lang, onSend}) {
 /**
  * Coins you can drag onto an answer row (pointer events, so fingers work —
  * the browser's built-in drag-and-drop does not on most phones). Tapping +
- * on a row does the same.
+ * on a row does the same. `kind` is `a1` (reusable) or `bank` (can be lost).
  */
-function CoinTray({left, lang, onDrop}) {
-  const [drag, setDrag] = useState(null); // {x, y, over}
+function CoinTray({a1Left, bankLeft, color, avatar, lang, onDrop}) {
+  const [drag, setDrag] = useState(null); // {x, y, over, kind}
 
   function slotAt(x, y) {
     const el = document.elementFromPoint(x, y);
@@ -691,106 +694,209 @@ function CoinTray({left, lang, onDrop}) {
     return row ? row.getAttribute('data-slot') : null;
   }
 
-  function start(event) {
-    if (left <= 0) return;
-    event.preventDefault();
-    const move = (e) => setDrag({x: e.clientX, y: e.clientY, over: slotAt(e.clientX, e.clientY)});
-    const end = (e) => {
-      window.removeEventListener('pointermove', move);
-      window.removeEventListener('pointerup', end);
-      window.removeEventListener('pointercancel', end);
-      const slot = e.type === 'pointerup' ? slotAt(e.clientX, e.clientY) : null;
-      setDrag(null);
-      if (slot) onDrop(slot);
+  function start(kind) {
+    return (event) => {
+      if ((kind === 'a1' && !a1Left) || (kind === 'bank' && bankLeft <= 0)) return;
+      event.preventDefault();
+      const move = (e) => setDrag({x: e.clientX, y: e.clientY, over: slotAt(e.clientX, e.clientY), kind});
+      const end = (e) => {
+        window.removeEventListener('pointermove', move);
+        window.removeEventListener('pointerup', end);
+        window.removeEventListener('pointercancel', end);
+        const slot = e.type === 'pointerup' ? slotAt(e.clientX, e.clientY) : null;
+        setDrag(null);
+        if (slot) onDrop(slot, kind);
+      };
+      window.addEventListener('pointermove', move);
+      window.addEventListener('pointerup', end);
+      window.addEventListener('pointercancel', end);
+      move(event);
     };
-    window.addEventListener('pointermove', move);
-    window.addEventListener('pointerup', end);
-    window.addEventListener('pointercancel', end);
-    move(event);
   }
 
   useEffect(() => {
-    // Light up the row a coin hovers over.
     document.querySelectorAll('[data-slot][data-over]').forEach((row) => row.removeAttribute('data-over'));
     if (drag && drag.over) document.querySelector(`[data-slot="${CSS.escape(drag.over)}"]`)?.setAttribute('data-over', 'true');
   }, [drag]);
 
-  const shown = Math.min(left, 8);
+  const shownBank = Math.min(bankLeft, 6);
   return (
     <div className={styles.coinTray}>
       <span className={styles.coins}>
-        {Array.from({length: shown}, (_, i) => (
-          <span key={i} className={styles.coin} onPointerDown={start} role="presentation">
-            ●
-          </span>
+        {a1Left ? (
+          <Coin kind="a1" color={color} avatar={avatar} onPointerDown={start('a1')} title={t(lang, 'a1Label')} />
+        ) : null}
+        {Array.from({length: shownBank}, (_, i) => (
+          <Coin key={i} kind="bank" color={color} avatar={avatar} onPointerDown={start('bank')} />
         ))}
-        {left > shown && <b>+{left - shown}</b>}
+        {bankLeft > shownBank && <b>+{bankLeft - shownBank}</b>}
       </span>
       <span className={styles.muted}>{t(lang, 'dragHint')}</span>
       {drag && (
-        <span className={`${styles.coin} ${styles.coinGhost}`} style={{left: drag.x, top: drag.y}} aria-hidden="true">
-          ●
+        <span className={styles.coinGhostWrap} style={{left: drag.x, top: drag.y}} aria-hidden="true">
+          <Coin kind={drag.kind} color={color} avatar={avatar} />
         </span>
       )}
     </div>
   );
 }
 
-function BetPad({view, lang, onSend}) {
-  const [chips, setChips] = useState(() => {
-    const start = {};
-    for (const chip of view.you.bet || []) start[chip.slot] = chip.amount;
-    return start;
-  });
-  const placed = Object.values(chips).reduce((sum, n) => sum + n, 0);
-  const left = view.you.allowance - placed;
-  const dirty = JSON.stringify(toList(chips)) !== JSON.stringify(view.you.bet || []);
-  const place = view.question.type === 'place';
+function fromBet(bet) {
+  let a1 = null;
+  const bank = {};
+  for (const chip of bet || []) {
+    if (chip.a1) a1 = chip.slot;
+    if (chip.amount) bank[chip.slot] = (bank[chip.slot] || 0) + chip.amount;
+  }
+  return {a1, bank};
+}
 
-  function change(slot, by) {
-    setChips((current) => {
+function toList(a1, bank) {
+  const slots = new Set([...Object.keys(bank), ...(a1 ? [a1] : [])]);
+  return [...slots]
+    .filter((slot) => a1 === slot || (bank[slot] || 0) > 0)
+    .map((slot) => ({slot, amount: bank[slot] || 0, a1: a1 === slot ? 1 : 0}));
+}
+
+function placedCount(a1, bank) {
+  return (a1 ? 1 : 0) + Object.values(bank).reduce((sum, n) => sum + n, 0);
+}
+
+function BetPad({view, lang, onSend}) {
+  const start = fromBet(view.you.bet);
+  const [a1, setA1] = useState(start.a1);
+  const [bank, setBank] = useState(start.bank);
+  const skipTapRef = useRef(0);
+  const place = view.question.type === 'place';
+  const bankCoins = view.you.coins ?? 0;
+  const placed = placedCount(a1, bank);
+  const a1Left = !a1;
+  const bankLeft = Math.max(0, bankCoins - Object.values(bank).reduce((sum, n) => sum + n, 0));
+  const left = (a1Left ? 1 : 0) + bankLeft;
+  const locked = toList(a1, bank);
+  const dirty = JSON.stringify(locked) !== JSON.stringify(view.you.bet || []);
+  const canAdd = place ? placed < 1 : left > 0;
+  const youTok = {color: view.you.color, avatar: view.you.avatar, name: view.you.name};
+
+  function put(slot, kind) {
+    skipTapRef.current = Date.now();
+    if (place) {
+      setA1(slot);
+      setBank({});
+      return;
+    }
+    if (kind === 'a1') {
+      setA1(slot);
+      return;
+    }
+    setBank((current) => {
       const used = Object.values(current).reduce((sum, n) => sum + n, 0);
-      if (by > 0 && used >= view.you.allowance) return current;
-      const nextAmount = Math.max(0, (current[slot] || 0) + by);
-      return {...current, [slot]: nextAmount};
+      if (used >= bankCoins) return current;
+      return {...current, [slot]: (current[slot] || 0) + 1};
     });
+  }
+
+  function add(slot) {
+    if (Date.now() - skipTapRef.current < 500) return;
+    if (place) {
+      if (a1 === slot) return;
+      setA1(slot);
+      setBank({});
+      return;
+    }
+    if (!canAdd) return;
+    if (!a1) setA1(slot);
+    else put(slot, 'bank');
+  }
+
+  function remove(slot) {
+    if (place) {
+      if (a1 === slot) setA1(null);
+      return;
+    }
+    if ((bank[slot] || 0) > 0) {
+      setBank((current) => ({...current, [slot]: current[slot] - 1}));
+      return;
+    }
+    if (a1 === slot) setA1(null);
+  }
+
+  function clear(slot) {
+    if (a1 === slot) setA1(null);
+    setBank((current) => ({...current, [slot]: 0}));
+  }
+
+  function pileFor(slot) {
+    const others = (slot.tokens || []).filter((tok) => !tok.mine);
+    const mine = [];
+    if (a1 === slot.key) mine.push({...youTok, kind: 'a1'});
+    for (let i = 0; i < (bank[slot.key] || 0); i++) mine.push({...youTok, kind: 'bank'});
+    return [...others, ...mine];
   }
 
   return (
     <div className={styles.pad}>
       <p className={styles.chipsLeft}>
         {t(lang, left === 1 ? 'chipLeft' : 'chipsLeft', {n: left})}{' '}
-        <span className={styles.muted}>{t(lang, 'chipsNote')}</span>
+        <span className={styles.muted}>{t(lang, place ? 'oneCoinOnly' : 'chipsNote')}</span>
       </p>
-      <CoinTray left={left} lang={lang} onDrop={(slot) => change(slot, 1)} />
-      <ul className={styles.betList} data-density={boardDensity(view.board.length)} data-place={place}>
-        {view.board.map((slot) => (
-          <li key={slot.key} data-slot={slot.key} data-active={(chips[slot.key] || 0) > 0}>
-            <span className={styles.betLabel}>
-              {slot.key === 'smaller' ? t(lang, 'smallerThanAll') : slot.label}
-              {slot.detail && <span className={styles.betDetail}>{slot.detail}</span>}
-              {slot.mine && <em className={styles.mine}> {t(lang, 'yours')}</em>}
-            </span>
-            <span className={styles.betOdds}>{slot.odds}:1</span>
-            <span className={styles.stepper}>
-              <button type="button" onClick={() => change(slot.key, -1)} disabled={!chips[slot.key]} aria-label={t(lang, 'removeChip')}>
-                −
-              </button>
-              <b>{chips[slot.key] || 0}</b>
-              <button type="button" onClick={() => change(slot.key, 1)} disabled={left <= 0} aria-label={t(lang, 'addChip')}>
-                +
-              </button>
-            </span>
-          </li>
-        ))}
+      <CoinTray
+        a1Left={a1Left && (place ? placed < 1 : true)}
+        bankLeft={place ? 0 : bankLeft}
+        color={view.you.color}
+        avatar={view.you.avatar}
+        lang={lang}
+        onDrop={put}
+      />
+      <ul className={styles.betList} data-density={boardDensity(view.board.length)} data-place={place || undefined}>
+        {view.board.map((slot) => {
+          const mine = (a1 === slot.key ? 1 : 0) + (bank[slot.key] || 0);
+          return (
+            <li
+              key={slot.key}
+              data-slot={slot.key}
+              data-active={mine > 0}
+              className={styles.betCard}
+              onClick={() => add(slot.key)}>
+              <div className={styles.cardCoins}>
+                <CoinPile tokens={pileFor(slot)} lang={lang} perch />
+              </div>
+              <div className={styles.cardFace}>
+                <span className={styles.betOdds}>{slot.odds}:1</span>
+                <span className={styles.betLabel}>
+                  {slot.key === 'smaller' ? t(lang, 'smallerThanAll') : slot.label}
+                  {slot.detail && <span className={styles.betDetail}>{slot.detail}</span>}
+                  {slot.mine && <em className={styles.mine}> {t(lang, 'yours')}</em>}
+                </span>
+              </div>
+              <div className={styles.betCardTools} onClick={(event) => event.stopPropagation()}>
+                <button
+                  type="button"
+                  className={styles.betClear}
+                  disabled={mine <= 0}
+                  onClick={() => clear(slot.key)}
+                  aria-label={t(lang, 'clearBets')}>
+                  ×
+                </button>
+                <button
+                  type="button"
+                  className={styles.betMinus}
+                  disabled={mine <= 0}
+                  onClick={() => remove(slot.key)}
+                  aria-label={t(lang, 'removeChip')}>
+                  −
+                </button>
+              </div>
+            </li>
+          );
+        })}
       </ul>
-      {/* Pinned to the bottom so it is reachable even with 13 slots on a small phone. */}
       <div className={styles.betActions}>
         <button
           type="button"
           className="button button--primary button--lg button--block"
           disabled={placed === 0 || !dirty}
-          onClick={() => onSend(toList(chips))}>
+          onClick={() => onSend(locked)}>
           {view.you.bet ? t(lang, dirty ? 'updateBets' : 'betsLocked') : t(lang, 'lockBets', {n: placed})}
         </button>
       </div>
@@ -798,18 +904,68 @@ function BetPad({view, lang, onSend}) {
   );
 }
 
-function toList(chips) {
-  return Object.entries(chips)
-    .filter(([, amount]) => amount > 0)
-    .map(([slot, amount]) => ({slot, amount}));
+const LOT_COLS = 5;
+const LOT_ROWS = 3;
+const LOT_MAX = LOT_COLS * LOT_ROWS;
+
+/** The player's coin pile: A1 plus bank coins, with a fly-in / fly-out burst on reveal. */
+function CoinLot({color, avatar, coins, delta, playKey}) {
+  const [phase, setPhase] = useState('idle');
+  const abs = Math.abs(delta || 0);
+  const gain = (delta || 0) > 0;
+  const shown = Math.min(Math.max(0, coins), LOT_MAX);
+  const extra = Math.max(0, coins - LOT_MAX);
+  const flyN = Math.min(abs, LOT_MAX);
+  const flyExtra = Math.max(0, abs - LOT_MAX);
+
+  useEffect(() => {
+    if (!abs) {
+      setPhase('idle');
+      return undefined;
+    }
+    setPhase('fly');
+    const landAt = window.setTimeout(() => setPhase('land'), gain ? 480 : 60);
+    const doneAt = window.setTimeout(() => setPhase('idle'), 1300);
+    return () => {
+      window.clearTimeout(landAt);
+      window.clearTimeout(doneAt);
+    };
+  }, [playKey, abs, gain]);
+
+  return (
+    <span className={styles.youLot}>
+      <span className={`${styles.lotGrid} ${phase === 'land' && gain ? styles.lotBounce : ''}`}>
+        <Coin kind="a1" color={color} avatar={avatar} size="sm" />
+        {Array.from({length: shown}, (_, i) => (
+          <Coin key={i} kind="bank" color={color} avatar={avatar} size="xs" />
+        ))}
+        {extra > 0 && <b className={styles.lotMore}>+{extra}</b>}
+      </span>
+      {abs > 0 && phase !== 'idle' && (
+        <span className={styles.lotFly} data-dir={gain ? 'in' : 'out'} aria-hidden="true">
+          {Array.from({length: flyN}, (_, i) => (
+            <span key={i} className={styles.lotFlyCoin} style={{animationDelay: `${(i % LOT_MAX) * 32}ms`}}>
+              <Coin kind="bank" color={color} avatar={avatar} size="xs" />
+            </span>
+          ))}
+          {flyExtra > 0 && (
+            <b className={styles.lotMore} style={{animationDelay: `${flyN * 32}ms`}}>
+              +{flyExtra}
+            </b>
+          )}
+        </span>
+      )}
+      {abs > 0 && (
+        <em className={`${styles.lotDelta} ${gain ? styles.gain : styles.loss}`}>{gain ? `+${delta}` : delta}</em>
+      )}
+    </span>
+  );
 }
 
 function Reveal({view, lang}) {
   const winner = view.board.find((slot) => slot.key === view.result.winner);
-  const delta = view.you.delta || 0;
   return (
     <div className={styles.reveal}>
-      <p className={styles.muted}>{t(lang, 'answerWas')}</p>
       <p className={styles.revealAnswer}>
         {view.result.answerLabel}
         {unitSuffix(view.question, lang)}
@@ -821,9 +977,6 @@ function Reveal({view, lang}) {
         })}
       </p>
       {view.result.hint && <p className={styles.revealHint}>{t(lang, 'why', {hint: view.result.hint})}</p>}
-      <p className={`${styles.revealDelta} ${delta > 0 ? styles.gain : delta < 0 ? styles.loss : ''}`}>
-        {t(lang, 'points', {n: delta > 0 ? `+${delta}` : delta})}
-      </p>
     </div>
   );
 }
@@ -840,7 +993,7 @@ function FinalRank({view, lang}) {
             <span className={styles.rank}>{row.rank}</span>
             <Avatar avatar={row.avatar} color={row.color} />
             <span className={styles.scoreName}>{row.name}</span>
-            <span className={styles.scoreValue}>{row.score}</span>
+            <span className={styles.scoreValue}>{row.coins ?? row.score}</span>
           </li>
         ))}
       </ol>
