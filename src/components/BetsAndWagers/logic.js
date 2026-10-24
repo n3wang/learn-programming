@@ -11,12 +11,20 @@ import physicsPack from '@site/src/data/party/physics.json';
 import electronicsPack from '@site/src/data/party/electronics.json';
 import roboticsPack from '@site/src/data/party/robotics.json';
 import {PLACE_ODDS, placePack} from './placePack';
+import {noteFor} from '@site/src/data/party/notes';
 
 export const PACKS = [mathPack, physicsPack, electronicsPack, roboticsPack, placePack];
 export {PLACE_ODDS};
 /** The reusable A1 coin every seat always has. It is never spent. */
 export const A1_COINS = 1;
-export const WRITER_BONUS = 3;
+export const WRITER_BONUS = 2;
+/** Card owners whose guess is this close to the real answer earn CLOSE_BONUS. */
+export const CLOSE_RANGE = 5;
+export const CLOSE_BONUS = 1;
+/** Bank coins every seat starts a game with (A1 is separate and always present). */
+export const STARTING_COINS = 3;
+/** Distinct number-line answers on the board, after grouping identical guesses. */
+export const MAX_ANSWERS = 12;
 /** The rare "smaller than all" slot, when it appears, pays 2 to 1. */
 export const SMALLER_ODDS = 2;
 export const MAX_ODDS = 5;
@@ -26,7 +34,7 @@ export const BET_SECONDS = 30;
 export const PLACE_SECONDS = 40;
 export const MIN_PLAYERS = 3;
 /** Keep in sync with PartyRoom.MAX_MEMBERS in springbackend. */
-export const MAX_PLAYERS = 12;
+export const MAX_PLAYERS = 64;
 /** Host-only seats. They never join the relay. */
 export const BOT_ID_PREFIX = 'bot:';
 export const ROUND_CHOICES = [5, 7, 10];
@@ -86,6 +94,7 @@ export function localized(question, lang) {
     text: (zh && question.textZh) || question.text,
     topic: (zh && question.topicZh) || question.topic,
     alt: question.image ? (zh && question.image.altZh) || question.image.alt : '',
+    note: noteFor(question, lang),
   };
 }
 
@@ -128,14 +137,53 @@ export function questionsForPacks(packIds) {
   );
 }
 
-/** Random draw without repeats; `rng` is injectable for tests. */
-export function pickQuestionIds(packIds, count, rng = Math.random) {
-  const pool = questionsForPacks(packIds).map((q) => q.id);
-  for (let i = pool.length - 1; i > 0; i--) {
-    const j = Math.floor(rng() * (i + 1));
-    [pool[i], pool[j]] = [pool[j], pool[i]];
+/** Fresh 0…1 each call; prefers the browser's CSPRNG over Math.random. */
+export function unitRandom() {
+  if (typeof crypto !== 'undefined' && typeof crypto.getRandomValues === 'function') {
+    const buf = new Uint32Array(1);
+    crypto.getRandomValues(buf);
+    return buf[0] / 4294967296;
   }
-  return pool.slice(0, Math.min(count, pool.length));
+  return Math.random();
+}
+
+export function shuffleList(items, rng = unitRandom) {
+  const list = items.slice();
+  for (let i = list.length - 1; i > 0; i--) {
+    const j = Math.floor(rng() * (i + 1));
+    [list[i], list[j]] = [list[j], list[i]];
+  }
+  return list;
+}
+
+/**
+ * Random draw without repeats in one game. Packs are shuffled separately and
+ * drawn round-robin so a fat pack cannot flood the set. IDs in `avoid` (last
+ * game's questions) are used only after every fresh one is taken.
+ */
+export function pickQuestionIds(packIds, count, rng = unitRandom, avoid = []) {
+  const roll = typeof rng === 'function' ? rng : unitRandom;
+  const avoidSet = new Set(Array.isArray(avoid) ? avoid : []);
+  const groups = PACKS.filter((pack) => packIds.includes(pack.id))
+    .map((pack) => shuffleList(pack.questions.map((q) => q.id), roll))
+    .filter((ids) => ids.length);
+  if (!groups.length) return [];
+
+  const want = Math.min(count, groups.reduce((n, ids) => n + ids.length, 0));
+  const picked = [];
+  const leftover = [];
+  let gi = 0;
+  while (picked.length + leftover.length < want && groups.some((ids) => ids.length)) {
+    const group = groups[gi % groups.length];
+    gi += 1;
+    if (!group.length) continue;
+    const id = group.shift();
+    if (avoidSet.has(id)) leftover.push(id);
+    else picked.push(id);
+  }
+  const fill = shuffleList(leftover, roll);
+  while (picked.length < want && fill.length) picked.push(fill.shift());
+  return shuffleList(picked, roll);
 }
 
 export function findQuestion(id) {
@@ -152,21 +200,35 @@ export function findQuestion(id) {
  * Sort guesses into slots. The middle guess (or the two middle guesses) pays
  * 2 to 1, each step outward pays one more, capped at 5 to 1.
  *
+ * Identical numbers share a slot. If more than MAX_ANSWERS distinct values
+ * arrived, keep the MAX_ANSWERS whose first lock came in first (speed).
+ *
  * @param guesses {[playerId]: number}
+ * @param arrivedAt {[playerId]: number} first-lock timestamps
  */
-export function buildBoard(guesses, unit) {
+export function buildBoard(guesses, unit, arrivedAt = {}) {
   const unique = [];
+  let seen = 0;
   for (const [playerId, value] of Object.entries(guesses)) {
     if (!isValidGuess(value)) continue;
+    const at = Number(arrivedAt[playerId]);
+    const stamp = Number.isFinite(at) ? at : seen;
     const existing = unique.find((slot) => slot.value === value);
-    if (existing) existing.authors.push(playerId);
-    else unique.push({value, authors: [playerId]});
+    if (existing) {
+      existing.authors.push(playerId);
+      existing.firstAt = Math.min(existing.firstAt, stamp);
+    } else {
+      unique.push({value, authors: [playerId], firstAt: stamp, order: seen});
+    }
+    seen += 1;
   }
-  unique.sort((a, b) => a.value - b.value);
+  unique.sort((a, b) => a.firstAt - b.firstAt || a.order - b.order);
+  const kept = unique.slice(0, MAX_ANSWERS);
+  kept.sort((a, b) => a.value - b.value);
 
-  const count = unique.length;
+  const count = kept.length;
   const middles = count % 2 === 1 ? [(count - 1) / 2] : [count / 2 - 1, count / 2];
-  const slots = unique.map((slot, i) => {
+  const slots = kept.map((slot, i) => {
     const distance = Math.min(...middles.map((m) => Math.abs(i - m)));
     return {
       key: `s${i + 1}`,
@@ -331,19 +393,34 @@ export function sanitizeBet(chips, board, player, options = {}) {
   return clean;
 }
 
+/** True when a submitted guess sits within CLOSE_RANGE of the real answer. */
+export function isCloseGuess(value, answer) {
+  const target = typeof answer === 'number' && Number.isFinite(answer) ? answer : parseGuess(answer);
+  if (target == null || typeof value !== 'number' || !Number.isFinite(value)) return false;
+  return Math.abs(value - target) <= CLOSE_RANGE;
+}
+
 /**
  * Score a number-line round in coins. Bank coins on the winning slot pay
  * amount × odds (those coins are spent). A1 on it pays the odds and returns.
- * Whoever wrote the winning guess gets a flat coin bonus.
+ * Whoever wrote the winning guess gets a flat coin bonus. Owners of a guess
+ * within CLOSE_RANGE of the answer also get CLOSE_BONUS (stacks with writer).
  *
  * @returns {winner, deltas: {[playerId]: number}}
  */
 export function settleRound({board, answer, bets, playerIds}) {
   const winner = winningSlotKey(board, answer);
   const winning = winner ? board.find((slot) => slot.key === winner) : null;
+  const closeAuthors = new Set();
+  for (const slot of board || []) {
+    if (slot.value == null || !isCloseGuess(slot.value, answer)) continue;
+    for (const id of slot.authors) closeAuthors.add(id);
+  }
   const deltas = {};
   for (const playerId of playerIds) {
-    const bonus = winning && winning.authors.includes(playerId) ? WRITER_BONUS : 0;
+    let bonus = 0;
+    if (winning && winning.authors.includes(playerId)) bonus += WRITER_BONUS;
+    if (closeAuthors.has(playerId)) bonus += CLOSE_BONUS;
     deltas[playerId] = settleChips(bets[playerId], winner, winning ? winning.odds : 0, bonus);
   }
   return {winner, deltas};
@@ -406,14 +483,18 @@ export function botChips(question, board, player, playerId, rng = Math.random) {
 }
 
 /** Fill in any bot that has not guessed or bet yet. Returns whether anyone moved. */
-export function applyBotMoves(g, rng = Math.random) {
+export function applyBotMoves(g, rng = Math.random, now = Date.now()) {
   const question = g.questionIds && g.questionIds[g.round] != null ? findQuestion(g.questionIds[g.round]) : null;
   if (!question) return false;
   let moved = false;
+  let stamp = now;
   for (const [playerId, player] of Object.entries(g.players || {})) {
     if (!isBot(player, playerId)) continue;
     if (g.phase === 'guess' && g.guesses[playerId] == null) {
       g.guesses[playerId] = botGuessValue(question, rng);
+      if (!g.guessAt) g.guessAt = {};
+      g.guessAt[playerId] = stamp;
+      stamp += 1;
       moved = true;
     }
     if (g.phase === 'bet' && g.board && g.bets[playerId] == null) {
@@ -432,7 +513,7 @@ export function uniqueName(name, takenNames) {
   return `${name} ${n}`;
 }
 
-/** One per seat; MAX_PLAYERS of them. */
+/** Seat colours; extras wrap this palette. */
 export const PLAYER_COLORS = [
   '#e4572e', '#17bebb', '#ffc914', '#76b041', '#8e44ad', '#2e86de',
   '#ff6f91', '#a0522d', '#00b894', '#636e72', '#1e3799', '#badc58',

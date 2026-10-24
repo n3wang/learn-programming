@@ -13,7 +13,8 @@ import {
   randomAvatar,
   unitSuffix,
 } from './logic';
-import {Avatar, AvatarPicker, Coin, CoinPile, ConnectionBadge, Countdown, boardDensity, readJson, writeJson} from './ui';
+import {AtLeastNumber, Avatar, AvatarPicker, Coin, CoinPile, ConnectionBadge, Countdown, RevealNote, boardDensity, readJson, writeJson} from './ui';
+import {noteFromResult} from '@site/src/data/party/notes';
 import {LangSwitch, t, useLang} from './strings';
 import {generateName, isGeneratedName} from './names';
 import styles from './styles.module.css';
@@ -388,7 +389,14 @@ export default function PlayerController() {
             {t(lang, 'room')} {seat.code}
           </span>
         )}
-        <ConnectionBadge status={status} base={base} lang={lang} compact />
+        <span className={styles.headerConn}>
+          <ConnectionBadge status={status} base={base} lang={lang} compact />
+          {seat && (
+            <button type="button" className={styles.headerExit} onClick={leave}>
+              {t(lang, 'headerExit')}
+            </button>
+          )}
+        </span>
         <LangSwitch lang={lang} setLang={setLang} />
       </header>
 
@@ -541,23 +549,20 @@ export default function PlayerController() {
             {view.phase === 'bet' && (
               <BetPad key={`bet-${view.round}`} view={view} lang={lang} onSend={(chips) => sendAction({type: 'bet', chips})} />
             )}
-            {(view.phase === 'guess' || view.phase === 'bet') && view.progress && (
+            {view.phase === 'guess' && view.progress && (
               <p className={styles.progress}>
                 {t(lang, 'progress', {done: view.progress.done, total: view.progress.total})}
               </p>
             )}
             {view.phase === 'reveal' && <Reveal view={view} lang={lang} />}
             {view.phase === 'end' && <FinalRank view={view} lang={lang} />}
-
-            <button type="button" className={`button button--link ${styles.leave}`} onClick={leave}>
-              {t(lang, 'leaveParty')}
-            </button>
           </div>
 
-          {/* Always in thumb reach, in every phase, including while waiting. */}
-          <div className={styles.phoneDock}>
-            <ReactionBar lang={lang} onReact={(key) => send({type: 'react', emoji: key})} />
-          </div>
+          {view.phase !== 'bet' && (
+            <div className={styles.phoneDock}>
+              <ReactionBar lang={lang} onReact={(key) => send({type: 'react', emoji: key})} />
+            </div>
+          )}
         </>
       )}
     </div>
@@ -645,7 +650,6 @@ function GuessPad({view, lang, onSend}) {
 
   return (
     <form className={styles.pad} onSubmit={submit}>
-      <WinRule lang={lang} />
       {/* Number and its read-back in one box, to keep the pad on one screen. */}
       <div className={styles.numpadDisplay} data-empty={!digits}>
         <output aria-live="polite">{digits || '0'}</output>
@@ -725,17 +729,16 @@ function CoinTray({a1Left, bankLeft, color, avatar, lang, onDrop}) {
     <div className={styles.coinTray}>
       <span className={styles.coins}>
         {a1Left ? (
-          <Coin kind="a1" color={color} avatar={avatar} onPointerDown={start('a1')} title={t(lang, 'a1Label')} />
+          <Coin kind="bank" color={color} avatar={avatar} onPointerDown={start('a1')} />
         ) : null}
         {Array.from({length: shownBank}, (_, i) => (
           <Coin key={i} kind="bank" color={color} avatar={avatar} onPointerDown={start('bank')} />
         ))}
         {bankLeft > shownBank && <b>+{bankLeft - shownBank}</b>}
       </span>
-      <span className={styles.muted}>{t(lang, 'dragHint')}</span>
       {drag && (
         <span className={styles.coinGhostWrap} style={{left: drag.x, top: drag.y}} aria-hidden="true">
-          <Coin kind={drag.kind} color={color} avatar={avatar} />
+          <Coin kind="bank" color={color} avatar={avatar} />
         </span>
       )}
     </div>
@@ -800,12 +803,18 @@ function BetPad({view, lang, onSend}) {
   function add(slot) {
     if (Date.now() - skipTapRef.current < 500) return;
     if (place) {
-      if (a1 === slot) return;
+      if (a1 === slot) {
+        setA1(null);
+        return;
+      }
       setA1(slot);
       setBank({});
       return;
     }
-    if (!canAdd) return;
+    if (!canAdd) {
+      remove(slot);
+      return;
+    }
     if (!a1) setA1(slot);
     else put(slot, 'bank');
   }
@@ -828,20 +837,15 @@ function BetPad({view, lang, onSend}) {
   }
 
   function pileFor(slot) {
-    const others = (slot.tokens || []).filter((tok) => !tok.mine);
     const mine = [];
-    if (a1 === slot.key) mine.push({...youTok, kind: 'a1'});
+    if (a1 === slot.key) mine.push({...youTok, kind: 'bank'});
     for (let i = 0; i < (bank[slot.key] || 0); i++) mine.push({...youTok, kind: 'bank'});
-    return [...others, ...mine];
+    return mine;
   }
 
   return (
     <div className={styles.pad}>
-      {!place && <WinRule lang={lang} />}
-      <p className={styles.chipsLeft}>
-        {t(lang, left === 1 ? 'chipLeft' : 'chipsLeft', {n: left})}{' '}
-        <span className={styles.muted}>{t(lang, place ? 'oneCoinOnly' : 'chipsNote')}</span>
-      </p>
+      <p className={styles.chipsLeft}>{t(lang, left === 1 ? 'chipLeft' : 'chipsLeft', {n: left})}</p>
       <CoinTray
         a1Left={a1Left && (place ? placed < 1 : true)}
         bankLeft={place ? 0 : bankLeft}
@@ -866,9 +870,14 @@ function BetPad({view, lang, onSend}) {
               <div className={styles.cardFace}>
                 <span className={styles.betOdds}>{slot.odds}:1</span>
                 <span className={styles.betLabel}>
-                  {slot.key === 'smaller' ? t(lang, 'smallerThanAll') : slot.label}
+                  {slot.key === 'smaller' ? (
+                    t(lang, 'smallerThanAll')
+                  ) : place ? (
+                    slot.label
+                  ) : (
+                    <AtLeastNumber label={slot.label} />
+                  )}
                   {slot.detail && <span className={styles.betDetail}>{slot.detail}</span>}
-                  {slot.mine && <em className={styles.mine}> {t(lang, 'yours')}</em>}
                 </span>
               </div>
               <div className={styles.betCardTools} onClick={(event) => event.stopPropagation()}>
@@ -937,7 +946,7 @@ function CoinLot({color, avatar, coins, delta, playKey}) {
   return (
     <span className={styles.youLot}>
       <span className={`${styles.lotGrid} ${phase === 'land' && gain ? styles.lotBounce : ''}`}>
-        <Coin kind="a1" color={color} avatar={avatar} size="sm" />
+        <Coin kind="bank" color={color} avatar={avatar} size="xs" />
         {Array.from({length: shown}, (_, i) => (
           <Coin key={i} kind="bank" color={color} avatar={avatar} size="xs" />
         ))}
@@ -964,15 +973,6 @@ function CoinLot({color, avatar, coins, delta, playKey}) {
   );
 }
 
-function WinRule({lang}) {
-  return (
-    <p className={styles.winRule}>
-      <strong>{t(lang, 'winRule')}</strong>
-      <span className={styles.winRuleExample}>{t(lang, 'winRuleExample')}</span>
-    </p>
-  );
-}
-
 function Reveal({view, lang}) {
   const winner = view.board.find((slot) => slot.key === view.result.winner);
   const numberLine = view.question && view.question.type !== 'place';
@@ -984,12 +984,17 @@ function Reveal({view, lang}) {
       </p>
       <p className={styles.muted}>
         {t(lang, 'winningSlot', {
-          label: !winner ? '?' : winner.key === 'smaller' ? t(lang, 'smallerThanAll') : winner.label,
+          label: !winner
+            ? '?'
+            : winner.key === 'smaller'
+              ? t(lang, 'smallerThanAll')
+              : numberLine
+                ? `≥ ${winner.label}`
+                : winner.label,
           odds: winner?.odds,
         })}
       </p>
-      {numberLine && <WinRule lang={lang} />}
-      {view.result.hint && <p className={styles.revealHint}>{t(lang, 'why', {hint: view.result.hint})}</p>}
+      <RevealNote title={t(lang, 'curiousNote')} text={noteFromResult(view.result, lang)} />
     </div>
   );
 }

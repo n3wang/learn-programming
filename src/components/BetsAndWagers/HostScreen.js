@@ -4,8 +4,10 @@ import {
   BET_SECONDS,
   BOT_ID_PREFIX,
   GUESS_SECONDS,
+  MAX_ANSWERS,
   MAX_PLAYERS,
   MIN_PLAYERS,
+  STARTING_COINS,
   PACKS,
   ROUND_CHOICES,
   applyBotMoves,
@@ -35,8 +37,9 @@ import {
   slotTokens,
   uniqueName,
 } from './logic';
-import {Avatar, Coin, CoinPile, ConnectionBadge, Countdown, QuestionImage, boardDensity, readJson, writeJson} from './ui';
-import {LangSwitch, t, tx, useLang} from './strings';
+import {AnimatedBank, AtLeastNumber, Avatar, Coin, CoinPile, ConnectionBadge, Countdown, QuestionImage, RevealNote, boardDensity, readJson, writeJson} from './ui';
+import {noteFor, noteFromResult} from '@site/src/data/party/notes';
+import {LangSwitch, t, useLang} from './strings';
 import {generateName, isGeneratedName} from './names';
 import styles from './styles.module.css';
 
@@ -47,6 +50,9 @@ import styles from './styles.module.css';
  */
 
 const HOST_KEY = 'bw-host-v1';
+/** Question ids from recent games, so Start does not deal the same set again. */
+const RECENT_Q_KEY = 'bw-recent-questions-v1';
+const RECENT_Q_KEEP = 48;
 const REACTION_GAP_MS = 900;
 const REACTION_SHOW_MS = 3600;
 const MAX_REACTIONS_ON_SCREEN = 12;
@@ -79,6 +85,7 @@ function newGame(settings = {}) {
     round: 0,
     deadline: 0,
     guesses: {},
+    guessAt: {},
     board: null,
     bets: {},
     result: null,
@@ -89,7 +96,7 @@ function newGame(settings = {}) {
 function resetCoins(players) {
   for (const p of Object.values(players)) {
     normalizePlayer(p);
-    p.coins = 0;
+    p.coins = STARTING_COINS;
   }
 }
 
@@ -99,7 +106,7 @@ function seatPlayer(g, playerId, fields) {
     name: fields.name,
     color: nextPlayerColor(others.map((p) => p.color)),
     avatar: isValidAvatar(fields.avatar) ? fields.avatar : fields.bot ? randomAvatar() : null,
-    coins: 0,
+    coins: STARTING_COINS,
     connected: true,
     bot: Boolean(fields.bot),
   });
@@ -121,6 +128,7 @@ function addBotSeat(g, lang) {
 function migrateGame(raw) {
   const g = raw && typeof raw === 'object' ? raw : newGame();
   if (!g.nextBot) g.nextBot = 1;
+  if (!g.guessAt) g.guessAt = {};
   for (const [id, p] of Object.entries(g.players || {})) {
     normalizePlayer(p);
     if (isBot(p, id)) p.connected = true;
@@ -132,6 +140,7 @@ function migrateGame(raw) {
 
 function startGuess(g, now) {
   g.guesses = {};
+  g.guessAt = {};
   g.bets = {};
   g.result = null;
   const question = findQuestion(g.questionIds[g.round]);
@@ -148,7 +157,7 @@ function startGuess(g, now) {
 }
 
 function endGuess(g, now) {
-  g.board = buildBoard(g.guesses, findQuestion(g.questionIds[g.round]).unit);
+  g.board = buildBoard(g.guesses, findQuestion(g.questionIds[g.round]).unit, g.guessAt);
   g.phase = 'bet';
   g.deadline = now + BET_SECONDS * 1000;
 }
@@ -167,7 +176,13 @@ function endBet(g) {
   const answerLabel = place
     ? question.options.find((option) => option.key === question.answer).label
     : formatNumber(question.answer, question.unit);
-  g.result = {winner, deltas, answerLabel, hint: place ? question.hint : ''};
+  g.result = {
+    winner,
+    deltas,
+    answerLabel,
+    note: noteFor(question, 'en'),
+    noteZh: noteFor(question, 'zh'),
+  };
   g.phase = 'reveal';
   g.deadline = 0;
 }
@@ -252,7 +267,12 @@ function viewFor(g, playerId, now) {
     },
     result:
       g.phase === 'reveal' && g.result
-        ? {winner: g.result.winner, answerLabel: g.result.answerLabel, hint: g.result.hint || ''}
+        ? {
+            winner: g.result.winner,
+            answerLabel: g.result.answerLabel,
+            note: g.result.note || noteFor(q, 'en'),
+            noteZh: g.result.noteZh || noteFor(q, 'zh'),
+          }
         : null,
     ranking: g.phase === 'end' ? rankPlayers(g.players) : null,
   };
@@ -324,7 +344,7 @@ export default function HostScreen() {
     if (!waiting) return;
     botTimerRef.current = window.setTimeout(() => {
       commit((draft, now) => {
-        if (!applyBotMoves(draft)) return false;
+        if (!applyBotMoves(draft, Math.random, now)) return false;
         if (draft.phase === 'guess' && everyoneDid(draft, draft.guesses)) endGuess(draft, now);
         else if (draft.phase === 'bet' && everyoneDid(draft, draft.bets)) endBet(draft);
       });
@@ -388,7 +408,10 @@ export default function HostScreen() {
           if (msg.reason === 'left' || msg.reason === 'kicked') {
             delete g.players[id];
             // A removed player's guess leaves the board only while it is still being built.
-            if (g.phase === 'guess') delete g.guesses[id];
+            if (g.phase === 'guess') {
+              delete g.guesses[id];
+              if (g.guessAt) delete g.guessAt[id];
+            }
             delete g.bets[id];
           } else {
             g.players[id].connected = false;
@@ -403,6 +426,8 @@ export default function HostScreen() {
           const value = Number(msg.value);
           if (!isValidGuess(value)) return false;
           g.guesses[id] = value;
+          if (!g.guessAt) g.guessAt = {};
+          g.guessAt[id] = now;
           if (everyoneDid(g, g.guesses)) endGuess(g, now);
         });
         break;
@@ -517,7 +542,13 @@ export default function HostScreen() {
 
   const start = () =>
     commit((g, now) => {
-      g.questionIds = pickQuestionIds(g.packs, g.rounds);
+      const stored = readJson(RECENT_Q_KEY);
+      const recent = Array.isArray(stored) ? stored : [];
+      g.questionIds = pickQuestionIds(g.packs, g.rounds, undefined, recent);
+      writeJson(
+        RECENT_Q_KEY,
+        [...g.questionIds, ...recent.filter((id) => !g.questionIds.includes(id))].slice(0, RECENT_Q_KEEP),
+      );
       g.round = 0;
       resetCoins(g.players);
       startGuess(g, now);
@@ -536,6 +567,11 @@ export default function HostScreen() {
       g.players = players;
       resetCoins(players);
     });
+  const backToMenu = () => {
+    if (gameRef.current.phase === 'lobby') return;
+    if (gameRef.current.phase !== 'end' && !window.confirm(t(lang, 'menuConfirm'))) return;
+    playAgain();
+  };
   const newRoom = () => {
     socketRef.current.send({type: 'leave'});
     roomRef.current = {code: null, hostToken: null};
@@ -575,6 +611,7 @@ export default function HostScreen() {
       commit((g, now) => {
         delete g.players[playerId];
         delete g.guesses[playerId];
+        if (g.guessAt) delete g.guessAt[playerId];
         delete g.bets[playerId];
         if (g.phase === 'guess' && everyoneDid(g, g.guesses)) endGuess(g, now);
         else if (g.phase === 'bet' && everyoneDid(g, g.bets)) endBet(g);
@@ -628,6 +665,8 @@ export default function HostScreen() {
     : null;
   const available = questionsForPacks(g.packs).length;
   const shown = localized(question, lang);
+  const uniqueGuesses = new Set(Object.values(g.guesses).filter((value) => typeof value === 'number')).size;
+  const boardAnswers = g.board ? g.board.filter((slot) => slot.key !== SMALLER_KEY).length : 0;
 
   const seatDone = (pid) =>
     g.phase === 'guess' ? g.guesses[pid] != null : g.phase === 'bet' || g.phase === 'reveal' ? g.bets[pid] != null : false;
@@ -642,7 +681,12 @@ export default function HostScreen() {
         className={p.connected ? '' : styles.offline}
         style={{'--seat': p.color}}>
         <Coin kind="a1" color={p.color} avatar={p.avatar} size="sm" />
-        <b className={styles.chipCoins}>{playerCoins(p)}</b>
+        <AnimatedBank
+          coins={playerCoins(p)}
+          color={p.color}
+          avatar={p.avatar}
+          playKey={`${g.round}-${g.phase}`}
+        />
         {delta ? (
           <em className={delta > 0 ? styles.gain : styles.loss}>{delta > 0 ? `+${delta}` : delta}</em>
         ) : null}
@@ -684,6 +728,11 @@ export default function HostScreen() {
         )}
         <ConnectionBadge status={status} base={base} lang={lang} />
         <LangSwitch lang={lang} setLang={setLang} />
+        {g.phase !== 'lobby' && (
+          <button type="button" className="button button--sm button--secondary" onClick={backToMenu}>
+            {t(lang, 'menu')}
+          </button>
+        )}
         <button type="button" className="button button--sm button--secondary" onClick={toggleFullscreen}>
           {t(lang, 'fullScreen')}
         </button>
@@ -701,10 +750,6 @@ export default function HostScreen() {
                 {t(lang, copied ? 'copied' : 'copyLink')}
               </button>
             )}
-            <p className={styles.muted}>{t(lang, 'noCamera')}</p>
-            {typeof window !== 'undefined' && /^(localhost|127\.|\[::1\])/.test(window.location.hostname) && (
-              <p className={styles.notice}>{t(lang, 'localhostHint')}</p>
-            )}
           </section>
 
           <section className={styles.panel}>
@@ -721,7 +766,12 @@ export default function HostScreen() {
                     className={g.players[pid].connected ? '' : styles.offline}
                     style={{'--seat': g.players[pid].color, borderColor: g.players[pid].color}}>
                     <Coin kind="a1" color={g.players[pid].color} avatar={g.players[pid].avatar} size="sm" />
-                    <b className={styles.chipCoins}>{playerCoins(g.players[pid])}</b>
+                    <AnimatedBank
+                      coins={playerCoins(g.players[pid])}
+                      color={g.players[pid].color}
+                      avatar={g.players[pid].avatar}
+                      playKey="lobby"
+                    />
                     {g.players[pid].name}
                     {isBot(g.players[pid], pid) && <span className={styles.botTag}>{t(lang, 'bot')}</span>}
                     <button
@@ -831,7 +881,7 @@ export default function HostScreen() {
                 <div className={styles.phaseRow}>
                   {g.phase === 'bet' ? (
                     <>
-                      <span>{t(lang, question.type === 'place' ? 'placeCoins' : 'placeChips')}</span>
+                      <span>{t(lang, question.type === 'place' ? 'placeCoins' : 'placeBets')}</span>
                       <Countdown msLeft={g.deadline - now} lang={lang} />
                     </>
                   ) : (
@@ -842,14 +892,14 @@ export default function HostScreen() {
                     </span>
                   )}
                 </div>
-                {g.phase === 'reveal' && question.type !== 'place' && (
-                  <p className={styles.winRule}>
-                    <strong>{t(lang, 'winRule')}</strong>
-                    <span className={styles.winRuleExample}>{t(lang, 'winRuleExample')}</span>
-                  </p>
-                )}
-                {g.phase === 'reveal' && g.result.hint && (
-                  <p className={styles.revealHint}>{t(lang, 'why', {hint: g.result.hint})}</p>
+                {question.type !== 'place' && uniqueGuesses > boardAnswers && (
+                    <p className={styles.muted}>{t(lang, 'firstAnswers', {n: MAX_ANSWERS})}</p>
+                  )}
+                {g.phase === 'reveal' && (
+                  <RevealNote
+                    title={t(lang, 'curiousNote')}
+                    text={noteFromResult(g.result, lang) || shown.note}
+                  />
                 )}
                 <ol
                   className={`${styles.board} ${question.type === 'place' ? styles.placeBoard : ''}`}
@@ -865,13 +915,17 @@ export default function HostScreen() {
                         data-kind={slot.value == null ? 'smaller' : 'guess'}
                         data-place={question.type === 'place' ? 'true' : undefined}>
                         <div className={styles.cardCoins}>
-                          <CoinPile tokens={tokens} lang={lang} size="sm" who perch />
+                          <CoinPile tokens={tokens} lang={lang} size="sm" perch />
                         </div>
                         <div className={styles.cardFace}>
                           <span className={styles.slotOdds}>{slot.odds}:1</span>
-                          <span className={styles.slotLabel}>
-                            {slot.key === SMALLER_KEY ? t(lang, 'smallerThanAll') : slot.label}
-                          </span>
+                          {slot.key === SMALLER_KEY ? (
+                            <span className={styles.slotLabel}>{t(lang, 'smallerThanAll')}</span>
+                          ) : question.type === 'place' ? (
+                            <span className={styles.slotLabel}>{slot.label}</span>
+                          ) : (
+                            <AtLeastNumber label={slot.label} className={styles.slotLabel} />
+                          )}
                           {slot.detail && <span className={styles.slotDetail}>{slot.detail}</span>}
                           <span className={styles.slotAuthors}>
                             {slot.authors.map((pid) =>
@@ -912,9 +966,6 @@ export default function HostScreen() {
                 </button>
               )}
             </div>
-            <p className={styles.muted}>
-              {tx(lang, 'lateJoin', {code: <b>{code}</b>})}
-            </p>
           </div>
           <aside className={styles.sidePanel} aria-label={t(lang, 'players')}>
             <h2>{t(lang, 'scores')}</h2>

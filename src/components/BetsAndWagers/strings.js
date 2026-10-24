@@ -30,9 +30,6 @@ const STRINGS = {
     openingRoom: 'Opening a room…',
     copyLink: 'Copy link',
     copied: 'Copied',
-    noCamera: 'No camera? Open /party/play on the site and type the code.',
-    localhostHint:
-      "Phones can't open a localhost link. To test with real phones, serve the site on your network and open this page at your computer's network address instead.",
     players: 'Players',
     nobodyYet: 'Nobody yet. Scan the code to join.',
     topics: 'Topics',
@@ -53,13 +50,10 @@ const STRINGS = {
     // host: rounds
     questionOf: '{topic} · Question {n} of {total}',
     typeGuess: 'Type your guess on your phone',
-    placeChips:
-      'Highest guess at or below the answer wins. Example: 90, with 10 and 95 → 10 wins (95 went over). A1 always comes back.',
-    winRule: 'Highest guess at or below the answer wins.',
-    winRuleExample:
-      'Example: answer 90, guesses 10 and 95 → 10 wins (95 went over). If every guess is over, “Smaller than all” wins.',
-    placeCoins: 'Put one coin on the answer you think is right. A1 pays 2 and always returns.',
+    placeBets: 'Place your coins.',
+    placeCoins: 'Put one coin on the answer you think is right.',
     why: 'Why: {hint}',
+    curiousNote: 'Did you know',
     dragHint: 'Drag a coin onto a card, or tap the card.',
     numpadDelete: 'Delete',
     numpadPoint: 'Decimal point',
@@ -74,11 +68,12 @@ const STRINGS = {
     finalScores: 'Final coins',
     scores: 'Coins',
     reconnecting: '(reconnecting)',
-    lateJoin: 'Late arrivals can still join room {code}.',
     topThree: 'Top three',
     pts: '{n} coins',
     playAgain: 'Play again',
     newRoom: 'New room',
+    menu: 'Menu',
+    menuConfirm: 'Go back to the menu? This game will stop.',
     replacedTitle: 'This room is open in another window',
     replacedBody: 'Only one screen can run the game. Keep playing there, or take the room back here.',
     useThisWindow: 'Use this window',
@@ -102,7 +97,9 @@ const STRINGS = {
     roundOf: '{topic} · {n} of {total}',
     progress: '{done} of {total} locked in',
     leaveParty: 'Leave party',
+    headerExit: 'Exit',
     leaveConfirm: 'Leave the party? Your coins stay on the big screen only until the host removes you.',
+    firstAnswers: 'Board shows the first {n} distinct guesses (earliest lock wins a slot).',
     errRoomNotFound: 'No party with that code. Check the code on the big screen.',
     errRoomFull: 'That party is full ({n} players).',
     errNameTaken: 'Someone already has that name. Add an initial or pick another.',
@@ -166,8 +163,6 @@ const STRINGS = {
     openingRoom: '正在创建房间…',
     copyLink: '复制链接',
     copied: '已复制',
-    noCamera: '没有摄像头？在网站上打开 /party/play 并输入房间码。',
-    localhostHint: '手机无法打开 localhost 链接。要用真实手机测试，请在局域网上运行网站，并用电脑的网络地址打开此页面。',
     players: '玩家',
     nobodyYet: '还没有人加入。扫描二维码即可加入。',
     topics: '题目类别',
@@ -187,11 +182,10 @@ const STRINGS = {
     removeConfirm: '要把 {name} 移出游戏吗？',
     questionOf: '{topic} · 第 {n} 题，共 {total} 题',
     typeGuess: '请在手机上输入你的猜测',
-    placeChips: '押在不超过答案的最高猜测上。例如答案 90，猜测 10 和 95 → 10 赢（95 超了）。A1 永远会回来。',
-    winRule: '不超过答案的最高猜测获胜。',
-    winRuleExample: '例如：答案 90，猜测 10 和 95 → 10 赢（95 超了）。如果所有猜测都超过答案，则“比所有猜测都小”获胜。',
-    placeCoins: '每道选择题只能押一枚硬币。押对的 A1 赢 2 枚，并且会回来。',
+    placeBets: '请下注。',
+    placeCoins: '把一枚硬币押在你认为对的答案上。',
     why: '理由：{hint}',
+    curiousNote: '冷知识',
     dragHint: '把硬币拖到卡片上，或点卡片。',
     numpadDelete: '删除',
     numpadPoint: '小数点',
@@ -206,11 +200,12 @@ const STRINGS = {
     finalScores: '最终硬币',
     scores: '硬币',
     reconnecting: '（重新连接中）',
-    lateJoin: '迟到的同学仍可加入房间 {code}。',
     topThree: '前三名',
     pts: '{n} 枚硬币',
     playAgain: '再玩一局',
     newRoom: '新房间',
+    menu: '菜单',
+    menuConfirm: '返回菜单？本局将结束。',
     replacedTitle: '这个房间已在另一个窗口中打开',
     replacedBody: '只能有一个屏幕主持游戏。你可以在那边继续，或在这里接管房间。',
     useThisWindow: '使用此窗口',
@@ -233,7 +228,9 @@ const STRINGS = {
     roundOf: '{topic} · 第 {n}/{total} 题',
     progress: '已有 {done}/{total} 人确认',
     leaveParty: '退出游戏',
+    headerExit: '退出',
     leaveConfirm: '确定要退出游戏吗？主持人移除你之前，你的硬币仍会显示在大屏幕上。',
+    firstAnswers: '板上只显示最先锁定的 {n} 个不同猜测。',
     errRoomNotFound: '没有找到这个房间码，请核对大屏幕上的房间码。',
     errRoomFull: '这个房间已满（{n} 名玩家）。',
     errNameTaken: '这个名字已经有人用了。加个字母或换一个名字吧。',
@@ -290,7 +287,7 @@ export function t(lang, key, vars = {}) {
   return text.replace(/\{(\w+)\}/g, (_, name) => (vars[name] != null ? String(vars[name]) : `{${name}}`));
 }
 
-/** Like t(), but values may be React nodes: tx('zh', 'lateJoin', {code: <b>ABCD</b>}). */
+/** Like t(), but values may be React nodes. */
 export function tx(lang, key, vars = {}) {
   const text = (STRINGS[lang] && STRINGS[lang][key]) ?? STRINGS.en[key] ?? key;
   return text.split(/(\{\w+\})/).map((part, i) => {
