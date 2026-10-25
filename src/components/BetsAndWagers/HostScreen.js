@@ -53,7 +53,7 @@ import styles from './styles.module.css';
 const HOST_KEY = 'bw-host-v1';
 /** Question ids from recent games, so Start does not deal the same set again. */
 const RECENT_Q_KEY = 'bw-recent-questions-v1';
-const RECENT_Q_KEEP = 48;
+const RECENT_Q_KEEP = 80;
 const REACTION_GAP_MS = 900;
 const REACTION_SHOW_MS = 3600;
 const MAX_REACTIONS_ON_SCREEN = 12;
@@ -130,6 +130,7 @@ function migrateGame(raw) {
   const g = raw && typeof raw === 'object' ? raw : newGame();
   if (!g.nextBot) g.nextBot = 1;
   if (!g.guessAt) g.guessAt = {};
+  if (g.phase === 'end' && !Array.isArray(g.endRoster)) g.endRoster = Object.keys(g.players || {});
   g.packs = migratePackIds(g.packs);
   for (const [id, p] of Object.entries(g.players || {})) {
     normalizePlayer(p);
@@ -194,6 +195,7 @@ function nextRound(g, now) {
   if (g.round >= g.questionIds.length) {
     g.phase = 'end';
     g.deadline = 0;
+    g.endRoster = Object.keys(g.players);
   } else {
     startGuess(g, now);
   }
@@ -542,18 +544,22 @@ export default function HostScreen() {
 
   // ---------------------------------------------------------------- actions
 
+  const dealAndStart = (g, now) => {
+    const stored = readJson(RECENT_Q_KEY);
+    const recent = Array.isArray(stored) ? stored : [];
+    g.questionIds = pickQuestionIds(g.packs, g.rounds, undefined, recent);
+    writeJson(
+      RECENT_Q_KEY,
+      [...g.questionIds, ...recent.filter((id) => !g.questionIds.includes(id))].slice(0, RECENT_Q_KEEP),
+    );
+    g.round = 0;
+    g.endRoster = undefined;
+    resetCoins(g.players);
+    startGuess(g, now);
+  };
   const start = () =>
     commit((g, now) => {
-      const stored = readJson(RECENT_Q_KEY);
-      const recent = Array.isArray(stored) ? stored : [];
-      g.questionIds = pickQuestionIds(g.packs, g.rounds, undefined, recent);
-      writeJson(
-        RECENT_Q_KEY,
-        [...g.questionIds, ...recent.filter((id) => !g.questionIds.includes(id))].slice(0, RECENT_Q_KEEP),
-      );
-      g.round = 0;
-      resetCoins(g.players);
-      startGuess(g, now);
+      dealAndStart(g, now);
     });
   const skip = () =>
     commit((g, now) => {
@@ -562,17 +568,22 @@ export default function HostScreen() {
       else return false;
     });
   const next = () => commit(nextRound);
-  const playAgain = () =>
+  const resetToLobby = () =>
     commit((g) => {
       const players = g.players;
       Object.assign(g, newGame({packs: g.packs, rounds: g.rounds, lockedNames: g.lockedNames}));
       g.players = players;
       resetCoins(players);
     });
+  const playAgain = () =>
+    commit((g, now) => {
+      if (Object.keys(g.players).length < MIN_PLAYERS) return false;
+      dealAndStart(g, now);
+    });
   const backToMenu = () => {
     if (gameRef.current.phase === 'lobby') return;
     if (gameRef.current.phase !== 'end' && !window.confirm(t(lang, 'menuConfirm'))) return;
-    playAgain();
+    resetToLobby();
   };
   const newRoom = () => {
     socketRef.current.send({type: 'leave'});
@@ -711,7 +722,10 @@ export default function HostScreen() {
   };
 
   return (
-    <div className={styles.host} ref={hostRef} lang={lang === 'zh' ? 'zh-Hans' : 'en'}>
+    <div
+      className={`${styles.host} ${g.phase === 'end' ? styles.hostEnd : ''}`}
+      ref={hostRef}
+      lang={lang === 'zh' ? 'zh-Hans' : 'en'}>
       {replacedRef.current && (
         <div className={styles.replaced} role="alertdialog" aria-labelledby="bw-replaced-title">
           <h2 id="bw-replaced-title">{t(lang, 'replacedTitle')}</h2>
@@ -980,47 +994,117 @@ export default function HostScreen() {
       {g.phase === 'end' && (
         <div className={styles.final}>
           <h1>{t(lang, 'finalScores')}</h1>
-          {(() => {
-            const ranking = rankPlayers(g.players);
-            const podium = ranking.slice(0, 3);
-            if (podium.length < 3) return null;
-            // Classic podium order: 2nd, 1st, 3rd.
-            return (
-              <ol className={styles.podium} aria-label={t(lang, 'topThree')}>
-                {[podium[1], podium[0], podium[2]].map((row, i) => (
-                  <li key={row.playerId} data-place={[2, 1, 3][i]}>
-                    <span className={styles.podiumName}>
-                      <Avatar avatar={row.avatar} color={row.color} size="lg" /> {row.name}
-                    </span>
-                    <span className={styles.podiumScore}>{t(lang, 'pts', {n: row.coins})}</span>
-                    <span className={styles.podiumStep} style={{borderTopColor: row.color}}>
-                      {row.rank}
-                    </span>
-                  </li>
-                ))}
+          <div className={styles.finalGrid}>
+            <div className={styles.finalMain}>
+              {(() => {
+                const finished = new Set(Array.isArray(g.endRoster) ? g.endRoster : playerIds);
+                const ranking = rankPlayers(
+                  Object.fromEntries(Object.entries(g.players).filter(([id]) => finished.has(id))),
+                );
+                const podium = ranking.slice(0, 3);
+                if (podium.length < 3) return null;
+                return (
+                  <ol className={styles.podium} aria-label={t(lang, 'topThree')}>
+                    {[podium[1], podium[0], podium[2]].map((row, i) => (
+                      <li key={row.playerId} data-place={[2, 1, 3][i]}>
+                        <span className={styles.podiumName}>
+                          <Avatar avatar={row.avatar} color={row.color} size="md" /> {row.name}
+                        </span>
+                        <span className={styles.podiumScore}>{t(lang, 'pts', {n: row.coins})}</span>
+                        <span className={styles.podiumStep} style={{borderTopColor: row.color}}>
+                          {row.rank}
+                        </span>
+                      </li>
+                    ))}
+                  </ol>
+                );
+              })()}
+              <ol className={styles.ranking}>
+                {(() => {
+                  const finished = new Set(Array.isArray(g.endRoster) ? g.endRoster : playerIds);
+                  const ranking = rankPlayers(
+                    Object.fromEntries(Object.entries(g.players).filter(([id]) => finished.has(id))),
+                  );
+                  return ranking.slice(ranking.length >= 3 ? 3 : 0).map((row) => (
+                    <li key={row.playerId} data-rank={row.rank}>
+                      <span className={styles.rank}>{row.rank}</span>
+                      <Avatar avatar={row.avatar} color={row.color} />
+                      <span className={styles.scoreName}>
+                        {row.name}
+                        {row.bot && <span className={styles.botTag}>{t(lang, 'bot')}</span>}
+                      </span>
+                      <span className={styles.scoreValue}>{row.coins}</span>
+                    </li>
+                  ));
+                })()}
               </ol>
-            );
-          })()}
-          <ol className={styles.ranking}>
-            {rankPlayers(g.players).slice(Object.keys(g.players).length >= 3 ? 3 : 0).map((row) => (
-              <li key={row.playerId} data-rank={row.rank}>
-                <span className={styles.rank}>{row.rank}</span>
-                <Avatar avatar={row.avatar} color={row.color} />
-                <span className={styles.scoreName}>
-                  {row.name}
-                  {row.bot && <span className={styles.botTag}>{t(lang, 'bot')}</span>}
-                </span>
-                <span className={styles.scoreValue}>{row.coins}</span>
-              </li>
-            ))}
-          </ol>
-          <div className={styles.controls}>
-            <button type="button" className="button button--primary button--lg" onClick={playAgain}>
-              {t(lang, 'playAgain')}
-            </button>
-            <button type="button" className="button button--secondary button--lg" onClick={newRoom}>
-              {t(lang, 'newRoom')}
-            </button>
+              <div className={styles.controls}>
+                <button
+                  type="button"
+                  className="button button--primary button--lg"
+                  disabled={playerIds.length < MIN_PLAYERS}
+                  onClick={playAgain}>
+                  {t(lang, 'playAgain')}
+                </button>
+                <button type="button" className="button button--secondary button--lg" onClick={newRoom}>
+                  {t(lang, 'newRoom')}
+                </button>
+              </div>
+              <div className={styles.packRow}>
+                <button
+                  type="button"
+                  className="button button--sm button--secondary"
+                  disabled={playerIds.length >= MAX_PLAYERS}
+                  onClick={() => addBots(1)}>
+                  {t(lang, 'addBot')}
+                </button>
+                <button
+                  type="button"
+                  className="button button--sm button--secondary"
+                  disabled={playerIds.length >= MAX_PLAYERS}
+                  onClick={() => addBots(3)}>
+                  {t(lang, 'addBots', {n: 3})}
+                </button>
+              </div>
+              <section className={styles.finalNew} aria-label={t(lang, 'newPlayers')}>
+                <h2>{t(lang, 'newPlayers')}</h2>
+                {(() => {
+                  const seen = new Set(Array.isArray(g.endRoster) ? g.endRoster : playerIds);
+                  const newcomers = playerIds.filter((pid) => !seen.has(pid));
+                  if (!newcomers.length) return null;
+                  return (
+                    <ul className={styles.playerList}>
+                      {newcomers.map((pid) => (
+                        <li
+                          key={pid}
+                          className={g.players[pid].connected ? '' : styles.offline}
+                          style={{'--seat': g.players[pid].color}}>
+                          <Coin kind="a1" color={g.players[pid].color} avatar={g.players[pid].avatar} size="sm" />
+                          {g.players[pid].name}
+                          {isBot(g.players[pid], pid) && <span className={styles.botTag}>{t(lang, 'bot')}</span>}
+                          <button
+                            type="button"
+                            className={styles.kick}
+                            onClick={() => kick(pid)}
+                            aria-label={t(lang, 'removeName', {name: g.players[pid].name})}
+                            title={t(lang, 'removePlayer')}>
+                            ×
+                          </button>
+                        </li>
+                      ))}
+                    </ul>
+                  );
+                })()}
+              </section>
+            </div>
+            <section className={styles.finalJoin} aria-label={t(lang, 'joinOnPhone')}>
+              <div className={styles.finalCode}>{code || '····'}</div>
+              {qr ? (
+                <img className={styles.finalQr} src={qr} alt={t(lang, 'qrFor', {url: joinUrl})} />
+              ) : (
+                <div className={`${styles.qrPlaceholder} ${styles.finalQr}`} />
+              )}
+            </section>
           </div>
         </div>
       )}

@@ -16,6 +16,13 @@ export default function PartyPlayPage() {
         noFooter>
         <BrowserOnly fallback={<p className="container margin-vert--lg">Loading…</p>}>
           {() => {
+            // The host's join link carries ?game=<id>; no game is Bets & Wagers.
+            const {findGame} = require('@site/src/components/party/registry');
+            const mod = findGame(new URLSearchParams(window.location.search).get('game'));
+            if (mod) {
+              const PlayerShell = require('@site/src/components/party/core/PlayerShell').default;
+              return <PlayerShell mod={mod} />;
+            }
             const PlayerController = require('@site/src/components/BetsAndWagers/PlayerController').default;
             return <PlayerController />;
           }}

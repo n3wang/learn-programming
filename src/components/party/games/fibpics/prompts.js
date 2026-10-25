@@ -1,0 +1,66 @@
+/**
+ * Fib Pics prompt decks. "class" comes from the 初一 / 初二 math lessons and
+ * the electronics / robotics pages; "silly" is for warm-ups.
+ */
+export const DECKS = {
+  class: [
+    {en: 'A straight angle', zh: '平角'},
+    {en: 'Ray AB', zh: '射线 AB'},
+    {en: 'Complementary angles', zh: '余角'},
+    {en: 'Angle bisector', zh: '角平分线'},
+    {en: 'Two points make one line', zh: '两点确定一条直线'},
+    {en: 'The shortest path is a segment', zh: '两点之间线段最短'},
+    {en: 'A hexagonal prism', zh: '六棱柱'},
+    {en: 'A clock at 3:25', zh: '三点二十五分的钟'},
+    {en: 'Bolts and nuts in a factory', zh: '工厂里的螺钉和螺母'},
+    {en: 'Chickens and rabbits in one cage', zh: '鸡兔同笼'},
+    {en: 'A number line with x > 3', zh: '数轴上的 x > 3'},
+    {en: 'Solving a system of equations', zh: '解方程组'},
+    {en: 'Two trains meeting', zh: '两列火车相遇'},
+    {en: 'A shop selling at 20% off', zh: '商店打八折'},
+    {en: 'Profit and loss', zh: '盈利和亏损'},
+    {en: 'A charging capacitor', zh: '电容正在充电'},
+    {en: 'A servo motor', zh: '舵机'},
+    {en: 'An LED with a resistor', zh: '串联电阻的 LED'},
+    {en: 'Ohm’s law', zh: '欧姆定律'},
+    {en: 'A Mars rover', zh: '火星车'},
+    {en: 'A robot arm', zh: '机械臂'},
+    {en: 'An ultrasonic distance sensor', zh: '超声波测距'},
+    {en: 'Gauss adding 1 to 100', zh: '高斯从 1 加到 100'},
+    {en: 'A prime number', zh: '质数'},
+  ],
+  silly: [
+    {en: 'A cat running a bank', zh: '开银行的猫'},
+    {en: 'The teacher on holiday', zh: '放假的老师'},
+    {en: 'A dinosaur doing homework', zh: '写作业的恐龙'},
+    {en: 'Breakfast on the Moon', zh: '在月球上吃早餐'},
+    {en: 'A haunted fridge', zh: '闹鬼的冰箱'},
+    {en: 'Penguin in a hurry', zh: '赶时间的企鹅'},
+    {en: 'The world’s smallest elephant', zh: '世界上最小的大象'},
+    {en: 'A robot falling in love', zh: '恋爱中的机器人'},
+    {en: 'A dragon at the dentist', zh: '看牙医的龙'},
+    {en: 'Rain made of noodles', zh: '下面条雨'},
+    {en: 'A snowman in summer', zh: '夏天的雪人'},
+    {en: 'Superhero grandma', zh: '超级英雄奶奶'},
+    {en: 'A very confused GPS', zh: '迷路的导航'},
+    {en: 'Fish riding a bicycle', zh: '骑自行车的鱼'},
+    {en: 'A volcano sneezing', zh: '打喷嚏的火山'},
+    {en: 'The last slice of pizza', zh: '最后一块披萨'},
+  ],
+};
+
+/** Ready-made wrong titles for bots, so their fakes look plausible. */
+export const DECOYS = [
+  {en: 'A very tired triangle', zh: '很累的三角形'},
+  {en: 'My homework after the dog', zh: '被狗吃掉的作业'},
+  {en: 'A spaceship parking badly', zh: '乱停的飞船'},
+  {en: 'Monday morning', zh: '星期一早上'},
+  {en: 'A map of my room', zh: '我房间的地图'},
+  {en: 'Two friends arguing', zh: '吵架的两个朋友'},
+  {en: 'An angry calculator', zh: '生气的计算器'},
+  {en: 'The secret of the universe', zh: '宇宙的秘密'},
+  {en: 'A broken umbrella', zh: '坏掉的雨伞'},
+  {en: 'Dancing numbers', zh: '跳舞的数字'},
+  {en: 'A pencil’s dream', zh: '铅笔的梦'},
+  {en: 'The school bus at night', zh: '夜里的校车'},
+];

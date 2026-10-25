@@ -192,6 +192,10 @@ export default function PlayerController() {
         break;
       case 'room_info':
         setRoomInfo(msg);
+        // A code typed here for another /party game: open that game's phone page.
+        if (msg.found && msg.settings?.game && msg.settings.game !== 'wagers') {
+          window.location.replace(`${window.location.pathname}?room=${msg.code}&game=${msg.settings.game}`);
+        }
         break;
       case 'state': {
         // The host may have swapped a typed name for a safe one: rejoin with that.
