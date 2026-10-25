@@ -6,14 +6,23 @@
  * row. "Place it" questions skip guessing: players put coins on fixed options.
  */
 
-import mathPack from '@site/src/data/party/math.json';
-import physicsPack from '@site/src/data/party/physics.json';
+import grade7Pack from '@site/src/data/party/grade7.json';
+import grade8Pack from '@site/src/data/party/grade8.json';
+import classicPack from '@site/src/data/party/classic.json';
 import electronicsPack from '@site/src/data/party/electronics.json';
-import roboticsPack from '@site/src/data/party/robotics.json';
 import {PLACE_ODDS, placePack} from './placePack';
 import {noteFor} from '@site/src/data/party/notes';
 
-export const PACKS = [mathPack, physicsPack, electronicsPack, roboticsPack, placePack];
+export const PACKS = [grade7Pack, grade8Pack, classicPack, electronicsPack, placePack];
+/** Deck ids from older saved games → the deck that now holds their questions. */
+const RENAMED_PACKS = {math: 'classic', physics: 'classic', robotics: 'electronics'};
+
+/** A saved deck selection with old ids mapped forward and unknown ones dropped; all decks if nothing is left. */
+export function migratePackIds(packIds) {
+  const known = new Set(PACKS.map((pack) => pack.id));
+  const ids = (Array.isArray(packIds) ? packIds : []).map((id) => RENAMED_PACKS[id] || id).filter((id) => known.has(id));
+  return ids.length ? [...new Set(ids)] : PACKS.map((pack) => pack.id);
+}
 export {PLACE_ODDS};
 /** The reusable A1 coin every seat always has. It is never spent. */
 export const A1_COINS = 1;

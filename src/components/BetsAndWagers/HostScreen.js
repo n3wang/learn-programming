@@ -30,6 +30,7 @@ import {
   localized,
   unitSuffix,
   pickQuestionIds,
+  migratePackIds,
   questionsForPacks,
   rankPlayers,
   sanitizeBet,
@@ -129,6 +130,7 @@ function migrateGame(raw) {
   const g = raw && typeof raw === 'object' ? raw : newGame();
   if (!g.nextBot) g.nextBot = 1;
   if (!g.guessAt) g.guessAt = {};
+  g.packs = migratePackIds(g.packs);
   for (const [id, p] of Object.entries(g.players || {})) {
     normalizePlayer(p);
     if (isBot(p, id)) p.connected = true;
@@ -764,14 +766,8 @@ export default function HostScreen() {
                   <li
                     key={pid}
                     className={g.players[pid].connected ? '' : styles.offline}
-                    style={{'--seat': g.players[pid].color, borderColor: g.players[pid].color}}>
+                    style={{'--seat': g.players[pid].color}}>
                     <Coin kind="a1" color={g.players[pid].color} avatar={g.players[pid].avatar} size="sm" />
-                    <AnimatedBank
-                      coins={playerCoins(g.players[pid])}
-                      color={g.players[pid].color}
-                      avatar={g.players[pid].avatar}
-                      playKey="lobby"
-                    />
                     {g.players[pid].name}
                     {isBot(g.players[pid], pid) && <span className={styles.botTag}>{t(lang, 'bot')}</span>}
                     <button
@@ -804,14 +800,22 @@ export default function HostScreen() {
             </div>
 
             <h2>{t(lang, 'topics')}</h2>
-            <div className={styles.packRow}>
-              {PACKS.map((pack) => (
-                <label key={pack.id} className={styles.packToggle}>
-                  <input type="checkbox" checked={g.packs.includes(pack.id)} onChange={() => togglePack(pack.id)} />
-                  {lang === 'zh' ? pack.titleZh : pack.title}{' '}
-                  <span className={styles.muted}>({pack.questions.length})</span>
-                </label>
-              ))}
+            <div className={styles.packRow} role="group" aria-label={t(lang, 'topics')}>
+              {PACKS.map((pack) => {
+                const on = g.packs.includes(pack.id);
+                return (
+                  <button
+                    key={pack.id}
+                    type="button"
+                    role="checkbox"
+                    aria-checked={on}
+                    className={`button button--sm ${styles.packChip} ${on ? styles.packChipOn : ''}`}
+                    onClick={() => togglePack(pack.id)}>
+                    {lang === 'zh' ? pack.titleZh : pack.title}{' '}
+                    <span className={styles.muted}>({pack.questions.length})</span>
+                  </button>
+                );
+              })}
             </div>
 
             <h2>{t(lang, 'names')}</h2>
@@ -828,7 +832,6 @@ export default function HostScreen() {
                 </button>
               ))}
             </div>
-            <p className={styles.muted}>{t(lang, g.lockedNames ? 'lockedNamesHint' : 'freeNamesHint')}</p>
 
             <h2>{t(lang, 'rounds')}</h2>
             <div className={styles.packRow}>
@@ -1027,10 +1030,12 @@ export default function HostScreen() {
           if (!p) return null;
           return (
             <div key={r.uid} className={styles.reaction} style={{left: `${r.x}%`}}>
-              <span className={styles.bubble} role="img" aria-label={t(lang, 'reactedBy', {name: p.name, emoji: r.emoji})}>
-                {r.emoji}
+              <span className={styles.reactionFace}>
+                <Avatar avatar={p.avatar} color={p.color} size="lg" />
+                <span className={styles.bubble} role="img" aria-label={t(lang, 'reactedBy', {name: p.name, emoji: r.emoji})}>
+                  {r.emoji}
+                </span>
               </span>
-              <Avatar avatar={p.avatar} color={p.color} size="lg" />
               <span className={styles.reactionName}>{p.name}</span>
             </div>
           );

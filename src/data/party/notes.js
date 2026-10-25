@@ -417,14 +417,6 @@ Unsigned 8-bit: $0\\ldots 255$. That is why old video-game health bars stop at 2
     en: `Nominal **120 V** (really $\\approx 110$–$125$). Edison’s early DC was 110 V; Tesla/Westinghouse AC kept a similar number so bulbs still fitted.`,
     zh: `标称 **120 V**（实际大约 $110$–$125$）。爱迪生早期直流是 110 V；特斯拉/威斯汀豪斯的交流电沿用相近数字，好让灯泡还能用。`,
   },
-  'ohm-12v-4ohm': {
-    en: `$$I=\\frac{V}{R}=\\frac{12}{4}=3\\ \\mathrm{A}$$
-
-Same Ohm as the electronics pack — current is what the battery must actually supply.`,
-    zh: `$$I=\\frac{V}{R}=\\frac{12}{4}=3\\ \\mathrm{A}$$
-
-和电子题同一条欧姆定律——这就是电池真要吐出的电流。`,
-  },
   'ohm-10v-5ohm': {
     en: `$$I=\\frac{10}{5}=2\\ \\mathrm{A}$$`,
     zh: `$$I=\\frac{10}{5}=2\\ \\mathrm{A}$$`,
@@ -464,6 +456,402 @@ A “kilosecond” is $1000\\,\\mathrm{s}\\approx 17$ minutes — SI people quie
     zh: `$$60\\times 60 = 3600$$
 
 一千秒大约 17 分钟——国际单位的人悄悄更喜欢用秒，而不是小时。`,
+  },
+  'el-series': {
+    en: `In series the resistances simply add:
+
+$$R = 220 + 330 = 550\\ \\Omega$$`,
+    zh: `串联时电阻直接相加：
+
+$$R = 220 + 330 = 550\\ \\Omega$$`,
+  },
+  'el-divider': {
+    en: `A voltage divider gives $V_{out} = V\\cdot\\frac{R_2}{R_1+R_2}$. Equal resistors split it in half: $9\\div 2 = 4.5\\ \\mathrm{V}$.`,
+    zh: `分压公式 $V_{出} = V\\cdot\\frac{R_2}{R_1+R_2}$。两个电阻相等就对半分：$9\\div 2 = 4.5\\ \\mathrm{V}$。`,
+  },
+  'robo-uno-digital': {
+    en: `Pins **D0–D13**: fourteen. Six of them (3, 5, 6, 9, 10, 11) can also do PWM, and D0/D1 double as the serial port.`,
+    zh: `**D0–D13**，一共十四个。其中 3、5、6、9、10、11 六个还能输出 PWM，D0/D1 同时是串口。`,
+  },
+  'robo-uno-clock': {
+    en: `The ATmega328P runs from a **16 MHz** crystal: sixteen million ticks a second, about one simple instruction per tick.`,
+    zh: `ATmega328P 用 **16 MHz** 晶振：每秒一千六百万拍，简单指令差不多一拍一条。`,
+  },
+  'robo-gpio-volts': {
+    en: `Raspberry Pi and ESP32 pins are **3.3 V** logic. Feeding them 5 V from an Uno-style sensor can damage them — use a level shifter or a divider.`,
+    zh: `树莓派和 ESP32 都是 **3.3 V** 逻辑。直接接 5 V 的传感器信号可能烧脚，要用电平转换或分压。`,
+  },
+  'robo-pwm-127': {
+    en: `\`analogWrite\` takes $0$–$255$:
+
+$$\\frac{127}{255}\\approx 49.8\\% \\approx 50\\%$$
+
+The pin is on about half the time, so an LED looks about half as bright.`,
+    zh: `\`analogWrite\` 取值 $0$–$255$：
+
+$$\\frac{127}{255}\\approx 49.8\\% \\approx 50\\%$$
+
+引脚大约一半时间是高电平，LED 看起来大约一半亮。`,
+  },
+  'robo-sonar': {
+    en: `Sound goes there **and back**, at about $0.0343\\ \\mathrm{cm/\\mu s}$:
+
+$$d = \\frac{580\\times 0.0343}{2}\\approx 10\\ \\mathrm{cm}$$
+
+That is why HC-SR04 code often just divides the echo time by 58.`,
+    zh: `声音要**去再回**，速度约 $0.0343\\ \\mathrm{cm/\\mu s}$：
+
+$$d = \\frac{580\\times 0.0343}{2}\\approx 10\\ \\mathrm{cm}$$
+
+所以 HC-SR04 的程序常常直接把回波时间除以 58。`,
+  },
+  'g7-solve': {
+    en: `Move $x$ terms left, numbers right:
+
+$$3x + 2x = 32 - 7,\\quad 5x = 25,\\quad x = 5$$
+
+Check: $3\\cdot 5+7 = 22 = 32-10$.`,
+    zh: `移项：含 $x$ 的到左边，数字到右边。
+
+$$3x + 2x = 32 - 7,\\quad 5x = 25,\\quad x = 5$$
+
+检验：$3\\times 5+7 = 22 = 32-10$。`,
+  },
+  'g7-bolt-nut': {
+    en: `Let $x$ make bolts. Nuts must be twice the bolts:
+
+$$2000(22-x) = 2\\times 1200x \\Rightarrow 44000 = 4400x \\Rightarrow x = 10$$`,
+    zh: `设 $x$ 人生产螺钉。螺母数是螺钉数的 2 倍：
+
+$$2000(22-x) = 2\\times 1200x \\Rightarrow 44000 = 4400x \\Rightarrow x = 10$$`,
+  },
+  'g7-table-legs': {
+    en: `Let $x$ m³ go to tops. Legs $= 4\\times$ tops:
+
+$$400(12-x) = 4\\times 20x \\Rightarrow 4800 = 480x \\Rightarrow x = 10$$
+
+That is 200 tables; the other 2 m³ make 800 legs.`,
+    zh: `设 $x$ m³ 做桌面。桌腿数 $= 4\\times$ 桌面数：
+
+$$400(12-x) = 4\\times 20x \\Rightarrow 4800 = 480x \\Rightarrow x = 10$$
+
+正好 200 张桌子，剩下 2 m³ 做 800 条腿。`,
+  },
+  'g7-book-sorting': {
+    en: `Call the whole job $1$; one person does $\\frac{1}{40}$ per hour.
+
+$$\\frac{4x}{40} + \\frac{8(x+2)}{40} = 1 \\Rightarrow 12x + 16 = 40 \\Rightarrow x = 2$$`,
+    zh: `把总工作量看作 $1$，一人每小时做 $\\frac{1}{40}$。
+
+$$\\frac{4x}{40} + \\frac{8(x+2)}{40} = 1 \\Rightarrow 12x + 16 = 40 \\Rightarrow x = 2$$`,
+  },
+  'g7-profit-pair': {
+    en: `Percentages are of each **cost**, not the price:
+
+$$1.25a = 60 \\Rightarrow a = 48,\\qquad 0.75b = 60 \\Rightarrow b = 80$$
+
+Cost $128$, takings $120$: a loss of **8**. Same price, ±p%, always loses.`,
+    zh: `百分比是相对各自的**进价**：
+
+$$1.25a = 60 \\Rightarrow a = 48,\\qquad 0.75b = 60 \\Rightarrow b = 80$$
+
+进价共 $128$，收入 $120$，亏 **8** 元。售价相同、一盈一亏同样百分比，总是亏。`,
+  },
+  'g7-markup': {
+    en: `Price $= 1.5x\\times 0.8 = 1.2x$, so
+
+$$1.2x - x = 28 \\Rightarrow x = 140$$`,
+    zh: `售价 $= 1.5x\\times 0.8 = 1.2x$，所以
+
+$$1.2x - x = 28 \\Rightarrow x = 140$$`,
+  },
+  'g7-cost-60': {
+    en: `Profit is 25% **of the cost**: $60\\times 0.25 = 15$, so the price is $60 + 15 = 75$.`,
+    zh: `利润是**进价**的 25%：$60\\times 25\\% = 15$，售价 $= 60 + 15 = 75$。`,
+  },
+  'g7-price-cut': {
+    en: `Revenue stays the same when
+
+$$0.8(1+x) = 1 \\Rightarrow 1+x = 1.25 \\Rightarrow x = 25\\%$$
+
+Not 20%: the cut is taken from a bigger base than the gain.`,
+    zh: `总金额不变：
+
+$$0.8(1+x) = 1 \\Rightarrow 1+x = 1.25 \\Rightarrow x = 25\\%$$
+
+不是 20%：降价和增量的「基数」不一样。`,
+  },
+  'g7-quota': {
+    en: `Equal per-person output:
+
+$$\\frac{4x+20}{4} = \\frac{6x-20}{5} \\Rightarrow 20x + 100 = 24x - 80 \\Rightarrow x = 45$$`,
+    zh: `人均相等：
+
+$$\\frac{4x+20}{4} = \\frac{6x-20}{5} \\Rightarrow 20x + 100 = 24x - 80 \\Rightarrow x = 45$$`,
+  },
+  'g7-promo': {
+    en: `For $100\\le t<200$ the first deal costs $t-50$:
+
+$$t - 50 = 0.6t \\Rightarrow 0.4t = 50 \\Rightarrow t = 125$$
+
+Cheaper than 125? Take 40% off. Dearer? Take the 50 off.`,
+    zh: `$100\\le t<200$ 时满减实付 $t-50$：
+
+$$t - 50 = 0.6t \\Rightarrow 0.4t = 50 \\Rightarrow t = 125$$
+
+低于 125 元选六折，高于 125 元选满减。`,
+  },
+  'g7-diophantus': {
+    en: `$$\\frac{x}{6}+\\frac{x}{12}+\\frac{x}{7}+5+\\frac{x}{2}+4 = x$$
+
+The fractions add to $\\frac{75}{84}x$, so $\\frac{9}{84}x = 9$ and $x = 84$.`,
+    zh: `$$\\frac{x}{6}+\\frac{x}{12}+\\frac{x}{7}+5+\\frac{x}{2}+4 = x$$
+
+分数部分合起来是 $\\frac{75}{84}x$，所以 $\\frac{9}{84}x = 9$，$x = 84$。`,
+  },
+  'g7-unbeaten': {
+    en: `Unbeaten means 0 losses, so draws $= 14 - w$:
+
+$$3w + (14-w) = 28 \\Rightarrow 2w = 14 \\Rightarrow w = 7$$`,
+    zh: `不败就是负 0 场，平场 $= 14 - w$：
+
+$$3w + (14-w) = 28 \\Rightarrow 2w = 14 \\Rightarrow w = 7$$`,
+  },
+  'g7-cube-edges': {
+    en: `4 on top, 4 on the bottom, 4 standing up: **12**. A cube also has 6 faces and 8 vertices — and $8 - 12 + 6 = 2$.`,
+    zh: `上面 4 条、下面 4 条、竖着 4 条，共 **12** 条。正方体还有 6 个面、8 个顶点，而且 $8 - 12 + 6 = 2$。`,
+  },
+  'g7-hex-prism': {
+    en: `Two hexagon ends plus one rectangle per side: $2 + 6 = 8$. An $n$-sided prism has $n + 2$ faces.`,
+    zh: `上下两个六边形底面，加上每条边一个侧面：$2 + 6 = 8$。$n$ 棱柱有 $n + 2$ 个面。`,
+  },
+  'g7-segments': {
+    en: `Every pair of points makes a segment:
+
+$$\\frac{5\\times 4}{2} = 10$$`,
+    zh: `任意两点确定一条线段：
+
+$$\\frac{5\\times 4}{2} = 10$$`,
+  },
+  'g7-four-lines': {
+    en: `Each pair of lines can cross once: $1, 3, 6, \\ldots$ — for $n$ lines at most $\\frac{n(n-1)}{2}$, so 4 lines give **6**.`,
+    zh: `每两条直线最多一个交点：$1, 3, 6, \\ldots$——$n$ 条直线最多 $\\frac{n(n-1)}{2}$ 个，4 条就是 **6** 个。`,
+  },
+  'g7-extend-ab': {
+    en: `$AC = AB + \\frac{1}{3}AB = \\frac{4}{3}AB$ and $AC = 2\\,DC = 4$, so
+
+$$AB = 4\\times\\frac{3}{4} = 3$$`,
+    zh: `$AC = AB + \\frac{1}{3}AB = \\frac{4}{3}AB$，又 $AC = 2\\,DC = 4$，所以
+
+$$AB = 4\\times\\frac{3}{4} = 3$$`,
+  },
+  'g7-deg-min': {
+    en: `$1^\\circ = 60'$, so $0.4^\\circ = 0.4\\times 60' = 24'$.`,
+    zh: `$1^\\circ = 60'$，所以 $0.4^\\circ = 0.4\\times 60' = 24'$。`,
+  },
+  'g7-deg-sec': {
+    en: `$1^\\circ = 60'$ and $1' = 60''$, so $1^\\circ = 60\\times 60 = 3600''$ — the same 60s as an hour.`,
+    zh: `$1^\\circ = 60'$，$1' = 60''$，所以 $1^\\circ = 60\\times 60 = 3600''$——和一小时的进率一样。`,
+  },
+  'g7-supplement': {
+    en: `$180^\\circ - 150^\\circ = 30^\\circ$ is the angle; its complement is $90^\\circ - 30^\\circ = 60^\\circ$. A shortcut: supplement − complement is always $90^\\circ$.`,
+    zh: `这个角是 $180^\\circ - 150^\\circ = 30^\\circ$，余角是 $90^\\circ - 30^\\circ = 60^\\circ$。捷径：补角比余角总是大 $90^\\circ$。`,
+  },
+  'g7-sup-3comp': {
+    en: `$$180 - x = 3(90 - x) \\Rightarrow 180 - x = 270 - 3x \\Rightarrow x = 45$$`,
+    zh: `$$180 - x = 3(90 - x) \\Rightarrow 180 - x = 270 - 3x \\Rightarrow x = 45$$`,
+  },
+  'g7-minute-hand': {
+    en: `A full turn in 60 minutes: $360^\\circ\\div 60 = 6^\\circ$. The hour hand is slower: $30^\\circ$ an hour, $0.5^\\circ$ a minute.`,
+    zh: `60 分钟转一整圈：$360^\\circ\\div 60 = 6^\\circ$。时针慢得多：每小时 $30^\\circ$，每分钟 $0.5^\\circ$。`,
+  },
+  'g7-clock-325': {
+    en: `Minute hand: $25\\times 6 = 150^\\circ$. Hour hand: $3\\times 30 + 25\\times 0.5 = 102.5^\\circ$.
+
+$$150 - 102.5 = 47.5^\\circ$$`,
+    zh: `分针：$25\\times 6 = 150^\\circ$。时针：$3\\times 30 + 25\\times 0.5 = 102.5^\\circ$。
+
+$$150 - 102.5 = 47.5^\\circ$$`,
+  },
+  'g7-bisect-twice': {
+    en: `Each bisection halves: $\\angle AOC = 2\\times 35 = 70^\\circ$, then $\\angle AOB = 2\\times 70 = 140^\\circ$.`,
+    zh: `每平分一次就减半，倒推回去翻倍：$\\angle AOC = 2\\times 35 = 70^\\circ$，$\\angle AOB = 2\\times 70 = 140^\\circ$。`,
+  },
+  'g8-basketball': {
+    en: `$$\\begin{cases} x + y = 22 \\\\ 2x + y = 40 \\end{cases}$$
+
+Subtract: $x = 18$ wins, $y = 4$ losses.`,
+    zh: `$$\\begin{cases} x + y = 22 \\\\ 2x + y = 40 \\end{cases}$$
+
+两式相减：胜 $x = 18$ 场，负 $y = 4$ 场。`,
+  },
+  'g8-positive-solutions': {
+    en: `$y = 7 - 2x$ must stay positive: $x = 1, 2, 3$ give $y = 5, 3, 1$. **3** pairs — one equation alone has many solutions.`,
+    zh: `$y = 7 - 2x$ 要是正整数：$x = 1, 2, 3$ 时 $y = 5, 3, 1$，共 **3** 组。一个二元一次方程单独有很多组解。`,
+  },
+  'g8-tickets': {
+    en: `$$\\begin{cases} x + y = 30 \\\\ 50x + 30y = 1140 \\end{cases}$$
+
+$50x + 30(30-x) = 1140 \\Rightarrow 20x = 240 \\Rightarrow x = 12$.`,
+    zh: `$$\\begin{cases} x + y = 30 \\\\ 50x + 30y = 1140 \\end{cases}$$
+
+$50x + 30(30-x) = 1140 \\Rightarrow 20x = 240 \\Rightarrow x = 12$。`,
+  },
+  'g8-chicken-rabbit': {
+    en: `$$\\begin{cases} x + y = 35 \\\\ 2x + 4y = 94 \\end{cases}$$
+
+Halve the second and subtract: $y = 47 - 35 = 12$ rabbits, 23 chickens. An ancient puzzle from the *Sunzi Suanjing*.`,
+    zh: `$$\\begin{cases} x + y = 35 \\\\ 2x + 4y = 94 \\end{cases}$$
+
+第二式除以 2 再减第一式：兔 $y = 47 - 35 = 12$ 只，鸡 23 只。出自《孙子算经》。`,
+  },
+  'g8-cattle': {
+    en: `$$\\begin{cases} 30x + 15y = 675 \\\\ 42x + 20y = 940 \\end{cases}$$
+
+From the first, $y = 45 - 2x$; substitute: $2x + 900 = 940$, so $x = 20$ kg and $y = 5$ kg.`,
+    zh: `$$\\begin{cases} 30x + 15y = 675 \\\\ 42x + 20y = 940 \\end{cases}$$
+
+由第一式 $y = 45 - 2x$，代入得 $2x + 900 = 940$，大牛 $x = 20$ kg，小牛 $y = 5$ kg。`,
+  },
+  'g8-trucks': {
+    en: `$$\\begin{cases} 2x + 3y = 15.5 \\\\ 5x + 6y = 35 \\end{cases}$$
+
+Double the first and subtract: $x = 4$, then $y = 2.5$. So $3\\times 4 + 5\\times 2.5 = 24.5$ t.`,
+    zh: `$$\\begin{cases} 2x + 3y = 15.5 \\\\ 5x + 6y = 35 \\end{cases}$$
+
+第一式乘 2 再相减：$x = 4$，$y = 2.5$。所以 $3\\times 4 + 5\\times 2.5 = 24.5$ t。`,
+  },
+  'g8-slopes': {
+    en: `Minutes become hours:
+
+$$\\frac{x}{30} + \\frac{y}{40} = \\frac{54}{60},\\qquad \\frac{x}{50} + \\frac{y}{40} = \\frac{42}{60}$$
+
+Subtract: $x = 15$ km of slope, then $y = 16$ km flat — **31** km.`,
+    zh: `分钟化成小时：
+
+$$\\frac{x}{30} + \\frac{y}{40} = \\frac{54}{60},\\qquad \\frac{x}{50} + \\frac{y}{40} = \\frac{42}{60}$$
+
+相减得坡路 $x = 15$ km，平路 $y = 16$ km，全程 **31** km。`,
+  },
+  'g8-grain': {
+    en: `$$\\begin{cases} x + y = 450 \\\\ 0.6y - 0.4x = 30 \\end{cases}$$
+
+So $x = 240$, $y = 210$. Check: $126 - 96 = 30$.`,
+    zh: `$$\\begin{cases} x + y = 450 \\\\ 0.6y - 0.4x = 30 \\end{cases}$$
+
+解得 $x = 240$，$y = 210$。检验：剩 $126 - 96 = 30$ t。`,
+  },
+  'g8-pens': {
+    en: `$5x + 3y = 19$ with whole numbers. Try $x = 1, 2, 3$: only $x = 2$ leaves $9$, a multiple of 3, so $y = 3$.`,
+    zh: `$5x + 3y = 19$，都是正整数。试 $x = 1, 2, 3$：只有 $x = 2$ 剩下 9 元，是 3 的倍数，$y = 3$。`,
+  },
+  'g8-water': {
+    en: `$$\\begin{cases} 12x + 2y = 37.6 \\\\ 12x + 5y = 47.2 \\end{cases}$$
+
+Subtract: $3y = 9.6$, $y = 3.2$; then $x = 2.6$.`,
+    zh: `$$\\begin{cases} 12x + 2y = 37.6 \\\\ 12x + 5y = 47.2 \\end{cases}$$
+
+相减：$3y = 9.6$，$y = 3.2$；再得 $x = 2.6$。`,
+  },
+  'g8-ring-run': {
+    en: `Laps per minute add when running towards each other and subtract when chasing:
+
+$$\\frac1x + \\frac1y = \\frac12,\\qquad \\frac1x - \\frac1y = \\frac16$$
+
+Add: $\\frac2x = \\frac23$, so $x = 3$ min (and $y = 6$).`,
+    zh: `反向时速度相加，同向时速度相减：
+
+$$\\frac1x + \\frac1y = \\frac12,\\qquad \\frac1x - \\frac1y = \\frac16$$
+
+相加：$\\frac2x = \\frac23$，$x = 3$ 分钟（$y = 6$）。`,
+  },
+  'g8-three-digit': {
+    en: `Digits $x, y, z$: $y = 2x$, $3x - z = \\frac{y}{4}$, $x + y + z = 11$.
+
+That gives $x = 2$, $y = 4$, $z = 5$ — the number is $100x + 10y + z = 245$, not "2, 4, 5".`,
+    zh: `设百、十、个位为 $x, y, z$：$y = 2x$，$3x - z = \\frac{y}{4}$，$x + y + z = 11$。
+
+解得 $x = 2$，$y = 4$，$z = 5$。题目问的是三位数 $100x + 10y + z = 245$。`,
+  },
+  'g8-ratio': {
+    en: `Let the common ratio be $k$: $x = 2k$, $y = 3k$, $z = 4k$.
+
+$$4k - 3k + 8k = 9k = 27 \\Rightarrow k = 3,\\ z = 12$$`,
+    zh: `设公比为 $k$：$x = 2k$，$y = 3k$，$z = 4k$。
+
+$$4k - 3k + 8k = 9k = 27 \\Rightarrow k = 3,\\ z = 12$$`,
+  },
+  'g8-cyclic': {
+    en: `Add all three: each letter appears twice.
+
+$$2(x+y+z) = 3 + 4 + 5 = 12 \\Rightarrow x + y + z = 6$$`,
+    zh: `三式相加，每个字母出现两次：
+
+$$2(x+y+z) = 3 + 4 + 5 = 12 \\Rightarrow x + y + z = 6$$`,
+  },
+  'g8-car': {
+    en: `$2x > 210 \\Rightarrow x > 105$. Exactly 105 km/h only just reaches 210 km, so it does not count.`,
+    zh: `$2x > 210 \\Rightarrow x > 105$。正好 105 km/h 只能刚好到 210 km，不算「以上」。`,
+  },
+  'g8-x-minus-7': {
+    en: `Property 1: add 7 to both sides and the sign stays — $x > 33$.`,
+    zh: `性质 1：两边加 7，不等号方向不变，$x > 33$。`,
+  },
+  'g8-two-thirds': {
+    en: `Multiply both sides by the positive $\\frac32$; the sign stays:
+
+$$x > 50\\times\\frac32 = 75$$`,
+    zh: `两边乘正数 $\\frac32$，方向不变：
+
+$$x > 50\\times\\frac32 = 75$$`,
+  },
+  'g8-largest-int': {
+    en: `$$3x - 3 < x + 6 \\Rightarrow 2x < 9 \\Rightarrow x < 4.5$$
+
+The largest whole number below 4.5 is **4**.`,
+    zh: `$$3x - 3 < x + 6 \\Rightarrow 2x < 9 \\Rightarrow x < 4.5$$
+
+小于 4.5 的最大整数是 **4**。`,
+  },
+  'g8-poetry': {
+    en: `$$10x - 5(20 - x) > 90 \\Rightarrow 15x > 190 \\Rightarrow x > 12\\tfrac23$$
+
+Questions come whole, so at least **13**.`,
+    zh: `$$10x - 5(20 - x) > 90 \\Rightarrow 15x > 190 \\Rightarrow x > 12\\tfrac23$$
+
+题数是整数，至少答对 **13** 题。`,
+  },
+  'g8-shops': {
+    en: `$$100 + 0.9(x - 100) < 50 + 0.95(x - 50)$$
+
+$$10 + 0.9x < 2.5 + 0.95x \\Rightarrow 7.5 < 0.05x \\Rightarrow x > 150$$
+
+At exactly 150 they tie; below it shop B wins.`,
+    zh: `$$100 + 0.9(x - 100) < 50 + 0.95(x - 50)$$
+
+$$10 + 0.9x < 2.5 + 0.95x \\Rightarrow 7.5 < 0.05x \\Rightarrow x > 150$$
+
+正好 150 元一样；不到 150 元去乙更省。`,
+  },
+  'g8-int-count': {
+    en: `First: $2x > -5$, so $x > -2.5$. Second: $2x \\le 8$, so $x \\le 4$.
+
+Whole numbers in $-2.5 < x \\le 4$: $-2, -1, 0, 1, 2, 3, 4$ — **7**.`,
+    zh: `第一个：$2x > -5$，$x > -2.5$。第二个：$2x \\le 8$，$x \\le 4$。
+
+$-2.5 < x \\le 4$ 里的整数：$-2, -1, 0, 1, 2, 3, 4$，共 **7** 个。`,
+  },
+  'g8-books': {
+    en: `$n$ students, $3n + 8$ books. The last student gets between 1 and 2:
+
+$$1 \\le 3n + 8 - 5(n-1) < 3 \\Rightarrow 5 < n \\le 6$$
+
+So $n = 6$ and there are $3\\times 6 + 8 = 26$ books.`,
+    zh: `设 $n$ 人，书 $3n + 8$ 本。最后一人分到 1 到 2 本：
+
+$$1 \\le 3n + 8 - 5(n-1) < 3 \\Rightarrow 5 < n \\le 6$$
+
+所以 $n = 6$，书有 $3\\times 6 + 8 = 26$ 本。`,
   },
 };
 
