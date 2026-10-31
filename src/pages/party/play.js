@@ -11,8 +11,8 @@ export default function PartyPlayPage() {
     // navbar and notes button here only (see BetsAndWagers/styles.module.css).
     <HtmlClassNameProvider className="bw-play-page">
       <Layout
-        title={zh ? '竞猜下注 — 加入' : 'Bets & Wagers — Play'}
-        description={zh ? '输入大屏幕上的房间码，加入竞猜下注游戏。' : 'Join a Bets & Wagers party with the room code on the big screen.'}
+        title={zh ? '课堂测验 — 加入' : 'School Quiz — Play'}
+        description={zh ? '输入大屏幕上的房间码，加入课堂测验。' : 'Join a School Quiz with the room code on the big screen.'}
         noFooter>
         <BrowserOnly fallback={<p className="container margin-vert--lg">Loading…</p>}>
           {() => {

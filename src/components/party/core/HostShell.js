@@ -1,5 +1,6 @@
 import React, {useEffect, useRef, useState} from 'react';
 import Head from '@docusaurus/Head';
+import {HtmlClassNameProvider} from '@docusaurus/theme-common';
 import Link from '@docusaurus/Link';
 import {apiOverride, createPartySocket} from '@site/src/api/partyClient';
 import {reactionEmoji} from '@site/src/components/BetsAndWagers/logic';
@@ -18,6 +19,7 @@ import {
   seatedIds,
 } from './partyCore';
 import {useVoice} from './voice';
+import RulesSheet from './RulesSheet';
 import {L, st} from './strings';
 import styles from './party.module.css';
 
@@ -62,6 +64,7 @@ export default function HostShell({mod}) {
   const [lang, setLang] = useLang();
   const [voiceOn, setVoiceOn] = useState(!test);
   const [inspect, setInspect] = useState(null);
+  const [showRules, setShowRules] = useState(false);
   const [reactions, setReactions] = useState([]);
   const langRef = useRef(lang);
   langRef.current = lang;
@@ -346,6 +349,8 @@ export default function HostShell({mod}) {
   const {HostView, SettingsView, PhoneView} = mod;
 
   return (
+    // The host is a big-screen app: this class hides the site navbar and footer here only.
+    <HtmlClassNameProvider className="party-host-page">
     <div className={`${styles.shell} ${styles.host} ${mod.themeClass || ''}`} lang={lang === 'zh' ? 'zh-Hans' : 'en'}>
       <Head>
         <title>{`${L(mod.title, lang)} — ${lang === 'zh' ? '主持' : 'Host'}`}</title>
@@ -368,6 +373,11 @@ export default function HostShell({mod}) {
           <button type="button" className="button button--sm button--secondary" onClick={() => setVoiceOn(!voiceOn)}>
             {st(lang, voiceOn ? 'voiceOn' : 'voiceOff')}
           </button>
+          {mod.howTo && (
+            <button type="button" className="button button--sm button--secondary" aria-pressed={showRules} onClick={() => setShowRules(!showRules)}>
+              ❓ {st(lang, 'howToPlay')}
+            </button>
+          )}
           <LangSwitch lang={lang} setLang={setLang} />
           <button type="button" className="button button--sm button--secondary" onClick={fullScreen}>
             {st(lang, 'fullScreen')}
@@ -397,6 +407,12 @@ export default function HostShell({mod}) {
                   {st(lang, copied ? 'copied' : 'copyLink')}
                 </button>
               </p>
+            )}
+            {mod.howTo && (
+              <>
+                <h3 className={styles.subTitle}>{st(lang, 'howToPlay')}</h3>
+                <RulesSheet mod={{howTo: mod.howTo}} lang={lang} compact />
+              </>
             )}
           </section>
 
@@ -524,6 +540,22 @@ export default function HostShell({mod}) {
         </div>
       )}
 
+      {showRules && (
+        <div className={styles.overlay} onClick={() => setShowRules(false)} role="presentation">
+          <div className={styles.overlayCard} onClick={(e) => e.stopPropagation()} role="dialog" aria-label={st(lang, 'howToPlay')}>
+            <div className={styles.overlayHead}>
+              <h2>
+                {mod.emoji} {L(mod.title, lang)} · {st(lang, 'howToPlay')}
+              </h2>
+              <button type="button" className="button button--sm button--secondary" onClick={() => setShowRules(false)}>
+                ✕ {st(lang, 'close')}
+              </button>
+            </div>
+            <RulesSheet mod={mod} lang={lang} />
+          </div>
+        </div>
+      )}
+
       {subtitle && <div className={styles.subtitle}>{subtitle}</div>}
 
       <div className={styles.reactionLayer} aria-hidden="true">
@@ -539,5 +571,6 @@ export default function HostShell({mod}) {
         })}
       </div>
     </div>
+    </HtmlClassNameProvider>
   );
 }

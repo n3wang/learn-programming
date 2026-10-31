@@ -6,6 +6,7 @@ import {Avatar, AvatarPicker, ConnectionBadge, Countdown, readJson, writeJson} f
 import {LangSwitch, useLang} from '@site/src/components/BetsAndWagers/strings';
 import {generateName, isGeneratedName} from '@site/src/components/BetsAndWagers/names';
 import {L, st} from './strings';
+import RulesSheet from './RulesSheet';
 import styles from './party.module.css';
 
 /**
@@ -81,6 +82,10 @@ export default function PlayerShell({mod}) {
   const [joining, setJoining] = useState(false);
   const [roomInfo, setRoomInfo] = useState(null);
   const [pickingAvatar, setPickingAvatar] = useState(false);
+  const [showRules, setShowRules] = useState(false);
+  /** A tap went out and the host hasn't answered yet: block double taps. */
+  const [sending, setSending] = useState(false);
+  const sendingTimerRef = useRef(null);
   const [, setTick] = useState(0);
   const [form, setForm] = useState({
     code: queryRoom || saved.current?.code || '',
@@ -109,6 +114,10 @@ export default function PlayerShell({mod}) {
   /** A game action. Older relays don't know `input`: then it rides inside a `bet`. */
   function sendInput(msg) {
     pendingRef.current = msg;
+    setSending(true);
+    window.clearTimeout(sendingTimerRef.current);
+    // A move the host ignores gets no reply; let the phone go again soon anyway.
+    sendingTimerRef.current = window.setTimeout(() => setSending(false), 2500);
     if (wrapRef.current) rawSend({type: 'bet', input: msg});
     else rawSend({type: 'input', ...msg});
     setTick((n) => n + 1);
@@ -139,6 +148,7 @@ export default function PlayerShell({mod}) {
         const current = seatRef.current;
         if (current && msg.you && msg.you.name !== current.name) rememberSeat({...current, name: msg.you.name});
         pendingRef.current = null;
+        setSending(false);
         setEnv(msg);
         setReceivedAt(Date.now());
         break;
@@ -214,8 +224,11 @@ export default function PlayerShell({mod}) {
 
   // A short buzz when the phone's task changes, so heads come up from desks.
   const taskKey = env?.data?.task || env?.phase || '';
+  const urgent = Boolean(env?.data?.urgent);
   useEffect(() => {
-    if (taskKey && typeof navigator !== 'undefined' && navigator.vibrate) navigator.vibrate(60);
+    if (!taskKey || typeof navigator === 'undefined' || !navigator.vibrate) return;
+    // A double buzz when the phone needs you, a short one for anything else.
+    navigator.vibrate(urgent ? [90, 60, 90] : 40);
   }, [taskKey]);
 
   function join(event) {
@@ -267,9 +280,26 @@ export default function PlayerShell({mod}) {
               {st(lang, 'headerExit')}
             </button>
           )}
+          {mod.howTo && (
+            <button type="button" className={styles.helpButton} aria-pressed={showRules} onClick={() => setShowRules(!showRules)} aria-label={st(lang, 'howToPlay')}>
+              ❓
+            </button>
+          )}
           <LangSwitch lang={lang} setLang={setLang} />
         </span>
       </header>
+
+      {showRules && (
+        <div className={styles.phoneRules}>
+          <div className={styles.overlayHead}>
+            <b>{st(lang, 'howToPlay')}</b>
+            <button type="button" className="button button--sm button--secondary" onClick={() => setShowRules(false)}>
+              ✕ {st(lang, 'close')}
+            </button>
+          </div>
+          <RulesSheet mod={mod} lang={lang} compact />
+        </div>
+      )}
 
       {error && <p className={styles.error}>{st(lang, error, {n: 64})}</p>}
       {offline && <p className={styles.notice}>{st(lang, 'reconnectingSaved')}</p>}
@@ -331,9 +361,14 @@ export default function PlayerShell({mod}) {
             )}
           </div>
 
-          <div className={styles.phoneBody}>
+          {urgent && env.phase !== 'lobby' && <div className={styles.yourMove}>👉 {st(lang, 'yourMove')}</div>}
+          <div className={styles.phoneBody} data-urgent={urgent && env.phase !== 'lobby'} data-sending={sending}>
+            {sending && <div className={styles.sendingVeil}>{st(lang, 'sending')}</div>}
             {env.phase === 'lobby' && (
               <div className={styles.waiting}>
+                <p className={styles.lobbyGame}>
+                  {mod.emoji} <b>{L(mod.title, lang)}</b>
+                </p>
                 <p>{st(lang, 'youreIn')}</p>
                 <p className={styles.muted}>{st(lang, 'waitingStart', {n: env.playerCount})}</p>
                 <button type="button" className="button button--secondary" onClick={() => rejoinWith({name: generateName(lang, [seatRef.current?.name])})}>
@@ -354,6 +389,12 @@ export default function PlayerShell({mod}) {
                   <button type="button" className="button button--secondary" onClick={() => setPickingAvatar(true)}>
                     {st(lang, 'changeAvatar')}
                   </button>
+                )}
+                {mod.howTo && (
+                  <div className={styles.card} style={{textAlign: 'left', width: '100%'}}>
+                    <b>{st(lang, 'howToPlay')}</b>
+                    <RulesSheet mod={{howTo: mod.howTo}} lang={lang} compact />
+                  </div>
                 )}
               </div>
             )}

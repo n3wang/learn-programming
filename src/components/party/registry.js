@@ -13,10 +13,10 @@ import clocktower from './games/clocktower';
 export const WAGERS = {
   id: 'wagers',
   emoji: '🎲',
-  title: {en: 'Bets & Wagers', zh: '竞猜下注'},
+  title: {en: 'School Quiz', zh: '课堂测验'},
   blurb: {
-    en: 'Guess a number, then bet coins on whose guess is closest. Trivia decks from class.',
-    zh: '先猜数字，再用金币押谁最接近。题库来自课堂。',
+    en: 'Class trivia: guess the number, then pick the closest answer.',
+    zh: '课堂问答：先猜数字，再选最接近的答案。',
   },
   players: {min: 3, max: 64},
   minutes: 15,

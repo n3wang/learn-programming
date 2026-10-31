@@ -50,6 +50,10 @@ const STRINGS = {
     sent: 'Sent ✓',
     waiting: 'Waiting for others…',
     done: 'Done',
+    howToPlay: 'How to play',
+    close: 'Close',
+    yourMove: 'Your move!',
+    sending: 'Sending…',
   },
   zh: {
     menuTitle: '派对游戏',
@@ -95,6 +99,10 @@ const STRINGS = {
     sent: '已发送 ✓',
     waiting: '等待其他人……',
     done: '完成',
+    howToPlay: '怎么玩',
+    close: '关闭',
+    yourMove: '轮到你了！',
+    sending: '发送中……',
   },
 };
 

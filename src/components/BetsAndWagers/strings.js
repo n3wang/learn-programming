@@ -15,7 +15,7 @@ const LANG_KEY = 'bw-lang-v1';
 
 const STRINGS = {
   en: {
-    brand: 'Bets & Wagers',
+    brand: 'School Quiz',
     switchTo: '中文',
     switchLabel: 'Switch to Chinese',
     connected: 'Connected',
@@ -148,7 +148,7 @@ const STRINGS = {
     gameOver: 'Game over',
   },
   zh: {
-    brand: '竞猜下注',
+    brand: '课堂测验',
     switchTo: 'English',
     switchLabel: '切换到英文',
     connected: '已连接',

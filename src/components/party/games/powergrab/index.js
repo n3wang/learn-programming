@@ -250,6 +250,40 @@ const powergrab = {
     en: 'Station ORBIT-9 needs a commander. Bluff about your secret roles, challenge liars, and be the last one standing.',
     zh: '空间站 ORBIT-9 需要新指挥官。隐藏身份、虚张声势、揭穿谎言，活到最后。',
   },
+  howTo: {
+    en: [
+      'You hold 2 secret role cards and start with 2 credits. Lose both cards and you are out.',
+      'On your turn take one action. Anyone may claim any role, even one they don’t have: bluffing is the game.',
+      'Anyone can challenge a claim. A liar loses a card; if the claim was true, the challenger loses one.',
+      'Some actions can be blocked by claiming the right role, and blocks can be challenged too.',
+      'With 7 credits you can overthrow (no defence). At 10 credits you must.',
+      '9+ players: two factions; you may only attack the other one. Players who are out bet on who loses the next card.',
+    ],
+    zh: [
+      '你有 2 张秘密角色牌和 2 个信用点。两张牌都翻开就出局。',
+      '轮到你时做一个行动。任何人都可以声称自己是任何角色——虚张声势就是这个游戏的核心。',
+      '任何人都可以质疑声称。撒谎的人失去一张牌；如果说的是真的，质疑的人失去一张牌。',
+      '有些行动可以用对应角色拦截，拦截也可以被质疑。',
+      '有 7 个信用点可以发动政变（无法防御），到 10 个必须发动。',
+      '9 人以上分成两个阵营，只能攻击对方阵营。出局的人可以押谁下一个丢牌。',
+    ],
+  },
+  reference(lang) {
+    const zh = lang === 'zh';
+    const text = {
+      quartermaster: {en: 'Levy: take 3 credits. Blocks station aid.', zh: '征税：拿 3 个信用点。可以拦截站务援助。'},
+      phantom: {en: 'Strike: pay 3, a player loses a card. Blocked by the Warden.', zh: '刺杀：付 3 点，目标失去一张牌。会被安保官拦截。'},
+      smuggler: {en: 'Skim: take 2 credits from a player. Blocks skims.', zh: '顺走：从一名玩家拿走 2 点。可以拦截顺走。'},
+      envoy: {en: 'Reshuffle: draw 2 cards, keep the ones you want. Blocks skims.', zh: '换牌：抽 2 张，留下想要的。可以拦截顺走。'},
+      warden: {en: 'Blocks a strike against you.', zh: '拦截针对你的刺杀。'},
+      inspector: {en: '9+ players. Look at a player’s card and may force a swap. Blocks skims.', zh: '9 人以上。查看一名玩家的一张牌，可以逼他换牌。可以拦截顺走。'},
+    };
+    return [
+      {emoji: '🪙', title: zh ? '收入 / 站务援助' : 'Income / Station aid', text: {en: 'Anyone: +1 (can’t be stopped) or +2 (the Quartermaster can block it).', zh: '任何人：+1（无法阻止）或 +2（军需官可以拦截）。'}},
+      {emoji: '💥', title: zh ? '政变' : 'Overthrow', text: {en: 'Pay 7: a player loses a card. Can’t be blocked.', zh: '付 7 点：目标失去一张牌。无法拦截。'}},
+      ...Object.keys(text).map((k) => ({emoji: ROLES[k].emoji, tint: ROLES[k].tint, title: L(ROLES[k], lang), text: text[k]})),
+    ];
+  },
   inspiredBy: 'Coup',
   players: {min: 2, max: 16},
   minutes: 15,
@@ -291,7 +325,13 @@ const powergrab = {
     return Boolean(timeout(s, ctx));
   },
 
-  view(s, g, id) {
+  /** The phone view plus `urgent` (this phone must act now), which drives the banner and buzz. */
+  view(s, g, id, ctx) {
+    const v = this.baseView(s, g, id, ctx);
+    return {...v, urgent: ['turn', 'challenge', 'block', 'blockChallenge', 'lose', 'exchange', 'inspect'].includes(v.kind)};
+  },
+
+  baseView(s, g, id) {
     const players = s.seats.map((p) => ({
       id: p,
       name: g.players[p] ? g.players[p].name : '?',

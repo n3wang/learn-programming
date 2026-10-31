@@ -312,6 +312,22 @@ const fibpics = {
     en: 'Draw a secret prompt, invent fake titles for the others’ drawings, and spot the real one.',
     zh: '画出秘密题目，给别人的画编假标题，再找出真标题。',
   },
+  howTo: {
+    en: [
+      'Everyone gets a secret prompt and draws it on their phone.',
+      'One drawing at a time appears on the big screen. Everyone else writes a fake title for it.',
+      'All titles appear together. Vote for the one you think is real.',
+      '+2 for finding the real title. The artist gets +1 for each player who found it. Fooling someone with your fake gets you +1.',
+      '9+ players play in pairs: one partner starts the drawing, the other finishes it.',
+    ],
+    zh: [
+      '每人拿到一个秘密题目，在手机上画出来。',
+      '大屏幕每次展示一幅画，其他人给它编一个假标题。',
+      '所有标题一起出现，投给你认为是真的那一个。',
+      '猜中真标题 +2；画家每被猜中一次 +1；你的假标题每骗到一人 +1。',
+      '9 人以上两人一组：一人先画，搭档接着画完。',
+    ],
+  },
   inspiredBy: 'Drawful',
   players: {min: 3, max: 16},
   minutes: 20,
@@ -395,7 +411,13 @@ const fibpics = {
     return true;
   },
 
-  view(s, g, id) {
+  /** The phone view plus `urgent` (this phone must act now), which drives the banner and buzz. */
+  view(s, g, id, ctx) {
+    const v = this.baseView(s, g, id, ctx);
+    return {...v, urgent: /^(draw|fake|vote)/.test(v.task)};
+  },
+
+  baseView(s, g, id) {
     const gi = s.groupOf[id];
     const base = {phase: s.phase, round: s.round, rounds: s.rounds, score: s.scores[id] || 0, duo: s.duo};
     if (s.phase === 'draw') {

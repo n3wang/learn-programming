@@ -677,6 +677,126 @@ $$150 - 102.5 = 47.5^\\circ$$`,
     en: `Each bisection halves: $\\angle AOC = 2\\times 35 = 70^\\circ$, then $\\angle AOB = 2\\times 70 = 140^\\circ$.`,
     zh: `每平分一次就减半，倒推回去翻倍：$\\angle AOC = 2\\times 35 = 70^\\circ$，$\\angle AOB = 2\\times 70 = 140^\\circ$。`,
   },
+  'g7-eq-2x5': {
+    en: `Subtract 5, then divide by 2:
+
+$$2x = 12,\\quad x = 6$$`,
+    zh: `两边减 5，再除以 2：
+
+$$2x = 12,\\quad x = 6$$`,
+  },
+  'g7-eq-5x': {
+    en: `$$x = 45\\div 5 = 9$$`,
+    zh: `$$x = 45\\div 5 = 9$$`,
+  },
+  'g7-eq-xdiv4': {
+    en: `First peel off the $+3$, then undo the divide:
+
+$$\\frac{x}{4} = 7,\\quad x = 28$$`,
+    zh: `先两边减 3，再乘 4：
+
+$$\\frac{x}{4} = 7,\\quad x = 28$$`,
+  },
+  'g7-eq-paren': {
+    en: `$$x - 1 = 18\\div 3 = 6,\\quad x = 7$$`,
+    zh: `$$x - 1 = 18\\div 3 = 6,\\quad x = 7$$`,
+  },
+  'g7-eq-2step': {
+    en: `$$4x = 19 + 9 = 28,\\quad x = 7$$`,
+    zh: `$$4x = 19 + 9 = 28,\\quad x = 7$$`,
+  },
+  'g7-eq-both': {
+    en: `Move $x$ left, numbers right:
+
+$$8 + 4 = 3x - x,\\quad 12 = 2x,\\quad x = 6$$`,
+    zh: `含 $x$ 的到左边，数字到右边：
+
+$$8 + 4 = 3x - x,\\quad 12 = 2x,\\quad x = 6$$`,
+  },
+  'g7-time-2h30': {
+    en: `$$2\\times 60 + 30 = 150$$
+
+An hour is 60 minutes — same 60 as degrees in a right angle.`,
+    zh: `$$2\\times 60 + 30 = 150$$
+
+1 小时 = 60 分钟，和直角的 60 分一样是六十进制。`,
+  },
+  'g7-time-3h20': {
+    en: `$$3\\times 60 + 20 = 200$$`,
+    zh: `$$3\\times 60 + 20 = 200$$`,
+  },
+  'g7-time-180min': {
+    en: `$$180\\div 60 = 3$$`,
+    zh: `$$180\\div 60 = 3$$`,
+  },
+  'g7-time-5min': {
+    en: `$$5\\times 60 = 300$$`,
+    zh: `$$5\\times 60 = 300$$`,
+  },
+  'g7-time-2days': {
+    en: `$$2\\times 24 = 48$$
+
+A day is 24 hours because Earth turns once — clocks just split that turn.`,
+    zh: `$$2\\times 24 = 48$$
+
+一天 24 小时，是地球自转一周；钟只是把这一周切开。`,
+  },
+  'g7-time-quarter': {
+    en: `A quarter of $60$ minutes is $15$. Clock faces mark that as the 3.`,
+    zh: `$60$ 分钟的四分之一是 $15$。钟面上的 3 就是一刻。`,
+  },
+  'g7-km-2-5': {
+    en: `*Kilo-* means thousand:
+
+$$2.5\\times 1000 = 2500\\ \\mathrm{m}$$`,
+    zh: `「千」就是 kilo：
+
+$$2.5\\times 1000 = 2500\\ \\mathrm{m}$$`,
+  },
+  'g7-m-8000': {
+    en: `$$8000\\div 1000 = 8\\ \\mathrm{km}$$`,
+    zh: `$$8000\\div 1000 = 8\\ \\mathrm{km}$$`,
+  },
+  'g7-km-3-200': {
+    en: `$$3\\times 1000 + 200 = 3200\\ \\mathrm{m}$$`,
+    zh: `$$3\\times 1000 + 200 = 3200\\ \\mathrm{m}$$`,
+  },
+  'g7-speed-60-2': {
+    en: `Distance = speed $\\times$ time:
+
+$$60\\times 2 = 120\\ \\mathrm{km}$$`,
+    zh: `路程 = 速度 $\\times$ 时间：
+
+$$60\\times 2 = 120\\ \\mathrm{km}$$`,
+  },
+  'g7-cm-3m': {
+    en: `$$3\\times 100 = 300\\ \\mathrm{cm}$$`,
+    zh: `$$3\\times 100 = 300\\ \\mathrm{cm}$$`,
+  },
+  'g7-ratio-2-3': {
+    en: `$2 + 3 = 5$ parts, each $10\\div 5 = 2$ L. Water is 3 parts: $3\\times 2 = 6$.`,
+    zh: `$2 + 3 = 5$ 份，每份 $10\\div 5 = 2$ 升。水占 3 份：$3\\times 2 = 6$。`,
+  },
+  'g7-ratio-36': {
+    en: `$1 + 2 = 3$ parts: $36\\div 3 = 12$ each. The $1$-part share is **12**.`,
+    zh: `$1 + 2 = 3$ 份：$36\\div 3 = 12$。小的一份是 1 份，就是 **12**。`,
+  },
+  'g7-ratio-4-5': {
+    en: `$$\\frac{4}{5} = \\frac{20}{x} \\Rightarrow 4x = 100 \\Rightarrow x = 25$$`,
+    zh: `$$\\frac{4}{5} = \\frac{20}{x} \\Rightarrow 4x = 100 \\Rightarrow x = 25$$`,
+  },
+  'g7-ratio-map': {
+    en: `$$4\\ \\mathrm{cm}\\times 100000 = 400000\\ \\mathrm{cm} = 4000\\ \\mathrm{m} = 4\\ \\mathrm{km}$$
+
+$1:100000$ means 1 cm on paper is 1 km on the ground.`,
+    zh: `$$4\\ \\mathrm{cm}\\times 100000 = 400000\\ \\mathrm{cm} = 4000\\ \\mathrm{m} = 4\\ \\mathrm{km}$$
+
+$1:100000$ 就是图上 1 厘米，实地 1 千米。`,
+  },
+  'g7-ratio-recipe': {
+    en: `$$\\frac{12}{3}\\times 5 = 4\\times 5 = 20$$`,
+    zh: `$$\\frac{12}{3}\\times 5 = 4\\times 5 = 20$$`,
+  },
   'g8-basketball': {
     en: `$$\\begin{cases} x + y = 22 \\\\ 2x + y = 40 \\end{cases}$$
 
@@ -852,6 +972,294 @@ So $n = 6$ and there are $3\\times 6 + 8 = 26$ books.`,
 $$1 \\le 3n + 8 - 5(n-1) < 3 \\Rightarrow 5 < n \\le 6$$
 
 所以 $n = 6$，书有 $3\\times 6 + 8 = 26$ 本。`,
+  },
+  'g8-sys-sum-diff': {
+    en: `Add the two equations — the $y$ terms cancel:
+
+$$2x = 16,\\quad x = 8,\\quad y = 4$$`,
+    zh: `两式相加，$y$ 消掉：
+
+$$2x = 16,\\quad x = 8,\\quad y = 4$$`,
+  },
+  'g8-sys-sub': {
+    en: `Subtract the second from the first:
+
+$$x = 4,\\quad y = 7 - 4 = 3$$`,
+    zh: `第一式减第二式：
+
+$$x = 4,\\quad y = 7 - 4 = 3$$`,
+  },
+  'g8-sys-2y': {
+    en: `Both have $2y$ — subtract:
+
+$$2x = 8,\\quad x = 4,\\quad y = 2$$`,
+    zh: `两式都有 $2y$，相减：
+
+$$2x = 8,\\quad x = 4,\\quad y = 2$$`,
+  },
+  'g8-sys-add': {
+    en: `Add: the $y$ terms cancel.
+
+$$3x = 18,\\quad x = 6,\\quad y = 7$$`,
+    zh: `相加，$y$ 消掉：
+
+$$3x = 18,\\quad x = 6,\\quad y = 7$$`,
+  },
+  'g8-sys-elim': {
+    en: `The $2y$ and $-2y$ cancel if you add:
+
+$$8x = 32,\\quad x = 4,\\quad y = 2$$`,
+    zh: `$2y$ 和 $-2y$ 相加抵消：
+
+$$8x = 32,\\quad x = 4,\\quad y = 2$$`,
+  },
+  'g8-sys-xy15': {
+    en: `$x = 15 - y$. Substitute:
+
+$$2(15 - y) + 3y = 36 \\Rightarrow 30 + y = 36 \\Rightarrow y = 6$$`,
+    zh: `$x = 15 - y$，代入：
+
+$$2(15 - y) + 3y = 36 \\Rightarrow 30 + y = 36 \\Rightarrow y = 6$$`,
+  },
+  'g8-sys-3var': {
+    en: `Add all three: each letter appears twice.
+
+$$2(x+y+z) = 36 \\Rightarrow x+y+z = 18$$
+
+Then $y = 18 - (x+z) = 18 - 14 = 4$.`,
+    zh: `三式相加，每个字母出现两次：
+
+$$2(x+y+z) = 36 \\Rightarrow x+y+z = 18$$
+
+所以 $y = 18 - (x+z) = 18 - 14 = 4$。`,
+  },
+  'g8-sys-two-num': {
+    en: `$$\\begin{cases} x + y = 18 \\\\ x - y = 4 \\end{cases}$$
+
+Add: $2x = 22$, so the larger is $x = 11$.`,
+    zh: `$$\\begin{cases} x + y = 18 \\\\ x - y = 4 \\end{cases}$$
+
+相加：$2x = 22$，较大的是 $x = 11$。`,
+  },
+  'g8-sys-fruit': {
+    en: `$$3a + 2(8 - a) = 20 \\Rightarrow a + 16 = 20 \\Rightarrow a = 4$$`,
+    zh: `$$3a + 2(8 - a) = 20 \\Rightarrow a + 16 = 20 \\Rightarrow a = 4$$`,
+  },
+  'g8-sys-class': {
+    en: `$$b + g = 40,\\quad b = g + 6$$
+
+$$2g + 6 = 40 \\Rightarrow g = 17,\\quad b = 23$$`,
+    zh: `$$b + g = 40,\\quad b = g + 6$$
+
+$$2g + 6 = 40 \\Rightarrow g = 17,\\quad b = 23$$`,
+  },
+  'g8-ineq-2x3': {
+    en: `$$2x > 8,\\quad x > 4$$`,
+    zh: `$$2x > 8,\\quad x > 4$$`,
+  },
+  'g8-ineq-5x': {
+    en: `Divide by the positive 5 — the sign stays: $x \\le 8$.`,
+    zh: `两边除以正数 5，方向不变：$x \\le 8$。`,
+  },
+  'g8-ineq-3x4': {
+    en: `$$3x < 21,\\quad x < 7$$`,
+    zh: `$$3x < 21,\\quad x < 7$$`,
+  },
+  'g8-ineq-4x8': {
+    en: `$$4x \\ge 20,\\quad x \\ge 5$$`,
+    zh: `$$4x \\ge 20,\\quad x \\ge 5$$`,
+  },
+  'g8-ineq-xdiv3': {
+    en: `$$\\frac{x}{3} \\le 4,\\quad x \\le 12$$`,
+    zh: `$$\\frac{x}{3} \\le 4,\\quad x \\le 12$$`,
+  },
+  'g8-ineq-flip': {
+    en: `Divide by $-2$ and **flip** the sign:
+
+$$x < 9$$`,
+    zh: `两边除以 $-2$，不等号**变向**：
+
+$$x < 9$$`,
+  },
+  'g8-ineq-paren': {
+    en: `$$x + 3 < 10,\\quad x < 7$$`,
+    zh: `$$x + 3 < 10,\\quad x < 7$$`,
+  },
+  'g8-ineq-largest': {
+    en: `$$2x < 14,\\quad x < 7$$
+
+The largest whole number below 7 is **6**.`,
+    zh: `$$2x < 14,\\quad x < 7$$
+
+小于 7 的最大整数是 **6**。`,
+  },
+  'g8-ineq-smallest': {
+    en: `$$x \\ge \\frac{20}{3} \\approx 6.67$$
+
+Whole numbers start at **7**.`,
+    zh: `$$x \\ge \\frac{20}{3} \\approx 6.67$$
+
+最小整数解是 **7**。`,
+  },
+  'g8-ineq-count': {
+    en: `$4, 5, 6, 7, 8, 9$ — **6** numbers. The endpoints 3 and 10 stay out because of the strict $<$.`,
+    zh: `$4, 5, 6, 7, 8, 9$，共 **6** 个。两端的 3 和 10 因为是严格小于，不算。`,
+  },
+  'g8-ineq-both': {
+    en: `$3, 4, 5, 6, 7, 8$ — **6**. The 2 is out ($x > 2$); the 8 stays ($x \\le 8$).`,
+    zh: `$3, 4, 5, 6, 7, 8$，共 **6** 个。2 不算（$x > 2$），8 算（$x \\le 8$）。`,
+  },
+  'g8-ineq-avg': {
+    en: `$$\\frac{75+78+82+x}{4} > 80 \\Rightarrow 235 + x > 320 \\Rightarrow x > 85$$`,
+    zh: `$$\\frac{75+78+82+x}{4} > 80 \\Rightarrow 235 + x > 320 \\Rightarrow x > 85$$`,
+  },
+  'ar-aconcagua-m': {
+    en: `Aconcagua is **6961 m** tall, the highest point of both the Americas and the Southern Hemisphere.`,
+    zh: `阿空加瓜山高 **6961 米**，是美洲和南半球的最高点。`,
+  },
+  'ar-obelisco-m': {
+    en: `It is **67.5 m** tall, built in 1936 for the city’s 400th birthday, in only 31 days.`,
+    zh: `高 **67.5 米**，1936 年为纪念建城 400 年而建，只用了 31 天。`,
+  },
+  'ar-carbon-m': {
+    en: `It lies **105 m** below sea level. Aconcagua, the highest point of the Americas, is in the same country: more than 7 km higher.`,
+    zh: `它低于海平面 **105 米**。美洲最高点阿空加瓜山也在阿根廷，高出 7 公里还多。`,
+  },
+  'ar-plata-km': {
+    en: `About **220 km** at the mouth, which is why it is often called the widest river in the world.`,
+    zh: `河口处约 **220 公里**，常被称为世界上最宽的河。`,
+  },
+  'ar-area-km2': {
+    en: `$2\\,780\\,400$ km², about **2780** thousand km². The 8th largest country in the world, about $0.29$ times the size of China.`,
+    zh: `$2\\,780\\,400$ 平方公里，约 **2780** 千平方公里。世界第八大国家，大约是中国面积的 $0.29$ 倍。`,
+  },
+  'ar-iguazu-falls': {
+    en: `About **275** falls along nearly $2.7$ km of river. The biggest, the Devil’s Throat (Garganta del Diablo), is U-shaped.`,
+    zh: `约 **275** 道瀑布，绵延近 $2.7$ 公里。最大的一道“魔鬼咽喉”呈 U 形。`,
+  },
+  'ar-provinces': {
+    en: `**23** provinces, plus the Autonomous City of Buenos Aires, which is not a province.`,
+    zh: `**23** 个省，另有布宜诺斯艾利斯自治市，它不算省。`,
+  },
+  'ar-independence': {
+    en: `On **9 July 1816**, in Tucumán. That is why the widest avenue in Buenos Aires is called *9 de Julio*.`,
+    zh: `**1816 年 7 月 9 日**在图库曼宣布。所以布宜诺斯艾利斯最宽的大道叫“7 月 9 日大道”。`,
+  },
+  'ar-flag': {
+    en: `On 27 February **1812**, by the Paraná river in Rosario, four years before independence.`,
+    zh: `**1812 年** 2 月 27 日，在罗萨里奥的巴拉那河畔，比独立早四年。`,
+  },
+  'ar-subte': {
+    en: `Line A opened in **1913**: the first underground railway in Latin America and the whole Southern Hemisphere.`,
+    zh: `**1913 年**开通 A 线：拉丁美洲乃至整个南半球的第一条地铁。`,
+  },
+  'ar-teatro-colon': {
+    en: `It opened on 25 May **1908** and is famous for some of the best acoustics in the world.`,
+    zh: `**1908 年** 5 月 25 日开幕，以世界顶级的音响效果闻名。`,
+  },
+  'ar-world-cups': {
+    en: `**1978**, **1986** and **2022**. The 2022 final against France went to penalties after a 3–3 draw.`,
+    zh: `**1978**、**1986** 和 **2022** 年。2022 年决赛与法国 3–3 战平，点球取胜。`,
+  },
+  'ar-hand-of-god': {
+    en: `In the **1986** World Cup quarter-final against England. Four minutes later he scored the “Goal of the Century”, and Argentina went on to win the cup.`,
+    zh: `**1986 年**世界杯四分之一决赛对英格兰。四分钟后他又打进“世纪进球”，阿根廷最终夺冠。`,
+  },
+  'ar-messi-ballon': {
+    en: `**8**: 2009, 2010, 2011, 2012, 2015, 2019, 2021 and 2023, more than any other player.`,
+    zh: `**8** 次：2009、2010、2011、2012、2015、2019、2021、2023 年，史上最多。`,
+  },
+  'ar-messi-debut': {
+    en: `He debuted on 16 October 2004, aged **17**. He had moved from Rosario to Barcelona at 13.`,
+    zh: `2004 年 10 月 16 日首秀，当时 **17** 岁。他 13 岁从罗萨里奥来到巴塞罗那。`,
+  },
+  'ar-fangio': {
+    en: `**5**, in 1951 and 1954–1957. His record stood for 46 years until Michael Schumacher passed it.`,
+    zh: `**5** 次：1951 年和 1954–1957 年。这个纪录保持了 46 年，才被舒马赫打破。`,
+  },
+  'ar-nobel': {
+    en: `**5**: Carlos Saavedra Lamas (Peace, 1936), Bernardo Houssay (Medicine, 1947), Luis Leloir (Chemistry, 1970), Adolfo Pérez Esquivel (Peace, 1980) and César Milstein (Medicine, 1984).`,
+    zh: `**5** 位：萨韦德拉·拉马斯（和平奖，1936）、乌赛（医学奖，1947）、莱洛伊尔（化学奖，1970）、佩雷斯·埃斯基维尔（和平奖，1980）、米尔斯坦（医学奖，1984）。`,
+  },
+  'cn-everest-cm': {
+    en: `The new height is **8848.86 m**. The China–Nepal border runs over the summit, so the two countries announced it together.`,
+    zh: `新高程为 **8848.86 米**。中尼边界正好穿过峰顶，所以两国共同宣布了这个数字。`,
+  },
+  'cn-great-wall-km': {
+    en: `The survey counted **21 196 km** of walls, trenches and natural barriers built over about 2000 years.`,
+    zh: `测量共计 **21 196 公里**的墙体、壕堑和天然屏障，修建跨越约 2000 年。`,
+  },
+  'cn-yangtze-km': {
+    en: `About **6300 km**. Only the Nile and the Amazon are longer.`,
+    zh: `约 **6300 公里**。只有尼罗河和亚马孙河比它长。`,
+  },
+  'cn-grand-canal-km': {
+    en: `About **1776 km**. Its oldest parts are about 2500 years old.`,
+    zh: `约 **1776 公里**。最早的河段已有约 2500 年历史。`,
+  },
+  'cn-hzmb-km': {
+    en: `About **55 km**. It opened in 2018 and is the longest sea crossing of its kind.`,
+    zh: `约 **55 公里**。2018 年通车，是同类中最长的跨海工程。`,
+  },
+  'cn-three-gorges-m': {
+    en: `The dam is **181 m** tall and about $2.3$ km long. Its power station has the largest capacity in the world.`,
+    zh: `坝高 **181 米**，长约 $2.3$ 公里。它的水电站装机容量世界第一。`,
+  },
+  'cn-shanghai-tower-m': {
+    en: `It is **632 m** tall. Its twisting shape cuts wind loads by about a quarter.`,
+    zh: `高 **632 米**。它扭转的外形让风荷载减少了约四分之一。`,
+  },
+  'cn-leshan-m': {
+    en: `It is **71 m** tall, carved between 713 and 803: the largest stone Buddha in the world.`,
+    zh: `高 **71 米**，开凿于 713–803 年，是世界上最大的石刻佛像。`,
+  },
+  'cn-hsr-kmh': {
+    en: `**350 km/h**, among the fastest regular train services in the world. At that speed Beijing to Shanghai takes about 4.5 hours.`,
+    zh: `每小时 **350 公里**，是世界上最快的常规列车之一。北京到上海只要约 4.5 小时。`,
+  },
+  'cn-yao-cm': {
+    en: `Yao Ming is **229 cm** tall, one of the tallest players in NBA history.`,
+    zh: `姚明身高 **229 厘米**，是 NBA 历史上最高的球员之一。`,
+  },
+  'cn-yao-allstar': {
+    en: `**8** times, every season from 2003 to 2011 except 2010, when he was injured.`,
+    zh: `**8** 次：2003–2011 年间除 2010 年（受伤）外每年都入选。`,
+  },
+  'cn-li-na': {
+    en: `**2**: the French Open in 2011, the first for any Asian player, and the Australian Open in 2014.`,
+    zh: `**2** 个：2011 年法网（亚洲球员首个）和 2014 年澳网。`,
+  },
+  'cn-ethnic-groups': {
+    en: `**56**: the Han majority and 55 minority groups such as the Zhuang, Hui, Uyghur, Miao and Tibetan peoples.`,
+    zh: `**56** 个：汉族和壮族、回族、维吾尔族、苗族、藏族等 55 个少数民族。`,
+  },
+  'cn-common-chars': {
+    en: `**3500**: 2,500 common characters plus 1,000 less common ones. Knowing them covers almost all everyday text.`,
+    zh: `**3500** 个：2500 个常用字加 1000 个次常用字，几乎覆盖日常所有文字。`,
+  },
+  'cn-terracotta': {
+    en: `About **8000** soldiers, plus horses and chariots, made to guard the first emperor, Qin Shi Huang. Found by farmers digging a well in 1974.`,
+    zh: `约 **8000** 个陶俑，还有战马和战车，为秦始皇守陵。1974 年农民打井时发现。`,
+  },
+  'cn-wild-pandas': {
+    en: `The fourth national survey found **1864** wild pandas, up 17% from the survey before. In 2016 they were moved from “endangered” to “vulnerable”.`,
+    zh: `第四次全国调查发现 **1864** 只，比上一次增加 17%。2016 年大熊猫由“濒危”降为“易危”。`,
+  },
+  'cn-prc-year': {
+    en: `On 1 October **1949**, which is why 1 October is National Day (国庆节).`,
+    zh: `**1949 年** 10 月 1 日，所以 10 月 1 日是国庆节。`,
+  },
+  'cn-yang-liwei': {
+    en: `On Shenzhou 5 in October **2003**. China became the third country to send a person into space on its own rocket.`,
+    zh: `**2003 年** 10 月乘神舟五号。中国成为第三个独立把人送上太空的国家。`,
+  },
+  'cn-2008-golds': {
+    en: `**48** gold medals, the first time China topped the gold-medal table.`,
+    zh: `**48** 枚金牌，中国首次位居金牌榜第一。`,
+  },
+  'cn-winter-olympics': {
+    en: `Summer **2008**, Winter **2022**. Some 2008 venues, like the Water Cube, were reused for 2022.`,
+    zh: `夏季 **2008**，冬季 **2022**。“水立方”等 2008 年场馆在 2022 年被再次使用。`,
   },
 };
 

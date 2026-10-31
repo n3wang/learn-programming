@@ -207,6 +207,28 @@ const clocktower = {
     en: 'Trouble Brewing: a Demon hides among the townsfolk. The screen is the Storyteller; nights on your phone, days arguing in person.',
     zh: '暗流涌动：恶魔藏在镇民之中。大屏幕当说书人，夜晚看手机，白天当面辩论。',
   },
+  howTo: {
+    en: [
+      'Hold your phone to see your role. Good (Townsfolk, Outsiders) must find and execute the Demon; evil (Minions, the Imp) know each other.',
+      'Night: everyone looks at their phone; the screen wakes each role in turn. If your phone wakes you, make your choice or read your information.',
+      'Day: talk face to face. Anyone may nominate once a day; everyone votes on their phone.',
+      'The player with the most votes (at least half the living players) is executed at the end of the day. A tie executes nobody.',
+      'The dead keep talking and have one last vote. Good wins when the Demon dies; evil wins when only 2 players are left.',
+      'Information can be wrong if you are poisoned or drunk: compare stories carefully!',
+    ],
+    zh: [
+      '按住手机查看你的角色。善良阵营（镇民、外来者）要找出并处决恶魔；邪恶阵营（爪牙、小恶魔）互相认识。',
+      '夜晚：所有人看着手机，大屏幕依次唤醒每个角色。手机唤醒你时，做出选择或查看信息。',
+      '白天：当面讨论。每人每天可以提名一次，所有人在手机上投票。',
+      '票数最多（至少达到存活人数一半）的玩家在白天结束时被处决，平票则无人被处决。',
+      '死亡玩家仍可发言，还有最后一票。恶魔死亡则善良获胜；只剩 2 人时邪恶获胜。',
+      '中毒或醉酒时你的信息可能是错的：仔细对比大家的说法！',
+    ],
+  },
+  reference(lang) {
+    const TEAM = {townsfolk: {en: 'Townsfolk', zh: '镇民'}, outsider: {en: 'Outsider', zh: '外来者'}, minion: {en: 'Minion', zh: '爪牙'}, demon: {en: 'Demon', zh: '恶魔'}};
+    return Object.keys(ROLES).map((k) => ({emoji: ROLES[k].emoji, tint: TEAM_TINT[ROLES[k].team], title: L(ROLES[k], lang), tag: L(TEAM[ROLES[k].team], lang), text: ROLES[k].ab}));
+  },
   inspiredBy: 'Blood on the Clocktower (Trouble Brewing)',
   players: {min: 5, max: 16},
   minutes: 45,
@@ -245,7 +267,13 @@ const clocktower = {
     return Boolean(timeout(s, ctx));
   },
 
-  view(s, g, id) {
+  /** The phone view plus `urgent` (this phone must act now), which drives the banner and buzz. */
+  view(s, g, id, ctx) {
+    const v = this.baseView(s, g, id, ctx);
+    return {...v, urgent: ['roles', 'choose', 'info', 'vote'].includes(v.kind)};
+  },
+
+  baseView(s, g, id) {
     const player = (p) => ({id: p, name: g.players[p] ? g.players[p].name : '?', avatar: g.players[p] && g.players[p].avatar, color: g.players[p] && g.players[p].color, dead: Boolean(s.dead[p])});
     const role = shownRole(s, id);
     const evil = evilInfo(s, id);

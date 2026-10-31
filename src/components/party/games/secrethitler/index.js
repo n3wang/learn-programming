@@ -80,6 +80,7 @@ const tg = makeT({
     phase_chancellor: 'The Chancellor is choosing…',
     phase_veto: 'Veto proposed…',
     phase_power: 'Presidential power: {power}',
+    phase_powerWait: 'President {name} is using a power…',
     passed: 'Elected!',
     failed: 'Rejected',
     liberalWin: 'The Liberals win!',
@@ -140,6 +141,7 @@ const tg = makeT({
     phase_chancellor: '总理正在选择……',
     phase_veto: '有人提议否决……',
     phase_power: '总统权力：{power}',
+    phase_powerWait: '{name} 总统正在使用权力……',
     passed: '当选！',
     failed: '被否决',
     liberalWin: '自由党获胜！',
@@ -246,6 +248,37 @@ const secrethitler = {
     en: 'Liberals vs hidden Fascists in 1930s parliament. Elect governments, pass policies, find Hitler.',
     zh: '1930 年代议会：自由党对抗隐藏的法西斯党。选举政府、通过法案、找出希特勒。',
   },
+  howTo: {
+    en: [
+      'Hold your phone to see your secret role. Liberals are the majority; Fascists know each other and secretly help Hitler.',
+      'Each round the President nominates a Chancellor (and a Clerk with 11+ players). Everyone votes Ja or Nein.',
+      'An elected government passes one policy: the President discards one card, the Chancellor enacts one. Anyone can lie about what they saw.',
+      'Fascist policies give the President powers: investigate, peek, choose the next President, or execute.',
+      'Liberals win with 5 Liberal policies or by executing Hitler. Fascists win with 6 Fascist policies, or by electing Hitler Chancellor after 3.',
+      'Three failed votes in a row: the top policy is passed automatically.',
+    ],
+    zh: [
+      '按住手机查看你的秘密身份。自由党占多数；法西斯党互相认识，暗中帮助希特勒。',
+      '每轮总统提名一位总理（11 人以上还要提名书记），所有人投 Ja（同意）或 Nein（反对）。',
+      '当选的政府通过一项法案：总统弃一张，总理颁布一张。任何人都可以对自己看到的牌撒谎。',
+      '法西斯法案会给总统权力：调查、查看法案、指定下一任总统、处决。',
+      '自由党：5 张自由党法案，或处决希特勒。法西斯党：6 张法西斯法案，或在 3 张之后让希特勒当选总理。',
+      '连续三次投票失败：牌堆顶的法案自动通过。',
+    ],
+  },
+  reference(lang) {
+    const r = (k, text) => ({emoji: ROLE_ART[k].emoji, tint: ROLE_ART[k].tint, title: L(ROLE_ART[k], lang), text});
+    return [
+      r('liberal', {en: 'Find the Fascists. Pass Liberal policies.', zh: '找出法西斯党，通过自由党法案。'}),
+      r('fascist', {en: 'You know your team. Pass Fascist policies, protect Hitler.', zh: '你认识队友。通过法西斯法案，保护希特勒。'}),
+      r('hitler', {en: 'Stay hidden. With 7+ players you don’t know your team.', zh: '隐藏好自己。7 人以上时你不认识队友。'}),
+      r('journalist', {en: '11+ players. Once: see the two policies the last Chancellor was handed.', zh: '11 人以上。一次：看到上一任总理拿到的两张法案。'}),
+      r('bodyguard', {en: '13+ players. Survive the first execution.', zh: '13 人以上。第一次被处决时活下来。'}),
+      r('infiltrator', {en: '15+ players. Fascist who shows as Liberal when investigated.', zh: '15 人以上。被调查时显示为自由党的法西斯。'}),
+      {emoji: '🔍', title: lang === 'zh' ? '调查 / 审计' : 'Investigate / Audit', text: {en: 'See a player’s party. Audit (14+): a discarded policy is shown to all.', zh: '查看一名玩家的党派。审计（14 人以上）：公开一张弃牌。'}},
+      {emoji: '🔫', title: lang === 'zh' ? '处决' : 'Execute', text: {en: 'Remove a player. If it’s Hitler, Liberals win.', zh: '处决一名玩家。如果是希特勒，自由党获胜。'}},
+    ];
+  },
   inspiredBy: 'Secret Hitler (CC BY-NC-SA 4.0)',
   players: {min: 5, max: 16},
   minutes: 30,
@@ -286,7 +319,13 @@ const secrethitler = {
     return Boolean(timeout(s, ctx));
   },
 
-  view(s, g, id) {
+  /** The phone view plus `urgent` (this phone must act now), which drives the banner and buzz. */
+  view(s, g, id, ctx) {
+    const v = this.baseView(s, g, id, ctx);
+    return {...v, urgent: ['roles', 'nominate', 'vote', 'discard', 'enact', 'veto', 'power'].includes(v.kind)};
+  },
+
+  baseView(s, g, id) {
     const player = (p) => ({id: p, name: g.players[p] ? g.players[p].name : '?', avatar: g.players[p] && g.players[p].avatar, color: g.players[p] && g.players[p].color, dead: Boolean(s.dead[p])});
     const role = s.role[id];
     const gov = s.gov || {};
@@ -302,6 +341,8 @@ const secrethitler = {
     else if (s.phase === 'power' && s.power && s.power.president === id) task = 'power';
     const v = {
       task: `${task}-${s.phase}-${s.lib}-${s.fas}-${s.tracker}-${gov.president || ''}`,
+      phase: s.phase,
+      lib: s.lib,
       kind: task,
       role,
       team: knownTo(s, id).map((p) => ({...player(p), hitler: s.role[p] === 'hitler'})),
@@ -412,6 +453,25 @@ function PlayerButtons({list, onPick, selected}) {
           <Avatar avatar={p.avatar} color={p.color} size="xs" /> {p.name}
         </button>
       ))}
+    </div>
+  );
+}
+
+/** What the table is doing while this phone waits. */
+function WaitLine({view, lang}) {
+  const pres = view.gov.president ? view.gov.president.name : '';
+  let text = tg(lang, 'waiting');
+  if (view.phase === 'roles') text = tg(lang, 'lookRole');
+  else if (view.phase === 'nominate') text = tg(lang, 'phase_nominate', {name: pres});
+  else if (view.phase === 'power') text = tg(lang, 'phase_powerWait', {name: pres});
+  else if (view.phase === 'vote') text = tg(lang, 'voted');
+  else if (['president', 'clerk', 'chancellor', 'veto'].includes(view.phase)) text = tg(lang, `phase_${view.phase}`);
+  return (
+    <div className={shell.card}>
+      <p className={shell.kicker}>
+        🕊️ {view.lib} / 5 · 🦅 {view.fas} / 6
+      </p>
+      <b>{text}</b>
     </div>
   );
 }
@@ -617,7 +677,7 @@ function SHPhone({view, lang, send}) {
     default:
       return (
         <>
-          <p className={shell.waiting}>{tg(lang, 'waiting')}</p>
+          <WaitLine view={view} lang={lang} />
           {roleBox}
           {journal}
         </>

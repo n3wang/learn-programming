@@ -113,6 +113,18 @@ const VOICE = {
 
 const roleName = (r, lang) => `${r} · ${L(ROLES[r], lang)}`;
 
+/** What each role does, shown when drafting and in the rules sheet. */
+const ABILITY = {
+  1: {en: 'Name a role: it skips its turn today.', zh: '点名一个角色：它今天跳过回合。'},
+  2: {en: 'Name a role: take all its gold when it is called.', zh: '点名一个角色：它被传召时你拿走它的全部金币。'},
+  3: {en: 'Swap your hand with a player, or redraw your whole hand.', zh: '和一名玩家交换手牌，或重抽整手牌。'},
+  4: {en: 'Take the crown (pick first tomorrow). +1 gold per royal building.', zh: '拿到王冠（明天先选）。每座王室建筑 +1 金币。'},
+  5: {en: 'The Pasha can’t touch your city. +1 gold per scholarly building.', zh: '帕夏不能拆你的城。每座学术建筑 +1 金币。'},
+  6: {en: '+1 gold, and +1 gold per trade building.', zh: '+1 金币，每座商贸建筑再 +1 金币。'},
+  7: {en: 'Draw 2 extra cards and build up to 3 buildings.', zh: '额外抽 2 张牌，最多建 3 座建筑。'},
+  8: {en: 'Pay to knock down a building. +1 gold per military building.', zh: '付钱拆掉一座建筑。每座军事建筑 +1 金币。'},
+};
+
 function RoleCard({r, lang, size = 64}) {
   const role = ROLES[r];
   return <Sprite path={`sultan/role-${role.key}.webp`} emoji={role.emoji} label={roleName(r, lang)} tint={role.tint} size={`${size}px`} />;
@@ -172,6 +184,25 @@ const sultan = {
     en: 'Draft a secret role each day, collect gold and build the finest quarter of the Sultan’s city.',
     zh: '每天秘密挑选角色，收集金币，为苏丹建造最华美的城区。',
   },
+  howTo: {
+    en: [
+      'Every day each player secretly picks a role. The crown holder picks first.',
+      'The herald then calls the roles 1 → 8. When yours is called, take your turn on your phone.',
+      'Your turn: take 2 gold or draw 2 cards and keep 1, use your role’s ability, then build a district you can afford.',
+      'No two identical buildings in one city. Royal, scholarly, trade and military roles earn gold for buildings of their colour.',
+      'When a city reaches the goal, the day finishes and the game ends. Score = building costs + bonuses (all 5 colours, first to finish).',
+    ],
+    zh: [
+      '每天每人秘密挑选一个角色，持有王冠的人先选。',
+      '传令官按 1 → 8 传召角色，轮到你的角色时在手机上进行回合。',
+      '你的回合：拿 2 金币或抽 2 留 1，使用角色技能，再建造一座付得起的建筑。',
+      '同一座城里不能有两座相同的建筑。王室、学术、商贸、军事角色会为同色建筑拿金币。',
+      '有一座城达到目标后，这一天结束游戏就结束。得分 = 建筑费用 + 奖励（五色齐全、最先完成）。',
+    ],
+  },
+  reference(lang) {
+    return Object.keys(ROLES).map((r) => ({emoji: ROLES[r].emoji, tint: ROLES[r].tint, title: roleName(r, lang), text: ABILITY[r]}));
+  },
   inspiredBy: 'Citadels',
   players: {min: 2, max: 16},
   minutes: 35,
@@ -192,7 +223,13 @@ const sultan = {
     return Boolean(timeout(s, ctx));
   },
 
-  view(s, g, id) {
+  /** The phone view plus `urgent` (this phone must act now), which drives the banner and buzz. */
+  view(s, g, id, ctx) {
+    const v = this.baseView(s, g, id, ctx);
+    return {...v, urgent: v.kind === 'draft' || v.kind === 'turn'};
+  },
+
+  baseView(s, g, id) {
     const players = s.seats.map((p) => ({
       id: p,
       name: g.players[p] ? g.players[p].name : '?',
@@ -213,6 +250,8 @@ const sultan = {
       round: s.round,
       goal: s.scale.goal,
       role: s.roleOf[id] || null,
+      calling: s.phase === 'call' && t ? t.role : null,
+      callingWho: s.phase === 'call' && t ? t.actors.map((a) => (g.players[a] ? g.players[a].name : '?')) : [],
       turnDone: s.phase === 'call' && Boolean(s.roleOf[id]) && (s.calling > s.roleOf[id] || Boolean(t && t.done[id])),
       crown: s.crown === id,
       gold: s.gold[id],
@@ -387,8 +426,9 @@ function SultanPhone({view, lang, send}) {
         <p className={shell.bigText}>{tg(lang, 'pickRole')}</p>
         <div className={styles.cards}>
           {view.offers.map((r) => (
-            <button key={r} type="button" className={styles.cardButton} onClick={() => send({action: 'draft', role: r})}>
-              <RoleCard r={r} lang={lang} size={84} />
+            <button key={r} type="button" className={`${styles.cardButton} ${styles.draftOption}`} onClick={() => send({action: 'draft', role: r})}>
+              <RoleCard r={r} lang={lang} size={72} />
+              <span className={styles.abilityText}>{L(ABILITY[r], lang)}</span>
             </button>
           ))}
         </div>
@@ -434,6 +474,9 @@ function SultanPhone({view, lang, send}) {
     return (
       <>
         <p className={shell.bigText}>{tg(lang, 'yourTurn')}</p>
+        <p className={shell.notice}>
+          {ROLES[r].emoji} {L(ROLES[r], lang)}: {L(ABILITY[r], lang)}
+        </p>
         {!view.used && (r === 1 || r === 2) && (
           <div className={shell.card}>
             <b>{tg(lang, 'nameRole')}</b>
@@ -488,6 +531,15 @@ function SultanPhone({view, lang, send}) {
   return (
     <>
       <p className={shell.waiting}>{view.turnDone ? tg(lang, 'turnDone') : view.role ? tg(lang, 'nobodyCalled') : tg(lang, 'waitDraft')}</p>
+      {view.calling && (
+        <div className={shell.card}>
+          {tg(lang, 'calling')}
+          <b>
+            {ROLES[view.calling].emoji} {L(ROLES[view.calling], lang)}
+          </b>
+          {view.callingWho.length > 0 ? ` · ${view.callingWho.join(', ')}` : ` · ${tg(lang, 'noAnswer')}`}
+        </div>
+      )}
       {status}
       {hand(false)}
     </>
