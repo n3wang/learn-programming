@@ -7,6 +7,7 @@ import {LangSwitch, useLang} from '@site/src/components/BetsAndWagers/strings';
 import {generateName, isGeneratedName} from '@site/src/components/BetsAndWagers/names';
 import {L, st} from './strings';
 import RulesSheet from './RulesSheet';
+import {playSfx, playSfxBurst, usePartySfx} from './sfx';
 import styles from './party.module.css';
 
 /**
@@ -60,6 +61,7 @@ function goToGame(code, game) {
 }
 
 export default function PlayerShell({mod}) {
+  usePartySfx();
   const gameId = mod.id;
   const queryRoom = query('room').trim().toUpperCase().slice(0, 4);
   const saved = useRef(undefined);
@@ -113,6 +115,7 @@ export default function PlayerShell({mod}) {
 
   /** A game action. Older relays don't know `input`: then it rides inside a `bet`. */
   function sendInput(msg) {
+    playSfx('place');
     pendingRef.current = msg;
     setSending(true);
     window.clearTimeout(sendingTimerRef.current);
@@ -126,6 +129,7 @@ export default function PlayerShell({mod}) {
   function handleMessage(msg) {
     switch (msg.type) {
       case 'joined':
+        playSfx('pop');
         rememberSeat({code: msg.code, playerId: msg.playerId, name: msg.name, avatar: isValidAvatar(msg.avatar) ? msg.avatar : seatRef.current?.avatar, game: gameId});
         writeJson(NAME_KEY, msg.name);
         setError(null);
@@ -172,7 +176,10 @@ export default function PlayerShell({mod}) {
         if (msg.message === 'unknown-type' && !wrapRef.current && pendingRef.current) {
           wrapRef.current = true;
           sendInput(pendingRef.current);
-        } else if (SEAT_ERRORS[msg.message]) dropSeat(SEAT_ERRORS[msg.message]);
+        } else if (SEAT_ERRORS[msg.message]) {
+          playSfx('invalid');
+          dropSeat(SEAT_ERRORS[msg.message]);
+        }
         break;
       default:
         break;
@@ -225,10 +232,19 @@ export default function PlayerShell({mod}) {
   // A short buzz when the phone's task changes, so heads come up from desks.
   const taskKey = env?.data?.task || env?.phase || '';
   const urgent = Boolean(env?.data?.urgent);
+  const prevTaskRef = useRef('');
   useEffect(() => {
-    if (!taskKey || typeof navigator === 'undefined' || !navigator.vibrate) return;
-    // A double buzz when the phone needs you, a short one for anything else.
-    navigator.vibrate(urgent ? [90, 60, 90] : 40);
+    if (!taskKey) return;
+    if (typeof navigator !== 'undefined' && navigator.vibrate) {
+      navigator.vibrate(urgent ? [90, 60, 90] : 40);
+    }
+    if (prevTaskRef.current && prevTaskRef.current !== taskKey) {
+      if (env?.phase === 'end') playSfx('bonus');
+      else if (/draft|discard|keep|cards|hand|roles|fake/.test(taskKey)) playSfxBurst('deal', 4, 75);
+      else if (urgent) playSfx('hint');
+      else playSfx('flip');
+    }
+    prevTaskRef.current = taskKey;
   }, [taskKey]);
 
   function join(event) {
@@ -330,7 +346,7 @@ export default function PlayerShell({mod}) {
                 spellCheck={false}
                 onChange={(e) => setForm({...form, name: Array.from(e.target.value).slice(0, NAME_MAX).join('')})}
               />
-              <button type="button" className={styles.diceButton} onClick={() => setForm({...form, name: generateName(lang, takenNames)})} aria-label={st(lang, 'newName')}>
+              <button type="button" className={styles.diceButton} onClick={() => { playSfx('dice'); setForm({...form, name: generateName(lang, takenNames)}); }} aria-label={st(lang, 'newName')}>
                 🎲
               </button>
             </span>
@@ -404,7 +420,7 @@ export default function PlayerShell({mod}) {
 
           <div className={styles.phoneDock}>
             {REACTIONS.map((r) => (
-              <button key={r.key} type="button" className={styles.reactButton} onClick={() => rawSend({type: 'react', emoji: r.key})}>
+              <button key={r.key} type="button" className={styles.reactButton} onClick={() => { playSfx('pop'); rawSend({type: 'react', emoji: r.key}); }}>
                 {r.emoji}
               </button>
             ))}

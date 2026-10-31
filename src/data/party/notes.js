@@ -849,6 +849,50 @@ $$60\\times 2 = 120\\ \\mathrm{km}$$`,
 
 $$60\\times 2 = 120\\ \\mathrm{km}$$`,
   },
+  'g7-speed-180-3': {
+    en: `Speed = distance $\\div$ time:
+
+$$180\\div 3 = 60\\ \\mathrm{km/h}$$`,
+    zh: `速度 = 路程 $\\div$ 时间：
+
+$$180\\div 3 = 60\\ \\mathrm{km/h}$$`,
+  },
+  'g7-time-80-40': {
+    en: `Time = distance $\\div$ speed:
+
+$$80\\div 40 = 2\\ \\mathrm{h}$$`,
+    zh: `时间 = 路程 $\\div$ 速度：
+
+$$80\\div 40 = 2\\ \\mathrm{h}$$`,
+  },
+  'g7-bike-15-4': {
+    en: `$$15\\times 4 = 60\\ \\mathrm{km}$$`,
+    zh: `$$15\\times 4 = 60\\ \\mathrm{km}$$`,
+  },
+  'g7-walk-2km': {
+    en: `$$2\\div 4 = 0.5\\ \\mathrm{h} = 30\\ \\mathrm{min}$$`,
+    zh: `$$2\\div 4 = 0.5\\ \\mathrm{h} = 30\\ \\mathrm{min}$$`,
+  },
+  'g7-bus-8-11': {
+    en: `$$11 - 8 = 3\\ \\mathrm{h}$$`,
+    zh: `$$11 - 8 = 3\\ \\mathrm{h}$$`,
+  },
+  'g7-arrive-7-3': {
+    en: `$$7 + 3 = 10$$ so it arrives at 10:00.`,
+    zh: `$$7 + 3 = 10$$，到达是 10 时。`,
+  },
+  'g7-arrive-9-150': {
+    en: `$$150\\div 50 = 3\\ \\mathrm{h},\\quad 9 + 3 = 12$$`,
+    zh: `$$150\\div 50 = 3\\ \\mathrm{h}，\\quad 9 + 3 = 12$$`,
+  },
+  'g7-train-200-100': {
+    en: `$$200\\div 100 = 2\\ \\mathrm{h}$$`,
+    zh: `$$200\\div 100 = 2\\ \\mathrm{h}$$`,
+  },
+  'g7-bus-180-3': {
+    en: `$$9 - 6 = 3\\ \\mathrm{h},\\quad 180\\div 3 = 60\\ \\mathrm{km/h}$$`,
+    zh: `$$9 - 6 = 3\\ \\mathrm{h}，\\quad 180\\div 3 = 60\\ \\mathrm{km/h}$$`,
+  },
   'g7-cm-3m': {
     en: `$$3\\times 100 = 300\\ \\mathrm{cm}$$`,
     zh: `$$3\\times 100 = 300\\ \\mathrm{cm}$$`,

@@ -18,6 +18,7 @@ import {AtLeastNumber, Avatar, AvatarPicker, Coin, CoinPile, ConnectionBadge, Co
 import {noteFromResult} from '@site/src/data/party/notes';
 import {LangSwitch, t, useLang} from './strings';
 import {generateName, isGeneratedName} from './names';
+import {playSfx, usePartySfx} from '@site/src/components/party/core/sfx';
 import styles from './styles.module.css';
 
 /**
@@ -122,6 +123,7 @@ function useWakeLock(active) {
 }
 
 export default function PlayerController() {
+  usePartySfx();
   const savedSeat = useRef(undefined);
   if (savedSeat.current === undefined) savedSeat.current = readSeat();
   const queryRoom = roomFromQuery();
@@ -312,9 +314,31 @@ export default function PlayerController() {
 
   // A short buzz when a new phase starts, so heads come up from desks.
   const phaseKey = view ? `${view.phase}-${view.round}` : '';
+  const prevPhaseRef = useRef('');
   useEffect(() => {
-    if (phaseKey && navigator.vibrate) navigator.vibrate(60);
+    if (!phaseKey) return;
+    if (navigator.vibrate) navigator.vibrate(60);
+    const last = prevPhaseRef.current;
+    prevPhaseRef.current = phaseKey;
+    if (!last || last === phaseKey) return;
+    if (view.phase === 'guess') playSfx('start');
+    else if (view.phase === 'bet') playSfx('deal');
+    else if (view.phase === 'reveal') playSfx((view.you?.delta || 0) > 0 ? 'win' : (view.you?.delta || 0) < 0 ? 'lose' : 'flip');
+    else if (view.phase === 'end') playSfx('bonus');
   }, [phaseKey]);
+
+  const tickSecRef = useRef(null);
+  useEffect(() => {
+    if (!view || view.endsIn <= 0 || (view.phase !== 'guess' && view.phase !== 'bet')) {
+      tickSecRef.current = null;
+      return;
+    }
+    const left = Math.max(0, Math.ceil((view.endsIn - (Date.now() - receivedAt)) / 1000));
+    if (left > 0 && left <= 5 && tickSecRef.current !== left) {
+      tickSecRef.current = left;
+      playSfx('tick', {volume: 0.5});
+    }
+  });
 
   useWakeLock(Boolean(seat && view && view.phase !== 'end'));
 
@@ -322,6 +346,7 @@ export default function PlayerController() {
 
   /** Guesses and bets survive a dropped connection: kept until acknowledged. */
   function sendAction(msg) {
+    playSfx('place');
     const current = viewRef.current;
     pendingRef.current = {msg, phase: current?.phase, round: current?.round};
     send(msg);
@@ -333,13 +358,16 @@ export default function PlayerController() {
     const code = form.code.trim().toUpperCase();
     const name = clampName(form.name).trim();
     if (code.length !== 4) {
+      playSfx('invalid');
       setError('errCode');
       return;
     }
     if (!name) {
+      playSfx('invalid');
       setError('errName');
       return;
     }
+    playSfx('pop');
     setError(null);
     seatRef.current = {code, name, playerId: null, avatar: form.avatar};
     writeJson(AVATAR_KEY, form.avatar);
@@ -464,7 +492,7 @@ export default function PlayerController() {
               <button
                 type="button"
                 className={styles.diceButton}
-                onClick={() => setForm({...form, name: generateName(lang, takenNames)})}
+                onClick={() => { playSfx('dice'); setForm({...form, name: generateName(lang, takenNames)}); }}
                 aria-label={t(lang, 'newName')}
                 title={t(lang, 'newName')}>
                 🎲
@@ -585,6 +613,7 @@ function ReactionBar({lang, onReact}) {
 
   function react(key) {
     if (coolingDown) return;
+    playSfx('pop');
     onReact(key);
     if (navigator.vibrate) navigator.vibrate(20);
     setCoolingDown(true);
@@ -676,7 +705,7 @@ function GuessPad({view, lang, onSend}) {
             type="button"
             className={styles.numpadKey}
             data-key={key}
-            onClick={() => setDigits((d) => pressKey(d, key))}
+            onClick={() => { playSfx('tap'); setDigits((d) => pressKey(d, key)); }}
             aria-label={key === 'del' ? t(lang, 'numpadDelete') : key === '.' ? t(lang, 'numpadPoint') : key}>
             {key === 'del' ? '⌫' : key}
           </button>
@@ -791,12 +820,17 @@ function BetPad({view, lang, onSend}) {
   function put(slot, kind) {
     skipTapRef.current = Date.now();
     if (place) {
+      playSfx('place');
       setA1(slot);
       setBank({});
       return;
     }
     if (kind === 'a1') {
-      if ((bank[slot] || 0) >= MAX_SLOT_COINS) return;
+      if ((bank[slot] || 0) >= MAX_SLOT_COINS) {
+        playSfx('invalid');
+        return;
+      }
+      playSfx('place');
       setA1(slot);
       return;
     }
@@ -804,7 +838,11 @@ function BetPad({view, lang, onSend}) {
       const used = Object.values(current).reduce((sum, n) => sum + n, 0);
       if (used >= bankCoins) return current;
       const next = (current[slot] || 0) + 1;
-      if ((a1 === slot ? 1 : 0) + next > MAX_SLOT_COINS) return current;
+      if ((a1 === slot ? 1 : 0) + next > MAX_SLOT_COINS) {
+        playSfx('invalid');
+        return current;
+      }
+      playSfx('place');
       return {...current, [slot]: next};
     });
   }

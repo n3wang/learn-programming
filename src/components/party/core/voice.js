@@ -1,5 +1,6 @@
 import {useEffect, useRef, useState} from 'react';
 import {fillVars} from './partyCore';
+import {playCueSfx, playUrl} from './sfx';
 import {L} from './strings';
 
 /**
@@ -41,9 +42,8 @@ export function useVoice({gameId, lines, state, lang, enabled}) {
       playNext();
     }, readMs);
     if (!enabled) return;
-    const audio = new Audio(`/audio/party/${gameId}/${item.id}.${lang}.mp3`);
-    audio.onerror = () => speak(item.text, lang);
-    audio.play().catch(() => speak(item.text, lang));
+    const fallback = () => speak(item.text, lang);
+    playUrl(`/audio/party/${gameId}/${item.id}.${lang}.mp3`, {onError: fallback});
   }
 
   const cues = (state && state.cues) || [];
@@ -57,6 +57,7 @@ export function useVoice({gameId, lines, state, lang, enabled}) {
     for (const c of cues) {
       if (c.seq <= playedRef.current) continue;
       playedRef.current = c.seq;
+      playCueSfx(c.id);
       const line = lines && lines[c.id];
       if (!line) continue;
       queueRef.current.push({id: c.id, text: fillVars(L(line, lang), c.vars || {}, lang)});

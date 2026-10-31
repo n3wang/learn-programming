@@ -42,6 +42,7 @@ import {AnimatedBank, AtLeastNumber, Avatar, Coin, CoinPile, ConnectionBadge, Co
 import {noteFor, noteFromResult} from '@site/src/data/party/notes';
 import {LangSwitch, t, useLang} from './strings';
 import {generateName, isGeneratedName} from './names';
+import {playSfx, playSfxBurst, usePartySfx} from '@site/src/components/party/core/sfx';
 import styles from './styles.module.css';
 
 /**
@@ -163,17 +164,22 @@ function startGuess(g, now) {
     g.board = placeBoard(question);
     g.phase = 'bet';
     g.deadline = now + PLACE_SECONDS * 1000;
+    playSfx('start');
+    playSfxBurst('deal', g.board.length, 70);
     return;
   }
   g.phase = 'guess';
   g.deadline = now + GUESS_SECONDS * 1000;
   g.board = null;
+  playSfx('start');
+  playSfxBurst('deal', 3, 80);
 }
 
 function endGuess(g, now) {
   g.board = buildBoard(g.guesses, findQuestion(g.questionIds[g.round]).unit, g.guessAt);
   g.phase = 'bet';
   g.deadline = now + BET_SECONDS * 1000;
+  playSfxBurst('deal', (g.board && g.board.length) || 4, 70);
 }
 
 function endBet(g) {
@@ -199,6 +205,7 @@ function endBet(g) {
   };
   g.phase = 'reveal';
   g.deadline = 0;
+  playSfx('flip');
 }
 
 function nextRound(g, now) {
@@ -207,6 +214,7 @@ function nextRound(g, now) {
     g.phase = 'end';
     g.deadline = 0;
     g.endRoster = Object.keys(g.players);
+    playSfx('bonus');
   } else {
     startGuess(g, now);
   }
@@ -296,6 +304,7 @@ function viewFor(g, playerId, now) {
 // ------------------------------------------------------------------ component
 
 export default function HostScreen() {
+  usePartySfx();
   const saved = useRef(null);
   if (saved.current === null) saved.current = readJson(HOST_KEY) || {};
   const gameRef = useRef(migrateGame(saved.current.game));
@@ -558,6 +567,7 @@ export default function HostScreen() {
   const dealAndStart = (g, now) => {
     const stored = readJson(RECENT_Q_KEY);
     const recent = Array.isArray(stored) ? stored : [];
+    playSfx('shuffle');
     g.questionIds = pickQuestionIds(g.packs, g.rounds, Math.random, recent);
     g.dealtAt = now;
     writeJson(

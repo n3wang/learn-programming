@@ -19,6 +19,7 @@ import {
   seatedIds,
 } from './partyCore';
 import {useVoice} from './voice';
+import {playSfx, usePartySfx} from './sfx';
 import RulesSheet from './RulesSheet';
 import {L, st} from './strings';
 import styles from './party.module.css';
@@ -46,6 +47,7 @@ function inGame(g, id) {
 }
 
 export default function HostShell({mod}) {
+  usePartySfx();
   const gameId = mod.id;
   const test = isTestMode();
   const saved = useRef(null);
@@ -123,7 +125,10 @@ export default function HostShell({mod}) {
     const draft = structuredClone(gameRef.current);
     const now = Date.now();
     if (mutate(draft, now) === false) return false;
-    if (draft.phase === 'play' && draft.state && draft.state.over) draft.phase = 'end';
+    if (draft.phase === 'play' && draft.state && draft.state.over) {
+      draft.phase = 'end';
+      playSfx('bonus');
+    }
     gameRef.current = draft;
     persist();
     broadcast();
@@ -144,6 +149,7 @@ export default function HostShell({mod}) {
   }
 
   function startGame() {
+    playSfx('shuffle');
     commit((g, now) => {
       numberSeats(g);
       const seats = seatedIds(g).slice(0, mod.players.max);
