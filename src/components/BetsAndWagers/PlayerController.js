@@ -4,6 +4,7 @@ import {
   AVATAR_COUNT,
   MAX_GUESS_DIGITS,
   MAX_PLAYERS,
+  MAX_SLOT_COINS,
   REACTIONS,
   describeGuess,
   digitCount,
@@ -785,6 +786,7 @@ function BetPad({view, lang, onSend}) {
   const dirty = JSON.stringify(locked) !== JSON.stringify(view.you.bet || []);
   const canAdd = place ? placed < 1 : left > 0;
   const youTok = {color: view.you.color, avatar: view.you.avatar, name: view.you.name};
+  const slotTotal = (slot) => (a1 === slot ? 1 : 0) + (bank[slot] || 0);
 
   function put(slot, kind) {
     skipTapRef.current = Date.now();
@@ -794,13 +796,16 @@ function BetPad({view, lang, onSend}) {
       return;
     }
     if (kind === 'a1') {
+      if ((bank[slot] || 0) >= MAX_SLOT_COINS) return;
       setA1(slot);
       return;
     }
     setBank((current) => {
       const used = Object.values(current).reduce((sum, n) => sum + n, 0);
       if (used >= bankCoins) return current;
-      return {...current, [slot]: (current[slot] || 0) + 1};
+      const next = (current[slot] || 0) + 1;
+      if ((a1 === slot ? 1 : 0) + next > MAX_SLOT_COINS) return current;
+      return {...current, [slot]: next};
     });
   }
 
@@ -815,6 +820,7 @@ function BetPad({view, lang, onSend}) {
       setBank({});
       return;
     }
+    if (slotTotal(slot) >= MAX_SLOT_COINS) return;
     if (!canAdd) {
       remove(slot);
       return;
@@ -849,7 +855,10 @@ function BetPad({view, lang, onSend}) {
 
   return (
     <div className={styles.pad}>
-      <p className={styles.chipsLeft}>{t(lang, left === 1 ? 'chipLeft' : 'chipsLeft', {n: left})}</p>
+      <p className={styles.chipsLeft}>
+        {t(lang, left === 1 ? 'chipLeft' : 'chipsLeft', {n: left})}
+        <span className={styles.muted}> · {t(lang, 'maxOnSlot', {n: MAX_SLOT_COINS})}</span>
+      </p>
       <CoinTray
         a1Left={a1Left && (place ? placed < 1 : true)}
         bankLeft={place ? 0 : bankLeft}

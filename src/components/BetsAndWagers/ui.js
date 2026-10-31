@@ -25,8 +25,7 @@ export function Countdown({msLeft, lang = 'en'}) {
 }
 
 /**
- * A question's picture with its credit (all are Wikimedia Commons files under
- * public-domain, CC0 or CC BY/BY-SA licences, so the credit must be shown).
+ * A question's picture. Wikimedia credits stay visible when present.
  */
 export function QuestionImage({image, alt, lang = 'en', compact = false}) {
   const src = useBaseUrl(image ? image.src : '/');
@@ -34,11 +33,17 @@ export function QuestionImage({image, alt, lang = 'en', compact = false}) {
   return (
     <figure className={`${styles.questionImage} ${compact ? styles.questionImageCompact : ''}`}>
       <img src={src} alt={alt} loading="eager" decoding="async" />
-      <figcaption>
-        <a href={image.source} target="_blank" rel="noopener noreferrer">
-          {t(lang, 'imageCredit', {credit: image.credit})}
-        </a>
-      </figcaption>
+      {image.credit ? (
+        <figcaption>
+          {image.source ? (
+            <a href={image.source} target="_blank" rel="noopener noreferrer">
+              {t(lang, 'imageCredit', {credit: image.credit})}
+            </a>
+          ) : (
+            t(lang, 'imageCredit', {credit: image.credit})
+          )}
+        </figcaption>
+      ) : null}
     </figure>
   );
 }

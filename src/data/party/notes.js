@@ -625,6 +625,22 @@ $$3w + (14-w) = 28 \\Rightarrow 2w = 14 \\Rightarrow w = 7$$`,
     en: `Two hexagon ends plus one rectangle per side: $2 + 6 = 8$. An $n$-sided prism has $n + 2$ faces.`,
     zh: `上下两个六边形底面，加上每条边一个侧面：$2 + 6 = 8$。$n$ 棱柱有 $n + 2$ 个面。`,
   },
+  'g7-view-cubes': {
+    en: `All three sit on the table (each shows a top face). Two in a front row, one tucked behind the left — an L of **3**.`,
+    zh: `三个都在桌面上（都能看见顶面）。前面一排两个，左后方再一个，是 **3** 个小正方体摆成的 L。`,
+  },
+  'g7-view-front': {
+    en: `Pink faces are the front. The back cube hides behind the left one, so you only see a $1\\times 2$ rectangle — **2** squares.`,
+    zh: `粉色是前面。后面那块被左边挡住，只看见 $1\\times 2$ 的长方形，**2** 个小正方形。`,
+  },
+  'g7-view-left': {
+    en: `From the left, the right-hand cube tucks behind the left one. Front and back of the left column show: another $1\\times 2$ rectangle — **2** squares.`,
+    zh: `从左边看，右边那块躲到左边后面。左列的前、后各露出一个面：又是 $1\\times 2$ 的长方形，**2** 个小正方形。`,
+  },
+  'g7-view-top': {
+    en: `Every cube shows its top, so the plan is the L itself: **3** squares.`,
+    zh: `每个小正方体的顶面都看得见，俯视图就是那个 L，**3** 个小正方形。`,
+  },
   'g7-segments': {
     en: `Every pair of points makes a segment:
 
@@ -653,6 +669,46 @@ $$AB = 4\\times\\frac{3}{4} = 3$$`,
     en: `$1^\\circ = 60'$ and $1' = 60''$, so $1^\\circ = 60\\times 60 = 3600''$ — the same 60s as an hour.`,
     zh: `$1^\\circ = 60'$，$1' = 60''$，所以 $1^\\circ = 60\\times 60 = 3600''$——和一小时的进率一样。`,
   },
+  'g7-comp-sum': {
+    en: `Complementary angles (余角) add to a right angle: $90^\\circ$. They do not have to sit next to each other.`,
+    zh: `互为余角就是两个角加起来是直角：$90^\\circ$。不必挨在一起。`,
+  },
+  'g7-supp-sum': {
+    en: `Supplementary angles (补角) add to a straight angle: $180^\\circ$. A complement and a supplement of the same angle always differ by $90^\\circ$.`,
+    zh: `互为补角就是两个角加起来是平角：$180^\\circ$。同一个角的补角比余角总是大 $90^\\circ$。`,
+  },
+  'g7-comp-10': {
+    en: `$$90^\\circ - 10^\\circ = 80^\\circ$$`,
+    zh: `$$90^\\circ - 10^\\circ = 80^\\circ$$`,
+  },
+  'g7-supp-10': {
+    en: `$$180^\\circ - 10^\\circ = 170^\\circ$$`,
+    zh: `$$180^\\circ - 10^\\circ = 170^\\circ$$`,
+  },
+  'g7-comp-30': {
+    en: `$$90^\\circ - 30^\\circ = 60^\\circ$$`,
+    zh: `$$90^\\circ - 30^\\circ = 60^\\circ$$`,
+  },
+  'g7-supp-30': {
+    en: `$$180^\\circ - 30^\\circ = 150^\\circ$$`,
+    zh: `$$180^\\circ - 30^\\circ = 150^\\circ$$`,
+  },
+  'g7-comp-60': {
+    en: `$$90^\\circ - 60^\\circ = 30^\\circ$$`,
+    zh: `$$90^\\circ - 60^\\circ = 30^\\circ$$`,
+  },
+  'g7-supp-60': {
+    en: `$$180^\\circ - 60^\\circ = 120^\\circ$$`,
+    zh: `$$180^\\circ - 60^\\circ = 120^\\circ$$`,
+  },
+  'g7-supp-170': {
+    en: `$$180^\\circ - 170^\\circ = 10^\\circ$$
+
+$170^\\circ$ is already bigger than $90^\\circ$, so it has no complement.`,
+    zh: `$$180^\\circ - 170^\\circ = 10^\\circ$$
+
+$170^\\circ$ 已经大于 $90^\\circ$，没有余角。`,
+  },
   'g7-supplement': {
     en: `$180^\\circ - 150^\\circ = 30^\\circ$ is the angle; its complement is $90^\\circ - 30^\\circ = 60^\\circ$. A shortcut: supplement − complement is always $90^\\circ$.`,
     zh: `这个角是 $180^\\circ - 150^\\circ = 30^\\circ$，余角是 $90^\\circ - 30^\\circ = 60^\\circ$。捷径：补角比余角总是大 $90^\\circ$。`,
@@ -676,6 +732,30 @@ $$150 - 102.5 = 47.5^\\circ$$`,
   'g7-bisect-twice': {
     en: `Each bisection halves: $\\angle AOC = 2\\times 35 = 70^\\circ$, then $\\angle AOB = 2\\times 70 = 140^\\circ$.`,
     zh: `每平分一次就减半，倒推回去翻倍：$\\angle AOC = 2\\times 35 = 70^\\circ$，$\\angle AOB = 2\\times 70 = 140^\\circ$。`,
+  },
+  'g7-gear-24': {
+    en: `The teeth are spaced evenly around a full turn, so $\\alpha$ is just $360^\\circ$ cut into 24 equal slices:
+
+$$\\alpha = 360^\\circ \\div 24 = 15^\\circ$$`,
+    zh: `齿在一周上均匀分布，所以 $\\alpha$ 就是把 $360^\\circ$ 平均分成 24 份：
+
+$$\\alpha = 360^\\circ \\div 24 = 15^\\circ$$`,
+  },
+  'g7-gear-22': {
+    en: `$$360^\\circ \\div 22 = 16.\\overline{36}^\\circ$$
+
+The leftover $0.\\overline{36}^\\circ$ in minutes:
+
+$$0.\\overline{36}\\times 60' = 21.\\overline{81}' \\approx 22'$$
+
+so $\\alpha = 16^\\circ 22'$ to the nearest minute.`,
+    zh: `$$360^\\circ \\div 22 = 16.\\overline{36}^\\circ$$
+
+小数部分化成分：
+
+$$0.\\overline{36}\\times 60' = 21.\\overline{81}' \\approx 22'$$
+
+精确到分就是 $16^\\circ 22'$。`,
   },
   'g7-eq-2x5': {
     en: `Subtract 5, then divide by 2:

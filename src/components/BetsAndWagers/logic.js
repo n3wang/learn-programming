@@ -32,6 +32,8 @@ export const CLOSE_RANGE = 5;
 export const CLOSE_BONUS = 1;
 /** Bank coins every seat starts a game with (A1 is separate and always present). */
 export const STARTING_COINS = 3;
+/** Bank + A1 on one answer. Stops a fat pile on a single card. */
+export const MAX_SLOT_COINS = 10;
 /** Distinct number-line answers on the board, after grouping identical guesses. */
 export const MAX_ANSWERS = 12;
 /** The rare "smaller than all" slot, when it appears, pays 2 to 1. */
@@ -146,11 +148,12 @@ export function questionsForPacks(packIds) {
   );
 }
 
-/** Fresh 0…1 each call; prefers the browser's CSPRNG over Math.random. */
+/** Fresh 0…1 each call. Math.random is the fallback if crypto is a webpack stub. */
 export function unitRandom() {
-  if (typeof crypto !== 'undefined' && typeof crypto.getRandomValues === 'function') {
+  const web = typeof globalThis !== 'undefined' ? globalThis.crypto : undefined;
+  if (web && typeof web.getRandomValues === 'function') {
     const buf = new Uint32Array(1);
-    crypto.getRandomValues(buf);
+    web.getRandomValues(buf);
     return buf[0] / 4294967296;
   }
   return Math.random();
@@ -158,30 +161,37 @@ export function unitRandom() {
 
 export function shuffleList(items, rng = unitRandom) {
   const list = items.slice();
+  const roll = typeof rng === 'function' ? rng : unitRandom;
   for (let i = list.length - 1; i > 0; i--) {
-    const j = Math.floor(rng() * (i + 1));
+    const j = Math.floor(roll() * (i + 1));
     [list[i], list[j]] = [list[j], list[i]];
   }
   return list;
 }
 
 /**
- * Random draw without repeats in one game. Packs are shuffled separately and
- * drawn round-robin so a fat pack cannot flood the set. IDs in `avoid` (last
- * game's questions) are used only after every fresh one is taken.
+ * Random hand for one game. Each selected pack is shuffled, pack order is
+ * shuffled, then we draw round-robin so a fat pack cannot flood the set.
+ * IDs in `avoid` (recent games) are used only after every unused id is taken.
  */
 export function pickQuestionIds(packIds, count, rng = unitRandom, avoid = []) {
   const roll = typeof rng === 'function' ? rng : unitRandom;
   const avoidSet = new Set(Array.isArray(avoid) ? avoid : []);
-  const groups = PACKS.filter((pack) => packIds.includes(pack.id))
-    .map((pack) => shuffleList(pack.questions.map((q) => q.id), roll))
-    .filter((ids) => ids.length);
+  const groups = shuffleList(
+    PACKS.filter((pack) => packIds.includes(pack.id))
+      .map((pack) => shuffleList(pack.questions.map((q) => q.id), roll))
+      .filter((ids) => ids.length),
+    roll,
+  );
   if (!groups.length) return [];
 
-  const want = Math.min(count, groups.reduce((n, ids) => n + ids.length, 0));
+  const pool = groups.reduce((n, ids) => n + ids.length, 0);
+  const want = Math.min(Math.max(0, Number(count) || 0), pool);
+  if (!want) return [];
+
   const picked = [];
   const leftover = [];
-  let gi = 0;
+  let gi = Math.floor(roll() * groups.length);
   while (picked.length + leftover.length < want && groups.some((ids) => ids.length)) {
     const group = groups[gi % groups.length];
     gi += 1;
@@ -375,7 +385,8 @@ export function settlePlace({question, bets, playerIds}) {
 
 /**
  * Drop unknown slots and bad amounts. Each seat may place its one A1 plus
- * at most its bank. Multiple-choice (`place`) may hold only one coin total.
+ * at most its bank, and at most MAX_SLOT_COINS on one answer. Multiple-choice
+ * (`place`) may hold only one coin total.
  */
 export function sanitizeBet(chips, board, player, options = {}) {
   if (!Array.isArray(chips) || !board) return null;
@@ -391,6 +402,8 @@ export function sanitizeBet(chips, board, player, options = {}) {
     const prev = bySlot.get(chip.slot) || {slot: chip.slot, amount: 0, a1: 0};
     prev.amount += amount;
     prev.a1 += a1;
+    const room = MAX_SLOT_COINS - (prev.a1 ? 1 : 0);
+    prev.amount = Math.min(prev.amount, Math.max(0, room));
     bySlot.set(chip.slot, prev);
   }
   if (a1Count > 1) return null;

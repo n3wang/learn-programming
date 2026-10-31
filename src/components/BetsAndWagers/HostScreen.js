@@ -83,6 +83,7 @@ function newGame(settings = {}) {
     lockedNames: typeof settings.lockedNames === 'boolean' ? settings.lockedNames : defaultLockedNames(),
     players: {},
     questionIds: [],
+    dealtAt: 0,
     round: 0,
     deadline: 0,
     guesses: {},
@@ -126,6 +127,9 @@ function addBotSeat(g, lang) {
   return true;
 }
 
+/** A leftover projector tab should not replay yesterday's cards. */
+const STALE_DEAL_MS = 45 * 60 * 1000;
+
 function migrateGame(raw) {
   const g = raw && typeof raw === 'object' ? raw : newGame();
   if (!g.nextBot) g.nextBot = 1;
@@ -135,6 +139,13 @@ function migrateGame(raw) {
   for (const [id, p] of Object.entries(g.players || {})) {
     normalizePlayer(p);
     if (isBot(p, id)) p.connected = true;
+  }
+  const stale = g.phase !== 'lobby' && g.dealtAt && Date.now() - g.dealtAt > STALE_DEAL_MS;
+  if (g.phase === 'end' || stale) {
+    const next = newGame({packs: g.packs, rounds: g.rounds, lockedNames: g.lockedNames});
+    next.players = g.players || {};
+    resetCoins(next.players);
+    return next;
   }
   return g;
 }
@@ -547,7 +558,8 @@ export default function HostScreen() {
   const dealAndStart = (g, now) => {
     const stored = readJson(RECENT_Q_KEY);
     const recent = Array.isArray(stored) ? stored : [];
-    g.questionIds = pickQuestionIds(g.packs, g.rounds, undefined, recent);
+    g.questionIds = pickQuestionIds(g.packs, g.rounds, Math.random, recent);
+    g.dealtAt = now;
     writeJson(
       RECENT_Q_KEY,
       [...g.questionIds, ...recent.filter((id) => !g.questionIds.includes(id))].slice(0, RECENT_Q_KEEP),
@@ -944,20 +956,6 @@ export default function HostScreen() {
                             <AtLeastNumber label={slot.label} className={styles.slotLabel} />
                           )}
                           {slot.detail && <span className={styles.slotDetail}>{slot.detail}</span>}
-                          <span className={styles.slotAuthors}>
-                            {slot.authors.map((pid) =>
-                              g.players[pid] ? (
-                                <Coin
-                                  key={pid}
-                                  kind="a1"
-                                  color={g.players[pid].color}
-                                  avatar={g.players[pid].avatar}
-                                  size="xs"
-                                  title={g.players[pid].name}
-                                />
-                              ) : null,
-                            )}
-                          </span>
                         </div>
                       </li>
                     );
