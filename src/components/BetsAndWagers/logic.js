@@ -33,7 +33,7 @@ export const CLOSE_BONUS = 1;
 /** Bank coins every seat starts a game with (A1 is separate and always present). */
 export const STARTING_COINS = 3;
 /** Bank + A1 on one answer. Stops a fat pile on a single card. */
-export const MAX_SLOT_COINS = 10;
+export const MAX_SLOT_COINS = 20;
 /** Distinct number-line answers on the board, after grouping identical guesses. */
 export const MAX_ANSWERS = 12;
 /** The rare "smaller than all" slot, when it appears, pays 2 to 1. */

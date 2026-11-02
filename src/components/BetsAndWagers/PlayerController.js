@@ -884,6 +884,14 @@ function BetPad({view, lang, onSend}) {
     setBank((current) => ({...current, [slot]: 0}));
   }
 
+  function allIn(slot) {
+    if (place) return;
+    const amount = Math.min(bankCoins, MAX_SLOT_COINS - 1);
+    playSfx('place');
+    setA1(slot);
+    setBank({[slot]: amount});
+  }
+
   function pileFor(slot) {
     const mine = [];
     if (a1 === slot.key) mine.push({...youTok, kind: 'bank'});
@@ -948,6 +956,16 @@ function BetPad({view, lang, onSend}) {
                   aria-label={t(lang, 'removeChip')}>
                   −
                 </button>
+                {!place && (
+                  <button
+                    type="button"
+                    className={styles.betAllIn}
+                    disabled={mine >= Math.min(MAX_SLOT_COINS, bankCoins + 1) && Object.keys(bank).every((key) => key === slot.key || !bank[key])}
+                    onClick={() => allIn(slot.key)}
+                    aria-label={t(lang, 'allIn', {n: MAX_SLOT_COINS})}>
+                    O
+                  </button>
+                )}
               </div>
             </li>
           );

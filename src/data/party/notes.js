@@ -1237,6 +1237,82 @@ Whole numbers start at **7**.`,
     en: `$$\\frac{75+78+82+x}{4} > 80 \\Rightarrow 235 + x > 320 \\Rightarrow x > 85$$`,
     zh: `$$\\frac{75+78+82+x}{4} > 80 \\Rightarrow 235 + x > 320 \\Rightarrow x > 85$$`,
   },
+  'g8-ineq-frac4': {
+    en: `Clear the 2 and 3 by multiplying through by 6 (the sign stays):
+
+$$3(2+x) \\ge 2(2x-1) - 12$$
+
+$$6 + 3x \\ge 4x - 14 \\Rightarrow 20 \\ge x \\Rightarrow x \\le 20$$`,
+    zh: `两边乘 6 去分母，方向不变：
+
+$$3(2+x) \\ge 2(2x-1) - 12$$
+
+$$6 + 3x \\ge 4x - 14 \\Rightarrow 20 \\ge x \\Rightarrow x \\le 20$$`,
+  },
+  'g8-ineq-frac-half': {
+    en: `Multiply by 4:
+
+$$2(x-1) < x+5 \\Rightarrow 2x-2 < x+5 \\Rightarrow x < 7$$`,
+    zh: `两边乘 4：
+
+$$2(x-1) < x+5 \\Rightarrow 2x-2 < x+5 \\Rightarrow x < 7$$`,
+  },
+  'g8-ineq-frac-mix': {
+    en: `Multiply by 6:
+
+$$4x + 6 \\le 3(x+4) \\Rightarrow 4x + 6 \\le 3x + 12 \\Rightarrow x \\le 6$$`,
+    zh: `两边乘 6：
+
+$$4x + 6 \\le 3(x+4) \\Rightarrow 4x + 6 \\le 3x + 12 \\Rightarrow x \\le 6$$`,
+  },
+  'g8-ineq-frac-cross': {
+    en: `Multiply by 15:
+
+$$3(x+3) > 5(2x-1) \\Rightarrow 3x+9 > 10x-5 \\Rightarrow 14 > 7x \\Rightarrow x < 2$$`,
+    zh: `两边乘 15：
+
+$$3(x+3) > 5(2x-1) \\Rightarrow 3x+9 > 10x-5 \\Rightarrow 14 > 7x \\Rightarrow x < 2$$`,
+  },
+  'g8-ineq-frac-13': {
+    en: `Multiply by 6:
+
+$$2(2x+1) < 3(x+5) \\Rightarrow 4x+2 < 3x+15 \\Rightarrow x < 13$$`,
+    zh: `两边乘 6：
+
+$$2(2x+1) < 3(x+5) \\Rightarrow 4x+2 < 3x+15 \\Rightarrow x < 13$$`,
+  },
+  'g8-tank-vol': {
+    en: `$$10 \\times 3.5 \\times 7 = 245$$
+
+So the tank holds **245** $\\mathrm{dm}^3$.`,
+    zh: `$$10 \\times 3.5 \\times 7 = 245$$
+
+鱼缸容积是 **245** $\\mathrm{dm}^3$。`,
+  },
+  'g8-tank-water': {
+    en: `The water is only $1\\,\\mathrm{dm}$ deep:
+
+$$10 \\times 3.5 \\times 1 = 35$$
+
+**35** $\\mathrm{dm}^3$ is already in — same number as the base area, because the depth is $1$.`,
+    zh: `水深只有 $1\\,\\mathrm{dm}$：
+
+$$10 \\times 3.5 \\times 1 = 35$$
+
+已有 **35** $\\mathrm{dm}^3$。底面积也是 35，因为高度刚好是 $1$。`,
+  },
+  'g8-tank-more': {
+    en: `Room left in height: $7-1=6\\,\\mathrm{dm}$.
+
+$$0 < V \\le 10 \\times 3.5 \\times 6 = 210$$
+
+The greatest $V$ is **210** $\\mathrm{dm}^3$ (fill to the brim, no overflow).`,
+    zh: `还能再涨高 $7-1=6\\,\\mathrm{dm}$。
+
+$$0 < V \\le 10 \\times 3.5 \\times 6 = 210$$
+
+$V$ 最大是 **210** $\\mathrm{dm}^3$（加满、不溢出）。`,
+  },
   'ar-aconcagua-m': {
     en: `Aconcagua is **6961 m** tall, the highest point of both the Americas and the Southern Hemisphere.`,
     zh: `阿空加瓜山高 **6961 米**，是美洲和南半球的最高点。`,
@@ -1384,6 +1460,118 @@ Whole numbers start at **7**.`,
   'cn-winter-olympics': {
     en: `Summer **2008**, Winter **2022**. Some 2008 venues, like the Water Cube, were reused for 2022.`,
     zh: `夏季 **2008**，冬季 **2022**。“水立方”等 2008 年场馆在 2022 年被再次使用。`,
+  },
+  'math-golden': {
+    en: `$$\\varphi = \\frac{1+\\sqrt{5}}{2} \\approx 1.6180339\\ldots$$
+
+Three decimals: **1.618**. A rectangle is golden when $\\text{long}/\\text{short} = \\varphi$; the Fibonacci ratio $F_{n+1}/F_n$ creeps toward the same number.`,
+    zh: `$$\\varphi = \\frac{1+\\sqrt{5}}{2} \\approx 1.6180339\\ldots$$
+
+三位小数是 **1.618**。长宽比等于 $\\varphi$ 的矩形叫黄金矩形；斐波那契比 $F_{n+1}/F_n$ 也会逼近它。`,
+  },
+  'hist-titanic': {
+    en: `14–15 April **1912**, on the maiden voyage from Southampton to New York. About 1,500 people died. The wreck was found in 1985, 3.8 km down in the North Atlantic.`,
+    zh: `**1912** 年 4 月 14–15 日，首航从南安普敦去纽约。约 1500 人遇难。残骸 1985 年在北大西洋 3.8 千米深处被找到。`,
+  },
+  'hist-un': {
+    en: `The UN Charter entered into force on 24 October **1945**, after the war. Fifty-one countries signed first; the headquarters later settled in New York.`,
+    zh: `《联合国宪章》在战后 **1945** 年 10 月 24 日生效。最初 51 国签署，总部后来落在纽约。`,
+  },
+  'hist-ww2': {
+    en: `Germany surrendered in May **1945**; Japan signed on 2 September. Same calendar year the UN was born — two cards, one year.`,
+    zh: `德国 **1945** 年 5 月投降，日本 9 月 2 日签字。联合国也在同一年成立——两张牌，同一个年份。`,
+  },
+  'hist-berlin': {
+    en: `9 November **1989**. East German officials opened the crossings after a bungled press conference; people climbed the wall that night. Formal reunification was 3 October 1990.`,
+    zh: `**1989** 年 11 月 9 日。东德官员一场记者会说错了话，当晚关口打开，人爬上墙。正式统一是 1990 年 10 月 3 日。`,
+  },
+  'phys-light-kms': {
+    en: `Since 1983 the metre is defined from $c$, so
+
+$$c = 299\\,792\\,458\\ \\mathrm{m/s}$$
+
+exactly. In km/s that is $299\\,792.458$, which rounds to **299792**. The “300000” classroom shortcut is about 0.07% high.`,
+    zh: `1983 年起米用光速定义，所以
+
+$$c = 299\\,792\\,458\\ \\mathrm{m/s}$$
+
+是精确值。换成 km/s 是 $299\\,792.458$，四舍五入 **299792**。课堂上说的 300000 大约高了 0.07%。`,
+  },
+  'sport-bowl-300': {
+    en: `Twelve strikes in a row: $10+10+10$ pins counted on each of the first ten frames, and the two bonus rolls are strikes too. $30\\times 10 = $ **300**.`,
+    zh: `连续十二次全中：前十轮每轮按 $10+10+10$ 计，后面两次奖励球也是全中。$30\\times 10 = $ **300**。`,
+  },
+  'pop-bond': {
+    en: `Ian Fleming’s agent is **007**. The “00” prefix meant a licence to kill in the books; the 7 was just the number Fleming liked.`,
+    zh: `弗莱明笔下的特工是 **007**。“00” 在小说里表示有杀人许可；7 只是他喜欢的数字。`,
+  },
+  'hist-ww2-start': {
+    en: `Germany invaded Poland on 1 September **1939**. Britain and France declared war two days later. The Pacific war with Japan is dated from 1941; this card is the European start.`,
+    zh: `德国 **1939** 年 9 月 1 日入侵波兰，英法两天后宣战。太平洋战争从 1941 年算；这张牌问的是欧洲爆发年。`,
+  },
+  'hist-hiroshima': {
+    en: `6 August **1945**, uranium bomb “Little Boy.” Nagasaki was the 9th (“Fat Man”). Japan announced surrender on the 15th. Death totals are estimates; the day is not.`,
+    zh: `**1945** 年 8 月 6 日，铀弹“小男孩”。长崎是 9 日（“胖子”）。日本 15 日宣布投降。死伤人数是估计，日期不是。`,
+  },
+  'hist-berlin-up': {
+    en: `Overnight 12–13 August **1961** East Germany sealed the border, then built the wall. It stood 28 years. Gagarin’s flight is the same calendar year — two 1961 cards.`,
+    zh: `**1961** 年 8 月 12–13 日夜里东德封关，随后筑墙，立了 28 年。加加林上天也是这一年——两张 1961。`,
+  },
+  'hist-reunify': {
+    en: `The wall fell in 1989; the two German states became one on 3 October **1990**. The Soviet Union itself dissolved the next year, 1991.`,
+    zh: `墙 1989 年倒；两个德国 **1990** 年 10 月 3 日合并。苏联本身 1991 年解体。`,
+  },
+  'hist-ww1': {
+    en: `Archduke Franz Ferdinand was shot in Sarajevo on 28 June **1914**. Alliances pulled in most of Europe by August. The armistice was 11 November 1918.`,
+    zh: `斐迪南大公 **1914** 年 6 月 28 日在萨拉热窝遇刺。到 8 月欧洲大国几乎都卷进来。停战是 1918 年 11 月 11 日。`,
+  },
+  'hist-usa-1776': {
+    en: `Congress adopted the Declaration on 4 July **1776**. Fighting had already started in 1775; the Treaty of Paris that Britain signed was 1783.`,
+    zh: `大陆会议 **1776** 年 7 月 4 日通过《独立宣言》。仗 1775 年就开打了；英国认账的《巴黎条约》是 1783 年。`,
+  },
+  'hist-bastille': {
+    en: `14 July **1789**. The prison held only a handful of inmates; the crowd wanted the gunpowder. France still marks the day as its national holiday.`,
+    zh: `**1789** 年 7 月 14 日。狱里没几个人，人群要的是火药。法国到现在把这一天当国庆。`,
+  },
+  'hist-columbus': {
+    en: `12 October **1492**, landfall in the Bahamas (Guanahani). He was aiming at Asia. Peoples were already there — “discover” means first lasting contact with Europe.`,
+    zh: `**1492** 年 10 月 12 日，巴哈马的瓜纳哈尼。他要去的是亚洲。那里早有人住——“发现”指的是和欧洲开始持续接触。`,
+  },
+  'hist-plague': {
+    en: `Genoese ships brought it to Messina in **1347**. Europe lost on the order of one-third to one-half of its people by 1351 — counts are fuzzy; the year is the one to lock.`,
+    zh: `热那亚船 **1347** 年把它带到墨西拿。到 1351 年欧洲大约死了三分之一到一半——人数对不齐，年份可以钉死。`,
+  },
+  'hist-constantinople': {
+    en: `29 May **1453**, after a 53-day siege. Mehmed II’s cannon beat the Theodosian Walls. Greek scholars left for Italy; the city is Istanbul now.`,
+    zh: `**1453** 年 5 月 29 日，围了 53 天。穆罕默德二世的大炮打开狄奥多西城墙。希腊学者逃去意大利；城现在叫伊斯坦布尔。`,
+  },
+  'hist-luther': {
+    en: `31 October **1517**, Wittenberg. Whether he nailed the sheet to the church door or mailed it, the date stuck. Printing did the rest.`,
+    zh: `**1517** 年 10 月 31 日，维滕贝格。是钉在教堂门上还是寄出去的，日子留下了。剩下的是印刷术的事。`,
+  },
+  'hist-theses': {
+    en: `**95** arguments against selling indulgences. Not a book — a disputation list. The number is in the title everyone still uses.`,
+    zh: `反对贩卖赎罪券的 **95** 条论题。不是一本书，是辩论提纲。这个数字写进了大家还在用的标题。`,
+  },
+  'hist-alexander': {
+    en: `Born 356 BCE, dead in Babylon 323 BCE: **32**. From Greece to the Indus in about a decade. The empire split among his generals the moment he was gone.`,
+    zh: `前 356 年生，前 323 年死于巴比伦，得年 **32**。十年左右从希腊打到印度河。人一走帝国就给将领分掉了。`,
+  },
+  'hist-glorious': {
+    en: `**1688**: James II fled; William of Orange and Mary took the crown under Parliament’s terms. The 1689 Bill of Rights followed. Bloodless in England, not in Ireland.`,
+    zh: `**1688** 年詹姆斯二世出逃；奥兰治的威廉和玛丽按议会条件登基。1689 年有《权利法案》。英格兰少流血，爱尔兰不是。`,
+  },
+  'hist-hastings': {
+    en: `14 October **1066**. Harold died — the tapestry shows an arrow, maybe. William was crowned on Christmas. English still carries a Norman-French layer from that year.`,
+    zh: `**1066** 年 10 月 14 日。哈罗德死了——挂毯上像是中箭。威廉圣诞节加冕。英语里那层诺曼法语就是这一年来的。`,
+  },
+  'hist-rome': {
+    en: `Odoacer deposed Romulus Augustulus in **476** CE. The Eastern empire in Constantinople kept going until 1453. “Fall of Rome” is a classroom date, not a single afternoon.`,
+    zh: `奥多亚塞 **476** 年废黜罗慕路斯·奥古斯图卢斯。东边的帝国在君士坦丁堡一直撑到 1453。“罗马灭亡”是课堂日期，不是某一个下午。`,
+  },
+  'hist-thermo': {
+    en: `**480** BCE, second Persian invasion. Leonidas held the pass; a traitor showed a goat path. The stand bought time for the Greek fleet at Salamis.`,
+    zh: `公元前 **480** 年，波斯第二次入侵。列奥尼达守关，有人带路走了山羊小道。这一守给希腊海军在萨拉米斯赢了时间。`,
   },
 };
 

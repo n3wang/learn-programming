@@ -280,7 +280,7 @@ export default function PlayerShell({mod}) {
   const {PhoneView} = mod;
 
   return (
-    <div className={`${styles.shell} ${styles.phone} ${mod.themeClass || ''}`} lang={lang === 'zh' ? 'zh-Hans' : 'en'}>
+    <div className={`${styles.shell} ${styles.phone} ${mod.themeClass || ''}`} data-night={Boolean(mod.night && env && env.phase !== 'lobby' && env.data && mod.night(env.data))} lang={lang === 'zh' ? 'zh-Hans' : 'en'}>
       <Head>
         <title>{L(mod.title, lang)}</title>
       </Head>

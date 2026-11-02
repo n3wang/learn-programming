@@ -30,7 +30,8 @@ import styles from './party.module.css';
  * the view `mod.view` builds for its seat (the anti-cheat line).
  *
  * Module contract (see ../registry.js): setup, input, tick, view, bot,
- * optional hostInput, voiceLines, HostView, PhoneView, SettingsView.
+ * optional hostInput, voiceLines, HostView, PhoneView, SettingsView, and
+ * night(stateOrView) → true turns a game's theme dark (host and phones).
  */
 
 const HOST_PREFS_KEY = 'party-host-prefs-v1';
@@ -357,7 +358,7 @@ export default function HostShell({mod}) {
   return (
     // The host is a big-screen app: this class hides the site navbar and footer here only.
     <HtmlClassNameProvider className="party-host-page">
-    <div className={`${styles.shell} ${styles.host} ${mod.themeClass || ''}`} lang={lang === 'zh' ? 'zh-Hans' : 'en'}>
+    <div className={`${styles.shell} ${styles.host} ${mod.themeClass || ''}`} data-night={Boolean(mod.night && g.phase !== 'lobby' && g.state && mod.night(g.state))} lang={lang === 'zh' ? 'zh-Hans' : 'en'}>
       <Head>
         <title>{`${L(mod.title, lang)} — ${lang === 'zh' ? '主持' : 'Host'}`}</title>
       </Head>

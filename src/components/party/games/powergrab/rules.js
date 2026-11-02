@@ -5,28 +5,30 @@
  * skim can be blocked; a block can be challenged too. Losing a challenge or
  * being hit costs one face-down card. Last seat with cards wins.
  *
- * 9+ seats: the Inspector joins the deck, and (unless switched off) seats
+ * 9+ seats: the Inquisitor (`inspector`) joins the deck, and (unless switched off) seats
  * split into two factions that may only target each other.
  */
 
 import {cue, duration, log, shuffle} from '../../core/partyCore';
 
 export const ROLES = {
-  quartermaster: {emoji: '📦', tint: '#ffb020', en: 'Quartermaster', zh: '军需官'},
-  phantom: {emoji: '🗡️', tint: '#b388ff', en: 'Phantom', zh: '影刃'},
-  smuggler: {emoji: '🦝', tint: '#7bed9f', en: 'Smuggler', zh: '走私者'},
-  envoy: {emoji: '🕊️', tint: '#3df2ff', en: 'Envoy', zh: '特使'},
-  warden: {emoji: '🛡️', tint: '#70a1ff', en: 'Warden', zh: '安保官'},
-  inspector: {emoji: '🔍', tint: '#ff6f91', en: 'Inspector', zh: '审讯官'},
+  // Names and tints follow the card art (assets/party/sheets/coup-roles.webp);
+  // the ids stay as they were so saved games and sprite paths keep working.
+  quartermaster: {emoji: '👑', tint: '#9b59b6', en: 'Duke', zh: '公爵'},
+  phantom: {emoji: '🗡️', tint: '#3f3fb0', en: 'Assassin', zh: '刺客'},
+  smuggler: {emoji: '⚓', tint: '#1fa7e0', en: 'Captain', zh: '队长'},
+  envoy: {emoji: '🕊️', tint: '#1fae5a', en: 'Ambassador', zh: '大使'},
+  warden: {emoji: '🛡️', tint: '#e8418c', en: 'Contessa', zh: '女伯爵'},
+  inspector: {emoji: '🔍', tint: '#f28c28', en: 'Inquisitor', zh: '审判官'},
 };
 
 export const ACTIONS = {
   income: {emoji: '🪙', gain: 1},
   aid: {emoji: '🤝', gain: 2, blockers: 'any', blockRoles: ['quartermaster']},
   overthrow: {emoji: '💥', cost: 7, target: true},
-  tax: {emoji: '📦', claim: 'quartermaster', gain: 3},
+  tax: {emoji: '👑', claim: 'quartermaster', gain: 3},
   strike: {emoji: '🗡️', claim: 'phantom', cost: 3, target: true, blockers: 'target', blockRoles: ['warden']},
-  skim: {emoji: '🦝', claim: 'smuggler', target: true, blockers: 'target', blockRoles: ['smuggler', 'envoy', 'inspector']},
+  skim: {emoji: '⚓', claim: 'smuggler', target: true, blockers: 'target', blockRoles: ['smuggler', 'envoy', 'inspector']},
   reshuffle: {emoji: '🕊️', claim: 'envoy'},
   inspect: {emoji: '🔍', claim: 'inspector', target: true},
   convert: {emoji: '🔄'},

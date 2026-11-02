@@ -9,8 +9,8 @@
 import {isValidAvatar, randomAvatar, shuffleList, uniqueName, unitRandom} from '@site/src/components/BetsAndWagers/logic';
 import {generateName, isGeneratedName} from '@site/src/components/BetsAndWagers/names';
 
-/** Every game seats at least this many; more people join as audience. Keep ≤ PartyRoom.MAX_MEMBERS. */
-export const MAX_SEATS = 16;
+/** No game seats more than this (each game's `players.max` may be lower); extra people join as audience. Keep ≤ PartyRoom.MAX_MEMBERS. */
+export const MAX_SEATS = 64;
 export const BOT_ID_PREFIX = 'bot:';
 /** Wagers' twelve seat colours plus four more, so sixteen seats never share one. */
 export const SEAT_COLORS = [

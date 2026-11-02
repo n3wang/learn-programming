@@ -3,6 +3,7 @@ import powergrab from './games/powergrab';
 import secrethitler from './games/secrethitler';
 import sultan from './games/sultan';
 import clocktower from './games/clocktower';
+import university from './games/university';
 
 /**
  * Every game on the /party menu. Bets & Wagers keeps its own host/phone
@@ -23,7 +24,7 @@ export const WAGERS = {
   coverTint: '#ffc914',
 };
 
-export const GAMES = [fibpics, powergrab, secrethitler, sultan, clocktower];
+export const GAMES = [fibpics, powergrab, secrethitler, sultan, clocktower, university];
 
 /** What the /party menu shows, Wagers first. */
 export const MENU = [WAGERS, ...GAMES];

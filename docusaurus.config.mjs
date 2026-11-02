@@ -388,8 +388,8 @@ export default async function createConfig() {
             to: '/misc/fighting-game',
           },
           {
-            label: 'Party (School Quiz)',
-            to: '/party/host',
+            label: 'Party games',
+            to: '/party',
           },],
         }, {
           title: 'Community',

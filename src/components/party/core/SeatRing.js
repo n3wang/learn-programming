@@ -3,7 +3,7 @@ import {Avatar} from '@site/src/components/BetsAndWagers/ui';
 import styles from './party.module.css';
 
 /**
- * Up to 16 seats on an ellipse around the screen's centre (the board, the
+ * Up to 64 seats on an ellipse around the screen's centre (the board, the
  * drawing, the clock). `badge(id)` adds game status under a seat; `dim(id)`
  * greys out a seat that is out of the game; `highlight(id)` rings the seat
  * whose turn it is.
@@ -11,8 +11,10 @@ import styles from './party.module.css';
 export default function SeatRing({g, ids, children, badge, dim, highlight, onSeat}) {
   const n = ids.length;
   const small = n > 12;
+  // Past 24 seats the ring shrinks to fit: smaller avatars, then no names.
+  const density = n > 40 ? 'tiny' : n > 24 ? 'dense' : small ? 'small' : 'normal';
   return (
-    <div className={styles.ring} data-small={small}>
+    <div className={styles.ring} data-small={small} data-density={density}>
       <div className={styles.ringCenter}>{children}</div>
       {ids.map((id, i) => {
         const p = g.players[id];
@@ -31,7 +33,7 @@ export default function SeatRing({g, ids, children, badge, dim, highlight, onSea
             style={{left: `${x}%`, top: `${y}%`}}
             onClick={onSeat ? () => onSeat(id) : undefined}>
             <span className={styles.ringAvatar}>
-              <Avatar avatar={p.avatar} color={p.color} size={small ? 'sm' : 'md'} />
+              <Avatar avatar={p.avatar} color={p.color} size={density === 'normal' ? 'md' : density === 'small' ? 'sm' : 'xs'} />
               <span className={styles.seatNo}>{p.seat}</span>
             </span>
             <span className={styles.ringName}>{p.name}</span>

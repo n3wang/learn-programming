@@ -1,4 +1,5 @@
 import React, {useEffect, useRef, useState} from 'react';
+import Link from '@docusaurus/Link';
 import {apiOverride, createPartySocket} from '@site/src/api/partyClient';
 import {
   BET_SECONDS,
@@ -758,6 +759,9 @@ export default function HostScreen() {
         </div>
       )}
       <header className={styles.hostHeader}>
+        <Link to="/party" className={styles.backLink}>
+          {t(lang, 'allGames')}
+        </Link>
         <strong className={styles.brand}>{t(lang, 'brand')}</strong>
         {code && (
           <span className={styles.headerCode}>
