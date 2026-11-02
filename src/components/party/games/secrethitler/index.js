@@ -3,16 +3,19 @@ import {pick} from '../../core/partyCore';
 import {L, makeT} from '../../core/strings';
 import SeatRing from '../../core/SeatRing';
 import Sprite from '../../core/Sprite';
+import MathPad, {PoolPicker} from '../../core/MathPad';
 import {Avatar} from '@site/src/components/BetsAndWagers/ui';
 import {
   FAS_TRACK,
   LIB_TRACK,
   alive,
+  answerQuiz,
   answerVeto,
   discardCard,
   eligible,
   enactCard,
   knownTo,
+  mathOn,
   markReady,
   nominate,
   party,
@@ -30,20 +33,26 @@ import styles from './secrethitler.module.css';
 const ROLE_ART = {
   liberal: {emoji: '🕊️', tint: '#7fb3e6', en: 'Liberal', zh: '自由党'},
   fascist: {emoji: '🐍', tint: '#e8735a', en: 'Fascist', zh: '法西斯党'},
-  hitler: {emoji: '💀', tint: '#b3261e', en: 'Hitler', zh: '希特勒'},
+  hitler: {emoji: '🧑‍🏫', tint: '#b3261e', en: 'Math Teacher', zh: '数学老师'},
   journalist: {emoji: '📰', tint: '#9ec5ea', en: 'Journalist (Liberal)', zh: '记者（自由党）'},
   bodyguard: {emoji: '🛡️', tint: '#9ec5ea', en: 'Bodyguard (Liberal)', zh: '保镖（自由党）'},
   infiltrator: {emoji: '🎭', tint: '#f0a08c', en: 'Infiltrator (Fascist)', zh: '潜伏者（法西斯党）'},
 };
 
 const POWER_ICON = {investigate: '🔍', special: '🗳️', peek: '👁️', execute: '🔫', audit: '📋'};
+/** Power card art (audit shares the investigate card). */
+const POWER_ART = {investigate: 'investigate', special: 'special', peek: 'peek', execute: 'execute', audit: 'investigate'};
+
+function PowerCard({kind, size = 40}) {
+  return kind ? <Sprite path={`secrethitler/power-${POWER_ART[kind] || kind}.webp`} emoji={POWER_ICON[kind] || '✋'} label="" tint="#f6e7c8" size={`${size}px`} /> : null;
+}
 
 const tg = makeT({
   en: {
     holdRole: 'Hold to see your secret role',
     ready: 'I’ve seen it',
     yourTeam: 'Your fellow fascists',
-    hitlerIs: 'Hitler is',
+    hitlerIs: 'The Math Teacher is',
     noInfo: 'You don’t know anyone else’s role.',
     lookRole: 'Everyone: look at your secret role on your phone.',
     president: 'President',
@@ -55,6 +64,16 @@ const tg = makeT({
     ja: 'Ja!',
     nein: 'Nein',
     voted: 'Vote cast.',
+    mathQ: 'Math check: answer to unlock your vote',
+    mathOne: 'One try. A wrong answer means no vote this round.',
+    mathSend: 'Check',
+    mathOut: 'Wrong answer: you sit this vote out.',
+    mathRight: 'Correct! Now vote.',
+    math: 'Math check before each vote',
+    math_off: 'Off',
+    math_on: 'On',
+    mathPools: 'Question types',
+    mathHelp: 'Each vote, every player answers a question first. Wrong answer = no vote that round.',
     discardQ: 'Discard one policy (secretly).',
     enactQ: 'Enact one policy.',
     veto: 'Propose veto',
@@ -86,8 +105,8 @@ const tg = makeT({
     liberalWin: 'The Liberals win!',
     fascistWin: 'The Fascists win!',
     why_policies: 'Their policy track is full.',
-    why_hitlerElected: 'Hitler was elected Chancellor.',
-    why_hitlerShot: 'Hitler was executed.',
+    why_hitlerElected: 'The Math Teacher was elected Chancellor.',
+    why_hitlerShot: 'The Math Teacher was executed.',
     pw_investigate: 'Investigate',
     pw_special: 'Special election',
     pw_peek: 'Policy peek',
@@ -95,16 +114,16 @@ const tg = makeT({
     pw_audit: 'Public audit',
     policyL: 'Liberal',
     policyF: 'Fascist',
-    journalistUse: '📰 Use press pass (once)',
+    journalistUse: 'Use press pass (once)',
     journalistSaw: 'The last Chancellor was handed:',
     roleWas: 'Roles',
-    dangerZone: '3+ fascist policies: electing Hitler as Chancellor wins for the Fascists.',
+    dangerZone: '3+ fascist policies: electing the Math Teacher as Chancellor wins for the Fascists.',
   },
   zh: {
     holdRole: '按住查看你的秘密身份',
     ready: '我看好了',
     yourTeam: '你的法西斯同伴',
-    hitlerIs: '希特勒是',
+    hitlerIs: '数学老师是',
     noInfo: '你不知道其他人的身份。',
     lookRole: '所有人：在手机上查看你的秘密身份。',
     president: '总统',
@@ -116,6 +135,16 @@ const tg = makeT({
     ja: 'Ja!（同意）',
     nein: 'Nein（反对）',
     voted: '已投票。',
+    mathQ: '数学检查：答对才能投票',
+    mathOne: '只有一次机会。答错本轮不能投票。',
+    mathSend: '提交',
+    mathOut: '答错了：本轮你不能投票。',
+    mathRight: '答对了！现在投票。',
+    math: '每次投票前的数学检查',
+    math_off: '关闭',
+    math_on: '开启',
+    mathPools: '题型',
+    mathHelp: '每次投票前，所有玩家先答一道题。答错本轮不能投票。',
     discardQ: '秘密弃掉一张法案。',
     enactQ: '颁布一张法案。',
     veto: '提议否决',
@@ -147,8 +176,8 @@ const tg = makeT({
     liberalWin: '自由党获胜！',
     fascistWin: '法西斯党获胜！',
     why_policies: '他们的法案轨道已满。',
-    why_hitlerElected: '希特勒当选了总理。',
-    why_hitlerShot: '希特勒被处决了。',
+    why_hitlerElected: '数学老师当选了总理。',
+    why_hitlerShot: '数学老师被处决了。',
     pw_investigate: '调查',
     pw_special: '特别选举',
     pw_peek: '查看法案',
@@ -156,10 +185,10 @@ const tg = makeT({
     pw_audit: '公开审计',
     policyL: '自由党法案',
     policyF: '法西斯法案',
-    journalistUse: '📰 使用记者证（一次）',
+    journalistUse: '使用记者证（一次）',
     journalistSaw: '上一任总理拿到的是：',
     roleWas: '身份',
-    dangerZone: '已有 3 张法西斯法案：若希特勒当选总理，法西斯党获胜。',
+    dangerZone: '已有 3 张法西斯法案：若数学老师当选总理，法西斯党获胜。',
   },
 });
 
@@ -181,15 +210,17 @@ const VOICE = {
   executed: {en: '{seat} has been executed.', zh: '{seat}被处决了。'},
   guarded: {en: 'The Bodyguard steps in! Nobody dies.', zh: '保镖挡下了子弹！没有人死去。'},
   audit: {en: 'Public audit: one discarded policy is revealed.', zh: '公开审计：一张被弃掉的法案公开了。'},
-  danger_zone: {en: 'Warning: from now on, if Hitler is elected Chancellor, the Fascists win.', zh: '警告：从现在起，若希特勒当选总理，法西斯党获胜。'},
+  danger_zone: {en: 'Warning: from now on, if the Math Teacher is elected Chancellor, the Fascists win.', zh: '警告：从现在起，若数学老师当选总理，法西斯党获胜。'},
   veto: {en: 'The Chancellor proposes a veto.', zh: '总理提议否决本次法案。'},
   win_liberal: {en: 'The Liberals have saved the republic!', zh: '自由党拯救了共和国！'},
   win_fascist: {en: 'The Fascists have seized power.', zh: '法西斯党夺取了政权。'},
 };
 
-function RoleCard({role, lang, size = 80}) {
+/** A role card: the player's own portrait when known (games saved before portraits fall back to the first face). */
+function RoleCard({role, portrait, lang, size = 80}) {
   const r = ROLE_ART[role];
-  return <Sprite path={`secrethitler/role-${role}.webp`} emoji={r.emoji} label={L(r, lang)} tint={r.tint} size={`${size}px`} />;
+  const art = portrait || (role === 'hitler' ? 'hitler' : `${party(role)}-a`);
+  return <Sprite path={`secrethitler/role-${art}.webp`} emoji={r.emoji} label={L(r, lang)} tint={r.tint} size={`${size}px`} />;
 }
 
 function Policy({card, lang, size = 52}) {
@@ -215,6 +246,8 @@ function botMove(s, g, id, ctx) {
     return {action: 'nominate', chancellor: c, clerk: k};
   }
   if (s.phase === 'vote' && s.votes[id] == null) {
+    const quiz = mathOn(s) && s.quiz[id];
+    if (quiz && !quiz.state) return {action: 'answer', value: rng() < 0.85 ? quiz.a : `${quiz.a}1`};
     const govFas = [s.gov.president, s.gov.chancellor, s.gov.clerk].filter(Boolean).some((o) => party(s.role[o]) === 'fascist');
     const ja = fas ? govFas || rng() < 0.5 : rng() < 0.6;
     return {action: 'vote', ja};
@@ -242,41 +275,43 @@ function botMove(s, g, id, ctx) {
 
 const secrethitler = {
   id: 'secrethitler',
-  emoji: '🗳️',
-  title: {en: 'Secret Hitler', zh: '秘密希特勒'},
+  logo: 'secrethitler/role-hitler.webp',
+  title: {en: 'The Secret Math Teacher', zh: '秘密数学老师'},
   blurb: {
-    en: 'Liberals vs hidden Fascists in 1930s parliament. Elect governments, pass policies, find Hitler.',
-    zh: '1930 年代议会：自由党对抗隐藏的法西斯党。选举政府、通过法案、找出希特勒。',
+    en: 'Liberals vs hidden Fascists in 1930s parliament. Elect governments, pass policies, find the secret Math Teacher.',
+    zh: '1930 年代议会：自由党对抗隐藏的法西斯党。选举政府、通过法案、找出秘密数学老师。',
   },
   howTo: {
     en: [
-      'Hold your phone to see your secret role. Liberals are the majority; Fascists know each other and secretly help Hitler.',
+      'Hold your phone to see your secret role. Liberals are the majority; Fascists know each other and secretly help the Math Teacher.',
       'Each round the President nominates a Chancellor (and a Clerk with 11+ players). Everyone votes Ja or Nein.',
       'An elected government passes one policy: the President discards one card, the Chancellor enacts one. Anyone can lie about what they saw.',
       'Fascist policies give the President powers: investigate, peek, choose the next President, or execute.',
-      'Liberals win with 5 Liberal policies or by executing Hitler. Fascists win with 6 Fascist policies, or by electing Hitler Chancellor after 3.',
+      'Liberals win with 5 Liberal policies or by executing the Math Teacher. Fascists win with 6 Fascist policies, or by electing the Math Teacher Chancellor after 3.',
       'Three failed votes in a row: the top policy is passed automatically.',
+      'Optional math check: before each vote you answer a question on your phone. Wrong answer = no vote that round.',
     ],
     zh: [
-      '按住手机查看你的秘密身份。自由党占多数；法西斯党互相认识，暗中帮助希特勒。',
+      '按住手机查看你的秘密身份。自由党占多数；法西斯党互相认识，暗中帮助数学老师。',
       '每轮总统提名一位总理（11 人以上还要提名书记），所有人投 Ja（同意）或 Nein（反对）。',
       '当选的政府通过一项法案：总统弃一张，总理颁布一张。任何人都可以对自己看到的牌撒谎。',
       '法西斯法案会给总统权力：调查、查看法案、指定下一任总统、处决。',
-      '自由党：5 张自由党法案，或处决希特勒。法西斯党：6 张法西斯法案，或在 3 张之后让希特勒当选总理。',
+      '自由党：5 张自由党法案，或处决数学老师。法西斯党：6 张法西斯法案，或在 3 张之后让数学老师当选总理。',
       '连续三次投票失败：牌堆顶的法案自动通过。',
+      '可选数学检查：每次投票前在手机上答一道题。答错本轮不能投票。',
     ],
   },
   reference(lang) {
-    const r = (k, text) => ({emoji: ROLE_ART[k].emoji, tint: ROLE_ART[k].tint, title: L(ROLE_ART[k], lang), text});
+    const r = (k, text) => ({emoji: <RoleCard role={k} lang={lang} size={26} />, tint: ROLE_ART[k].tint, title: L(ROLE_ART[k], lang), text});
     return [
       r('liberal', {en: 'Find the Fascists. Pass Liberal policies.', zh: '找出法西斯党，通过自由党法案。'}),
-      r('fascist', {en: 'You know your team. Pass Fascist policies, protect Hitler.', zh: '你认识队友。通过法西斯法案，保护希特勒。'}),
+      r('fascist', {en: 'You know your team. Pass Fascist policies, protect the Math Teacher.', zh: '你认识队友。通过法西斯法案，保护数学老师。'}),
       r('hitler', {en: 'Stay hidden. With 7+ players you don’t know your team.', zh: '隐藏好自己。7 人以上时你不认识队友。'}),
       r('journalist', {en: '11+ players. Once: see the two policies the last Chancellor was handed.', zh: '11 人以上。一次：看到上一任总理拿到的两张法案。'}),
       r('bodyguard', {en: '13+ players. Survive the first execution.', zh: '13 人以上。第一次被处决时活下来。'}),
       r('infiltrator', {en: '15+ players. Fascist who shows as Liberal when investigated.', zh: '15 人以上。被调查时显示为自由党的法西斯。'}),
-      {emoji: '🔍', title: lang === 'zh' ? '调查 / 审计' : 'Investigate / Audit', text: {en: 'See a player’s party. Audit (14+): a discarded policy is shown to all.', zh: '查看一名玩家的党派。审计（14 人以上）：公开一张弃牌。'}},
-      {emoji: '🔫', title: lang === 'zh' ? '处决' : 'Execute', text: {en: 'Remove a player. If it’s Hitler, Liberals win.', zh: '处决一名玩家。如果是希特勒，自由党获胜。'}},
+      {emoji: <PowerCard kind="investigate" size={26} />, title: lang === 'zh' ? '调查 / 审计' : 'Investigate / Audit', text: {en: 'See a player’s party. Audit (14+): a discarded policy is shown to all.', zh: '查看一名玩家的党派。审计（14 人以上）：公开一张弃牌。'}},
+      {emoji: <PowerCard kind="execute" size={26} />, title: lang === 'zh' ? '处决' : 'Execute', text: {en: 'Remove a player. If it’s the Math Teacher, Liberals win.', zh: '处决一名玩家。如果是数学老师，自由党获胜。'}},
     ];
   },
   inspiredBy: 'Secret Hitler (CC BY-NC-SA 4.0)',
@@ -286,8 +321,32 @@ const secrethitler = {
   themeClass: shell.themeReich,
   voiceLines: VOICE,
 
+  defaultSettings: {math: 'off', mathPools: ['basic']},
+
   setup(g, seats, ctx) {
-    return setupSecretHitler(seats, ctx);
+    return setupSecretHitler(seats, ctx, g.settings || {});
+  },
+
+  SettingsView({settings, set, lang}) {
+    return (
+      <>
+        <div className={shell.buttonRow}>
+          <span>{tg(lang, 'math')}</span>
+          {['off', 'on'].map((m) => (
+            <button key={m} type="button" role="radio" aria-checked={(settings.math === 'on' ? 'on' : 'off') === m} className="button button--sm button--secondary" onClick={() => set({math: m})}>
+              {tg(lang, `math_${m}`)}
+            </button>
+          ))}
+        </div>
+        {settings.math === 'on' && (
+          <div className={shell.buttonRow}>
+            <span>{tg(lang, 'mathPools')}</span>
+            <PoolPicker value={settings.mathPools} onChange={(mathPools) => set({mathPools})} lang={lang} />
+          </div>
+        )}
+        <p className={shell.muted}>{tg(lang, 'mathHelp')}</p>
+      </>
+    );
   },
 
   input(s, g, id, msg, ctx) {
@@ -298,6 +357,8 @@ const secrethitler = {
         return nominate(s, ctx, id, msg.chancellor, msg.clerk);
       case 'vote':
         return vote(s, ctx, id, Boolean(msg.ja));
+      case 'answer':
+        return answerQuiz(s, ctx, id, msg.value);
       case 'discard':
         return discardCard(s, ctx, id, Number(msg.index));
       case 'enact':
@@ -345,6 +406,7 @@ const secrethitler = {
       lib: s.lib,
       kind: task,
       role,
+      portrait: s.portrait ? s.portrait[id] : null,
       team: knownTo(s, id).map((p) => ({...player(p), hitler: s.role[p] === 'hitler'})),
       gov: {president: gov.president && player(gov.president), chancellor: gov.chancellor && player(gov.chancellor), clerk: gov.clerk && player(gov.clerk)},
       clerkSeat: s.clerkSeat,
@@ -352,9 +414,12 @@ const secrethitler = {
       winner: s.winner,
       winWhy: s.winWhy,
       note: s.privateNote[id] || null,
+      mathOut: Boolean(s.quiz && s.quiz[id] && s.quiz[id].state === 'wrong'),
       canJournal: role === 'journalist' && !s.used.journalist && Boolean(s.lastHand) && !s.dead[id],
     };
     if (task === 'nominate') v.eligible = eligible(s).map(player);
+    // The question only, never its answer: the host checks it.
+    if (task === 'vote' && mathOn(s) && s.quiz[id]) v.quiz = {pool: s.quiz[id].pool, lines: s.quiz[id].lines, hint: s.quiz[id].hint, ok: s.quiz[id].state === 'ok'};
     if (task === 'discard' || task === 'enact') {
       v.hand = s.hand;
       v.canVeto = task === 'enact' && s.fas >= 5 && !s.vetoRefused;
@@ -373,9 +438,9 @@ const secrethitler = {
     const name = (id) => (g.players[id] ? g.players[id].name : '?');
     const gov = s.gov || {};
     const plaque = (id) => {
-      if (id === gov.president) return <span className={styles.plaque}>🎩 {tg(lang, 'president')}</span>;
-      if (id === gov.chancellor) return <span className={styles.plaque}>📜 {tg(lang, 'chancellor')}</span>;
-      if (id === gov.clerk) return <span className={styles.plaque}>🖋️ {tg(lang, 'clerk')}</span>;
+      if (id === gov.president) return <Sprite path="secrethitler/plaque-president.webp" emoji="🎩" label={tg(lang, 'president')} tint="#b3261e" size="34px" />;
+      if (id === gov.chancellor) return <Sprite path="secrethitler/plaque-chancellor.webp" emoji="📜" label={tg(lang, 'chancellor')} tint="#1d4e89" size="34px" />;
+      if (id === gov.clerk) return <span className={styles.plaque}>{tg(lang, 'clerk')}</span>;
       return null;
     };
     let prompt = '';
@@ -392,7 +457,6 @@ const secrethitler = {
         highlight={(id) => !s.over && (id === gov.president || id === gov.chancellor || id === gov.clerk)}
         badge={(id) => (
           <>
-            {s.dead[id] && <span>☠️</span>}
             {plaque(id)}
             {(s.phase === 'voteShow' || (s.phase === 'vote' && s.votes[id] != null)) && (
               <span className={styles.vote} data-vote={s.phase === 'voteShow' ? s.votes[id] || 'none' : 'hidden'}>
@@ -404,7 +468,7 @@ const secrethitler = {
         )}>
         {s.over ? (
           <div className={shell.bigText}>
-            🏆 {tg(lang, s.winner === 'liberal' ? 'liberalWin' : 'fascistWin')}
+            {tg(lang, s.winner === 'liberal' ? 'liberalWin' : 'fascistWin')}
             <p className={shell.muted}>{tg(lang, `why_${s.winWhy}`)}</p>
           </div>
         ) : (
@@ -412,14 +476,14 @@ const secrethitler = {
             <div className={styles.track} data-kind="liberal">
               {Array.from({length: LIB_TRACK}, (_, i) => (
                 <span key={i} className={styles.slot}>
-                  {i < s.lib ? <Policy card="L" lang={lang} size={40} /> : i === LIB_TRACK - 1 ? '🏆' : ''}
+                  {i < s.lib ? <Policy card="L" lang={lang} size={40} /> : i === LIB_TRACK - 1 ? <Sprite path="secrethitler/party-liberal.webp" emoji="" label="" tint="#1d4e89" shape="token" size="34px" /> : ''}
                 </span>
               ))}
             </div>
             <div className={styles.track} data-kind="fascist">
               {Array.from({length: FAS_TRACK}, (_, i) => (
                 <span key={i} className={styles.slot}>
-                  {i < s.fas ? <Policy card="F" lang={lang} size={40} /> : i === FAS_TRACK - 1 ? '💀' : POWER_ICON[s.powers[i]] || ''}
+                  {i < s.fas ? <Policy card="F" lang={lang} size={40} /> : i === FAS_TRACK - 1 ? <Sprite path="secrethitler/token-star.webp" emoji="⭐" label="" tint="#5a1a1a" size="34px" /> : <PowerCard kind={s.powers[i]} />}
                 </span>
               ))}
             </div>
@@ -433,7 +497,7 @@ const secrethitler = {
             {prompt && <p className={styles.prompt}>{prompt}</p>}
             {s.phase === 'enacted' && <Policy card={s.lastPolicy} lang={lang} size={90} />}
             {s.phase === 'power' && s.power && s.power.kind === 'audit' && s.power.result && <Policy card={s.power.result} lang={lang} size={70} />}
-            {s.fas >= 3 && <p className={styles.danger}>⚠️ {tg(lang, 'dangerZone')}</p>}
+            {s.fas >= 3 && <p className={styles.danger}>{tg(lang, 'dangerZone')}</p>}
           </>
         )}
       </SeatRing>
@@ -457,6 +521,17 @@ function PlayerButtons({list, onPick, selected}) {
   );
 }
 
+/** Math check before voting: one try, the host marks it. */
+function MathCheck({question, lang, send}) {
+  return (
+    <div className={shell.card}>
+      <b>{tg(lang, 'mathQ')}</b>
+      <MathPad question={question} lang={lang} onAnswer={(value) => send({action: 'answer', value})} okLabel={tg(lang, 'mathSend')} />
+      <p className={shell.muted}>{tg(lang, 'mathOne')}</p>
+    </div>
+  );
+}
+
 /** What the table is doing while this phone waits. */
 function WaitLine({view, lang}) {
   const pres = view.gov.president ? view.gov.president.name : '';
@@ -464,12 +539,12 @@ function WaitLine({view, lang}) {
   if (view.phase === 'roles') text = tg(lang, 'lookRole');
   else if (view.phase === 'nominate') text = tg(lang, 'phase_nominate', {name: pres});
   else if (view.phase === 'power') text = tg(lang, 'phase_powerWait', {name: pres});
-  else if (view.phase === 'vote') text = tg(lang, 'voted');
+  else if (view.phase === 'vote') text = tg(lang, view.mathOut ? 'mathOut' : 'voted');
   else if (['president', 'clerk', 'chancellor', 'veto'].includes(view.phase)) text = tg(lang, `phase_${view.phase}`);
   return (
     <div className={shell.card}>
       <p className={shell.kicker}>
-        🕊️ {view.lib} / 5 · 🦅 {view.fas} / 6
+        <Policy card="L" lang={lang} size={18} /> {view.lib} / 5 · <Policy card="F" lang={lang} size={18} /> {view.fas} / 6
       </p>
       <b>{text}</b>
     </div>
@@ -489,7 +564,7 @@ function SHPhone({view, lang, send}) {
       onContextMenu={(e) => e.preventDefault()}>
       {showRole ? (
         <>
-          <RoleCard role={view.role} lang={lang} size={110} />
+          <RoleCard role={view.role} portrait={view.portrait} lang={lang} size={110} />
           {view.team.length > 0 ? (
             <div>
               <b>{tg(lang, 'yourTeam')}</b>
@@ -497,7 +572,7 @@ function SHPhone({view, lang, send}) {
                 {view.team.map((p) => (
                   <span key={p.id} className={shell.chip}>
                     {p.name}
-                    {p.hitler && ' 💀'}
+                    {p.hitler && ` · ${L(ROLE_ART.hitler, lang)}`}
                   </span>
                 ))}
               </div>
@@ -507,7 +582,7 @@ function SHPhone({view, lang, send}) {
           )}
         </>
       ) : (
-        <p className={styles.holdHint}>👆 {tg(lang, 'holdRole')}</p>
+        <p className={styles.holdHint}>{tg(lang, 'holdRole')}</p>
       )}
     </div>
   );
@@ -536,7 +611,7 @@ function SHPhone({view, lang, send}) {
     case 'over':
       return (
         <>
-          <p className={shell.bigText}>🏆 {tg(lang, view.winner === 'liberal' ? 'liberalWin' : 'fascistWin')}</p>
+          <p className={shell.bigText}>{tg(lang, view.winner === 'liberal' ? 'liberalWin' : 'fascistWin')}</p>
           <div className={shell.card}>
             <b>{tg(lang, 'roleWas')}</b>
             <ul className={shell.logList}>
@@ -550,7 +625,7 @@ function SHPhone({view, lang, send}) {
         </>
       );
     case 'dead':
-      return <p className={shell.notice}>☠️ {tg(lang, 'dead')}</p>;
+      return <p className={shell.notice}>{tg(lang, 'dead')}</p>;
     case 'roles':
       return (
         <>
@@ -585,24 +660,29 @@ function SHPhone({view, lang, send}) {
         <>
           <p className={shell.bigText}>{tg(lang, 'voteQ')}</p>
           <div className={shell.card}>
-            🎩 {tg(lang, 'president')}: <b>{view.gov.president && view.gov.president.name}</b>
+            <Sprite path="secrethitler/plaque-president.webp" emoji="" label="" tint="#b3261e" size="24px" /> {tg(lang, 'president')}: <b>{view.gov.president && view.gov.president.name}</b>
             <br />
-            📜 {tg(lang, 'chancellor')}: <b>{view.gov.chancellor && view.gov.chancellor.name}</b>
+            <Sprite path="secrethitler/plaque-chancellor.webp" emoji="" label="" tint="#1d4e89" size="24px" /> {tg(lang, 'chancellor')}: <b>{view.gov.chancellor && view.gov.chancellor.name}</b>
             {view.gov.clerk && (
               <>
                 <br />
-                🖋️ {tg(lang, 'clerk')}: <b>{view.gov.clerk.name}</b>
+                {tg(lang, 'clerk')}: <b>{view.gov.clerk.name}</b>
               </>
             )}
           </div>
+          {view.quiz && !view.quiz.ok ? (
+            <MathCheck question={view.quiz} lang={lang} send={send} />
+          ) : (
           <div className={styles.voteRow}>
             <button type="button" className={`button button--lg ${styles.ja}`} onClick={() => send({action: 'vote', ja: true})}>
-              <Sprite path="secrethitler/vote-ja.webp" emoji="👍" label={tg(lang, 'ja')} tint="#ffffff" size="70px" />
+              <Sprite path="secrethitler/vote-ja.webp" emoji="" label={tg(lang, 'ja')} tint="#ffffff" size="70px" />
             </button>
             <button type="button" className={`button button--lg ${styles.nein}`} onClick={() => send({action: 'vote', ja: false})}>
-              <Sprite path="secrethitler/vote-nein.webp" emoji="👎" label={tg(lang, 'nein')} tint="#333333" size="70px" />
+              <Sprite path="secrethitler/vote-nein.webp" emoji="" label={tg(lang, 'nein')} tint="#333333" size="70px" />
             </button>
           </div>
+          )}
+          {view.quiz && view.quiz.ok && <p className={shell.muted}>{tg(lang, 'mathRight')}</p>}
           {roleBox}
         </>
       );
@@ -620,7 +700,7 @@ function SHPhone({view, lang, send}) {
           </div>
           {view.canVeto && (
             <button type="button" className="button button--secondary" onClick={() => send({action: 'proposeVeto'})}>
-              ✋ {tg(lang, 'veto')}
+              {tg(lang, 'veto')}
             </button>
           )}
         </>
@@ -628,6 +708,7 @@ function SHPhone({view, lang, send}) {
     case 'veto':
       return (
         <>
+          <Sprite path="secrethitler/power-veto.webp" emoji="✋" label="" tint="#f6e7c8" size="90px" />
           <p className={shell.bigText}>{tg(lang, 'vetoQ')}</p>
           <div className={shell.choiceGrid}>
             <button type="button" className="button" onClick={() => send({action: 'veto', agree: true})}>
@@ -641,9 +722,11 @@ function SHPhone({view, lang, send}) {
       );
     case 'power': {
       const {kind, result} = view.power;
+      const card = <PowerCard kind={kind} size={90} />;
       if (kind === 'peek' || kind === 'audit') {
         return (
           <>
+            {card}
             <p className={shell.bigText}>{tg(lang, kind === 'peek' ? 'peekQ' : 'auditQ')}</p>
             <div className={styles.handRow}>
               {(Array.isArray(result) ? result : result ? [result] : []).map((c, i) => (
@@ -669,6 +752,7 @@ function SHPhone({view, lang, send}) {
       }
       return (
         <>
+          {card}
           <p className={shell.bigText}>{tg(lang, `${kind}Q`)}</p>
           <PlayerButtons list={view.targets} onPick={(id) => send({action: 'power', target: id})} />
         </>

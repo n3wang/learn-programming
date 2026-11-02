@@ -1,5 +1,4 @@
 import React, {useEffect, useRef, useState} from 'react';
-import Link from '@docusaurus/Link';
 import {apiOverride, createPartySocket} from '@site/src/api/partyClient';
 import {
   BET_SECONDS,
@@ -44,6 +43,7 @@ import {noteFor, noteFromResult} from '@site/src/data/party/notes';
 import {LangSwitch, t, useLang} from './strings';
 import {generateName, isGeneratedName} from './names';
 import {playSfx, playSfxBurst, usePartySfx} from '@site/src/components/party/core/sfx';
+import GamePicker from '@site/src/components/party/core/GamePicker';
 import styles from './styles.module.css';
 
 /**
@@ -759,10 +759,7 @@ export default function HostScreen() {
         </div>
       )}
       <header className={styles.hostHeader}>
-        <Link to="/party" className={styles.backLink}>
-          {t(lang, 'allGames')}
-        </Link>
-        <strong className={styles.brand}>{t(lang, 'brand')}</strong>
+        <GamePicker gameId="wagers" lang={lang} />
         {code && (
           <span className={styles.headerCode}>
             {t(lang, 'room')} <b>{code}</b>

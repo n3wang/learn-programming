@@ -13,7 +13,7 @@ import university from './games/university';
  */
 export const WAGERS = {
   id: 'wagers',
-  emoji: '🎲',
+  logo: 'clocktower/role-gambler.webp',
   title: {en: 'School Quiz', zh: '课堂测验'},
   blurb: {
     en: 'Class trivia: guess the number, then pick the closest answer.',
@@ -26,8 +26,11 @@ export const WAGERS = {
 
 export const GAMES = [fibpics, powergrab, secrethitler, sultan, clocktower, university];
 
+/** Games left off the /party menu for now; their host links (/party/host?game=…) still work. */
+const HIDDEN = ['fibpics', 'clocktower'];
+
 /** What the /party menu shows, Wagers first. */
-export const MENU = [WAGERS, ...GAMES];
+export const MENU = [WAGERS, ...GAMES.filter((game) => !HIDDEN.includes(game.id))];
 
 export function findGame(id) {
   return GAMES.find((game) => game.id === id) || null;

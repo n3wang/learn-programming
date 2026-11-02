@@ -19,6 +19,7 @@ import {noteFromResult} from '@site/src/data/party/notes';
 import {LangSwitch, t, useLang} from './strings';
 import {generateName, isGeneratedName} from './names';
 import {playSfx, usePartySfx} from '@site/src/components/party/core/sfx';
+import Sprite from '@site/src/components/party/core/Sprite';
 import styles from './styles.module.css';
 
 /**
@@ -495,7 +496,7 @@ export default function PlayerController() {
                 onClick={() => { playSfx('dice'); setForm({...form, name: generateName(lang, takenNames)}); }}
                 aria-label={t(lang, 'newName')}
                 title={t(lang, 'newName')}>
-                🎲
+                <Sprite path="clocktower/role-gambler.webp" emoji="" label="" tint="#ffe566" shape="icon" size="30px" />
               </button>
             </span>
             <span className={styles.hint}>
@@ -547,7 +548,7 @@ export default function PlayerController() {
                 <p>{t(lang, 'youreIn')}</p>
                 <p className={styles.muted}>{t(lang, 'waitingStart', {n: view.playerCount})}</p>
                 <button type="button" className={`button button--secondary ${styles.lobbyButton}`} onClick={rerollName}>
-                  🎲{' '}{t(lang, 'newName')}
+                  {t(lang, 'newName')}
                 </button>
                 {pickingAvatar ? (
                   <div className={styles.avatarField}>

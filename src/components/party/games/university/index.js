@@ -2,12 +2,15 @@ import React, {useEffect, useRef, useState} from 'react';
 import {pick} from '../../core/partyCore';
 import {L, makeT} from '../../core/strings';
 import Sprite from '../../core/Sprite';
+import MathPad, {PoolPicker} from '../../core/MathPad';
+import {checkAnswer, makeQuestion} from '../../core/mathQuestions';
 import {Avatar} from '@site/src/components/BetsAndWagers/ui';
 import {MAX_NIGHT_CASTS, MAX_SPELLS, ROLES, ROOMS, SPELLS} from './data';
 import {
   activeRooms,
   alive,
   buy,
+  canLearn,
   canVoteYes,
   cast,
   castVote,
@@ -41,10 +44,12 @@ const tu = makeT({
     day: 'Day {n}',
     homework: 'Homework',
     knowledge: 'Knowledge',
+    cost: '{n} Knowledge',
+    lockedTag: 'Locked',
     correct: '{n} correct tonight',
     hwHelp: 'Every correct answer earns 1 Knowledge.',
     ok: 'OK',
-    panel: '📜 Spells & actions',
+    panel: 'Spells & actions',
     closePanel: 'Back to homework',
     roleAction: 'Your role tonight',
     noRole: 'Your role has no night action. Keep studying!',
@@ -55,31 +60,33 @@ const tu = makeT({
     noSpells: 'No spells yet. Buy them in the morning shop.',
     pickTarget: 'Choose a target:',
     cancel: 'Cancel',
-    campus: '🏫 Campus',
+    campus: 'Campus',
     youAreIn: 'You are in: {room}',
     moveHere: 'Move',
-    lockKey: '🔑 Lock my room tonight (one key per game)',
+    lockKey: 'Lock my room tonight (one key per game)',
     keyUsed: 'Your key is used.',
-    lockOn: 'Locked tonight 🔒',
-    shop: '🛒 Spell shop',
+    lockOn: 'Locked tonight',
+    shop: 'Spell shop',
     buy: 'Buy',
     owned: 'Owned',
-    mySpells: '✨ My spells',
+    mySpells: 'My spells',
     usesLeft: '{n} left',
     usesAll: 'unlimited',
     passiveOn: 'always on',
     castNow: 'Cast',
     setTonight: 'Set for tonight',
-    spellsHeld: '{n}/{max} spells',
+    spellsHeld: '{n}/{max} spells learned',
+    learnedToday: 'You learned a spell this round. Come back tomorrow.',
+    learnedAll: 'You have learned all {max} spells you may this game.',
     news: 'What you learned',
     nominate: 'Nominate a player',
     nominated: 'You already nominated today.',
     voteQ: 'Expel {name}?',
-    yes: '✋ Yes',
+    yes: 'Yes',
     no: 'No',
     voted: 'Vote cast.',
     hushed: 'You are hushed: you can’t vote on this one.',
-    ghostHas: '👻 You have one ghost vote left.',
+    ghostHas: 'You have one ghost vote left.',
     ghostSpent: 'You used your ghost vote.',
     defense: '{name} is nominated by {by}. Speak in your defense!',
     onBlock: 'Facing expulsion: {name} ({n} votes)',
@@ -119,7 +126,7 @@ const tu = makeT({
     evil: 'evil',
     nightSeconds: 'Night length',
     dayMinutes: 'Day length',
-    tables: 'Homework',
+    tables: 'Homework questions',
     sec: '{n} s',
     min: '{n} min',
     setupLine: '{n} players: {leader} Cult Leaders, {cultist} Cultists, {professor} Professors, {exchange} Exchange Students, {student} Students',
@@ -134,10 +141,12 @@ const tu = makeT({
     day: '第 {n} 天',
     homework: '作业',
     knowledge: '知识',
+    cost: '{n} 知识',
+    lockedTag: '已上锁',
     correct: '今晚答对 {n} 题',
     hwHelp: '每答对一题获得 1 点知识。',
     ok: '确定',
-    panel: '📜 咒语与行动',
+    panel: '咒语与行动',
     closePanel: '回到作业',
     roleAction: '你今晚的角色行动',
     noRole: '你的角色夜晚没有行动。继续学习吧！',
@@ -148,31 +157,33 @@ const tu = makeT({
     noSpells: '还没有咒语。早上到商店购买。',
     pickTarget: '选择目标：',
     cancel: '取消',
-    campus: '🏫 校园',
+    campus: '校园',
     youAreIn: '你在：{room}',
     moveHere: '移动',
-    lockKey: '🔑 今晚锁上我的房间（每局一把钥匙）',
+    lockKey: '今晚锁上我的房间（每局一把钥匙）',
     keyUsed: '你的钥匙已经用掉了。',
-    lockOn: '今晚上锁 🔒',
-    shop: '🛒 咒语商店',
+    lockOn: '今晚上锁',
+    shop: '咒语商店',
     buy: '购买',
     owned: '已拥有',
-    mySpells: '✨ 我的咒语',
+    mySpells: '我的咒语',
     usesLeft: '剩 {n} 次',
     usesAll: '无限次',
     passiveOn: '一直生效',
     castNow: '施放',
     setTonight: '设定为今晚',
-    spellsHeld: '{n}/{max} 个咒语',
+    spellsHeld: '已学 {n}/{max} 个咒语',
+    learnedToday: '这一轮你已经学过一个咒语了，明天再来。',
+    learnedAll: '本局你已经学满 {max} 个咒语。',
     news: '你得知的信息',
     nominate: '提名一名玩家',
     nominated: '你今天已经提名过了。',
     voteQ: '开除 {name} 吗？',
-    yes: '✋ 赞成',
+    yes: '赞成',
     no: '反对',
     voted: '已投票。',
     hushed: '你被噤声了：这次不能投票。',
-    ghostHas: '👻 你还有一张幽灵票。',
+    ghostHas: '你还有一张幽灵票。',
     ghostSpent: '你的幽灵票已经用掉了。',
     defense: '{by} 提名了 {name}。请为自己辩护！',
     onBlock: '即将被开除：{name}（{n} 票）',
@@ -212,7 +223,7 @@ const tu = makeT({
     evil: '邪恶',
     nightSeconds: '夜晚时长',
     dayMinutes: '白天时长',
-    tables: '作业',
+    tables: '作业题型',
     sec: '{n} 秒',
     min: '{n} 分钟',
     setupLine: '{n} 名玩家：{leader} 邪教首领、{cultist} 邪教徒、{professor} 教授、{exchange} 交换生、{student} 学生',
@@ -235,11 +246,22 @@ const VOICE = {
   win_evil: {en: 'The Cult rules the campus now.', zh: '邪教现在统治了校园。'},
 };
 
-const roomName = (r, lang) => (ROOMS[r] ? `${ROOMS[r].emoji} ${L(ROOMS[r], lang)}` : '?');
+const roomName = (r, lang) => (ROOMS[r] ? L(ROOMS[r], lang) : '?');
+
+/** A room's floor plan. */
+function RoomPlan({r, size = 40}) {
+  return <Sprite path={ROOMS[r].art} emoji="" label="" tint="#fbf3df" shape="icon" size={`${size}px`} />;
+}
 
 function RoleToken({role, lang, size = 72}) {
   const r = ROLES[role];
   return r.art ? <Sprite path={r.art} emoji={r.emoji} label={L(r, lang)} tint={SIDE_TINT[r.side]} size={`${size}px`} shape="token" /> : <span className={styles.bigEmoji} style={{fontSize: size * 0.7}} aria-hidden="true">{r.emoji}</span>;
+}
+
+/** A spell's Clocktower icon (falls back to its emoji until the image loads). */
+function SpellIcon({k, lang, size = 34}) {
+  const sp = SPELLS[k];
+  return <Sprite path={sp.art} emoji={sp.emoji} label={L(sp, lang)} tint="#ffe566" size={`${size}px`} shape="token" />;
 }
 
 // ------------------------------------------------------------------ bots
@@ -257,7 +279,7 @@ function botMove(s, g, id, ctx) {
   if (s.phase === 'day' || s.phase === 'dawn') {
     if (rng() < 0.04) {
       const k = pick(Object.keys(SPELLS), rng);
-      if (s.knowledge[id] >= SPELLS[k].cost) return {action: 'buy', spell: k};
+      if (canLearn(s, id) && s.knowledge[id] >= SPELLS[k].cost && !s.spells[id].some((h) => h.k === k)) return {action: 'buy', spell: k};
     }
     if (rng() < 0.03 && s.spells[id].length) {
       const h = pick(s.spells[id], rng);
@@ -283,18 +305,18 @@ function botMove(s, g, id, ctx) {
 
 const RULEBOOK = {
   en: [
-    {title: '🎯 The goal', items: ['Good (Students, Exchange Students, Professors) wins when every Cult Leader is expelled or slain. With no Cult Leader in the game, every Cultist must go.', 'The Cult wins when it is at least half of the players still in the game.']},
-    {title: '🌙 A night', items: ['Everyone does homework: every correct answer earns 1 Knowledge.', 'Open “Spells & actions” to use your role or cast spells you prepared. Everyone has that button, so nobody can tell who acts.', 'Professors learn if a player is good or evil. Cultists learn if a player is a Professor. Cult Leaders slay one player (not on night 1).']},
-    {title: '☀️ A day', items: ['Talk, move to another room, buy spells in the shop, cast day spells.', 'Anyone may nominate once a day. The player with the most votes (at least half of the living) is expelled at the end of the day. A tie expels nobody.']},
-    {title: '🔑 Rooms and locks', items: ['Where you sleep matters: “in your room” spells only reach people in the same room.', 'Each player has one key per game. A locked room keeps out a Cult Leader who sleeps somewhere else.']},
-    {title: '✨ Spells', items: ['Anyone can buy any spell, in secret. You hold at most 6 and cast at most 2 a night.', 'Night spells can be set up by day or cast at night; once set, they can’t change.', 'Exchange Students earn double Knowledge but look evil to Professors and spells.']},
+    {title: 'The goal', items: ['Good (Students, Exchange Students, Professors) wins when every Cult Leader is expelled or slain. With no Cult Leader in the game, every Cultist must go.', 'The Cult wins when it is at least half of the players still in the game.']},
+    {title: 'A night', items: ['Everyone does homework: every correct answer earns 1 Knowledge.', 'Open “Spells & actions” to use your role or cast spells you prepared. Everyone has that button, so nobody can tell who acts.', 'Professors learn if a player is good or evil. Cultists learn if a player is a Professor. Cult Leaders slay one player (not on night 1).']},
+    {title: 'A day', items: ['Talk, move to another room, buy spells in the shop, cast day spells.', 'Anyone may nominate once a day. The player with the most votes (at least half of the living) is expelled at the end of the day. A tie expels nobody.']},
+    {title: 'Rooms and locks', items: ['Where you sleep matters: “in your room” spells only reach people in the same room.', 'Each player has one key per game. A locked room keeps out a Cult Leader who sleeps somewhere else.']},
+    {title: 'Spells', items: ['Anyone can buy any spell, in secret: at most 1 per round and 3 in the whole game. Cast at most 2 a night.', 'Night spells can be set up by day or cast at night; once set, they can’t change.', 'Exchange Students earn double Knowledge but look evil to Professors and spells.']},
   ],
   zh: [
-    {title: '🎯 目标', items: ['善良阵营（学生、交换生、教授）在所有邪教首领被开除或击倒时获胜。如果本局没有邪教首领，则需要所有邪教徒出局。', '邪教人数达到场上剩余玩家的一半或更多时，邪教获胜。']},
-    {title: '🌙 夜晚', items: ['所有人做作业：每答对一题获得 1 点知识。', '打开“咒语与行动”来使用角色能力或施放准备好的咒语。每个人都有这个按钮，所以没人知道谁在行动。', '教授得知一名玩家是善良还是邪恶。邪教徒得知一名玩家是否是教授。邪教首领击倒一名玩家（首夜除外）。']},
-    {title: '☀️ 白天', items: ['讨论、换到别的房间、在商店购买咒语、施放白天咒语。', '每人每天可提名一次。票数最多（至少达到存活人数一半）的玩家在白天结束时被开除，平票则无人被开除。']},
-    {title: '🔑 房间与锁', items: ['你睡在哪里很重要：“你房间里”的咒语只能影响同一房间的人。', '每名玩家每局有一把钥匙。上锁的房间能挡住睡在别处的邪教首领。']},
-    {title: '✨ 咒语', items: ['任何人都可以秘密购买任何咒语。最多持有 6 个，每晚最多施放 2 个。', '夜晚咒语可以在白天设定，也可以在夜里施放；设定后不能更改。', '交换生获得双倍知识，但在教授和咒语眼中是邪恶的。']},
+    {title: '目标', items: ['善良阵营（学生、交换生、教授）在所有邪教首领被开除或击倒时获胜。如果本局没有邪教首领，则需要所有邪教徒出局。', '邪教人数达到场上剩余玩家的一半或更多时，邪教获胜。']},
+    {title: '夜晚', items: ['所有人做作业：每答对一题获得 1 点知识。', '打开“咒语与行动”来使用角色能力或施放准备好的咒语。每个人都有这个按钮，所以没人知道谁在行动。', '教授得知一名玩家是善良还是邪恶。邪教徒得知一名玩家是否是教授。邪教首领击倒一名玩家（首夜除外）。']},
+    {title: '白天', items: ['讨论、换到别的房间、在商店购买咒语、施放白天咒语。', '每人每天可提名一次。票数最多（至少达到存活人数一半）的玩家在白天结束时被开除，平票则无人被开除。']},
+    {title: '房间与锁', items: ['你睡在哪里很重要：“你房间里”的咒语只能影响同一房间的人。', '每名玩家每局有一把钥匙。上锁的房间能挡住睡在别处的邪教首领。']},
+    {title: '咒语', items: ['任何人都可以秘密购买任何咒语：每轮最多 1 个，整局最多 3 个。每晚最多施放 2 个。', '夜晚咒语可以在白天设定，也可以在夜里施放；设定后不能更改。', '交换生获得双倍知识，但在教授和咒语眼中是邪恶的。']},
   ],
 };
 
@@ -302,7 +324,7 @@ const RULEBOOK = {
 
 const university = {
   id: 'university',
-  emoji: '🎓',
+  logo: 'university.webp',
   title: {en: 'Clocktower University', zh: '钟楼大学'},
   blurb: {
     en: 'A Cult hides on campus. Do homework at night to earn Knowledge, buy secret spells, move between rooms, and expel the Cult. 5–64 players.',
@@ -311,13 +333,13 @@ const university = {
   howTo: {
     en: [
       'Hold your phone to see your role. Good must expel the Cult Leaders; the Cult knows each other.',
-      'Night: everyone does times-table homework to earn Knowledge. Use “Spells & actions” to act in secret.',
+      'Night: everyone does math homework to earn Knowledge. Use “Spells & actions” to act in secret.',
       'Day: move between campus rooms, buy spells, talk, nominate and vote.',
       'The most-voted player (at least half the living) is expelled at the end of the day.',
     ],
     zh: [
       '按住手机查看你的角色。善良阵营要开除邪教首领；邪教成员互相认识。',
-      '夜晚：所有人做乘法作业赚取知识。用“咒语与行动”秘密行动。',
+      '夜晚：所有人做数学作业赚取知识。用“咒语与行动”秘密行动。',
       '白天：在校园房间之间移动、购买咒语、讨论、提名和投票。',
       '票数最多（至少达到存活人数一半）的玩家在白天结束时被开除。',
     ],
@@ -326,8 +348,8 @@ const university = {
     return RULEBOOK[lang] || RULEBOOK.en;
   },
   reference(lang) {
-    const roles = Object.entries(ROLES).map(([k, r]) => ({group: L({en: 'Roles', zh: '角色'}, lang), emoji: r.emoji, tint: SIDE_TINT[r.side], title: L(r, lang), tag: L({en: r.side === 'good' ? 'Good' : 'Evil', zh: r.side === 'good' ? '善良' : '邪恶'}, lang), text: r.ab, more: r.tip, key: k}));
-    const spells = Object.values(SPELLS).map((sp) => ({group: L({en: 'Starter spells', zh: '初始咒语'}, lang), emoji: sp.emoji, tint: '#ffe566', title: `${L(sp, lang)} · ${sp.cost} 🧠`, tag: sp.type, text: sp.ab}));
+    const roles = Object.entries(ROLES).map(([k, r]) => ({group: L({en: 'Roles', zh: '角色'}, lang), emoji: <RoleToken role={k} lang={lang} size={26} />, tint: SIDE_TINT[r.side], title: L(r, lang), tag: L({en: r.side === 'good' ? 'Good' : 'Evil', zh: r.side === 'good' ? '善良' : '邪恶'}, lang), text: r.ab, more: r.tip, key: k}));
+    const spells = Object.entries(SPELLS).map(([k, sp]) => ({group: L({en: 'Starter spells', zh: '初始咒语'}, lang), emoji: <SpellIcon k={k} lang={lang} size={30} />, tint: '#ffe566', title: `${L(sp, lang)} · ${tu(lang, 'cost', {n: sp.cost})}`, tag: sp.type, text: sp.ab}));
     return [...roles, ...spells];
   },
   inspiredBy: 'Blood on the Clocktower (The Pandemonium Institute)',
@@ -336,7 +358,7 @@ const university = {
   coverTint: '#2e5a3a',
   themeClass: shell.themeUni,
   night: (x) => x.phase === 'night',
-  defaultSettings: {dayMinutes: 4, nightSeconds: 60, tables: '2-9'},
+  defaultSettings: {dayMinutes: 4, nightSeconds: 60, pools: ['basic']},
   voiceLines: VOICE,
 
   setup(g, seats, ctx) {
@@ -398,8 +420,10 @@ const university = {
       players: s.seats.map(player),
       cult: cult && cult.map((p) => ({...player(p), role: s.role[p]})),
       knowledge: s.knowledge[id],
+      learned: (s.learned || {})[id] || 0,
+      canLearn: canLearn(s, id),
       hw: s.hw[id] || 0,
-      tables: s.tables,
+      pools: s.pools,
       spells: s.spells[id].map((h) => ({k: h.k, left: h.left, free: Math.min(99, freeUses(s, id, h.k)), targets: SPELLS[h.k].type !== 'passive' ? spellTargets(s, id, h.k) : []})),
       queued: s.queued[id],
       castsLeft: Math.max(0, MAX_NIGHT_CASTS - s.queued[id].length),
@@ -451,7 +475,7 @@ const university = {
         </div>
         <div className={shell.buttonRow}>
           <span>{tu(lang, 'tables')}</span>
-          {['2-9', '2-12'].map((m) => radio('tables', m, `${m} ×`))}
+          <PoolPicker value={settings.pools} onChange={(pools) => set({pools})} lang={lang} />
         </div>
         {c && <p className={shell.muted}>{tu(lang, 'setupLine', {n, ...c})}</p>}
       </>
@@ -467,12 +491,12 @@ const university = {
           {s.phase === 'roles' && <b>{tu(lang, 'holdRole')}</b>}
           {s.phase === 'night' && (
             <>
-              <b>🌙 {tu(lang, 'night', {n: s.night})}</b> {tu(lang, 'hostNight')}
+              <Sprite path="university-night.webp" emoji="" label="" tint="#1d2350" shape="icon" size="44px" /> <b>{tu(lang, 'night', {n: s.night})}</b> {tu(lang, 'hostNight')}
             </>
           )}
           {s.phase === 'dawn' && (
             <>
-              <b>☀️ {tu(lang, 'dawn')}</b> {s.deaths && s.deaths.length ? `${tu(lang, 'slainTonight')} ${s.deaths.map(name).join(', ')}` : tu(lang, 'peaceful')}
+              <Sprite path="university-light.webp" emoji="" label="" tint="#fbf3df" shape="icon" size="44px" /> <b>{tu(lang, 'dawn')}</b> {s.deaths && s.deaths.length ? `${tu(lang, 'slainTonight')} ${s.deaths.map(name).join(', ')}` : tu(lang, 'peaceful')}
             </>
           )}
           {(s.phase === 'day' || s.phase === 'defense' || s.phase === 'vote') && (
@@ -491,7 +515,7 @@ const university = {
           {s.phase === 'execution' && <b>{s.expelled ? tu(lang, 'expelled', {name: name(s.expelled)}) : tu(lang, 'noExpel')}</b>}
           {s.over && (
             <b>
-              🏆 {tu(lang, s.winner === 'good' ? 'goodWin' : 'evilWin')} <span className={shell.muted}>{tu(lang, `why_${s.winWhy}`)}</span>
+              {tu(lang, s.winner === 'good' ? 'goodWin' : 'evilWin')} <span className={shell.muted}>{tu(lang, `why_${s.winWhy}`)}</span>
             </b>
           )}
         </div>
@@ -502,9 +526,9 @@ const university = {
             return (
               <div key={r} className={styles.room} data-locked={locked}>
                 <span className={styles.roomHead}>
-                  <span className={styles.roomEmoji}>{ROOMS[r].emoji}</span>
+                  <RoomPlan r={r} size={64} />
                   <b>{L(ROOMS[r], lang)}</b>
-                  {locked && <span className={styles.lockTag}>🔒</span>}
+                  {locked && <span className={styles.lockTag}>{tu(lang, 'lockedTag')}</span>}
                 </span>
                 <span className={styles.people}>
                   {here.map((p) => (
@@ -551,12 +575,10 @@ function InfoLine({x, view, lang}) {
   );
 }
 
-/** Times-table homework, checked on the phone; the running total goes to the big screen every few answers. */
+/** Math homework (the pools picked in settings), checked on the phone; the running total goes to the big screen every few answers. */
 function Homework({view, lang, send}) {
-  const max = view.tables || 9;
-  const next = () => ({a: 2 + Math.floor(Math.random() * (max - 1)), b: 2 + Math.floor(Math.random() * (max - 1))});
+  const next = () => makeQuestion(view.pools, Math.random);
   const [q, setQ] = useState(next);
-  const [typed, setTyped] = useState('');
   const [total, setTotal] = useState(view.hw || 0);
   const [flash, setFlash] = useState(null);
   const sent = useRef(view.hw || 0);
@@ -565,11 +587,9 @@ function Homework({view, lang, send}) {
   useEffect(() => () => {
     if (latest.current > sent.current) send({action: 'hw', total: latest.current});
   }, []);
-  const submit = () => {
-    if (!typed) return;
-    const right = Number(typed) === q.a * q.b;
+  const submit = (typed) => {
+    const right = checkAnswer(q, typed);
     setFlash(right ? 'right' : 'wrong');
-    setTyped('');
     setQ(next());
     if (right) {
       const t = total + 1;
@@ -580,26 +600,12 @@ function Homework({view, lang, send}) {
       }
     }
   };
-  const key = (k) => {
-    if (k === 'del') setTyped((x) => x.slice(0, -1));
-    else if (k === 'ok') submit();
-    else setTyped((x) => (x.length < 3 ? x + k : x));
-  };
   return (
     <div className={styles.homework}>
       <p className={styles.hwHead}>
-        📘 {tu(lang, 'homework')} · {tu(lang, 'correct', {n: total})} · 🧠 {view.knowledge + Math.max(0, total - (view.hw || 0)) * (view.role === 'exchange' ? 2 : 1)}
+        {tu(lang, 'homework')} · {tu(lang, 'correct', {n: total})} · {tu(lang, 'knowledge')} {view.knowledge + Math.max(0, total - (view.hw || 0)) * (view.role === 'exchange' ? 2 : 1)}
       </p>
-      <p className={styles.question} data-flash={flash}>
-        {q.a} × {q.b} = <b>{typed || '?'}</b>
-      </p>
-      <div className={styles.numpad}>
-        {['1', '2', '3', '4', '5', '6', '7', '8', '9', 'del', '0', 'ok'].map((k) => (
-          <button key={k} type="button" className={styles.key} data-kind={k} onClick={() => key(k)}>
-            {k === 'del' ? '⌫' : k === 'ok' ? tu(lang, 'ok') : k}
-          </button>
-        ))}
-      </div>
+      <MathPad question={q} lang={lang} onAnswer={submit} flash={flash} okLabel={tu(lang, 'ok')} />
       <p className={shell.muted}>{tu(lang, 'hwHelp')}</p>
     </div>
   );
@@ -646,7 +652,7 @@ function SpellList({view, lang, send, night}) {
           return (
             <li key={h.k}>
               <span>
-                {sp.emoji} <b>{L(sp, lang)}</b> <small>· {sp.type === 'passive' ? tu(lang, 'passiveOn') : h.left === 0 ? tu(lang, 'usesAll') : tu(lang, 'usesLeft', {n: h.free})}</small>
+                <SpellIcon k={h.k} lang={lang} /> <b>{L(sp, lang)}</b> <small>· {sp.type === 'passive' ? tu(lang, 'passiveOn') : h.left === 0 ? tu(lang, 'usesAll') : tu(lang, 'usesLeft', {n: h.free})}</small>
                 <br />
                 <small>{L(sp.ab, lang)}</small>
               </span>
@@ -665,7 +671,7 @@ function SpellList({view, lang, send, night}) {
       {aim && (
         <div className={shell.card}>
           <p>
-            {SPELLS[aim.k].emoji} {L(SPELLS[aim.k], lang)} · {tu(lang, 'pickTarget')}
+            <SpellIcon k={aim.k} lang={lang} /> {L(SPELLS[aim.k], lang)} · {tu(lang, 'pickTarget')}
           </p>
           {SPELLS[aim.k].range === 'move' ? (
             <div className={shell.choiceGrid}>
@@ -685,7 +691,7 @@ function SpellList({view, lang, send, night}) {
       )}
       {view.queued.length > 0 && (
         <p className={styles.queued}>
-          🔒 {tu(lang, 'tonight')}: {view.queued.map((q) => `${SPELLS[q.k].emoji} ${L(SPELLS[q.k], lang)}${q.target ? ` → ${nm(q.target)}` : ''}`).join(' · ')}
+          {tu(lang, 'tonight')}: {view.queued.map((q) => `${L(SPELLS[q.k], lang)}${q.target ? ` → ${nm(q.target)}` : ''}`).join(' · ')}
         </p>
       )}
       {view.castsLeft === 0 && <p className={shell.muted}>{tu(lang, 'maxCasts', {n: MAX_NIGHT_CASTS})}</p>}
@@ -728,7 +734,7 @@ function UniPhone({view, lang, send}) {
           )}
         </>
       ) : (
-        <p className={styles.holdHint}>👆 {tu(lang, 'holdRole')}</p>
+        <p className={styles.holdHint}>{tu(lang, 'holdRole')}</p>
       )}
     </div>
   );
@@ -739,7 +745,7 @@ function UniPhone({view, lang, send}) {
       <ul className={shell.logList}>
         {[...view.info].reverse().map((x, i) => (
           <li key={i}>
-            {x.night ? `🌙${x.night}` : ''} <InfoLine x={x} view={view} lang={lang} />
+            {x.night ? `${tu(lang, 'night', {n: x.night})}: ` : ''}<InfoLine x={x} view={view} lang={lang} />
           </li>
         ))}
       </ul>
@@ -749,7 +755,7 @@ function UniPhone({view, lang, send}) {
   if (view.kind === 'over') {
     return (
       <>
-        <p className={shell.bigText}>🏆 {tu(lang, view.winner === 'good' ? 'goodWin' : 'evilWin')}</p>
+        <p className={shell.bigText}>{tu(lang, view.winner === 'good' ? 'goodWin' : 'evilWin')}</p>
         <div className={shell.card}>
           <b>{tu(lang, 'roles')}</b>
           <ul className={shell.logList}>
@@ -784,7 +790,7 @@ function UniPhone({view, lang, send}) {
       <div className={styles.nightPhone}>
         <p className={shell.kicker}>{tu(lang, 'night', {n: view.night})}</p>
         {!view.dead && <Homework view={view} lang={lang} send={send} />}
-        {view.dead && <p>☠️ {tu(lang, 'dead')}</p>}
+        {view.dead && <p>{tu(lang, 'dead')}</p>}
         <button type="button" className="button button--block" onClick={() => setPanel(!panel)}>
           {panel ? tu(lang, 'closePanel') : tu(lang, 'panel')}
         </button>
@@ -792,7 +798,7 @@ function UniPhone({view, lang, send}) {
           <div className={styles.panel}>
             <b>{tu(lang, 'roleAction')}</b>
             {view.roleTarget ? (
-              <p>✅ {tu(lang, 'chosen', {name: nm(view.roleTarget)})}</p>
+              <p>{tu(lang, 'chosen', {name: nm(view.roleTarget)})}</p>
             ) : view.roleTargets.length ? (
               <PlayerPick ids={view.roleTargets} view={view} lang={lang} onPick={(t) => send({action: 'act', target: t})} />
             ) : (
@@ -810,9 +816,9 @@ function UniPhone({view, lang, send}) {
   return (
     <>
       <p className={styles.nowHint}>
-        {tu(lang, nowKey)} · 🧠 {tu(lang, 'knowledge')}: <b>{view.knowledge}</b>
+        {tu(lang, nowKey)} · {tu(lang, 'knowledge')}: <b>{view.knowledge}</b>
       </p>
-      {view.dead && <p className={shell.notice}>☠️ {tu(lang, 'dead')}</p>}
+      {view.dead && <p className={shell.notice}>{tu(lang, 'dead')}</p>}
       {view.kind === 'vote' && (
         <div className={shell.card}>
           <p className={shell.bigText}>{tu(lang, 'voteQ', {name: view.nominee.name})}</p>
@@ -848,7 +854,7 @@ function UniPhone({view, lang, send}) {
           <div className={styles.roomGrid}>
             {view.rooms.filter((rm) => ROOMS[rm.id]).map((rm) => (
               <button key={rm.id} type="button" className="button button--sm" aria-pressed={view.room === rm.id} onClick={() => send({action: 'move', room: rm.id})}>
-                {roomName(rm.id, lang)} <small>({rm.count})</small>
+                <RoomPlan r={rm.id} size={28} /> {roomName(rm.id, lang)} <small>({rm.count})</small>
               </button>
             ))}
           </div>
@@ -864,19 +870,20 @@ function UniPhone({view, lang, send}) {
       {view.canShop && (
         <details className={shell.card} {...fold('shop')}>
           <summary>
-            <b>{tu(lang, 'shop')}</b> · 🧠 {view.knowledge} · {tu(lang, 'spellsHeld', {n: view.spells.length, max: MAX_SPELLS})}
+            <b>{tu(lang, 'shop')}</b> · {tu(lang, 'knowledge')} {view.knowledge} · {tu(lang, 'spellsHeld', {n: view.learned, max: MAX_SPELLS})}
           </summary>
+          {!view.canLearn && <p className={shell.muted}>{view.learned >= MAX_SPELLS ? tu(lang, 'learnedAll', {max: MAX_SPELLS}) : tu(lang, 'learnedToday')}</p>}
           <ul className={styles.spellList}>
             {Object.entries(SPELLS).map(([k, sp]) => {
               const owned = view.spells.some((h) => h.k === k);
               return (
                 <li key={k}>
                   <span>
-                    {sp.emoji} <b>{L(sp, lang)}</b> <small>· {sp.cost} 🧠</small>
+                    <SpellIcon k={k} lang={lang} /> <b>{L(sp, lang)}</b> <small>· {tu(lang, 'cost', {n: sp.cost})}</small>
                     <br />
                     <small>{L(sp.ab, lang)}</small>
                   </span>
-                  <button type="button" className="button button--sm" disabled={owned || view.knowledge < sp.cost || view.spells.length >= MAX_SPELLS} onClick={() => send({action: 'buy', spell: k})}>
+                  <button type="button" className="button button--sm" disabled={owned || !view.canLearn || view.knowledge < sp.cost} onClick={() => send({action: 'buy', spell: k})}>
                     {owned ? tu(lang, 'owned') : tu(lang, 'buy')}
                   </button>
                 </li>

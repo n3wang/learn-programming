@@ -5,7 +5,11 @@
  * Reads assets/party/sprites.json: each sprite names a source sheet, a crop
  * rectangle [x, y, width, height] and an output path. Each "set" instead names
  * a folder of single images (one per character, say): every file in it is
- * resized to `size` px and written to `out` with {name} = the file's name. Each crop is written to
+ * resized to `size` px and written to `out` with {name} = the file's name. Each
+ * "strip" names one wide image of equal square frames (an Aseprite export) and
+ * a CSV that maps frames to names (frame_start,name,frame_end,…): every row
+ * with a frame becomes <name>.webp, trimmed and fitted to `size` px (a row with
+ * frame_end becomes a side-by-side animation strip). Each crop is written to
  * static/img/party/<out>, the folder src/components/party/core/Sprite.js reads
  * from — so a game that already asks for that path (with an emoji placeholder
  * until the file exists) shows the real art after one run, with no code change.
@@ -47,6 +51,16 @@ function validRect(rect) {
   return Array.isArray(rect) && rect.length === 4 && rect.every((n) => Number.isInteger(n) && n >= 0) && rect[2] > 0 && rect[3] > 0;
 }
 
+/** Rows of a frame map: frame_start,name,frame_end,… (the trailing columns are notes and may hold commas). */
+function readFrameMap(file) {
+  return readFileSync(file, 'utf8')
+    .split(/\r?\n/)
+    .slice(1)
+    .map((line) => line.split(','))
+    .filter((cells) => /^\d+$/.test((cells[0] || '').trim()) && (cells[1] || '').trim())
+    .map((cells) => ({start: Number(cells[0]), name: cells[1].trim(), end: /^\d+$/.test((cells[2] || '').trim()) ? Number(cells[2]) : null}));
+}
+
 function main() {
   const args = parseArgs(process.argv.slice(2));
   const manifest = JSON.parse(readFileSync(join(ASSETS, 'sprites.json'), 'utf8'));
@@ -57,7 +71,11 @@ function main() {
       .sort()
       .map((f) => ({sheet: id, file: join(set.dir, f), size: set.size, name: basename(f, extname(f)), out: set.out.replace('{name}', basename(f, extname(f)))})),
   );
-  const sprites = [...manifest.sprites, ...fromSets].filter((s) => !args.sheet || s.sheet === args.sheet);
+  // Expand each strip into one sprite per mapped CSV row.
+  const fromStrips = Object.entries(manifest.strips || {}).flatMap(([id, strip]) =>
+    readFrameMap(join(ASSETS, strip.csv)).map((row) => ({sheet: id, strip, row, name: row.name, out: `${row.name}.webp`})),
+  );
+  const sprites = [...manifest.sprites, ...fromSets, ...fromStrips].filter((s) => !args.sheet || s.sheet === args.sheet);
   if (!sprites.length) {
     console.error(args.sheet ? `No sprites for sheet "${args.sheet}".` : 'No sprites in the manifest.');
     process.exit(1);
@@ -66,9 +84,9 @@ function main() {
   let made = 0;
   let stale = 0;
   for (const sprite of sprites) {
-    const sheet = sprite.file ? {file: sprite.file} : manifest.sheets[sprite.sheet];
+    const sheet = sprite.strip ? {file: join('..', '..', sprite.strip.file)} : sprite.file ? {file: sprite.file} : manifest.sheets[sprite.sheet];
     if (!sheet) throw new Error(`${sprite.out}: unknown sheet "${sprite.sheet}"`);
-    if (!sprite.file && !validRect(sprite.rect)) throw new Error(`${sprite.out}: rect must be [x, y, width, height] in whole pixels`);
+    if (!sprite.file && !sprite.strip && !validRect(sprite.rect)) throw new Error(`${sprite.out}: rect must be [x, y, width, height] in whole pixels`);
     const src = join(ASSETS, sheet.file);
     const out = join(OUT_ROOT, sprite.out);
     if (!existsSync(src)) throw new Error(`${sprite.out}: sheet file missing: ${sheet.file}`);
@@ -77,7 +95,8 @@ function main() {
     const upToDate =
       existsSync(out) &&
       statSync(out).mtimeMs >= statSync(src).mtimeMs &&
-      statSync(out).mtimeMs >= statSync(join(ASSETS, 'sprites.json')).mtimeMs;
+      statSync(out).mtimeMs >= statSync(join(ASSETS, 'sprites.json')).mtimeMs &&
+      (!sprite.strip || statSync(out).mtimeMs >= statSync(join(ASSETS, sprite.strip.csv)).mtimeMs);
     if (args.check) {
       if (!upToDate) {
         stale += 1;
@@ -87,6 +106,17 @@ function main() {
     }
 
     mkdirSync(dirname(out), {recursive: true});
+    if (sprite.strip) {
+      const {frame, size = 320} = sprite.strip;
+      const {start, end} = sprite.row;
+      const frames = Array.from({length: Math.max(1, (end || start) - start + 1)}, (_, i) => start + i);
+      // One frame: trim to its art. Several: keep every frame the same size so the strip animates in place.
+      const crops = frames.flatMap((f) => ['(', src, '-crop', `${frame}x${frame}+${(f - 1) * frame}+0`, '+repage', ...(frames.length === 1 ? ['-trim', '+repage'] : []), ')']);
+      execFileSync('magick', [...crops, ...(frames.length > 1 ? ['+append'] : []), '-resize', frames.length > 1 ? `x${size}` : `${size}x${size}`, '-strip', '-quality', '90', out]);
+      made += 1;
+      console.log(`✓ ${sprite.out}  (frame ${start}${end ? `–${end}` : ''})`);
+      continue;
+    }
     if (sprite.file) {
       const size = sprite.size || 256;
       execFileSync('magick', [src, '-resize', `${size}x${size}`, '-strip', '-quality', '88', out]);

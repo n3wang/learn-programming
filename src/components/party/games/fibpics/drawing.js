@@ -138,16 +138,16 @@ export function DrawPad({base = [], onSend, labels, disabled}) {
             aria-pressed={color === i}
             aria-label={i === COLORS.length - 1 ? labels.eraser : c}
             onClick={() => setColor(i)}>
-            {i === COLORS.length - 1 ? '🧽' : ''}
+            {i === COLORS.length - 1 ? labels.eraser : ''}
           </button>
         ))}
       </div>
       <div className={styles.tools}>
         <button type="button" className="button button--sm button--secondary" aria-pressed={width === 0} onClick={() => setWidth(0)}>
-          ✏️ {labels.thin}
+          {labels.thin}
         </button>
         <button type="button" className="button button--sm button--secondary" aria-pressed={width === 1} onClick={() => setWidth(1)}>
-          🖌️ {labels.thick}
+          {labels.thick}
         </button>
         <button type="button" className="button button--sm button--secondary" onClick={() => setStrokes((list) => list.slice(0, -1))} disabled={!strokes.length}>
           ↶ {labels.undo}

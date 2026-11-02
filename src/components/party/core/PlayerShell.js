@@ -1,5 +1,7 @@
 import React, {useEffect, useRef, useState} from 'react';
 import Head from '@docusaurus/Head';
+import {GameLogo} from './GamePicker';
+import Sprite from './Sprite';
 import {createPartySocket} from '@site/src/api/partyClient';
 import {REACTIONS, isValidAvatar, randomAvatar} from '@site/src/components/BetsAndWagers/logic';
 import {Avatar, AvatarPicker, ConnectionBadge, Countdown, readJson, writeJson} from '@site/src/components/BetsAndWagers/ui';
@@ -286,7 +288,7 @@ export default function PlayerShell({mod}) {
       </Head>
       <header className={styles.phoneHeader}>
         <strong className={styles.brand}>
-          {mod.emoji} {L(mod.title, lang)}
+          <GameLogo game={mod} size={24} /> {L(mod.title, lang)}
         </strong>
         {seat && <span className={styles.muted}>{seat.code}</span>}
         <span className={styles.headerRight}>
@@ -298,7 +300,7 @@ export default function PlayerShell({mod}) {
           )}
           {mod.howTo && (
             <button type="button" className={styles.helpButton} aria-pressed={showRules} onClick={() => setShowRules(!showRules)} aria-label={st(lang, 'howToPlay')}>
-              ❓
+              ?
             </button>
           )}
           <LangSwitch lang={lang} setLang={setLang} />
@@ -347,7 +349,7 @@ export default function PlayerShell({mod}) {
                 onChange={(e) => setForm({...form, name: Array.from(e.target.value).slice(0, NAME_MAX).join('')})}
               />
               <button type="button" className={styles.diceButton} onClick={() => { playSfx('dice'); setForm({...form, name: generateName(lang, takenNames)}); }} aria-label={st(lang, 'newName')}>
-                🎲
+                <Sprite path="clocktower/role-gambler.webp" emoji="" label="" tint="#ffe566" shape="icon" size="30px" />
               </button>
             </span>
             {locked && <span className={styles.hint}>{st(lang, 'namesLockedNote')}</span>}
@@ -377,18 +379,18 @@ export default function PlayerShell({mod}) {
             )}
           </div>
 
-          {urgent && env.phase !== 'lobby' && <div className={styles.yourMove}>👉 {st(lang, 'yourMove')}</div>}
+          {urgent && env.phase !== 'lobby' && <div className={styles.yourMove}>{st(lang, 'yourMove')}</div>}
           <div className={styles.phoneBody} data-urgent={urgent && env.phase !== 'lobby'} data-sending={sending}>
             {sending && <div className={styles.sendingVeil}>{st(lang, 'sending')}</div>}
             {env.phase === 'lobby' && (
               <div className={styles.waiting}>
                 <p className={styles.lobbyGame}>
-                  {mod.emoji} <b>{L(mod.title, lang)}</b>
+                  <GameLogo game={mod} size={40} /> <b>{L(mod.title, lang)}</b>
                 </p>
                 <p>{st(lang, 'youreIn')}</p>
                 <p className={styles.muted}>{st(lang, 'waitingStart', {n: env.playerCount})}</p>
                 <button type="button" className="button button--secondary" onClick={() => rejoinWith({name: generateName(lang, [seatRef.current?.name])})}>
-                  🎲 {st(lang, 'newName')}
+                  {st(lang, 'newName')}
                 </button>
                 {pickingAvatar ? (
                   <div className={styles.avatarField}>

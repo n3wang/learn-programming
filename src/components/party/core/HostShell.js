@@ -1,7 +1,7 @@
 import React, {useEffect, useRef, useState} from 'react';
 import Head from '@docusaurus/Head';
 import {HtmlClassNameProvider} from '@docusaurus/theme-common';
-import Link from '@docusaurus/Link';
+import GamePicker from './GamePicker';
 import {apiOverride, createPartySocket} from '@site/src/api/partyClient';
 import {reactionEmoji} from '@site/src/components/BetsAndWagers/logic';
 import {Avatar, ConnectionBadge, Countdown, readJson, writeJson} from '@site/src/components/BetsAndWagers/ui';
@@ -363,12 +363,7 @@ export default function HostShell({mod}) {
         <title>{`${L(mod.title, lang)} — ${lang === 'zh' ? '主持' : 'Host'}`}</title>
       </Head>
       <header className={styles.hostHeader}>
-        <Link to="/party" className={styles.backLink}>
-          {st(lang, 'backToMenu')}
-        </Link>
-        <strong className={styles.brand}>
-          {mod.emoji} {L(mod.title, lang)}
-        </strong>
+        <GamePicker gameId={mod.id} lang={lang} />
         {code && (
           <span className={styles.roomCode}>
             {st(lang, 'room')} <b>{code}</b>
@@ -382,7 +377,7 @@ export default function HostShell({mod}) {
           </button>
           {mod.howTo && (
             <button type="button" className="button button--sm button--secondary" aria-pressed={showRules} onClick={() => setShowRules(!showRules)}>
-              ❓ {st(lang, 'howToPlay')}
+              {st(lang, 'howToPlay')}
             </button>
           )}
           <LangSwitch lang={lang} setLang={setLang} />
@@ -552,7 +547,7 @@ export default function HostShell({mod}) {
           <div className={styles.overlayCard} onClick={(e) => e.stopPropagation()} role="dialog" aria-label={st(lang, 'howToPlay')}>
             <div className={styles.overlayHead}>
               <h2>
-                {mod.emoji} {L(mod.title, lang)} · {st(lang, 'howToPlay')}
+                {L(mod.title, lang)} · {st(lang, 'howToPlay')}
               </h2>
               <button type="button" className="button button--sm button--secondary" onClick={() => setShowRules(false)}>
                 ✕ {st(lang, 'close')}

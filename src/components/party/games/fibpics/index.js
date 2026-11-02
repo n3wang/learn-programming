@@ -2,6 +2,7 @@ import React, {useState} from 'react';
 import {cue, duration, isBotId, pick, shuffle} from '../../core/partyCore';
 import {L, makeT} from '../../core/strings';
 import SeatRing from '../../core/SeatRing';
+import Sprite from '../../core/Sprite';
 import {Avatar} from '@site/src/components/BetsAndWagers/ui';
 import {DECKS, DECOYS} from './prompts';
 import {Drawing, DrawPad, botDoodle, cleanStrokes} from './drawing';
@@ -59,6 +60,8 @@ const tg = makeT({
     thick: 'Thick',
     undo: 'Undo',
     eraser: 'Eraser',
+    waiting: 'Waiting…',
+    pairs: '{n} pairs',
     inkFull: 'Ink full!',
     sendDrawing: 'Send drawing',
     rounds: 'Rounds',
@@ -106,6 +109,8 @@ const tg = makeT({
     thick: '粗笔',
     undo: '撤销',
     eraser: '橡皮',
+    waiting: '等待中……',
+    pairs: '{n} 对',
     inkFull: '墨水用完了！',
     sendDrawing: '提交画作',
     rounds: '轮数',
@@ -306,7 +311,7 @@ function maybeAdvance(s, ctx) {
 
 const fibpics = {
   id: 'fibpics',
-  emoji: '🎨',
+  logo: 'clocktower/role-dreamer.webp',
   title: {en: 'Fib Pics', zh: '画中有诈'},
   blurb: {
     en: 'Draw a secret prompt, invent fake titles for the others’ drawings, and spot the real one.',
@@ -487,7 +492,7 @@ const fibpics = {
               {tg(lang, d === 'auto' ? 'duoAuto' : 'duoOff')}
             </button>
           ))}
-          {playerCount > 8 && settings.duo !== 'off' && <span className={shell.chip}>👥 ×{Math.floor(playerCount / 2)}</span>}
+          {playerCount > 8 && settings.duo !== 'off' && <span className={shell.chip}>{tg(lang, 'pairs', {n: Math.floor(playerCount / 2)})}</span>}
         </div>
       </div>
     );
@@ -506,7 +511,7 @@ const fibpics = {
           ids={s.seats}
           dim={(id) => !active.includes(id) && !s.submitted[id]}
           highlight={(id) => active.includes(id) && !s.submitted[id]}
-          badge={(id) => (s.submitted[id] ? '✅' : active.includes(id) ? '✏️' : '')}>
+          badge={(id) => (s.submitted[id] ? '✓' : active.includes(id) ? '…' : '')}>
           <p className={shell.kicker}>{tg(lang, 'round', {n: s.round, total: s.rounds})}</p>
           <div className={shell.bigText}>{tg(lang, 'drawTitle')}</div>
           {s.turns > 1 && <p className={shell.chip}>{tg(lang, 'duoTurn', {n: s.drawTurn + 1, total: s.turns})}</p>}
@@ -596,14 +601,14 @@ const fibpics = {
         {s.phase === 'over' && (
           <div className={styles.awards}>
             {[
-              ['detective', 'right', '🕵️'],
-              ['liar', 'fooled', '🤥'],
-              ['painter', 'painted', '🎨'],
-            ].map(([label, key, emoji]) => {
+              ['detective', 'right', 'role-investigator'],
+              ['liar', 'fooled', 'role-spy'],
+              ['painter', 'painted', 'role-dreamer'],
+            ].map(([label, key, art]) => {
               const id = top(key);
               return (
                 <div key={label} className={shell.card}>
-                  <div style={{fontSize: '2rem'}}>{emoji}</div>
+                  <Sprite path={`clocktower/${art}.webp`} emoji="" label="" tint="#ffe566" shape="icon" size="56px" />
                   <b>{tg(lang, label)}</b>
                   <div>
                     <Avatar avatar={who(id)?.avatar} color={who(id)?.color} size="sm" /> {who(id)?.name} · {s.stats[id][key]}
@@ -739,7 +744,7 @@ function FibPhone({view, lang, send}) {
   return (
     <>
       {head}
-      <p className={shell.waiting}>👀</p>
+      <p className={shell.waiting}>{tg(lang, 'waiting')}</p>
     </>
   );
 }

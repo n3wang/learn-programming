@@ -11,7 +11,8 @@
  */
 
 import {cue, duration, log, shuffle} from '../../core/partyCore';
-import {ACT_STIPEND, ACTORS, GIFT_AMOUNT, MAX_NIGHT_CASTS, MAX_SPELLS, ROLES, SPELLS, roomsFor} from './data';
+import {normalizePools} from '../../core/mathQuestions';
+import {ACTORS, GIFT_AMOUNT, MAX_NIGHT_CASTS, MAX_SPELLS, ROLES, SPELLS, SPELLS_PER_ROUND, roomsFor} from './data';
 
 const ROLES_S = 30;
 const DAWN_S = 8;
@@ -65,6 +66,9 @@ export function setupUniversity(seats, settings, ctx) {
     lockTonight: {},
     locks: {},
     knowledge: Object.fromEntries(seats.map((id) => [id, 0])),
+    // Spells learned: in the whole game, and in the current round (keyed by night number).
+    learned: Object.fromEntries(seats.map((id) => [id, 0])),
+    learnedRound: {},
     spells: Object.fromEntries(seats.map((id) => [id, []])),
     queued: Object.fromEntries(seats.map((id) => [id, []])),
     roleTarget: {},
@@ -77,7 +81,8 @@ export function setupUniversity(seats, settings, ctx) {
     day: 0,
     nightS: Number(settings.nightSeconds || 60),
     dayS: Number(settings.dayMinutes || 4) * 60,
-    tables: settings.tables === '2-12' ? 12 : 9,
+    // Homework question types (core/mathQuestions pools).
+    pools: normalizePools(settings.pools),
     log: [],
     cues: [],
   };
@@ -173,11 +178,21 @@ export function spellTargets(s, id, k) {
 
 const dayPhase = (s) => ['day', 'defense', 'vote', 'dawn'].includes(s.phase);
 
+/** Can this player still learn a spell: under the game limit and none yet this round? */
+export function canLearn(s, id) {
+  const r = (s.learnedRound || {})[id];
+  const thisRound = r && r.night === s.night ? r.n : 0;
+  return ((s.learned || {})[id] || 0) < MAX_SPELLS && thisRound < SPELLS_PER_ROUND;
+}
+
 export function buy(s, ctx, id, k) {
   const sp = SPELLS[k];
   if (!sp || s.dead[id] || !dayPhase(s) || held(s, id, k)) return false;
-  if (s.spells[id].length >= MAX_SPELLS || s.knowledge[id] < sp.cost) return false;
+  if (!canLearn(s, id) || s.knowledge[id] < sp.cost) return false;
   s.knowledge[id] -= sp.cost;
+  s.learned = {...s.learned, [id]: ((s.learned || {})[id] || 0) + 1};
+  const r = (s.learnedRound || {})[id];
+  s.learnedRound = {...s.learnedRound, [id]: {night: s.night, n: (r && r.night === s.night ? r.n : 0) + 1}};
   s.spells[id] = [...s.spells[id], {k, left: sp.uses}];
   log(s, {kind: 'buy', actor: id, spell: k});
   return true;
@@ -301,13 +316,10 @@ function resolveNight(s, ctx) {
   each('ignition', (id, t) => {
     if (pos[t] === pos[id]) slay(t, id);
   });
-  // Actors lose a little homework time to their action: a flat stipend.
-  for (const id of seatsAlive(s, deaths)) if (s.roleTarget[id]) s.knowledge[id] += ACT_STIPEND;
   for (const id of s.seats) s.queued[id] = [];
   s.deaths = deaths;
 }
 
-const seatsAlive = (s, deaths) => s.seats.filter((id) => !s.dead[id] || deaths.includes(id));
 
 function dawn(s, ctx) {
   resolveNight(s, ctx);

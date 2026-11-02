@@ -178,9 +178,18 @@ const VOICE = {
 };
 
 function RoleCard({role, lang, size = 64, up = true}) {
-  if (!up) return <Sprite path="powergrab/card-back.webp" emoji="🛰️" label="" tint="#1e3799" size={`${size}px`} />;
+  if (!up) return <Sprite path="powergrab/card-back.webp" emoji="?" label="" tint="#1e3799" size={`${size}px`} />;
   const r = ROLES[role];
   return <Sprite path={`powergrab/role-${role}.webp`} emoji={r.emoji} label={roleName(role, lang)} tint={r.tint} size={`${size}px`} />;
+}
+
+/** Actions without a role card borrow a Clocktower icon. */
+const ACTION_ART = {income: 'clocktower/role-farmer.webp', aid: 'clocktower/role-steward.webp', overthrow: 'clocktower/role-slayer.webp', convert: 'clocktower/role-heretic.webp'};
+
+function ActionIcon({type, lang, size = 26}) {
+  const claim = ACTIONS[type].claim;
+  if (claim) return <RoleCard role={claim} lang={lang} size={size} />;
+  return <Sprite path={ACTION_ART[type]} emoji="" label="" tint="#ffe566" shape="icon" size={`${size}px`} />;
 }
 
 function describe(entry, g, lang) {
@@ -244,7 +253,7 @@ function botMove(s, g, id, ctx) {
 
 const powergrab = {
   id: 'powergrab',
-  emoji: '🛰️',
+  logo: 'powergrab/role-quartermaster.webp',
   title: {en: 'Power Grab', zh: '夺权'},
   blurb: {
     en: 'Station ORBIT-9 needs a commander. Bluff about your secret roles, challenge liars, and be the last one standing.',
@@ -279,9 +288,9 @@ const powergrab = {
       inspector: {en: '9+ players. Look at a player’s card and may force a swap. Blocks skims.', zh: '9 人以上。查看一名玩家的一张牌，可以逼他换牌。可以拦截顺走。'},
     };
     return [
-      {emoji: '🪙', title: zh ? '收入 / 站务援助' : 'Income / Station aid', text: {en: 'Anyone: +1 (can’t be stopped) or +2 (the Duke can block it).', zh: '任何人：+1（无法阻止）或 +2（公爵可以拦截）。'}},
-      {emoji: '💥', title: zh ? '政变' : 'Overthrow', text: {en: 'Pay 7: a player loses a card. Can’t be blocked.', zh: '付 7 点：目标失去一张牌。无法拦截。'}},
-      ...Object.keys(text).map((k) => ({emoji: ROLES[k].emoji, tint: ROLES[k].tint, title: L(ROLES[k], lang), text: text[k]})),
+      {emoji: <ActionIcon type="income" lang={lang} />, title: zh ? '收入 / 站务援助' : 'Income / Station aid', text: {en: 'Anyone: +1 (can’t be stopped) or +2 (the Duke can block it).', zh: '任何人：+1（无法阻止）或 +2（公爵可以拦截）。'}},
+      {emoji: <ActionIcon type="overthrow" lang={lang} />, title: zh ? '政变' : 'Overthrow', text: {en: 'Pay 7: a player loses a card. Can’t be blocked.', zh: '付 7 点：目标失去一张牌。无法拦截。'}},
+      ...Object.keys(text).map((k) => ({emoji: <RoleCard role={k} lang={lang} size={26} />, tint: ROLES[k].tint, title: L(ROLES[k], lang), text: text[k]})),
     ];
   },
   inspiredBy: 'Coup',
@@ -407,7 +416,7 @@ const powergrab = {
         highlight={(id) => !s.over && (id === s.actor || (s.lose && s.lose.id === id))}
         badge={(id) => (
           <>
-            <span className={styles.credits}>💠 {s.credits[id]}</span>
+            <span className={styles.credits}>{tg(lang, 'credits', {n: s.credits[id]})}</span>
             {s.factions && <span className={styles.faction} data-faction={s.faction[id]} />}
             <span className={styles.cards}>
               {s.hands[id].map((c, i) => (
@@ -417,20 +426,20 @@ const powergrab = {
           </>
         )}>
         {s.over ? (
-          <div className={shell.bigText}>🏆 {tg(lang, 'winner', {name: name(s.winner)})}</div>
+          <div className={shell.bigText}>{tg(lang, 'winner', {name: name(s.winner)})}</div>
         ) : (
           <>
             <p className={shell.kicker}>{prompt}</p>
             {s.action && (
               <div className={`${shell.card} ${styles.claim}`}>
                 <span>
-                  <b>{name(s.action.actor)}</b> · {ACTIONS[s.action.type].emoji} {tg(lang, `a_${s.action.type}`)}
+                  <b>{name(s.action.actor)}</b> · <ActionIcon type={s.action.type} lang={lang} /> {tg(lang, `a_${s.action.type}`)}
                   {s.action.target && ` → ${name(s.action.target)}`}
                 </span>
                 {s.action.claim && <RoleCard role={s.action.claim} lang={lang} size={70} />}
                 {s.block && (
                   <span>
-                    🛡️ {tg(lang, 'l_block', {actor: name(s.block.by), role: roleName(s.block.claim, lang)})}
+                    {tg(lang, 'l_block', {actor: name(s.block.by), role: roleName(s.block.claim, lang)})}
                     <RoleCard role={s.block.claim} lang={lang} size={50} />
                   </span>
                 )}
@@ -440,7 +449,7 @@ const powergrab = {
               <div className={shell.chipRow}>
                 {responders(s).map((id) => (
                   <span key={id} className={shell.chip} style={{opacity: s.responses[id] ? 1 : 0.4}}>
-                    {name(id)} {s.responses[id] === 'pass' ? '✓' : s.responses[id] ? '⚔️' : '…'}
+                    {name(id)} {s.responses[id] === 'pass' ? '✓' : s.responses[id] ? '!' : '…'}
                   </span>
                 ))}
               </div>
@@ -478,7 +487,7 @@ function TargetPicker({view, lang, onPick, onCancel, includeSelf}) {
           .filter((p) => p.id !== view.me && (includeSelf ? p.alive : p.targetable))
           .map((p) => (
             <button key={p.id} type="button" className="button button--sm" onClick={() => onPick(p.id)}>
-              <Avatar avatar={p.avatar} color={p.color} size="xs" /> {p.name} · 💠{p.credits}
+              <Avatar avatar={p.avatar} color={p.color} size="xs" /> {p.name} · {tg(lang, 'credits', {n: p.credits})}
             </button>
           ))}
       </div>
@@ -498,7 +507,7 @@ function PowerPhone({view, lang, send}) {
   const hand = (
     <div className={shell.card}>
       <p className={shell.kicker}>
-        {tg(lang, 'yourCards')} · 💠 {tg(lang, 'credits', {n: view.credits})}
+        {tg(lang, 'yourCards')} · {tg(lang, 'credits', {n: view.credits})}
         {view.faction && ` · ${tg(lang, view.faction)}`}
       </p>
       <button type="button" className={styles.handRow} onClick={() => setPeek(!peek)}>
@@ -512,13 +521,13 @@ function PowerPhone({view, lang, send}) {
   );
 
   if (view.kind === 'over') {
-    return <div className={`${shell.card} ${shell.bigText}`}>🏆 {tg(lang, 'winner', {name: nameOf(view.winner)})}</div>;
+    return <div className={`${shell.card} ${shell.bigText}`}>{tg(lang, 'winner', {name: nameOf(view.winner)})}</div>;
   }
 
   if (view.kind === 'ghost') {
     return (
       <>
-        <p className={shell.notice}>👻 {tg(lang, 'out')}</p>
+        <p className={shell.notice}>{tg(lang, 'out')}</p>
         <p>{tg(lang, 'ghostPoints', {n: view.ghostScore})}</p>
         <div className={shell.choiceGrid}>
           {view.players
@@ -560,7 +569,7 @@ function PowerPhone({view, lang, send}) {
               type="button"
               className="button"
               onClick={() => (ACTIONS[type].target || type === 'convert' ? setChoosing(type) : send({action: 'declare', type}))}>
-              {ACTIONS[type].emoji} {tg(lang, `a_${type}`)}
+              <ActionIcon type={type} lang={lang} size={22} /> {tg(lang, `a_${type}`)}
             </button>
           ))}
         </div>
@@ -578,7 +587,7 @@ function PowerPhone({view, lang, send}) {
         <p className={shell.bigText}>{q}</p>
         <div className={shell.choiceGrid}>
           <button type="button" className="button button--lg" onClick={() => send({action: 'respond', answer: 'challenge'})}>
-            ⚔️ {tg(lang, 'challenge')}
+            {tg(lang, 'challenge')}
           </button>
           <button type="button" className="button button--lg button--secondary" onClick={() => send({action: 'respond', answer: 'pass'})}>
             {tg(lang, 'pass')}
@@ -596,7 +605,7 @@ function PowerPhone({view, lang, send}) {
         <div className={shell.choiceGrid}>
           {view.blockRoles.map((role) => (
             <button key={role} type="button" className="button" onClick={() => send({action: 'respond', answer: 'block', role})}>
-              🛡️ {tg(lang, 'blockAs', {role: roleName(role, lang)})}
+              <RoleCard role={role} lang={lang} size={22} /> {tg(lang, 'blockAs', {role: roleName(role, lang)})}
             </button>
           ))}
           <button type="button" className="button button--secondary" onClick={() => send({action: 'respond', answer: 'pass'})}>

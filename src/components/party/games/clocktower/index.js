@@ -63,7 +63,7 @@ const tg = makeT({
     poppyHidden: 'A Poppy Grower is alive: you don’t know your team yet.',
     bluffs: 'Safe characters to claim (not in play)',
     night: 'Night {n}',
-    eyesClosed: 'Eyes closed… 🌙',
+    eyesClosed: 'Eyes closed…',
     tapMoon: 'Tap the moon while you wait',
     nightAll: 'Night falls. Every phone that wakes acts now, all at the same time.',
     nightInfo: 'Morning news: read your phone.',
@@ -82,17 +82,17 @@ const tg = makeT({
     day: 'Day {n} · talk!',
     nominate: 'Nominate a player',
     nominated: 'You already nominated today.',
-    slay: '🏹 Slayer: shoot a player (once)',
+    slay: 'Slayer: shoot a player (once)',
     onBlock: 'On the block: {name} ({n} votes)',
     tieBlock: 'Tied: nobody is on the block.',
     needVotes: 'Needs {n} votes to execute',
     defense: '{name} is nominated by {by}. Speak in your defense!',
     voteQ: 'Execute {name}?',
-    yes: '✋ Yes',
+    yes: 'Yes',
     no: 'No',
     zealot: 'Zealot: you must vote yes.',
     ghostSpent: 'You used your ghost vote.',
-    ghostHas: '👻 You have one ghost vote left.',
+    ghostHas: 'You have one ghost vote left.',
     voted: 'Vote cast.',
     executed: '{name} is executed.',
     noExecution: 'Nobody is executed today.',
@@ -160,10 +160,10 @@ const tg = makeT({
     info_turnedEvil: 'You said the secret word: you are now evil!',
     info_wraith: 'Evil players who woke tonight: {list}',
     info_summoned: 'You summoned {name} as the {role}.',
-    power_psychopath: '🔪 Psychopath: kill a player now (before nominations)',
-    power_goblin: '👺 I am the Goblin! (say it out loud)',
-    power_mezepheles: '🗣️ Who said your secret word?',
-    power_vizier: '👳 Vizier: execute {name} now',
+    power_psychopath: 'Psychopath: kill a player now (before nominations)',
+    power_goblin: 'I am the Goblin! (say it out loud)',
+    power_mezepheles: 'Who said your secret word?',
+    power_vizier: 'Vizier: execute {name} now',
     secretVote: 'Votes are secret today.',
     onBlockSecret: 'On the block: {name}',
     vizierIs: 'The Vizier: {name}',
@@ -179,7 +179,7 @@ const tg = makeT({
     info_phrase: 'Your secret phrase: “{word}”. Tap the button each time you say it out loud.',
     info_babysit: 'You are babysitting Lil’ Monsta: you are the Demon now (your own ability rests).',
     info_madeMinion: 'The Kazali made you a Minion: you are now the {role}, and evil.',
-    power_yaggababble: '🗯️ I said my phrase ({n}/3 today)',
+    power_yaggababble: 'I said my phrase ({n}/3 today)',
     dilemmaQ: 'The Al-Hadikhia chose you. Live or die? If all three choose to live, all three die.',
     dilemmaLive: 'I choose to live',
     dilemmaDie: 'I choose to die',
@@ -210,6 +210,7 @@ const tg = makeT({
     dayMinutes: 'Day length',
     min: '{n} min',
     waiting: 'Waiting…',
+    ghostTag: 'ghost vote',
   },
   zh: {
     holdRole: '按住查看你的角色',
@@ -230,7 +231,7 @@ const tg = makeT({
     poppyHidden: '罂粟种植者还活着：你暂时不知道你的队友。',
     bluffs: '可以伪装的角色（不在场）',
     night: '第 {n} 夜',
-    eyesClosed: '请闭眼……🌙',
+    eyesClosed: '请闭眼……',
     tapMoon: '等待时请点点月亮',
     nightAll: '夜幕降临。被唤醒的手机现在同时行动。',
     nightInfo: '清晨消息：请看手机。',
@@ -249,17 +250,17 @@ const tg = makeT({
     day: '第 {n} 天 · 讨论吧！',
     nominate: '提名一名玩家',
     nominated: '你今天已经提名过了。',
-    slay: '🏹 猎手：射击一名玩家（每局一次）',
+    slay: '猎手：射击一名玩家（每局一次）',
     onBlock: '即将处决：{name}（{n} 票）',
     tieBlock: '平票：没有人会被处决。',
     needVotes: '需要 {n} 票才能处决',
     defense: '{by} 提名了 {name}。请为自己辩护！',
     voteQ: '处决 {name} 吗？',
-    yes: '✋ 赞成',
+    yes: '赞成',
     no: '反对',
     zealot: '狂热者：你必须投赞成。',
     ghostSpent: '你的幽灵票已经用掉了。',
-    ghostHas: '👻 你还有一张幽灵票。',
+    ghostHas: '你还有一张幽灵票。',
     voted: '已投票。',
     executed: '{name} 被处决了。',
     noExecution: '今天没有人被处决。',
@@ -327,10 +328,10 @@ const tg = makeT({
     info_turnedEvil: '你说出了秘密词语：你现在是邪恶的！',
     info_wraith: '今晚醒来的邪恶玩家：{list}',
     info_summoned: '你把 {name} 召唤成了 {role}。',
-    power_psychopath: '🔪 精神病患者：现在杀死一名玩家（提名之前）',
-    power_goblin: '👺 我是哥布林！（大声说出来）',
-    power_mezepheles: '🗣️ 谁说出了你的秘密词语？',
-    power_vizier: '👳 维齐尔：立即处决 {name}',
+    power_psychopath: '精神病患者：现在杀死一名玩家（提名之前）',
+    power_goblin: '我是哥布林！（大声说出来）',
+    power_mezepheles: '谁说出了你的秘密词语？',
+    power_vizier: '维齐尔：立即处决 {name}',
     secretVote: '今天的投票是保密的。',
     onBlockSecret: '即将处决：{name}',
     vizierIs: '维齐尔：{name}',
@@ -346,7 +347,7 @@ const tg = makeT({
     info_phrase: '你的秘密短语：“{word}”。每公开说一次，就点一次按钮。',
     info_babysit: '你正在照看小怪宝：你现在就是恶魔（你自己的能力暂停）。',
     info_madeMinion: '卡扎力把你变成了爪牙：你现在是 {role}，属于邪恶阵营。',
-    power_yaggababble: '🗯️ 我说了短语（今天 {n}/3）',
+    power_yaggababble: '我说了短语（今天 {n}/3）',
     dilemmaQ: '阿尔-哈迪哈选中了你。选择生还是死？如果三人都选择生，三人都会死。',
     dilemmaLive: '我选择生',
     dilemmaDie: '我选择死',
@@ -377,6 +378,7 @@ const tg = makeT({
     dayMinutes: '白天时长',
     min: '{n} 分钟',
     waiting: '等待中……',
+    ghostTag: '幽灵票',
   },
 });
 
@@ -465,70 +467,70 @@ function botMove(s, g, id, ctx) {
 /** The phone rulebook: one collapsible section per topic, for new players. */
 const RULEBOOK = {
   en: [
-    {title: '🎯 The goal', items: [
+    {title: 'The goal', items: [
       'Good wins when every Demon is dead (usually by execution).',
       'Evil wins when only 2 players are left alive. In big games with more than one Demon, evil also wins once evil players are at least half of the living.',
       'Nobody knows who is who: listen, ask questions, and compare stories.',
     ]},
-    {title: '👥 The teams', items: [
+    {title: 'The teams', items: [
       'Townsfolk (good): helpful abilities. Most players are Townsfolk.',
       'Outsiders (good): their abilities can backfire on their own team.',
       'Minions (evil): know the Demons and help them, mostly by lying.',
       'Demons (evil): kill at night. One Demon per game up to 22 players, then one more per 15 players (up to 4).',
       'Evil players know each other; good players only know themselves.',
     ]},
-    {title: '🌙 A night', items: [
+    {title: 'A night', items: [
       'Everyone looks at their phone at the same time. If your character acts tonight, your phone wakes you: pick a player (or a character) and confirm. Everyone picks at once, so nobody waits for anybody.',
       'When all picks are in, the screen resolves them in a fixed order: drunk and poison first, then protection, then kills. Who tapped first never matters.',
       'If you die tonight and your character has a last wish (Ravenkeeper, Moonchild, Klutz), your phone asks for it.',
       'Then everyone with information reads it on their phone. Deaths are announced at dawn.',
     ]},
-    {title: '☀️ A day', items: [
+    {title: 'A day', items: [
       'Talk face to face. Claim your character, or bluff, it is your choice.',
       'Anyone alive may nominate one player per day; a player can be nominated once per day.',
       'Everyone votes on their phone. The player with the most votes (at least half of the living players) is executed at the end of the day. A tie executes nobody.',
     ]},
-    {title: '☠️ Dying', items: [
+    {title: 'Dying', items: [
       'Dead players keep talking and keep their character secret if they like.',
       'Each dead player has one ghost vote for the rest of the game. Save it for an important execution.',
       'Dead players can’t nominate or use abilities (except last wishes and the Banshee).',
     ]},
-    {title: '🍺 Drunk and poisoned', items: [
+    {title: 'Drunk and poisoned', items: [
       'A drunk or poisoned player’s ability doesn’t work, but they are not told.',
       'Their information may be wrong. If two stories clash, one of them may be drunk or poisoned.',
     ]},
-    {title: '🎭 Bluffing', items: [
+    {title: 'Bluffing', items: [
       'Evil players pretend to be good characters. Each Demon is shown 3 characters that are not in play: safe bluffs.',
       'Good players may also hide their character to stay safe, but the town needs information to win.',
     ]},
-    {title: '🏟️ Big games (16–64 players)', items: [
+    {title: 'Big games (16–64 players)', items: [
       'Every player gets a character. With “All characters”, they are all different until the list runs out.',
       'About a quarter of the players are evil. Several Demons each kill at night, so share information quickly.',
       'Days last a little longer in big games; nominate the players you most suspect first.',
     ]},
-    {title: '📖 Words you will hear', items: [
+    {title: 'Words you will hear', items: [
       'Nominate: put a player up for execution today.',
       'Execute: the town kills the nominated player with the most votes.',
       'Claim: say which character you are (true or not).',
       'Register as: how a character looks to other abilities (the Recluse may look evil, the Spy may look good).',
     ]},
-    {title: '💡 First game tips', items: [
+    {title: 'First game tips', items: [
       'Read your character card twice and ask the teacher if anything is unclear.',
       'Write down what you learn each night.',
       'Don’t vote yes on everyone: executing a good player helps evil.',
     ]},
   ],
   zh: [
-    {title: '🎯 目标', items: ['所有恶魔死亡（通常是被处决）时，善良获胜。', '只剩 2 名存活玩家时，邪恶获胜。在有多个恶魔的大型游戏中，邪恶玩家达到存活人数一半时，邪恶也获胜。', '没有人知道谁是谁：认真听、多提问、对比大家的说法。']},
-    {title: '👥 阵营', items: ['镇民（善良）：有帮助的能力，大多数玩家是镇民。', '外来者（善良）：他们的能力可能拖累自己的阵营。', '爪牙（邪恶）：认识恶魔并帮助他们，主要靠说谎。', '恶魔（邪恶）：夜里杀人。22 人以内一个恶魔，之后每多 15 人多一个（最多 4 个）。', '邪恶玩家互相认识；善良玩家只知道自己。']},
-    {title: '🌙 夜晚', items: ['所有人同时看手机。如果你的角色今晚行动，手机会唤醒你：选择一名玩家（或一个角色）并确认。大家同时选择，不用等别人。', '所有选择完成后，大屏幕按固定顺序结算：先醉酒和中毒，再保护，最后击杀。谁先点都没关系。', '如果你今晚死亡且你的角色有遗愿（守鸦人、月之子、呆瓜），手机会让你选择。', '然后所有得到信息的人在手机上查看。死亡会在天亮时公布。']},
-    {title: '☀️ 白天', items: ['当面讨论。公开你的角色还是伪装，由你决定。', '每名存活玩家每天可以提名一次；每名玩家每天只能被提名一次。', '所有人在手机上投票。票数最多（至少达到存活人数一半）的玩家在白天结束时被处决，平票则无人被处决。']},
-    {title: '☠️ 死亡', items: ['死亡玩家仍可发言，也可以继续隐藏自己的角色。', '每名死亡玩家在之后的游戏中有一张幽灵票，留到重要的处决时再用。', '死亡玩家不能提名，也不能使用能力（遗愿和报丧女妖除外）。']},
-    {title: '🍺 醉酒与中毒', items: ['醉酒或中毒的玩家能力失效，但他们不会被告知。', '他们的信息可能是错的。如果两人说法冲突，其中一人可能醉了或中毒了。']},
-    {title: '🎭 伪装', items: ['邪恶玩家会假装成善良角色。每个恶魔会看到 3 个不在场的角色，可以安全冒充。', '善良玩家也可以隐藏身份保护自己，但大家需要信息才能获胜。']},
-    {title: '🏟️ 大型游戏（16–64 人）', items: ['每名玩家都有角色。选择“全部”时，角色在用完之前都不重复。', '大约四分之一的玩家是邪恶的。多个恶魔每晚各自杀人，所以要尽快分享信息。', '大型游戏的白天稍长；先提名你最怀疑的人。']},
-    {title: '📖 常用词', items: ['提名：提议今天处决某名玩家。', '处决：大家处死票数最多的被提名者。', '声称：说出你是哪个角色（不一定是真的）。', '被当作：一个角色在别人能力里的样子（陌客可能显示为邪恶，间谍可能显示为善良）。']},
-    {title: '💡 第一次玩的建议', items: ['把你的角色卡读两遍，不清楚就问老师。', '记下你每晚得到的信息。', '不要对每个人都投赞成：处决善良玩家会帮到邪恶。']},
+    {title: '目标', items: ['所有恶魔死亡（通常是被处决）时，善良获胜。', '只剩 2 名存活玩家时，邪恶获胜。在有多个恶魔的大型游戏中，邪恶玩家达到存活人数一半时，邪恶也获胜。', '没有人知道谁是谁：认真听、多提问、对比大家的说法。']},
+    {title: '阵营', items: ['镇民（善良）：有帮助的能力，大多数玩家是镇民。', '外来者（善良）：他们的能力可能拖累自己的阵营。', '爪牙（邪恶）：认识恶魔并帮助他们，主要靠说谎。', '恶魔（邪恶）：夜里杀人。22 人以内一个恶魔，之后每多 15 人多一个（最多 4 个）。', '邪恶玩家互相认识；善良玩家只知道自己。']},
+    {title: '夜晚', items: ['所有人同时看手机。如果你的角色今晚行动，手机会唤醒你：选择一名玩家（或一个角色）并确认。大家同时选择，不用等别人。', '所有选择完成后，大屏幕按固定顺序结算：先醉酒和中毒，再保护，最后击杀。谁先点都没关系。', '如果你今晚死亡且你的角色有遗愿（守鸦人、月之子、呆瓜），手机会让你选择。', '然后所有得到信息的人在手机上查看。死亡会在天亮时公布。']},
+    {title: '白天', items: ['当面讨论。公开你的角色还是伪装，由你决定。', '每名存活玩家每天可以提名一次；每名玩家每天只能被提名一次。', '所有人在手机上投票。票数最多（至少达到存活人数一半）的玩家在白天结束时被处决，平票则无人被处决。']},
+    {title: '死亡', items: ['死亡玩家仍可发言，也可以继续隐藏自己的角色。', '每名死亡玩家在之后的游戏中有一张幽灵票，留到重要的处决时再用。', '死亡玩家不能提名，也不能使用能力（遗愿和报丧女妖除外）。']},
+    {title: '醉酒与中毒', items: ['醉酒或中毒的玩家能力失效，但他们不会被告知。', '他们的信息可能是错的。如果两人说法冲突，其中一人可能醉了或中毒了。']},
+    {title: '伪装', items: ['邪恶玩家会假装成善良角色。每个恶魔会看到 3 个不在场的角色，可以安全冒充。', '善良玩家也可以隐藏身份保护自己，但大家需要信息才能获胜。']},
+    {title: '大型游戏（16–64 人）', items: ['每名玩家都有角色。选择“全部”时，角色在用完之前都不重复。', '大约四分之一的玩家是邪恶的。多个恶魔每晚各自杀人，所以要尽快分享信息。', '大型游戏的白天稍长；先提名你最怀疑的人。']},
+    {title: '常用词', items: ['提名：提议今天处决某名玩家。', '处决：大家处死票数最多的被提名者。', '声称：说出你是哪个角色（不一定是真的）。', '被当作：一个角色在别人能力里的样子（陌客可能显示为邪恶，间谍可能显示为善良）。']},
+    {title: '第一次玩的建议', items: ['把你的角色卡读两遍，不清楚就问老师。', '记下你每晚得到的信息。', '不要对每个人都投赞成：处决善良玩家会帮到邪恶。']},
   ],
 };
 
@@ -536,7 +538,7 @@ const RULEBOOK = {
 
 const clocktower = {
   id: 'clocktower',
-  emoji: '🕰️',
+  logo: 'clocktower/logo-tb.webp',
   title: {en: 'Blood on the Clocktower', zh: '血染钟楼'},
   blurb: {
     en: 'Demons hide among the townsfolk. The screen is the Storyteller; nights on your phone (everyone at once), days arguing in person. 5–64 players, 106 characters.',
@@ -570,10 +572,10 @@ const clocktower = {
         .filter((k) => ROLES[k].team === team)
         .map((k) => ({
           group: `${L(TEAMS[team], lang)} · ${L(TEAMS[team].goal, lang)}`,
-          emoji: ROLES[k].emoji,
+          emoji: <Sprite path={`clocktower/role-${k}.webp`} emoji="" label="" tint={TEAM_TINT[team]} shape="icon" size="26px" />,
           tint: TEAM_TINT[team],
           title: L(ROLES[k], lang),
-          tag: `${L(WHEN[ROLES[k].when], lang)} · ${EDITIONS[editionOf(k)].emoji} ${L(EDITIONS[editionOf(k)], lang)}`,
+          tag: `${L(WHEN[ROLES[k].when], lang)} · ${L(EDITIONS[editionOf(k)], lang)}`,
           text: ROLES[k].ab,
           more: ROLES[k].tip,
         })),
@@ -756,19 +758,19 @@ const clocktower = {
           highlight={(id) => (s.vote && id === s.vote.nominee) || (s.block && s.block.id === id)}
           badge={(id) => (
             <>
-              {s.dead[id] && <span title="dead">☠️{!s.ghostVote[id] && '👻'}</span>}
+              {s.dead[id] && !s.ghostVote[id] && <span>{tg(lang, 'ghostTag')}</span>}
               {s.phase === 'vote' && s.vote.votes[id] != null && !secret && <span>✓</span>}
-              {s.phase === 'day' && s.lastVote && s.lastVote.votes[id] === 'yes' && !secret && <span>✋</span>}
-              {s.vizier === id && <span title="Vizier">👳</span>}
+              {s.phase === 'day' && s.lastVote && s.lastVote.votes[id] === 'yes' && !secret && <span>{tg(lang, 'yes')}</span>}
+              {s.vizier === id && <Sprite path="clocktower/role-vizier.webp" emoji="" label="" tint="#e9d8ff" shape="icon" size="22px" />}
               {s.over && <span className={styles.roleTag} data-evil={isEvilRole(s.role[id])}>{L(ROLES[s.role[id]], lang)}</span>}
             </>
           )}>
           <div className={styles.clock} aria-hidden="true">
-            🕰️
+            <Sprite path="clocktower/logo-tb.webp" emoji="" label="" tint="#e9d8ff" shape="icon" size="110px" />
           </div>
           {s.over && (
             <div className={shell.bigText}>
-              🏆 {tg(lang, s.winner === 'good' ? 'goodWin' : 'evilWin')}
+              {tg(lang, s.winner === 'good' ? 'goodWin' : 'evilWin')}
               <p className={shell.muted}>{tg(lang, `why_${s.winWhy}`)}</p>
               {s.heretic && <p className={shell.muted}>{tg(lang, 'heretic')}</p>}
             </div>
@@ -777,17 +779,17 @@ const clocktower = {
           {s.phase === 'night' && (
             <>
               <p className={shell.kicker}>{tg(lang, 'night', {n: s.night})}</p>
-              <div className={shell.bigText}>🌙 {tg(lang, s.stage === 'info' ? 'nightInfo' : 'nightAll')}</div>
+              <div className={shell.bigText}>{tg(lang, s.stage === 'info' ? 'nightInfo' : 'nightAll')}</div>
               {s.stage === 'follow' && s.dilemma && s.dilemma.length > 0 && <p>{tg(lang, 'dilemmaHost', {names: s.dilemma.map(name).join(', ')})}</p>}
               {waiting > 0 && <p className={shell.muted}>{tg(lang, 'waitingPhones', {n: waiting})}</p>}
             </>
           )}
           {s.phase === 'lastword' && <div className={shell.bigText}>{tg(lang, 'lastwordHost')}</div>}
-          {s.phase === 'boom' && <div className={shell.bigText}>💣 {tg(lang, 'boomHost')}</div>}
-          {s.phase === 'riot' && <div className={shell.bigText}>🪧 {tg(lang, 'riotHost')}</div>}
+          {s.phase === 'boom' && <div className={shell.bigText}><Sprite path="clocktower/role-boomdandy.webp" emoji="" label="" tint="#e9d8ff" shape="icon" size="48px" /> {tg(lang, 'boomHost')}</div>}
+          {s.phase === 'riot' && <div className={shell.bigText}><Sprite path="clocktower/role-riot.webp" emoji="" label="" tint="#e9d8ff" shape="icon" size="48px" /> {tg(lang, 'riotHost')}</div>}
           {s.phase === 'dawn' && (
             <>
-              <div className={shell.bigText}>☀️ {tg(lang, 'dawn')}</div>
+              <div className={shell.bigText}>{tg(lang, 'dawn')}</div>
               <p>{s.deaths.length ? `${tg(lang, 'diedTonight')} ${s.deaths.map(name).join(', ')}` : tg(lang, 'peaceful')}</p>
             </>
           )}
@@ -801,7 +803,7 @@ const clocktower = {
               )}
               <p>{tg(lang, 'needVotes', {n: need})}</p>
               {s.vizier && !s.dead[s.vizier] && <p className={shell.muted}>{tg(lang, 'vizierIs', {name: name(s.vizier)})}</p>}
-              {secret && <p className={shell.muted}>🎹 {tg(lang, 'secretVote')}</p>}
+              {secret && <p className={shell.muted}><Sprite path="clocktower/role-organgrinder.webp" emoji="" label="" tint="#e9d8ff" shape="icon" size="24px" /> {tg(lang, 'secretVote')}</p>}
               {s.block && (
                 <p className={styles.block}>
                   {s.block.id ? (secret ? tg(lang, 'onBlockSecret', {name: name(s.block.id)}) : tg(lang, 'onBlock', {name: name(s.block.id), n: s.block.yes})) : tg(lang, 'tieBlock')}
@@ -926,7 +928,7 @@ function ClockPhone({view, lang, send}) {
               <ul className={shell.logList}>
                 {view.info.map((x, i) => (
                   <li key={i}>
-                    🌙{x.night}: <InfoLine x={x} lang={lang} players={view.players} />
+                    {tg(lang, 'night', {n: x.night})}: <InfoLine x={x} lang={lang} players={view.players} />
                   </li>
                 ))}
               </ul>
@@ -934,7 +936,7 @@ function ClockPhone({view, lang, send}) {
           )}
         </>
       ) : (
-        <p className={styles.holdHint}>👆 {tg(lang, 'holdRole')}</p>
+        <p className={styles.holdHint}>{tg(lang, 'holdRole')}</p>
       )}
     </div>
   );
@@ -999,7 +1001,7 @@ function ClockPhone({view, lang, send}) {
                 <optgroup key={t} label={L(TEAMS[t], lang)}>
                   {keys.map((k) => (
                     <option key={k} value={k}>
-                      {ROLES[k].emoji} {L(ROLES[k], lang)}
+                      <Sprite path={`clocktower/role-${k}.webp`} emoji="" label="" tint="#e9d8ff" shape="icon" size="22px" /> {L(ROLES[k], lang)}
                     </option>
                   ))}
                 </optgroup>
@@ -1029,7 +1031,7 @@ function ClockPhone({view, lang, send}) {
             <>
               {!showPicks ? (
                 <button type="button" className="button button--block" onClick={() => setShowPicks(true)}>
-                  👆 {tg(lang, 'holdRole')}
+                  {tg(lang, 'holdRole')}
                 </button>
               ) : (
                 <>
@@ -1064,7 +1066,7 @@ function ClockPhone({view, lang, send}) {
           <>
             <p>{tg(lang, 'eyesClosed')}</p>
             <button type="button" className={styles.moon} onClick={() => setMoon(moon + 1)} aria-label={tg(lang, 'tapMoon')}>
-              🌙
+              <Sprite path="clocktower/role-moonchild.webp" emoji="" label="" tint="#e9d8ff" shape="icon" size="90px" />
             </button>
             <p className={shell.muted}>{tg(lang, 'tapMoon')}</p>
           </>,
@@ -1090,7 +1092,7 @@ function ClockPhone({view, lang, send}) {
       case 'over':
         return (
           <>
-            <p className={shell.bigText}>🏆 {tg(lang, view.winner === 'good' ? 'goodWin' : 'evilWin')}</p>
+            <p className={shell.bigText}>{tg(lang, view.winner === 'good' ? 'goodWin' : 'evilWin')}</p>
             <p className={shell.muted}>
               {tg(lang, `why_${view.winWhy}`)} {view.heretic && tg(lang, 'heretic')}
             </p>
@@ -1126,7 +1128,7 @@ function ClockPhone({view, lang, send}) {
       default:
         return (
           <>
-            {view.dead && <p className={shell.notice}>☠️ {tg(lang, 'dead')}</p>}
+            {view.dead && <p className={shell.notice}>{tg(lang, 'dead')}</p>}
             {view.kind === 'day' && view.canNominate && (
               <details className={shell.card} open={view.nominees.length <= 16}>
                 <summary>
@@ -1166,7 +1168,7 @@ function ClockPhone({view, lang, send}) {
                     .filter((p) => !p.dead && p.id !== view.me)
                     .map((p) => (
                       <button key={p.id} type="button" className="button button--sm" onClick={() => send({action: 'slay', target: p.id})}>
-                        🏹 {p.seat}. {p.name}
+                        {p.seat}. {p.name}
                       </button>
                     ))}
                 </div>

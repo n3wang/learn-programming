@@ -8,7 +8,7 @@ import styles from './party.module.css';
  * so every game is playable before any art is made. Drop the file in and it
  * shows up, no code change.
  */
-export default function Sprite({path, emoji = '🖼️', label = '', tint = '#ffe566', shape = 'card', className = '', size}) {
+export default function Sprite({path, emoji = '', label = '', tint = '#ffe566', shape = 'card', className = '', size}) {
   const src = useBaseUrl(path ? `/img/party/${path}` : '/');
   const [missing, setMissing] = useState(!path);
   const style = {'--tint': tint, ...(size ? {'--sprite': size} : {})};

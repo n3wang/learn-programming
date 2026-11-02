@@ -5,9 +5,13 @@
  * - 11+ seats: a three-seat government (President → Clerk → Chancellor);
  * - filler roles: Journalist (11+), Bodyguard (13+), Infiltrator (15+);
  * - 14+ seats: the first investigation is a public audit instead.
+ *
+ * Optional math check (classroom setting): when a vote opens, every living
+ * player gets a question; only a right answer unlocks their Ja / Nein.
  */
 
 import {cue, duration, log, shuffle} from '../../core/partyCore';
+import {checkAnswer, makeQuestion, normalizePools} from '../../core/mathQuestions';
 
 const LIBERALS = {5: 3, 6: 4, 7: 4, 8: 5, 9: 5, 10: 6, 11: 7, 12: 7, 13: 8, 14: 9, 15: 9, 16: 10};
 const REVEAL_S = 15;
@@ -35,8 +39,9 @@ export const party = (role) => (role === 'liberal' || role === 'journalist' || r
 export const shownParty = (role) => (role === 'infiltrator' ? 'liberal' : party(role));
 
 export const alive = (s) => s.seats.filter((id) => !s.dead[id]);
+export const mathOn = (s) => s.math === 'on';
 
-export function setupSecretHitler(seats, ctx) {
+export function setupSecretHitler(seats, ctx, settings = {}) {
   const n = seats.length;
   const libs = LIBERALS[n];
   const fas = n - libs - 1;
@@ -44,10 +49,20 @@ export function setupSecretHitler(seats, ctx) {
   for (let i = 0; i < fas; i++) roles.push(i === 0 && n >= 15 ? 'infiltrator' : 'fascist');
   for (let i = 0; i < libs; i++) roles.push(i === 0 && n >= 11 ? 'journalist' : i === 1 && n >= 13 ? 'bodyguard' : 'liberal');
   const dealt = shuffle(roles, ctx.rng);
+  // Each player's portrait card: one of 6 Liberal or 7 Fascist faces, spread so neighbours rarely match.
+  const faces = {liberal: shuffle([...'abcdef'], ctx.rng), fascist: shuffle([...'abcdefg'], ctx.rng)};
+  const used = {liberal: 0, fascist: 0};
+  const portrait = Object.fromEntries(seats.map((id, i) => {
+    const r = dealt[i];
+    if (r === 'hitler') return [id, 'hitler'];
+    const side = party(r);
+    return [id, `${side}-${faces[side][used[side]++ % faces[side].length]}`];
+  }));
   const big = n >= 11;
   const s = {
     seats,
     role: Object.fromEntries(seats.map((id, i) => [id, dealt[i]])),
+    portrait,
     hitlerKnows: n <= 6,
     clerkSeat: big,
     deck: shuffle([...Array(big ? 8 : 6).fill('L'), ...Array(big ? 15 : 11).fill('F')], ctx.rng),
@@ -64,6 +79,10 @@ export function setupSecretHitler(seats, ctx) {
     votes: {},
     used: {journalist: false, bodyguard: false},
     privateNote: {},
+    // Math check: on | off, with question pools from core/mathQuestions. quiz holds this vote's question per player.
+    math: ['on', 'tables', 'mixed'].includes(settings.math) ? 'on' : 'off',
+    mathPools: normalizePools(settings.mathPools),
+    quiz: {},
     log: [],
     cues: [],
   };
@@ -132,13 +151,28 @@ export function nominate(s, ctx, id, chancellor, clerk) {
   s.gov.chancellor = chancellor;
   s.phase = 'vote';
   s.votes = {};
+  s.quiz = !mathOn(s) ? {} : Object.fromEntries(alive(s).map((p) => [p, makeQuestion(s.mathPools, ctx.rng)]));
   s.deadline = ctx.now + duration(ctx, VOTE_S);
   cue(s, 'vote_open');
   return true;
 }
 
+/** Math check: one try. A wrong answer sits this vote out (recorded as 'out', which counts for neither side). */
+export function answerQuiz(s, ctx, id, value) {
+  const quiz = s.quiz && s.quiz[id];
+  if (s.phase !== 'vote' || s.dead[id] || s.votes[id] != null || !quiz || quiz.state) return false;
+  const right = checkAnswer(quiz, value);
+  quiz.state = right ? 'ok' : 'wrong';
+  if (!right) {
+    s.votes[id] = 'out';
+    if (alive(s).every((p) => s.votes[p] != null)) closeVote(s, ctx);
+  }
+  return true;
+}
+
 export function vote(s, ctx, id, ja) {
   if (s.phase !== 'vote' || s.dead[id] || s.votes[id] != null) return false;
+  if (mathOn(s) && !(s.quiz[id] && s.quiz[id].state === 'ok')) return false;
   s.votes[id] = ja ? 'ja' : 'nein';
   if (alive(s).every((p) => s.votes[p] != null)) closeVote(s, ctx);
   return true;

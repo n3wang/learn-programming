@@ -30,3 +30,13 @@ with `{name}` replaced by the file name. `--sheet <id>` runs one set.
   wiki.bloodontheclocktower.com (`Icon_<key>.png`), used with the owner’s
   permission as stated by the site owner. To refresh one, replace
   `clocktower/<key>.png` and rerun `npm run party-sprites -- --sheet clocktower-icons`.
+
+## The Aseprite strip (`"strips"`)
+
+`static/assets500x500.aseprite` holds hand-made art as 500×500 frames. Export it
+with File › Export Sprite Sheet as one horizontal strip to
+`static/games/assets500x500.png`, then list frames in `art.csv`
+(`frame_start,name,frame_end,…`): every row with a frame number becomes
+`static/img/party/<name>.webp`, trimmed and fitted to 320 px. A row with
+`frame_end` becomes a side-by-side animation strip of those frames.
+Run `npm run party-sprites -- --sheet aseprite` after each export.
