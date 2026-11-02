@@ -7,10 +7,23 @@ import {REACTIONS, isValidAvatar, randomAvatar} from '@site/src/components/BetsA
 import {Avatar, AvatarPicker, ConnectionBadge, Countdown, readJson, writeJson} from '@site/src/components/BetsAndWagers/ui';
 import {LangSwitch, useLang} from '@site/src/components/BetsAndWagers/strings';
 import {generateName, isGeneratedName} from '@site/src/components/BetsAndWagers/names';
+import {CLASS_ROSTERS} from '@site/src/data/classRosters';
 import {L, st} from './strings';
 import RulesSheet from './RulesSheet';
 import {playSfx, playSfxBurst, usePartySfx} from './sfx';
 import styles from './party.module.css';
+
+function classRoster(id) {
+  return id && CLASS_ROSTERS[id] ? CLASS_ROSTERS[id] : null;
+}
+
+/** Names still free on a class roster (keep current name available when renaming). */
+function openClassNames(roster, taken, keep = null) {
+  if (!roster) return [];
+  const used = new Set((taken || []).map(String));
+  if (keep) used.delete(keep);
+  return roster.names.filter((n) => !used.has(n));
+}
 
 /**
  * A phone in a /party game. Same join flow as Bets & Wagers (room code,
@@ -86,6 +99,7 @@ export default function PlayerShell({mod}) {
   const [joining, setJoining] = useState(false);
   const [roomInfo, setRoomInfo] = useState(null);
   const [pickingAvatar, setPickingAvatar] = useState(false);
+  const [lobbyName, setLobbyName] = useState('');
   const [showRules, setShowRules] = useState(false);
   /** A tap went out and the host hasn't answered yet: block double taps. */
   const [sending, setSending] = useState(false);
@@ -216,14 +230,27 @@ export default function PlayerShell({mod}) {
     return () => clearInterval(timer);
   }, [seat, status, formCode]);
 
-  const locked = Boolean(roomInfo && roomInfo.found && roomInfo.code === formCode && roomInfo.settings?.lockedNames);
+  const roomSettings = roomInfo && roomInfo.found && roomInfo.code === formCode ? roomInfo.settings || {} : null;
+  const nameClass = roomSettings?.nameClass || env?.nameClass || null;
+  const roster = classRoster(nameClass);
+  const locked = Boolean(roomSettings?.lockedNames) && !roster;
   const takenNames = roomInfo && roomInfo.code === formCode ? roomInfo.takenNames || [] : [];
   const takenAvatars = roomInfo && roomInfo.code === formCode ? roomInfo.takenAvatars || [] : [];
+  const joinClassNames = openClassNames(roster, takenNames, null);
+  const lobbyClassNames = openClassNames(roster, takenNames, env?.you?.name || seatRef.current?.name);
 
   useEffect(() => {
     if (seat || !locked || isGeneratedName(form.name)) return;
     setForm((f) => ({...f, name: generateName(lang, takenNames)}));
   }, [seat, locked, lang]);
+
+  useEffect(() => {
+    if (seat || !roster) return;
+    setForm((f) => {
+      if (joinClassNames.includes(f.name)) return f;
+      return {...f, name: joinClassNames[0] || roster.names[0] || ''};
+    });
+  }, [seat, nameClass, takenNames.join('|')]);
 
   useEffect(() => {
     if (!env || !env.endsIn) return undefined;
@@ -266,6 +293,11 @@ export default function PlayerShell({mod}) {
     const current = seatRef.current;
     if (!current) return;
     const next = {...current, ...patch};
+    if (next.name) {
+      next.name = Array.from(String(next.name).trim()).slice(0, NAME_MAX).join('');
+      if (!next.name) return;
+      writeJson(NAME_KEY, next.name);
+    }
     seatRef.current = next;
     if (patch.avatar) writeJson(AVATAR_KEY, patch.avatar);
     rawSend({type: 'join', code: next.code, name: next.name, playerId: next.playerId, avatar: next.avatar});
@@ -277,20 +309,22 @@ export default function PlayerShell({mod}) {
     dropSeat(null);
   }
 
+  useEffect(() => {
+    if (env?.phase === 'lobby' && env.you?.name) setLobbyName(env.you.name);
+  }, [env?.phase, env?.you?.name]);
+
   const msLeft = env ? env.endsIn - (Date.now() - receivedAt) : 0;
   const offline = Boolean(seat) && status !== 'open';
-  const {PhoneView} = mod;
+  const {PhoneView, YouBar} = mod;
+  const lobbyDraft = lobbyName || env?.you?.name || '';
+  const canSaveLobbyName = Boolean(lobbyDraft.trim()) && lobbyDraft.trim() !== (env?.you?.name || '');
 
   return (
     <div className={`${styles.shell} ${styles.phone} ${mod.themeClass || ''}`} data-night={Boolean(mod.night && env && env.phase !== 'lobby' && env.data && mod.night(env.data))} lang={lang === 'zh' ? 'zh-Hans' : 'en'}>
       <Head>
         <title>{L(mod.title, lang)}</title>
       </Head>
-      <header className={styles.phoneHeader}>
-        <strong className={styles.brand}>
-          <GameLogo game={mod} size={24} /> {L(mod.title, lang)}
-        </strong>
-        {seat && <span className={styles.muted}>{seat.code}</span>}
+      <header className={`${styles.phoneHeader} ${styles.phoneHeaderSlim}`}>
         <span className={styles.headerRight}>
           <ConnectionBadge status={status} base={base} lang={lang} compact />
           {seat && (
@@ -339,26 +373,44 @@ export default function PlayerShell({mod}) {
             />
           </label>
           <label>
-            {st(lang, 'nickname')}
-            <span className={styles.nameRow}>
-              <input
-                value={form.name}
-                readOnly={locked}
-                autoComplete="off"
-                spellCheck={false}
-                onChange={(e) => setForm({...form, name: Array.from(e.target.value).slice(0, NAME_MAX).join('')})}
-              />
-              <button type="button" className={styles.diceButton} onClick={() => { playSfx('dice'); setForm({...form, name: generateName(lang, takenNames)}); }} aria-label={st(lang, 'newName')}>
-                <Sprite path="clocktower/role-gambler.webp" emoji="" label="" tint="#ffe566" shape="icon" size="30px" />
-              </button>
-            </span>
+            {st(lang, roster ? 'pickClassName' : 'nickname')}
+            {roster ? (
+              <>
+                <select
+                  className={styles.nameSelect}
+                  value={joinClassNames.includes(form.name) ? form.name : joinClassNames[0] || ''}
+                  disabled={!joinClassNames.length}
+                  onChange={(e) => setForm({...form, name: e.target.value})}>
+                  {!joinClassNames.length && <option value="">{st(lang, 'errNameTaken')}</option>}
+                  {joinClassNames.map((n) => (
+                    <option key={n} value={n}>
+                      {n}
+                    </option>
+                  ))}
+                </select>
+                <span className={styles.hint}>{st(lang, 'classNamesNote')}</span>
+              </>
+            ) : (
+              <span className={styles.nameRow}>
+                <input
+                  value={form.name}
+                  readOnly={locked}
+                  autoComplete="off"
+                  spellCheck={false}
+                  onChange={(e) => setForm({...form, name: Array.from(e.target.value).slice(0, NAME_MAX).join('')})}
+                />
+                <button type="button" className={styles.diceButton} onClick={() => { playSfx('dice'); setForm({...form, name: generateName(lang, takenNames)}); }} aria-label={st(lang, 'newName')}>
+                  <Sprite path="clocktower/role-gambler.webp" emoji="" label="" tint="#ffe566" shape="icon" size="30px" />
+                </button>
+              </span>
+            )}
             {locked && <span className={styles.hint}>{st(lang, 'namesLockedNote')}</span>}
           </label>
           <div className={styles.avatarField}>
             <span>{st(lang, 'chooseAvatar')}</span>
             <AvatarPicker value={form.avatar} taken={takenAvatars} onChange={(avatar) => setForm({...form, avatar})} lang={lang} />
           </div>
-          <button type="submit" className="button button--lg button--block" disabled={status !== 'open' || joining}>
+          <button type="submit" className="button button--lg button--block" disabled={status !== 'open' || joining || (Boolean(roster) && !joinClassNames.length)}>
             {st(lang, status !== 'open' ? 'connectingButton' : joining ? 'joining' : 'joinParty')}
           </button>
         </form>
@@ -368,18 +420,21 @@ export default function PlayerShell({mod}) {
 
       {seat && env && (
         <>
-          <div className={styles.youBar} style={{borderLeftColor: env.you?.color}}>
-            <Avatar avatar={env.you?.avatar} color={env.you?.color} size="md" />
-            <span>{env.you?.name}</span>
-            {env.you?.seat > 0 && env.phase !== 'lobby' && <span className={styles.seatBadge}>{st(lang, 'seat', {n: env.you.seat})}</span>}
-            {msLeft > 0 && (
-              <span className={styles.youTimer}>
-                <Countdown msLeft={msLeft} lang={lang} />
-              </span>
-            )}
-          </div>
+          {YouBar && env.phase !== 'lobby' && env.data ? (
+            <YouBar env={env} view={env.data} lang={lang} msLeft={msLeft} />
+          ) : (
+            <div className={styles.youBar} style={{borderLeftColor: env.you?.color}}>
+              <Avatar avatar={env.you?.avatar} color={env.you?.color} size="md" />
+              <span>{env.you?.name}</span>
+              {env.you?.seat > 0 && env.phase !== 'lobby' && <span className={styles.seatBadge}>{st(lang, 'seat', {n: env.you.seat})}</span>}
+              {msLeft > 0 && (
+                <span className={styles.youTimer}>
+                  <Countdown msLeft={msLeft} lang={lang} />
+                </span>
+              )}
+            </div>
+          )}
 
-          {urgent && env.phase !== 'lobby' && <div className={styles.yourMove}>{st(lang, 'yourMove')}</div>}
           <div className={styles.phoneBody} data-urgent={urgent && env.phase !== 'lobby'} data-sending={sending}>
             {sending && <div className={styles.sendingVeil}>{st(lang, 'sending')}</div>}
             {env.phase === 'lobby' && (
@@ -389,9 +444,66 @@ export default function PlayerShell({mod}) {
                 </p>
                 <p>{st(lang, 'youreIn')}</p>
                 <p className={styles.muted}>{st(lang, 'waitingStart', {n: env.playerCount})}</p>
-                <button type="button" className="button button--secondary" onClick={() => rejoinWith({name: generateName(lang, [seatRef.current?.name])})}>
-                  {st(lang, 'newName')}
-                </button>
+                {env.nameClass && classRoster(env.nameClass) ? (
+                  <div className={styles.lobbyNameEdit}>
+                    <label className={styles.lobbyNameLabel}>
+                      {st(lang, 'pickClassName')}
+                      <select
+                        className={styles.nameSelect}
+                        value={lobbyClassNames.includes(lobbyDraft) ? lobbyDraft : env.you?.name || ''}
+                        onChange={(e) => setLobbyName(e.target.value)}>
+                        {(lobbyClassNames.length ? lobbyClassNames : [env.you?.name].filter(Boolean)).map((n) => (
+                          <option key={n} value={n}>
+                            {n}
+                          </option>
+                        ))}
+                      </select>
+                    </label>
+                    <button
+                      type="button"
+                      className="button button--secondary"
+                      disabled={!canSaveLobbyName}
+                      onClick={() => rejoinWith({name: lobbyDraft.trim()})}>
+                      {st(lang, 'saveName')}
+                    </button>
+                  </div>
+                ) : env.lockedNames ? (
+                  <button type="button" className="button button--secondary" onClick={() => rejoinWith({name: generateName(lang, [seatRef.current?.name])})}>
+                    {st(lang, 'newName')}
+                  </button>
+                ) : (
+                  <div className={styles.lobbyNameEdit}>
+                    <label className={styles.lobbyNameLabel}>
+                      {st(lang, 'nickname')}
+                      <span className={styles.nameRow}>
+                        <input
+                          value={lobbyDraft}
+                          autoComplete="off"
+                          spellCheck={false}
+                          maxLength={NAME_MAX}
+                          onChange={(e) => setLobbyName(Array.from(e.target.value).slice(0, NAME_MAX).join(''))}
+                        />
+                        <button
+                          type="button"
+                          className={styles.diceButton}
+                          onClick={() => {
+                            playSfx('dice');
+                            setLobbyName(generateName(lang, [env.you?.name, seatRef.current?.name].filter(Boolean)));
+                          }}
+                          aria-label={st(lang, 'newName')}>
+                          <Sprite path="clocktower/role-gambler.webp" emoji="" label="" tint="#ffe566" shape="icon" size="30px" />
+                        </button>
+                      </span>
+                    </label>
+                    <button
+                      type="button"
+                      className="button button--secondary"
+                      disabled={!canSaveLobbyName}
+                      onClick={() => rejoinWith({name: lobbyDraft.trim()})}>
+                      {st(lang, 'saveName')}
+                    </button>
+                  </div>
+                )}
                 {pickingAvatar ? (
                   <div className={styles.avatarField}>
                     <AvatarPicker

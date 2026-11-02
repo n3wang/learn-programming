@@ -18,6 +18,7 @@ import {
   seatPlayer,
   seatedIds,
 } from './partyCore';
+import {CLASS_ROSTERS} from '@site/src/data/classRosters';
 import {useVoice} from './voice';
 import {playSfx, usePartySfx} from './sfx';
 import RulesSheet from './RulesSheet';
@@ -36,7 +37,7 @@ import styles from './party.module.css';
 
 const HOST_PREFS_KEY = 'party-host-prefs-v1';
 const REACTION_SHOW_MS = 3600;
-const BOT_STEP_MS = 650;
+const BOT_STEP_MS = 1600;
 
 function hostKey(gameId) {
   return `party-host-${gameId}-v1`;
@@ -65,7 +66,7 @@ export default function HostShell({mod}) {
   const [qr, setQr] = useState(null);
   const [copied, setCopied] = useState(false);
   const [lang, setLang] = useLang();
-  const [voiceOn, setVoiceOn] = useState(!test);
+  const [voiceOn, setVoiceOn] = useState(false);
   const [inspect, setInspect] = useState(null);
   const [showRules, setShowRules] = useState(false);
   const [reactions, setReactions] = useState([]);
@@ -89,7 +90,11 @@ export default function HostShell({mod}) {
 
   function sendSettings() {
     if (!socketRef.current || replacedRef.current) return;
-    socketRef.current.send({type: 'settings', settings: {game: gameId, lockedNames: gameRef.current.lockedNames}});
+    const g = gameRef.current;
+    socketRef.current.send({
+      type: 'settings',
+      settings: {game: gameId, lockedNames: g.lockedNames && !g.nameClass, nameClass: g.nameClass || null},
+    });
   }
 
   function envelope(g, playerId, now) {
@@ -102,7 +107,8 @@ export default function HostShell({mod}) {
       game: gameId,
       phase: g.phase,
       playerCount: Object.keys(g.players).length,
-      lockedNames: g.lockedNames,
+      lockedNames: Boolean(g.lockedNames && !g.nameClass),
+      nameClass: g.nameClass || null,
       endsIn: state && state.deadline ? Math.max(0, state.deadline - now) : 0,
       you: p && {name: p.name, avatar: p.avatar, color: p.color, seat: p.seat},
       audience: g.phase !== 'lobby' && !seated,
@@ -148,6 +154,20 @@ export default function HostShell({mod}) {
     if (!mod.hostInput) return;
     commit((g, now) => (g.state && mod.hostInput(g.state, g, msg, ctx(now, g)) ? undefined : false));
   }
+
+  /** Host clicks the big-screen timer (or presses F) to end the current phase early. */
+  function skipTimer() {
+    commit((draft, now) => {
+      if (draft.phase !== 'play' || !draft.state || !mod.tick) return false;
+      if (!draft.state.deadline || draft.state.deadline <= now) return false;
+      draft.state.deadline = now;
+      // Games may skip a follow-up reveal wait when the host cuts the clock.
+      draft.state.cutTimer = true;
+      return mod.tick(draft.state, draft, ctx(now, draft)) ? undefined : false;
+    });
+  }
+  const skipTimerRef = useRef(skipTimer);
+  skipTimerRef.current = skipTimer;
 
   function startGame() {
     playSfx('shuffle');
@@ -278,6 +298,21 @@ export default function HostShell({mod}) {
     return () => clearInterval(timer);
   }, []);
 
+  // Shortcut: F finishes the current timer / advances the phase.
+  useEffect(() => {
+    const onKey = (e) => {
+      if (e.key !== 'f' && e.key !== 'F') return;
+      if (e.ctrlKey || e.metaKey || e.altKey) return;
+      const el = e.target;
+      const tag = el && el.tagName;
+      if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT' || (el && el.isContentEditable)) return;
+      e.preventDefault();
+      skipTimerRef.current();
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, []);
+
   // Bots: every step, each bot may make the move its seat is waiting on.
   useEffect(() => {
     const timer = setInterval(() => {
@@ -285,7 +320,7 @@ export default function HostShell({mod}) {
       if (replacedRef.current || g.phase !== 'play' || !g.state || g.state.over) return;
       const bots = g.state.seats.filter((id) => isBotId(id));
       for (const id of bots) {
-        if (rngRef.current() > (test ? 0.7 : 0.35)) continue;
+        if (rngRef.current() > (test ? 0.55 : 0.18)) continue;
         const current = gameRef.current;
         if (!current.state || current.state.over) return;
         const move = mod.bot(current.state, current, id, ctx());
@@ -324,7 +359,16 @@ export default function HostShell({mod}) {
   const setLocked = (locked) =>
     commit((draft) => {
       draft.lockedNames = locked;
-      writeJson(HOST_PREFS_KEY, {lockedNames: locked});
+      draft.nameClass = null;
+      writeJson(HOST_PREFS_KEY, {lockedNames: locked, nameClass: null});
+    }) && sendSettings();
+
+  const setNameClass = (rosterId) =>
+    commit((draft) => {
+      const next = rosterId && CLASS_ROSTERS[rosterId] ? rosterId : null;
+      draft.nameClass = next;
+      if (next) draft.lockedNames = false;
+      writeJson(HOST_PREFS_KEY, {lockedNames: draft.lockedNames, nameClass: next});
     }) && sendSettings();
 
   const addBots = (n) =>
@@ -456,14 +500,26 @@ export default function HostShell({mod}) {
             </div>
 
             <h3 className={styles.subTitle}>{st(lang, 'names')}</h3>
-            <div className={styles.buttonRow} role="radiogroup">
-              <button type="button" role="radio" aria-checked={g.lockedNames} className="button button--sm button--secondary" onClick={() => setLocked(true)}>
+            <div className={styles.buttonRow} role="radiogroup" aria-label={st(lang, 'names')}>
+              <button type="button" role="radio" aria-checked={Boolean(g.lockedNames && !g.nameClass)} className="button button--sm button--secondary" onClick={() => setLocked(true)}>
                 {st(lang, 'lockedNames')}
               </button>
-              <button type="button" role="radio" aria-checked={!g.lockedNames} className="button button--sm button--secondary" onClick={() => setLocked(false)}>
+              <button type="button" role="radio" aria-checked={Boolean(!g.lockedNames && !g.nameClass)} className="button button--sm button--secondary" onClick={() => setLocked(false)}>
                 {st(lang, 'freeNames')}
               </button>
+              {Object.keys(CLASS_ROSTERS).map((id) => (
+                <button
+                  key={id}
+                  type="button"
+                  role="radio"
+                  aria-checked={g.nameClass === id}
+                  className="button button--sm button--secondary"
+                  onClick={() => setNameClass(id)}>
+                  {CLASS_ROSTERS[id].label}
+                </button>
+              ))}
             </div>
+            {g.nameClass && <p className={styles.muted}>{st(lang, 'classNamesHint', {class: CLASS_ROSTERS[g.nameClass].label})}</p>}
 
             {SettingsView && (
               <>
@@ -494,9 +550,14 @@ export default function HostShell({mod}) {
         <div className={styles.stage}>
           <div className={styles.stageMain}>
             {msLeft > 0 && (
-              <div className={styles.stageTimer}>
+              <button
+                type="button"
+                className={styles.stageTimer}
+                onClick={skipTimer}
+                title={st(lang, 'skipTimer')}
+                aria-label={st(lang, 'skipTimer')}>
                 <Countdown msLeft={msLeft} lang={lang} />
-              </div>
+              </button>
             )}
             <HostView g={g} state={g.state} lang={lang} ctx={ctx()} hostAct={hostAct} />
             <div className={styles.buttonRow}>

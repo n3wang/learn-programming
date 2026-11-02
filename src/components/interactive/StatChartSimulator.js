@@ -55,6 +55,16 @@ const PRESETS = {
     tally: true,
     charts: ['pie', 'bar'],
   },
+  'pie-angles': {
+    title: '图 12.1-3 的扇形图是怎样画出来的',
+    categories: ['文学', '科技', '体育', '艺术', '劳技'],
+    counts: [13, 18, 32, 27, 10],
+    unit: '人',
+    countLabel: '人数',
+    angles: true,
+    drawPie: true,
+    charts: ['pie'],
+  },
   'activities-compare': {
     title: '全班（全面调查）与样本（抽样调查）的百分比对比',
     xLabels: ['文学', '科技', '体育', '艺术', '劳技'],
@@ -74,16 +84,20 @@ const PRESETS = {
     classify: (m) => (m < 18.5 ? 0 : m < 24 ? 1 : m < 28 ? 2 : 3),
     unit: '人',
     countLabel: '人数',
+    xTitle: '体重指数类型',
+    yTitle: '人数',
     tally: true,
     charts: ['bar', 'pie'],
   },
   clubs: {
-    title: '七年级参加社团活动的人数（改编）',
-    categories: ['文学社', '美术社', '舞蹈社', '篮球社'],
-    counts: [80, 40, 60, 20],
+    title: '七年级参加社团活动的人数',
+    categories: ['文学社', '篮球社', '舞蹈社', '美术社'],
+    counts: [80, 20, 40, 60],
     unit: '人',
     countLabel: '人数',
-    hidden: [3],
+    xTitle: '社团名称',
+    yTitle: '人数',
+    hidden: [1],
     charts: ['bar', 'pie'],
   },
   villages: {
@@ -112,6 +126,8 @@ const PRESETS = {
       { name: '货物进口总额', values: [121038, 120358, 104336, 104967, 124790, 140881, 143254, 142936, 173137, 180391] },
     ],
     unit: '亿元',
+    xTitle: '年份',
+    yTitle: '货物进、出口总额/亿元',
     charts: ['line', 'groupBar'],
   },
   reserves: {
@@ -175,19 +191,19 @@ function Axis({ max, step, x0, x1, y0, y1, unit }) {
   return (
     <g>
       {lines}
-      <text x={x0 - 6} y={y1 - 10} textAnchor="end" fontSize="11" fill="var(--ifm-color-emphasis-700)">
+      <text x={x0 - 6} y={y1 - 10} textAnchor="start" fontSize="12" fontWeight="700" fill="var(--ifm-font-color-base)">
         {unit}
       </text>
     </g>
   );
 }
 
-function BarChart({ labels, series, unit, highlight }) {
+function BarChart({ labels, series, unit, highlight, xTitle }) {
   const W = 640;
-  const H = 300;
+  const H = 320;
   const x0 = 58;
   const x1 = W - 12;
-  const y0 = H - 46;
+  const y0 = H - 62;
   const y1 = 22;
   const all = series.flatMap((s) => s.values);
   const step = niceStep(Math.max(...all, 1));
@@ -196,6 +212,7 @@ function BarChart({ labels, series, unit, highlight }) {
   const groupW = band * 0.72;
   const barW = groupW / series.length;
   const many = labels.length > 12;
+  const slant = many || (series.length > 1 && labels.length > 6);
   return (
     <svg viewBox={`0 0 ${W} ${H}`} style={{ width: '100%', height: 'auto' }} role="img" aria-label="条形图">
       <Axis max={max} step={step} x0={x0} x1={x1} y0={y0} y1={y1} unit={unit} />
@@ -223,26 +240,47 @@ function BarChart({ labels, series, unit, highlight }) {
           <text
             x={x0 + band * i + band / 2}
             y={y0 + 16}
-            textAnchor={many ? 'end' : 'middle'}
+            textAnchor={slant ? 'end' : 'middle'}
             fontSize={many ? 10 : 12}
             fill="var(--ifm-font-color-base)"
-            transform={many ? `rotate(-50 ${x0 + band * i + band / 2} ${y0 + 12})` : undefined}>
+            transform={slant ? `rotate(-50 ${x0 + band * i + band / 2} ${y0 + 12})` : undefined}>
             {label.replace(/（.*）/, '')}
           </text>
         </g>
       ))}
       <line x1={x0} x2={x1} y1={y0} y2={y0} stroke="var(--ifm-font-color-base)" />
+      {xTitle ? (
+        <text x={x1} y={H - 6} textAnchor="end" fontSize="12" fontWeight="700" fill="var(--ifm-font-color-base)">
+          {xTitle}
+        </text>
+      ) : null}
     </svg>
   );
 }
 
-function LineChart({ labels, series, unit }) {
+/** Export ◆, import ●: the textbook's markers, so the two lines stay apart in black and white too. */
+function Marker({ k, x, y, color, children }) {
+  if (k === 0) {
+    return (
+      <path d={`M ${x} ${y - 5} L ${x + 5} ${y} L ${x} ${y + 5} L ${x - 5} ${y} Z`} fill={color}>
+        {children}
+      </path>
+    );
+  }
+  return (
+    <circle cx={x} cy={y} r="4" fill={color}>
+      {children}
+    </circle>
+  );
+}
+
+function LineChart({ labels, series, unit, xTitle }) {
   const W = 640;
-  const H = 300;
+  const H = 320;
   const x0 = 70;
   const x1 = W - 16;
-  const y0 = H - 40;
-  const y1 = 22;
+  const y0 = H - 56;
+  const y1 = 26;
   const all = series.flatMap((s) => s.values);
   const step = niceStep(Math.max(...all, 1));
   const max = Math.ceil(Math.max(...all, 1) / step) * step;
@@ -252,17 +290,23 @@ function LineChart({ labels, series, unit }) {
     <svg viewBox={`0 0 ${W} ${H}`} style={{ width: '100%', height: 'auto' }} role="img" aria-label="折线图">
       <Axis max={max} step={step} x0={x0} x1={x1} y0={y0} y1={y1} unit={unit} />
       {labels.map((label, i) => (
-        <text key={label} x={xAt(i)} y={y0 + 18} textAnchor="middle" fontSize="11" fill="var(--ifm-font-color-base)">
+        <text key={label} x={xAt(i)} y={y0 + 16} textAnchor="end" fontSize="11" fill="var(--ifm-font-color-base)" transform={`rotate(-50 ${xAt(i)} ${y0 + 12})`}>
           {label}
         </text>
       ))}
+      <line x1={x0} x2={x1} y1={y0} y2={y0} stroke="var(--ifm-font-color-base)" />
+      {xTitle ? (
+        <text x={x1} y={H - 4} textAnchor="end" fontSize="12" fontWeight="700" fill="var(--ifm-font-color-base)">
+          {xTitle}
+        </text>
+      ) : null}
       {series.map((s, k) => (
         <g key={s.name}>
           <polyline points={s.values.map((v, i) => `${xAt(i)},${yAt(v)}`).join(' ')} fill="none" stroke={COLORS[k]} strokeWidth="2.5" strokeDasharray={k ? '6 4' : undefined} />
           {s.values.map((v, i) => (
-            <circle key={i} cx={xAt(i)} cy={yAt(v)} r="4" fill={COLORS[k]}>
+            <Marker key={i} k={k} x={xAt(i)} y={yAt(v)} color={COLORS[k]}>
               <title>{`${labels[i]} ${s.name}：${fmt(v)}`}</title>
-            </circle>
+            </Marker>
           ))}
         </g>
       ))}
@@ -270,7 +314,12 @@ function LineChart({ labels, series, unit }) {
   );
 }
 
-function PieChart({ labels, values }) {
+/** 360° × the part's share, to the nearest degree (13% → 47°). */
+export function centralAngle(part, total) {
+  return total ? Math.round((360 * part) / total) : 0;
+}
+
+function PieChart({ labels, values, upto = Infinity, showAngles = false }) {
   const total = values.reduce((a, b) => a + b, 0);
   const R = 110;
   const cx = 130;
@@ -289,15 +338,16 @@ function PieChart({ labels, values }) {
   });
   return (
     <svg viewBox="0 0 470 260" style={{ width: '100%', maxWidth: 520, height: 'auto' }} role="img" aria-label="扇形图">
+      <circle cx={cx} cy={cy} r={R} fill="none" stroke="var(--ifm-color-emphasis-400)" strokeDasharray="4 4" />
       {slices.map((s) =>
-        s.v > 0 ? (
+        s.v > 0 && s.i < upto ? (
           <g key={s.i}>
             <path d={s.d} fill={COLORS[s.i % COLORS.length]} stroke="#fff" strokeWidth="1.5">
               <title>{`${labels[s.i]}：${percent(s.v, total)}%，圆心角约 ${s.deg}°`}</title>
             </path>
             {s.v / total >= 0.04 ? (
               <text x={cx + R * 0.66 * Math.cos(s.mid)} y={cy + R * 0.66 * Math.sin(s.mid) + 4} textAnchor="middle" fontSize="12" fontWeight="700" fill="#141414">
-                {percent(s.v, total)}%
+                {showAngles ? `${s.deg}°` : `${percent(s.v, total)}%`}
               </text>
             ) : null}
           </g>
@@ -322,6 +372,9 @@ export default function StatChartSimulator({ preset = 'activities-class', chart 
   const [step, setStep] = useState(p.raw ? 0 : null);
   const [playing, setPlaying] = useState(false);
   const [sorted, setSorted] = useState(false);
+  /** pie-angles: slices drawn so far, and whether the slices are labelled in degrees. */
+  const [drawn, setDrawn] = useState(p.drawPie ? 0 : Infinity);
+  const [showAngles, setShowAngles] = useState(Boolean(p.angles));
 
   useEffect(() => {
     if (!playing) return undefined;
@@ -364,7 +417,7 @@ export default function StatChartSimulator({ preset = 'activities-class', chart 
   const cell = { padding: '4px 10px', border: '1px solid var(--ifm-color-emphasis-300)', textAlign: 'center' };
 
   return (
-    <CEBlock title={p.title} subtitle={p.raw ? '逐个划记原始数据，表格和统计图会同步更新' : '切换统计图，看同一组数据的不同表示'}>
+    <CEBlock title={p.title} subtitle={p.raw ? '逐个划记原始数据，表格和统计图会同步更新' : p.drawPie ? '先算出每个扇形的圆心角，再一个一个画出来' : '切换统计图，看同一组数据的不同表示'}>
       {p.raw ? (
         <div style={{ marginBottom: 12 }}>
           <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4, fontFamily: 'var(--ifm-font-family-monospace)', fontSize: '0.85rem' }}>
@@ -413,6 +466,7 @@ export default function StatChartSimulator({ preset = 'activities-class', chart 
                 {p.tally ? <th style={cell}>划记</th> : null}
                 <th style={cell}>{p.countLabel}</th>
                 <th style={cell}>百分比</th>
+                {p.angles ? <th style={cell}>圆心角 = 360° × 百分比</th> : null}
               </tr>
             </thead>
             <tbody>
@@ -423,6 +477,11 @@ export default function StatChartSimulator({ preset = 'activities-class', chart 
                   {p.tally ? <td style={{ ...cell, letterSpacing: 2, minWidth: 90 }}>{tallyMarks(counts[i])}</td> : null}
                   <td style={cell}>{hide(i) ? '？' : fmt(counts[i])}</td>
                   <td style={cell}>{hide(i) || !total ? '？' : `${percent(counts[i], total)}%`}</td>
+                  {p.angles ? (
+                    <td style={{ ...cell, fontWeight: drawn > i ? 700 : 400 }}>
+                      {drawn > i ? `360° × ${percent(counts[i], total)}% ≈ ${centralAngle(counts[i], total)}°` : '？'}
+                    </td>
+                  ) : null}
                 </tr>
               ))}
               <tr>
@@ -431,6 +490,7 @@ export default function StatChartSimulator({ preset = 'activities-class', chart 
                 {p.tally ? <td style={cell} /> : null}
                 <td style={{ ...cell, fontWeight: 700 }}>{revealed ? fmt(total) : '？'}</td>
                 <td style={{ ...cell, fontWeight: 700 }}>{total ? '100%' : '—'}</td>
+                {p.angles ? <td style={{ ...cell, fontWeight: 700 }}>360°</td> : null}
               </tr>
             </tbody>
           </table>
@@ -448,6 +508,24 @@ export default function StatChartSimulator({ preset = 'activities-class', chart 
             {sorted ? '按原顺序' : '从多到少排序'}
           </button>
         ) : null}
+        {p.drawPie ? (
+          <>
+            <button type="button" style={btn(false)} onClick={() => setDrawn((d) => Math.min(p.categories.length, d + 1))} disabled={drawn >= p.categories.length}>
+              画下一个扇形
+            </button>
+            <button type="button" style={btn(false)} onClick={() => setDrawn(p.categories.length)}>
+              全部画出
+            </button>
+            <button type="button" style={btn(false)} onClick={() => setDrawn(0)}>
+              重画
+            </button>
+          </>
+        ) : null}
+        {p.angles ? (
+          <button type="button" style={btn(showAngles)} onClick={() => setShowAngles(!showAngles)}>
+            {showAngles ? '改标百分比' : '改标圆心角'}
+          </button>
+        ) : null}
         {p.hidden ? (
           <button type="button" style={btn(revealed)} onClick={() => setRevealed(!revealed)}>
             {revealed ? '隐藏答案' : '显示完整统计图'}
@@ -455,8 +533,8 @@ export default function StatChartSimulator({ preset = 'activities-class', chart 
         ) : null}
       </div>
 
-      {isSeries && type === 'line' ? <LineChart labels={p.xLabels} series={p.series} unit={p.unit} /> : null}
-      {isSeries && type === 'groupBar' ? <BarChart labels={p.xLabels} series={p.series} unit={p.unit} /> : null}
+      {isSeries && type === 'line' ? <LineChart labels={p.xLabels} series={p.series} unit={p.yTitle || p.unit} xTitle={p.xTitle} /> : null}
+      {isSeries && type === 'groupBar' ? <BarChart labels={p.xLabels} series={p.series} unit={p.yTitle || p.unit} xTitle={p.xTitle} /> : null}
       {isSeries ? (
         <div style={{ display: 'flex', gap: 16, flexWrap: 'wrap', fontSize: '0.85rem' }}>
           {p.series.map((s, k) => (
@@ -469,11 +547,11 @@ export default function StatChartSimulator({ preset = 'activities-class', chart 
       ) : null}
 
       {!isSeries && type === 'bar' ? (
-        <BarChart labels={shownCats.map((i) => p.categories[i])} series={[{ name: p.countLabel, values: shownCats.map((i) => counts[i]) }]} unit={p.unit} highlight={lastClass != null ? shownCats.indexOf(lastClass) : null} />
+        <BarChart labels={shownCats.map((i) => p.categories[i])} series={[{ name: p.countLabel, values: shownCats.map((i) => counts[i]) }]} unit={p.yTitle || p.unit} xTitle={p.xTitle} highlight={lastClass != null ? shownCats.indexOf(lastClass) : null} />
       ) : null}
       {!isSeries && type === 'pie' ? (
         total > 0 && shownCats.length === order.length ? (
-          <PieChart labels={order.map((i) => p.categories[i])} values={order.map((i) => counts[i])} />
+          <PieChart labels={order.map((i) => p.categories[i])} values={order.map((i) => counts[i])} upto={drawn} showAngles={showAngles} />
         ) : (
           <p style={{ color: 'var(--ifm-color-emphasis-700)' }}>{p.hidden && !revealed ? '先自己算出每部分的百分比，再点「显示完整统计图」核对。' : '划记几个数据后，扇形图就会出现。'}</p>
         )

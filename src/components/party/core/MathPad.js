@@ -1,4 +1,4 @@
-import React, {useState} from 'react';
+import React, {useEffect, useState} from 'react';
 import {L} from './strings';
 import {HINTS, POOLS, POOL_LABEL, normalizePools} from './mathQuestions';
 import styles from './party.module.css';
@@ -8,22 +8,63 @@ import styles from './party.module.css';
  * answer replaces the "?" in the question; fraction questions get a "/" key
  * and order-of-operations questions (answers may be negative) a "−" key.
  * onAnswer(typed) fires on OK; the pad then clears for the next question.
+ * Physical keyboard digits / Backspace / Enter work the same as the pad.
  */
 export default function MathPad({question, lang, onAnswer, flash = null, okLabel}) {
   const [typed, setTyped] = useState('');
-  if (!question) return null;
-  const fraction = question.pool === 'fractions';
-  const negative = question.pool === 'chain';
-  const key = (k) => {
+  const fraction = question && question.pool === 'fractions';
+  const negative = question && question.pool === 'chain';
+  const press = (k) => {
     if (k === 'del') setTyped((x) => x.slice(0, -1));
     else if (k === 'ok') {
-      if (!typed || typed === '-' || typed.endsWith('/')) return;
-      onAnswer(typed);
-      setTyped('');
+      setTyped((x) => {
+        if (!x || x === '-' || x.endsWith('/')) return x;
+        onAnswer(x);
+        return '';
+      });
     } else if (k === '/') setTyped((x) => (x && !x.includes('/') ? `${x}/` : x));
     else if (k === '-') setTyped((x) => (x.startsWith('-') ? x.slice(1) : `-${x}`));
     else setTyped((x) => (x.length < 5 ? x + k : x));
   };
+
+  useEffect(() => {
+    if (!question) return undefined;
+    const onKeyDown = (e) => {
+      if (e.ctrlKey || e.metaKey || e.altKey) return;
+      const el = e.target;
+      const tag = el && el.tagName;
+      if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT' || (el && el.isContentEditable)) return;
+      const k = e.key;
+      if (k >= '0' && k <= '9') {
+        e.preventDefault();
+        press(k);
+        return;
+      }
+      if (k === 'Backspace' || k === 'Delete') {
+        e.preventDefault();
+        press('del');
+        return;
+      }
+      if (k === 'Enter') {
+        e.preventDefault();
+        press('ok');
+        return;
+      }
+      if (fraction && k === '/') {
+        e.preventDefault();
+        press('/');
+        return;
+      }
+      if (negative && (k === '-' || k === '−')) {
+        e.preventDefault();
+        press('-');
+      }
+    };
+    window.addEventListener('keydown', onKeyDown);
+    return () => window.removeEventListener('keydown', onKeyDown);
+  }, [question, fraction, negative, onAnswer]);
+
+  if (!question) return null;
   const keys = ['1', '2', '3', '4', '5', '6', '7', '8', '9', 'del', '0', 'ok', ...(fraction ? ['/'] : []), ...(negative ? ['-'] : [])];
   return (
     <div className={styles.mathPad}>
@@ -46,7 +87,7 @@ export default function MathPad({question, lang, onAnswer, flash = null, okLabel
       {question.hint && <p className={styles.mathHint}>{L(HINTS[question.hint], lang)}</p>}
       <div className={styles.numpad}>
         {keys.map((k) => (
-          <button key={k} type="button" className={styles.numKey} data-kind={k === '/' ? 'frac' : k === '-' ? 'neg' : k} onClick={() => key(k)}>
+          <button key={k} type="button" className={styles.numKey} data-kind={k === '/' ? 'frac' : k === '-' ? 'neg' : k} onClick={() => press(k)}>
             {k === 'del' ? '⌫' : k === 'ok' ? okLabel || 'OK' : k === '/' ? (lang === 'zh' ? '分数 /' : 'fraction /') : k === '-' ? (lang === 'zh' ? '负号 −' : 'negative −') : k}
           </button>
         ))}

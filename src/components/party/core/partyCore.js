@@ -8,6 +8,7 @@
 
 import {isValidAvatar, randomAvatar, shuffleList, uniqueName, unitRandom} from '@site/src/components/BetsAndWagers/logic';
 import {generateName, isGeneratedName} from '@site/src/components/BetsAndWagers/names';
+import {CLASS_ROSTERS} from '@site/src/data/classRosters';
 
 /** No game seats more than this (each game's `players.max` may be lower); extra people join as audience. Keep ≤ PartyRoom.MAX_MEMBERS. */
 export const MAX_SEATS = 64;
@@ -44,13 +45,30 @@ export function makeRng(seed) {
 export const shuffle = (list, rng) => shuffleList(list, rng);
 export const pick = (list, rng) => list[Math.floor(rng() * list.length)];
 
+/** Active classroom roster for name picking, or null for random/free names. */
+export function rosterOf(g) {
+  const id = g && g.nameClass;
+  return id && CLASS_ROSTERS[id] ? CLASS_ROSTERS[id] : null;
+}
+
+/** Roster names still free (optionally keep `keep` selectable for rename). */
+export function freeRosterNames(g, keep = null) {
+  const roster = rosterOf(g);
+  if (!roster) return [];
+  const taken = new Set(Object.values(g.players || {}).map((p) => p.name));
+  if (keep) taken.delete(keep);
+  return roster.names.filter((n) => !taken.has(n));
+}
+
 export function newShellGame(gameId, mod, prefs = {}) {
+  const nameClass = prefs.nameClass && CLASS_ROSTERS[prefs.nameClass] ? prefs.nameClass : null;
   return {
     gameId,
     phase: 'lobby',
     players: {},
     nextBot: 1,
-    lockedNames: prefs.lockedNames !== false,
+    lockedNames: nameClass ? false : prefs.lockedNames !== false,
+    nameClass,
     settings: {...(mod.defaultSettings || {})},
     state: null,
   };
@@ -74,9 +92,18 @@ export function seatPlayer(g, playerId, {name, avatar, bot = false}, now = Date.
   };
 }
 
-/** A phone's name as the room allows it: locked rooms keep generated names only. */
+/** A phone's name as the room allows it: class roster, generated-only, or free. */
 export function admittedName(g, wanted, lang) {
   const others = Object.values(g.players).map((p) => p.name);
+  const roster = rosterOf(g);
+  if (roster) {
+    const raw = String(wanted || '').trim();
+    const match = roster.names.find((n) => n === raw);
+    if (match && !others.includes(match)) return match;
+    const free = roster.names.filter((n) => !others.includes(n));
+    if (free.length) return free[Math.floor(Math.random() * free.length)];
+    return uniqueName(raw || roster.names[0] || 'student', others);
+  }
   if (g.lockedNames && !isGeneratedName(wanted)) return generateName(lang, others);
   return uniqueName(wanted, others);
 }
@@ -85,7 +112,10 @@ export function addBot(g, lang) {
   const n = g.nextBot || 1;
   g.nextBot = n + 1;
   const id = `${BOT_ID_PREFIX}${n}`;
-  seatPlayer(g, id, {name: generateName(lang, Object.values(g.players).map((p) => p.name)), bot: true});
+  const taken = Object.values(g.players).map((p) => p.name);
+  const free = freeRosterNames(g);
+  const name = free.length ? free[Math.floor(Math.random() * free.length)] : generateName(lang, taken);
+  seatPlayer(g, id, {name, bot: true});
   return id;
 }
 
