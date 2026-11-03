@@ -1,22 +1,21 @@
 # Skills proposal — 1 use · B–S · Clocktower art · archetypes · room *targets*
 
-**Status:** proposal only for uses / rarity / new skills / gates  
+**Status:** implemented in `data.js` + `rules.js` (weighted draw, rarity tags on phone, new skills)  
 **Parent:** `university-skills.md`  
-**Art folder:** `static/img/party/clocktower/role-*.webp`
+**Art folder:** `static/img/party/clocktower/role-*.webp` (`philosopher` may still be emoji placeholder)
 
-## Live already
+## Live
 
-- Draw size **2, keep 1**; hand **max 3** skills; **max 1** passive
+- Draw size **2, keep 1**; hand **max 3**; **max 1** passive; actives **1 use**; pull weights **B4 / A2 / S1**
 - Room fog + counts on host; night room card on phone
-- **Demon** (`demon` / 魔): knows the **Demon King**; investigates **own room** only
-- **Demon King** (`demonking` / 魔王): does **not** know Demons; may **slay any** living player after night 1 (locks can still block)
+- **Demon** / **Demon King** asymmetry as before
 
-## Decisions (not synced — skills)
+## Decisions (shipped)
 
 1. **Every active → `uses: 1`.** Passives keep one-shot / always-on models.
-2. **Weaken actives** by dropping **tier** or using **`randomRoommate`** (random other living player in your room; no-op if alone). Not on passives.
-3. **Archetypes** use role ids: `student` · `exchange` · `professor` · `demon` · `demonking`.
-4. Wording: say **Demon / Demon King** (魔 / 魔王), not Cultist / Cult Leader.
+2. **Weaken actives** via **tier** or **`randomRoommate`**.
+3. **Archetypes** gate draws by role id.
+4. Wording: **Demon / Demon King** (魔 / 魔王).
 
 ### Range shorthand
 

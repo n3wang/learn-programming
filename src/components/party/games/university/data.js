@@ -1,7 +1,6 @@
 /**
- * Clocktower University: roles, campus and the starter skills. The design is
- * the "Clocktower University: Design Plan" doc; wording follows its rules
- * (slay / expel, nothing romantic or sexual).
+ * Clocktower University: roles, campus and skills.
+ * Balance draft: `0-local_docs/university-skills.md` + rarity proposal.
  */
 
 export const ROLES = {
@@ -14,11 +13,6 @@ export const ROLES = {
 
 export const ACTORS = ['professor', 'demon', 'demonking'];
 
-/**
- * Campus rooms. How many open scales with table size: about 1 per 3 players
- * (2 rooms at 6, 3 at 9), capped at 5. Occupancy is secret by day; at night
- * each phone only shows your own room and who sleeps with you.
- */
 /** Rooms: art = the floor plan drawn for it (room-1…room-6; room-7 is spare). */
 export const ROOMS = {
   hall: {art: 'room-1.webp', emoji: '🏛️', en: 'Great Hall', zh: '大礼堂'},
@@ -35,32 +29,66 @@ export function roomsFor(n) {
   return Object.keys(ROOMS).slice(0, k);
 }
 
-/**
- * The 12 starter skills. type: night | day | passive. range: self | player
- * (anyone) | roomPlayer (someone in your room) | room (your room) | move (a
- * room to move to). uses: uses before it is spent (0 = unlimited). art: the
- * Clocktower character icon shown for the skill.
- *
- * Balance / wording draft: `0-local_docs/university-skills.md`
- */
 /** Flat Knowledge cost to draw 2 skills and keep one. */
 export const SPELL_COST = 6;
 /** How many unknown skills the draw shows (pick 1). */
 export const SPELL_DRAW = 2;
 
+/** Pull weights by rarity tier (higher = more common). */
+export const RARITY_WEIGHT = {B: 4, A: 2, S: 1};
+
+/**
+ * Skills. type: night | day | passive.
+ * range: self | player | roomPlayer | randomRoommate | room | move.
+ * rarity: B | A | S. uses: charges (0 = unlimited / always-on passive).
+ * archetypes: null = any role; else list of role ids that may draw it.
+ */
 export const SPELLS = {
-  protection: {art: 'clocktower/role-monk.webp', emoji: '🛡️', type: 'night', range: 'player', uses: 2, en: 'Protection', zh: '守护', ab: {en: 'They can’t be slain tonight.', zh: '今晚他不会被击倒。'}},
-  sanctuary: {art: 'clocktower/role-tealady.webp', emoji: '⛪', type: 'night', range: 'room', uses: 1, en: 'Sanctuary', zh: '圣所', ab: {en: 'Up to 4 players in your room can’t be slain tonight.', zh: '你房间里最多 4 名玩家今晚不会被击倒。'}},
-  ignition: {art: 'clocktower/role-slayer.webp', emoji: '🔥', type: 'night', range: 'roomPlayer', uses: 1, en: 'Sudden Ignition', zh: '骤燃', ab: {en: 'A player in your room is slain tonight (protection still stops it).', zh: '你房间里的一名玩家今晚被击倒（守护仍可阻止）。'}},
-  secondwind: {art: 'clocktower/role-fool.webp', emoji: '💨', type: 'passive', range: 'self', uses: 1, en: 'Second Wind', zh: '回气', ab: {en: 'The first time you would be slain, you survive.', zh: '你第一次将被击倒时，你会幸存。'}},
-  reveal: {art: 'clocktower/role-seamstress.webp', emoji: '🔦', type: 'night', range: 'room', uses: 2, en: 'Reveal Light', zh: '显形之光', ab: {en: 'Learn whether each other player in your room is good or evil.', zh: '得知你房间里每一名其他玩家是善良还是邪恶。'}},
-  lantern: {art: 'clocktower/role-empath.webp', emoji: '🏮', type: 'night', range: 'room', uses: 1, en: 'Lantern Count', zh: '灯笼计数', ab: {en: 'Learn how many evil players sleep in your room.', zh: '得知你房间里有几名邪恶玩家。'}},
-  flower: {art: 'clocktower/role-flowergirl.webp', emoji: '🌸', type: 'passive', range: 'self', uses: 0, en: 'Flower Watch', zh: '花之守望', ab: {en: 'Every morning, learn whether a Demon King voted yes yesterday.', zh: '每天早上得知昨天是否有魔王投了赞成票。'}},
-  loud: {art: 'clocktower/role-towncrier.webp', emoji: '📣', type: 'day', range: 'self', uses: 2, en: 'Loud Voice', zh: '大嗓门', ab: {en: 'Your final expulsion vote counts twice.', zh: '你最终开除票算两票。'}},
-  hush: {art: 'clocktower/role-butler.webp', emoji: '🤫', type: 'day', range: 'player', uses: 1, en: 'Hush', zh: '噤声', ab: {en: 'They can’t vote on the final expulsion ballot.', zh: '他不能投最终开除票。'}},
-  step: {art: 'clocktower/role-acrobat.webp', emoji: '👣', type: 'night', range: 'move', uses: 2, en: 'Shadow Step', zh: '暗影步', ab: {en: 'Move to another room tonight, after the locks are set (not into a locked room).', zh: '今晚在上锁之后换到另一个房间（不能进入上锁的房间）。'}},
-  disguise: {art: 'clocktower/role-spy.webp', emoji: '🎭', type: 'night', range: 'self', uses: 1, en: 'Disguise', zh: '伪装', ab: {en: 'Tonight you look good to every skill and ability.', zh: '今晚所有技能和能力都会把你看成善良。'}},
-  gift: {art: 'clocktower/role-sage.webp', emoji: '🎁', type: 'day', range: 'player', uses: 0, en: 'Gift of Knowledge', zh: '知识馈赠', ab: {en: 'Give a player 5 of your Knowledge.', zh: '送给一名玩家 5 点知识。'}},
+  // —— existing (all actives 1 use) ——
+  lantern: {art: 'clocktower/role-empath.webp', emoji: '🏮', type: 'night', range: 'room', uses: 1, rarity: 'B', en: 'Lantern Count', zh: '灯笼计数', ab: {en: 'Learn how many evil players sleep in your room.', zh: '得知你房间里有几名邪恶玩家。'}},
+  step: {art: 'clocktower/role-acrobat.webp', emoji: '👣', type: 'night', range: 'move', uses: 1, rarity: 'B', en: 'Shadow Step', zh: '暗影步', ab: {en: 'Move to another room tonight, after the locks are set (not into a locked room).', zh: '今晚在上锁之后换到另一个房间（不能进入上锁的房间）。'}},
+  gift: {art: 'clocktower/role-sage.webp', emoji: '🎁', type: 'day', range: 'player', uses: 1, rarity: 'B', en: 'Gift of Knowledge', zh: '知识馈赠', ab: {en: 'Give a player 5 of your Knowledge.', zh: '送给一名玩家 5 点知识。'}},
+  flower: {art: 'clocktower/role-flowergirl.webp', emoji: '🌸', type: 'passive', range: 'self', uses: 0, rarity: 'B', en: 'Flower Watch', zh: '花之守望', ab: {en: 'Every morning, learn whether a Demon King voted yes yesterday.', zh: '每天早上得知昨天是否有魔王投了赞成票。'}},
+  protection: {art: 'clocktower/role-monk.webp', emoji: '🛡️', type: 'night', range: 'player', uses: 1, rarity: 'A', en: 'Protection', zh: '守护', ab: {en: 'They can’t be slain tonight.', zh: '今晚他不会被击倒。'}},
+  ignition: {art: 'clocktower/role-slayer.webp', emoji: '🔥', type: 'night', range: 'roomPlayer', uses: 1, rarity: 'A', en: 'Sudden Ignition', zh: '骤燃', ab: {en: 'A player in your room is slain tonight (protection still stops it).', zh: '你房间里的一名玩家今晚被击倒（守护仍可阻止）。'}},
+  disguise: {art: 'clocktower/role-spy.webp', emoji: '🎭', type: 'night', range: 'self', uses: 1, rarity: 'A', en: 'Disguise', zh: '伪装', ab: {en: 'Tonight you look good to every skill and ability.', zh: '今晚所有技能和能力都会把你看成善良。'}},
+  loud: {art: 'clocktower/role-towncrier.webp', emoji: '📣', type: 'day', range: 'self', uses: 1, rarity: 'A', en: 'Loud Voice', zh: '大嗓门', ab: {en: 'Your final expulsion vote counts twice.', zh: '你最终开除票算两票。'}},
+  hush: {art: 'clocktower/role-butler.webp', emoji: '🤫', type: 'day', range: 'player', uses: 1, rarity: 'A', en: 'Hush', zh: '噤声', ab: {en: 'They can’t vote on the final expulsion ballot.', zh: '他不能投最终开除票。'}},
+  secondwind: {art: 'clocktower/role-fool.webp', emoji: '💨', type: 'passive', range: 'self', uses: 1, rarity: 'A', en: 'Second Wind', zh: '回气', ab: {en: 'The first time you would be slain, you survive.', zh: '你第一次将被击倒时，你会幸存。'}},
+  sanctuary: {art: 'clocktower/role-tealady.webp', emoji: '⛪', type: 'night', range: 'room', uses: 1, rarity: 'S', en: 'Sanctuary', zh: '圣所', ab: {en: 'Up to 4 players in your room can’t be slain tonight.', zh: '你房间里最多 4 名玩家今晚不会被击倒。'}},
+  reveal: {art: 'clocktower/role-seamstress.webp', emoji: '🔦', type: 'night', range: 'room', uses: 1, rarity: 'S', en: 'Reveal Light', zh: '显形之光', ab: {en: 'Learn whether each other player in your room is good or evil.', zh: '得知你房间里每一名其他玩家是善良还是邪恶。'}},
+
+  // —— open pool ——
+  chamber: {art: 'clocktower/role-chambermaid.webp', emoji: '🚪', type: 'night', range: 'randomRoommate', uses: 1, rarity: 'B', en: 'Same Dorm', zh: '同寝', ab: {en: 'Learn the side of a random other player in your room.', zh: '得知你房间里一名随机其他玩家的阵营。'}},
+  knight: {art: 'clocktower/role-knight.webp', emoji: '🗡️', type: 'night', range: 'roomPlayer', uses: 1, rarity: 'B', en: 'Tainted Wing', zh: '污翼', ab: {en: 'Pick someone in your room: if they are a Demon, they are slain; otherwise you are slain.', zh: '选择同房一人：若是魔则击倒对方，否则击倒你自己。'}},
+  raven: {art: 'clocktower/role-ravenkeeper.webp', emoji: '🐦‍⬛', type: 'passive', range: 'self', uses: 1, rarity: 'A', en: 'Last Glimpse', zh: '临终一瞥', ab: {en: 'When slain: learn the names of others in the killer’s room.', zh: '被击倒时：得知凶手房间里其他人的名字。'}},
+  soldier: {art: 'clocktower/role-soldier.webp', emoji: '🪖', type: 'passive', range: 'self', uses: 1, rarity: 'A', en: 'Iron Student', zh: '铁生', ab: {en: 'The first Demon King slay on you fails.', zh: '魔王第一次击倒你会失败。'}},
+  banshee: {art: 'clocktower/role-banshee.webp', emoji: '👻', type: 'passive', range: 'self', uses: 1, rarity: 'A', en: 'Ghost Ballot', zh: '鬼票', ab: {en: 'Once after you die, cast one extra final-ballot vote as a ghost.', zh: '你死后可额外投一次最终开除票（幽灵票）。'}},
+  advocate: {art: 'clocktower/role-devilsadvocate.webp', emoji: '⚖️', type: 'day', range: 'randomRoommate', uses: 1, rarity: 'B', en: 'Devil’s Pardon', zh: '赦免', ab: {en: 'A random roommate cannot be expelled today.', zh: '随机同房一人今天不能被开除。'}},
+  fortune: {art: 'clocktower/role-fortuneteller.webp', emoji: '🔮', type: 'night', range: 'self', uses: 1, rarity: 'B', en: 'Twin Probe', zh: '双探', ab: {en: 'Need ≥2 other roommates: is either a Demon?', zh: '需要至少 2 名其他同房：其中是否有魔？'}},
+
+  // —— student ——
+  philosopher: {art: 'clocktower/role-philosopher.webp', emoji: '🪑', type: 'night', range: 'randomRoommate', uses: 1, rarity: 'A', archetypes: ['student'], en: 'Guest Chair', zh: '客座', ab: {en: 'Once act as Professor: learn good/evil of a random roommate.', zh: '一次性扮演教授：得知随机同房的善恶。'}},
+
+  // —— exchange ——
+  drunk: {art: 'clocktower/role-drunk.webp', emoji: '🍺', type: 'night', range: 'randomRoommate', uses: 1, rarity: 'B', archetypes: ['exchange'], en: 'Tipsy Alibi', zh: '醉辩', ab: {en: 'Learn the true side of a random roommate (ignores disguise).', zh: '得知随机同房的真实阵营（无视伪装）。'}},
+  recluseveil: {art: 'clocktower/role-magician.webp', emoji: '🪄', type: 'night', range: 'self', uses: 1, rarity: 'S', archetypes: ['exchange'], en: 'Deep Cover', zh: '深潜', ab: {en: 'Tonight role actions treat you as a normal good Student.', zh: '今晚角色行动会把你当成普通善良学生。'}},
+
+  // —— professor ——
+  washer: {art: 'clocktower/role-washerwoman.webp', emoji: '🧼', type: 'night', range: 'self', uses: 1, rarity: 'B', archetypes: ['professor'], en: 'Office Hours', zh: '答疑', ab: {en: 'Two names from your room; one is a Demon — or “no Demon here”.', zh: '给出同房两个名字，其中一个是魔——或“这里没有魔”。'}},
+  exorcist: {art: 'clocktower/role-exorcist.webp', emoji: '✝️', type: 'night', range: 'randomRoommate', uses: 1, rarity: 'S', archetypes: ['professor'], en: 'Banishing Strike', zh: '驱魔一击', ab: {en: 'If a random roommate is a Demon, they are slain immediately.', zh: '若随机同房是魔，立即击倒对方。'}},
+
+  // —— demon ——
+  poisonroom: {art: 'clocktower/role-widow.webp', emoji: '☠️', type: 'night', range: 'randomRoommate', uses: 1, rarity: 'B', archetypes: ['demon'], en: 'Tainted Dorm', zh: '污寝', ab: {en: 'A random roommate: alignment / Professor reads flip wrong tonight.', zh: '随机同房：今晚阵营/教授读取结果颠倒。'}},
+  godfather: {art: 'clocktower/role-godfather.webp', emoji: '🕶️', type: 'passive', range: 'self', uses: 1, rarity: 'S', archetypes: ['demon'], en: 'Fall Guy', zh: '替罪', ab: {en: 'The first time a Demon King would be expelled, you die instead.', zh: '魔王第一次将被开除时，改为你死。'}},
+  scarlet: {art: 'clocktower/role-scarletwoman.webp', emoji: '👑', type: 'passive', range: 'self', uses: 1, rarity: 'A', archetypes: ['demon'], en: 'Heir', zh: '继位', ab: {en: 'If a Demon King dies and ≥5 live, you become Demon King (still blind to Demons).', zh: '若魔王死亡且场上≥5人存活，你成为魔王（仍不知其他魔）。'}},
+
+  // —— demon king ——
+  fear: {art: 'clocktower/role-fearmonger.webp', emoji: '😱', type: 'day', range: 'randomRoommate', uses: 1, rarity: 'B', archetypes: ['demonking'], en: 'Fear Mark', zh: '恐惧标记', ab: {en: 'Mark a random roommate; if they are not expelled today, learn whether they are good or evil.', zh: '标记随机同房；若今天未被开除，得知其善恶。'}},
+  ojo: {art: 'clocktower/role-ojo.webp', emoji: '👁️', type: 'night', range: 'randomRoommate', uses: 1, rarity: 'A', archetypes: ['demonking'], en: 'Named Prey', zh: '点名猎物', ab: {en: 'Tonight’s slay ignores locks only if the target is that roommate (you see the name when casting).', zh: '今晚击倒仅在目标为该同房时无视上锁（施放时可见其名）。'}},
+
+  // —— evil either ——
+  noDashii: {art: 'clocktower/role-nodashii.webp', emoji: '🐍', type: 'night', range: 'self', uses: 1, rarity: 'B', archetypes: ['demon', 'demonking'], en: 'Hall Poison', zh: '廊毒', ab: {en: 'Everyone else in your room gets false alignment if read tonight.', zh: '今晚读取你房间里其他人的阵营结果全部颠倒。'}},
 };
 
 export const GIFT_AMOUNT = 5;

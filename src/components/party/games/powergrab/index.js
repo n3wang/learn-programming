@@ -178,7 +178,9 @@ const VOICE = {
 };
 
 function RoleCard({role, lang, size = 64, up = true}) {
-  if (!up) return <Sprite path="powergrab/card-back.webp" emoji="?" label="" tint="#1e3799" size={`${size}px`} />;
+  // No card-back.webp yet — empty path keeps the face-down placeholder without a
+  // failed load that would stick after peek (see Sprite path-reset).
+  if (!up) return <Sprite path="" emoji="?" label="" tint="#1e3799" size={`${size}px`} />;
   const r = ROLES[role];
   return <Sprite path={`powergrab/role-${role}.webp`} emoji={r.emoji} label={roleName(role, lang)} tint={r.tint} size={`${size}px`} />;
 }

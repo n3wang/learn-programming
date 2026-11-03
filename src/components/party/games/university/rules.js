@@ -13,9 +13,9 @@
  * Demons know the Demon King; the King does not know the Demons.
  */
 
-import {cue, duration, log, shuffle} from '../../core/partyCore';
+import {cue, duration, log, pick, shuffle} from '../../core/partyCore';
 import {normalizePools} from '../../core/mathQuestions';
-import {ACTORS, GIFT_AMOUNT, MAX_NIGHT_CASTS, MAX_SPELLS, ROLES, SPELL_COST, SPELL_DRAW, SPELLS, roomsFor} from './data';
+import {ACTORS, GIFT_AMOUNT, MAX_NIGHT_CASTS, MAX_SPELLS, RARITY_WEIGHT, ROLES, SPELL_COST, SPELL_DRAW, SPELLS, roomsFor} from './data';
 
 const ROLES_S = 30;
 const DAWN_S = 8;
@@ -278,11 +278,18 @@ const held = (s, id, k) => s.spells[id].find((x) => x.k === k);
 const passive = (s, id, k) => !s.dead[id] && Boolean(held(s, id, k));
 const hasPassive = (s, id) => (s.spells[id] || []).some((h) => SPELLS[h.k] && SPELLS[h.k].type === 'passive');
 
+/** Living others in `id`'s room (optional position map after moves). */
+function roommatesOf(s, id, pos = s.room) {
+  const room = pos[id];
+  if (!room) return [];
+  return alive(s).filter((p) => p !== id && pos[p] === room);
+}
+
 /** Players a spell may target right now. */
 export function spellTargets(s, id, k) {
   const sp = SPELLS[k];
   if (sp.range === 'player') return alive(s).filter((p) => p !== id);
-  if (sp.range === 'roomPlayer') return alive(s).filter((p) => p !== id && s.room[p] === s.room[id]);
+  if (sp.range === 'roomPlayer') return roommatesOf(s, id);
   if (sp.range === 'move') return activeRooms(s).filter((r) => r !== s.room[id] && !s.locks[r]);
   return [];
 }
@@ -304,20 +311,45 @@ export function canLearn(s, id) {
 
 /**
  * Spells this player may still draw. Hand cap {@link MAX_SPELLS}; at most one
- * passive — once owned, other passives are hidden from the offer pool.
+ * passive; archetype-gated skills only for matching roles.
  */
 function unownedSpells(s, id) {
   if ((s.spells[id] || []).length >= MAX_SPELLS) return [];
   const ownPassive = hasPassive(s, id);
+  const role = s.role[id];
   return Object.keys(SPELLS).filter((k) => {
     if (held(s, id, k)) return false;
-    if (ownPassive && SPELLS[k].type === 'passive') return false;
+    const sp = SPELLS[k];
+    if (ownPassive && sp.type === 'passive') return false;
+    if (sp.archetypes && sp.archetypes.length && !sp.archetypes.includes(role)) return false;
     return true;
   });
 }
 
+/** Weighted sample without replacement using {@link RARITY_WEIGHT}. */
+function weightedDraw(pool, n, rng) {
+  const bag = [...pool];
+  const out = [];
+  while (out.length < n && bag.length) {
+    const weights = bag.map((k) => RARITY_WEIGHT[SPELLS[k].rarity] || RARITY_WEIGHT.B);
+    const total = weights.reduce((a, b) => a + b, 0);
+    let r = rng() * total;
+    let idx = bag.length - 1;
+    for (let i = 0; i < bag.length; i += 1) {
+      r -= weights[i];
+      if (r <= 0) {
+        idx = i;
+        break;
+      }
+    }
+    out.push(bag[idx]);
+    bag.splice(idx, 1);
+  }
+  return out;
+}
+
 /**
- * Pay the flat spell cost and open a draw of {@link SPELL_DRAW} random
+ * Pay the flat spell cost and open a draw of {@link SPELL_DRAW} weighted
  * unowned spells. The player must then {@link pickSpell} one of them.
  */
 export function drawSpell(s, ctx, id) {
@@ -325,7 +357,7 @@ export function drawSpell(s, ctx, id) {
   if (s.knowledge[id] < SPELL_COST) return false;
   const pool = unownedSpells(s, id);
   if (!pool.length) return false;
-  const offer = shuffle(pool, ctx.rng).slice(0, Math.min(SPELL_DRAW, pool.length));
+  const offer = weightedDraw(pool, Math.min(SPELL_DRAW, pool.length), ctx.rng);
   s.knowledge[id] -= SPELL_COST;
   s.offer = {...(s.offer || {}), [id]: offer};
   log(s, {kind: 'draw', actor: id});
@@ -380,7 +412,15 @@ export function cast(s, ctx, id, k, target) {
   if (needs && !spellTargets(s, id, k).includes(target)) return false;
   if (sp.type === 'night') {
     if (!(s.phase === 'night' || dayPhase(s)) || s.queued[id].length >= MAX_NIGHT_CASTS) return false;
-    s.queued[id] = [...s.queued[id], {k, target: needs ? target : null}];
+    // Ojo: lock in prey now so the King sees the name before acting.
+    if (k === 'ojo') {
+      const prey = pick(roommatesOf(s, id), ctx.rng);
+      if (!prey) return false;
+      s.ojoPrey = {...(s.ojoPrey || {}), [id]: prey};
+      info(s, id, {key: 'ojo', player: prey});
+      target = prey;
+    }
+    s.queued[id] = [...s.queued[id], {k, target: needs || k === 'ojo' ? target : null}];
     return true;
   }
   // Day spells.
@@ -388,13 +428,25 @@ export function cast(s, ctx, id, k, target) {
   if (k === 'loud') {
     if (s.phase !== 'vote' || !s.ballot || s.ballot.loud[id]) return false;
     s.ballot.loud[id] = true;
-  }
-  if (k === 'hush') s.hush[target] = true;
-  if (k === 'gift') {
+  } else if (k === 'hush') {
+    s.hush[target] = true;
+  } else if (k === 'gift') {
     if (s.knowledge[id] < GIFT_AMOUNT) return false;
     s.knowledge[id] -= GIFT_AMOUNT;
     s.knowledge[target] += GIFT_AMOUNT;
     info(s, target, {key: 'gifted', player: id, n: GIFT_AMOUNT});
+  } else if (k === 'advocate') {
+    const t = pick(roommatesOf(s, id), ctx.rng);
+    if (!t) return false;
+    s.pardon = {...(s.pardon || {}), [t]: true};
+    info(s, id, {key: 'advocate', player: t});
+    target = t;
+  } else if (k === 'fear') {
+    const t = pick(roommatesOf(s, id), ctx.rng);
+    if (!t) return false;
+    s.fearMark = {...(s.fearMark || {}), [id]: t};
+    info(s, id, {key: 'fearMark', player: t});
+    target = t;
   }
   spend(s, id, k);
   log(s, {kind: 'cast', actor: id, spell: k, target});
@@ -403,10 +455,33 @@ export function cast(s, ctx, id, k, target) {
 
 // ------------------------------------------------------------------ night end
 
+function noteDeath(s, id) {
+  if (passive(s, id, 'banshee')) {
+    spend(s, id, 'banshee');
+    s.extraGhost = {...(s.extraGhost || {}), [id]: true};
+  }
+}
+
+function maybeScarlet(s, deadId) {
+  if (s.role[deadId] !== 'demonking') return;
+  const living = alive(s);
+  if (living.length < 5) return;
+  const heirs = living.filter((p) => passive(s, p, 'scarlet'));
+  if (!heirs.length) return;
+  const heir = heirs[0];
+  spend(s, heir, 'scarlet');
+  s.role[heir] = 'demonking';
+  s.hasLeaders = true;
+  info(s, heir, {key: 'scarlet'});
+}
+
 function resolveNight(s, ctx) {
   const rng = ctx.rng;
   const pos = {...s.room};
   const looksGood = {};
+  const veiled = {};
+  const poisonFlip = {};
+  const hallPoison = {};
   const safe = {};
   const deaths = [];
   const casts = [];
@@ -418,68 +493,147 @@ function resolveNight(s, ctx) {
       spend(s, c.id, k);
     }
   };
-  // Movement first, then disguise and protection, then information, then slays.
+  // Movement first, then masks / poison / protection, then information, then slays.
   each('step', (id, room) => {
     if (room && !s.locks[room]) pos[id] = room;
   });
   each('disguise', (id) => {
     looksGood[id] = true;
   });
-  const appearsEvil = (p) => !looksGood[p] && (isEvil(s, p) || s.role[p] === 'exchange');
+  each('recluseveil', (id) => {
+    veiled[id] = true;
+  });
+  each('poisonroom', (id) => {
+    const t = pick(roommatesOf(s, id, pos), rng);
+    if (t) poisonFlip[t] = true;
+  });
+  each('noDashii', (id) => {
+    hallPoison[pos[id]] = true;
+  });
+  const trueEvil = (p) => isEvil(s, p);
+  const appearsEvil = (p, reader) => {
+    if (veiled[p]) return false;
+    let evil = !looksGood[p] && (isEvil(s, p) || s.role[p] === 'exchange');
+    if (poisonFlip[p]) evil = !evil;
+    if (reader && hallPoison[pos[reader]] && pos[p] === pos[reader] && p !== reader) evil = !evil;
+    return evil;
+  };
+  const appearsProfessor = (p) => !veiled[p] && s.role[p] === 'professor';
   each('protection', (id, t) => {
     safe[t] = true;
   });
   each('sanctuary', (id) => {
-    const here = shuffle(alive(s).filter((p) => pos[p] === pos[id] && p !== id), rng);
+    const here = shuffle(roommatesOf(s, id, pos), rng);
     for (const p of [id, ...here].slice(0, 4)) safe[p] = true;
   });
-  // Information.
+  // Role actions.
   for (const id of alive(s)) {
     const t = s.roleTarget[id];
     if (!t) continue;
-    if (s.role[id] === 'professor') info(s, id, {key: 'prof', player: t, evil: appearsEvil(t)});
-    if (s.role[id] === 'demon') info(s, id, {key: 'cult', player: t, yes: s.role[t] === 'professor'});
+    if (s.role[id] === 'professor') info(s, id, {key: 'prof', player: t, evil: appearsEvil(t, id)});
+    if (s.role[id] === 'demon') info(s, id, {key: 'cult', player: t, yes: appearsProfessor(t)});
   }
   each('reveal', (id) => {
-    const others = alive(s).filter((p) => p !== id && pos[p] === pos[id]);
+    const others = roommatesOf(s, id, pos);
     if (!others.length) {
       info(s, id, {key: 'revealEmpty'});
       return;
     }
-    info(s, id, {
-      key: 'revealRoom',
-      lines: others.map((p) => ({player: p, evil: appearsEvil(p)})),
-    });
+    info(s, id, {key: 'revealRoom', lines: others.map((p) => ({player: p, evil: appearsEvil(p, id)}))});
   });
   each('lantern', (id) => {
-    const n = alive(s).filter((p) => p !== id && pos[p] === pos[id] && appearsEvil(p)).length;
+    const n = roommatesOf(s, id, pos).filter((p) => appearsEvil(p, id)).length;
     info(s, id, {key: 'lantern', room: pos[id], n});
   });
+  each('chamber', (id) => {
+    const t = pick(roommatesOf(s, id, pos), rng);
+    if (!t) info(s, id, {key: 'alone'});
+    else info(s, id, {key: 'chamber', player: t, evil: appearsEvil(t, id)});
+  });
+  each('philosopher', (id) => {
+    const t = pick(roommatesOf(s, id, pos), rng);
+    if (!t) info(s, id, {key: 'alone'});
+    else info(s, id, {key: 'prof', player: t, evil: appearsEvil(t, id)});
+  });
+  each('drunk', (id) => {
+    const t = pick(roommatesOf(s, id, pos), rng);
+    if (!t) info(s, id, {key: 'alone'});
+    else info(s, id, {key: 'drunk', player: t, evil: trueEvil(t)});
+  });
+  each('fortune', (id) => {
+    const others = roommatesOf(s, id, pos);
+    if (others.length < 2) {
+      info(s, id, {key: 'fortuneNeed'});
+      return;
+    }
+    const pair = shuffle(others, rng).slice(0, 2);
+    const yes = pair.some((p) => s.role[p] === 'demon');
+    info(s, id, {key: 'fortune', a: pair[0], b: pair[1], yes});
+  });
+  each('washer', (id) => {
+    const others = roommatesOf(s, id, pos);
+    const demons = others.filter((p) => s.role[p] === 'demon');
+    if (!demons.length) {
+      info(s, id, {key: 'washerNone'});
+      return;
+    }
+    const demon = pick(demons, rng);
+    const decoyPool = others.filter((p) => p !== demon);
+    const decoy = decoyPool.length ? pick(decoyPool, rng) : demon;
+    const names = shuffle([demon, decoy], rng);
+    info(s, id, {key: 'washer', a: names[0], b: names[1]});
+  });
   // Slays.
-  const slay = (t, by) => {
-    if (s.dead[t] || safe[t]) return;
+  const slay = (t, by, {king = false} = {}) => {
+    if (s.dead[t] || safe[t]) return false;
+    if (king && passive(s, t, 'soldier')) {
+      spend(s, t, 'soldier');
+      info(s, t, {key: 'soldier'});
+      return false;
+    }
     if (passive(s, t, 'secondwind')) {
       spend(s, t, 'secondwind');
       info(s, t, {key: 'secondwind'});
-      return;
+      return false;
+    }
+    if (passive(s, t, 'raven') && by) {
+      spend(s, t, 'raven');
+      const names = roommatesOf(s, by, pos).filter((p) => p !== t);
+      info(s, t, {key: 'raven', lines: names.map((p) => ({player: p}))});
     }
     s.dead[t] = true;
     deaths.push(t);
+    noteDeath(s, t);
     log(s, {kind: 'slain', target: t, by});
+    maybeScarlet(s, t);
+    return true;
   };
   if (s.night > 1) {
     for (const id of alive(s)) {
       const t = s.roleTarget[id];
       if (s.role[id] !== 'demonking' || !t) continue;
-      // A locked room keeps out a Leader who sleeps elsewhere.
-      if (s.locks[pos[t]] && pos[id] !== pos[t]) continue;
-      slay(t, id);
+      const prey = s.ojoPrey && s.ojoPrey[id];
+      const ignoreLock = prey && prey === t;
+      if (!ignoreLock && s.locks[pos[t]] && pos[id] !== pos[t]) continue;
+      slay(t, id, {king: true});
     }
   }
   each('ignition', (id, t) => {
     if (pos[t] === pos[id]) slay(t, id);
   });
+  each('knight', (id, t) => {
+    if (pos[t] !== pos[id]) return;
+    if (s.role[t] === 'demon') slay(t, id);
+    else slay(id, id);
+  });
+  each('exorcist', (id) => {
+    const t = pick(roommatesOf(s, id, pos), rng);
+    if (t && s.role[t] === 'demon') slay(t, id);
+  });
+  each('ojo', () => {});
   for (const id of s.seats) s.queued[id] = [];
+  s.ojoPrey = {};
+  s.room = pos;
   s.deaths = deaths;
 }
 
@@ -489,7 +643,9 @@ function dawn(s, ctx) {
   // Flower Watch: did a Demon King vote yes yesterday?
   for (const id of alive(s)) if (passive(s, id, 'flower') && s.day > 0) info(s, id, {key: 'flower', yes: Boolean(s.leaderVotedYes)});
   s.phase = 'dawn';
-  s.deadline = ctx.now + duration(ctx, DAWN_S);
+  // Extra beat time when several night kills need host card animations.
+  const dawnExtra = Math.max(0, (s.deaths.length - 2) * 1.5);
+  s.deadline = ctx.now + duration(ctx, DAWN_S + dawnExtra);
   if (s.deaths.length) for (const d of s.deaths) cue(s, 'slain', {seat: ctx.seatOf(d)});
   else cue(s, 'peaceful');
   snapshotGrades(s, 'night');
@@ -506,6 +662,8 @@ function startDay(s, ctx) {
   s.hush = {};
   s.leaderVotedYes = false;
   s.expelled = null;
+  s.pardon = {};
+  s.fearMark = {};
   // Suspicion opens with the day — no separate host “open vote” step.
   s.phase = 'suspect';
   s.suspect = {};
@@ -621,8 +779,8 @@ function startFinalVote(s, ctx, runoffIds = null) {
   log(s, {kind: runoffIds ? 'voteRunoff' : 'voteOpen', accused: pool});
 }
 
-/** Dead players keep one ghost vote on the final ballot; Hushed sit this out. */
-export const canVoteYes = (s, id) => !s.hush[id] && (!s.dead[id] || !s.ghost[id]);
+/** Dead players keep one ghost vote (Banshee: one extra). Hushed sit this out. */
+export const canVoteYes = (s, id) => !s.hush[id] && (!s.dead[id] || !s.ghost[id] || Boolean(s.extraGhost && s.extraGhost[id]));
 
 function fillAutoVotes(s) {
   for (const id of s.seats) {
@@ -665,13 +823,13 @@ function computeFinal(s) {
   const scores = Object.fromEntries(b.accused.map((id) => [id, 0]));
   const voters = Object.fromEntries(b.accused.map((id) => [id, []]));
   for (const id of s.seats) {
-    const pick = b.picks[id];
-    if (!pick || pick === 'none' || scores[pick] == null) continue;
+    const vote = b.picks[id];
+    if (!vote || vote === 'none' || scores[vote] == null) continue;
     if (s.hush[id]) continue;
-    if (s.dead[id] && s.ghost[id]) continue;
+    if (s.dead[id] && s.ghost[id] && !(s.extraGhost && s.extraGhost[id])) continue;
     const weight = b.loud[id] && !s.dead[id] ? 2 : 1;
-    scores[pick] += weight;
-    voters[pick].push(id);
+    scores[vote] += weight;
+    voters[vote].push(id);
   }
   let bestN = 0;
   for (const id of b.accused) {
@@ -691,11 +849,19 @@ function applyVoteSideEffects(s) {
   const b = s.ballot;
   if (!b) return;
   for (const id of s.seats) {
-    const pick = b.picks[id];
-    if (!pick || pick === 'none') continue;
+    const vote = b.picks[id];
+    if (!vote || vote === 'none') continue;
     if (s.hush[id]) continue;
-    if (s.dead[id] && s.ghost[id]) continue;
-    if (s.dead[id]) s.ghost[id] = true;
+    if (s.dead[id] && s.ghost[id] && !(s.extraGhost && s.extraGhost[id])) continue;
+    if (s.dead[id]) {
+      if (s.ghost[id] && s.extraGhost && s.extraGhost[id]) {
+        const next = {...s.extraGhost};
+        delete next[id];
+        s.extraGhost = next;
+      } else {
+        s.ghost[id] = true;
+      }
+    }
     if (s.role[id] === 'demonking') s.leaderVotedYes = true;
   }
 }
@@ -732,16 +898,42 @@ function tallyFinal(s, ctx) {
 function endDay(s, ctx) {
   s.phase = 'execution';
   s.deadline = ctx.now + duration(ctx, EXEC_S);
+  let expelled = null;
   if (s.block && s.block.id) {
-    const id = s.block.id;
-    s.expelled = id;
-    s.dead[id] = true;
-    cue(s, 'expelled', {seat: ctx.seatOf(id)});
-    log(s, {kind: 'expelled', target: id});
-    checkWin(s);
+    let id = s.block.id;
+    if (s.pardon && s.pardon[id]) {
+      cue(s, 'no_expel');
+      info(s, id, {key: 'pardoned'});
+    } else {
+      // Fall Guy: first Demon King expulsion kills the godfather instead.
+      if (s.role[id] === 'demonking') {
+        const gf = alive(s).find((p) => p !== id && passive(s, p, 'godfather'));
+        if (gf) {
+          spend(s, gf, 'godfather');
+          info(s, gf, {key: 'godfather'});
+          info(s, id, {key: 'godfatherSave'});
+          id = gf;
+        }
+      }
+      expelled = id;
+      s.expelled = id;
+      s.dead[id] = true;
+      noteDeath(s, id);
+      cue(s, 'expelled', {seat: ctx.seatOf(id)});
+      log(s, {kind: 'expelled', target: id});
+      maybeScarlet(s, id);
+      checkWin(s);
+    }
   } else {
     cue(s, 'no_expel');
   }
+  // Fear Mark: if marked roommate was not expelled, learn their side.
+  for (const [caster, mark] of Object.entries(s.fearMark || {})) {
+    if (s.dead[caster] || !mark || mark === expelled || s.dead[mark]) continue;
+    info(s, caster, {key: 'fear', player: mark, evil: isEvil(s, mark)});
+  }
+  s.fearMark = {};
+  s.pardon = {};
 }
 
 /** Host: close the suspicion ballot early (it already opens with the day). */

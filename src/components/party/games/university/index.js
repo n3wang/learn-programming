@@ -181,7 +181,29 @@ const tu = makeT({
     did: 'DID',
     didNot: 'did not',
     info_secondwind: 'Second Wind saved you from being slain!',
+    info_soldier: 'Iron Student: the Demon King’s slay failed on you.',
     info_gifted: '{name} gave you {n} Knowledge.',
+    info_chamber: 'Same Dorm: {name} is {align}.',
+    info_drunk: 'Tipsy Alibi: {name} is truly {align}.',
+    info_alone: 'Nobody else is in your room.',
+    info_fortune: 'Twin Probe: {nameA} / {nameB} — {demonPair}.',
+    demonPairYes: 'a Demon is among them',
+    demonPairNo: 'neither is a Demon',
+    info_fortuneNeed: 'Twin Probe: need at least 2 other roommates.',
+    info_washer: 'Office Hours: {nameA} or {nameB} is a Demon.',
+    info_washerNone: 'Office Hours: no Demon in your room.',
+    info_ojo: 'Named Prey: tonight’s lock-ignore target is {name}.',
+    info_advocate: 'Devil’s Pardon: {name} cannot be expelled today.',
+    info_fearMark: 'Fear Mark: marked {name}.',
+    info_fear: 'Fear Mark: {name} is {align}.',
+    info_pardoned: 'Devil’s Pardon saved you from expulsion.',
+    info_godfather: 'Fall Guy: you died in the Demon King’s place.',
+    info_godfatherSave: 'Fall Guy: a Demon died instead of you.',
+    info_scarlet: 'Heir: you are now the Demon King.',
+    info_raven: 'Last Glimpse: {list}',
+    rarityB: 'B',
+    rarityA: 'A',
+    rarityS: 'S',
     good: 'good',
     evil: 'evil',
     nightSeconds: 'Night length',
@@ -337,7 +359,29 @@ const tu = makeT({
     did: '有',
     didNot: '没有',
     info_secondwind: '回气救了你，你没有被击倒！',
+    info_soldier: '铁生：魔王对你的击倒失败了。',
     info_gifted: '{name} 送给你 {n} 点知识。',
+    info_chamber: '同寝：{name} 是{align}的。',
+    info_drunk: '醉辩：{name} 真实阵营是{align}。',
+    info_alone: '你房间里没有其他人。',
+    info_fortune: '双探：{nameA} / {nameB} — {demonPair}。',
+    demonPairYes: '其中有魔',
+    demonPairNo: '都不是魔',
+    info_fortuneNeed: '双探：同房其他玩家不足 2 人。',
+    info_washer: '答疑：{nameA} 或 {nameB} 是魔。',
+    info_washerNone: '答疑：你房间里没有魔。',
+    info_ojo: '点名猎物：今晚无视上锁的目标是 {name}。',
+    info_advocate: '赦免：{name} 今天不能被开除。',
+    info_fearMark: '恐惧标记：已标记 {name}。',
+    info_fear: '恐惧标记：{name} 是{align}的。',
+    info_pardoned: '赦免救了你，你没有被开除。',
+    info_godfather: '替罪：你替魔王死了。',
+    info_godfatherSave: '替罪：一名魔替你死了。',
+    info_scarlet: '继位：你现在是魔王。',
+    info_raven: '临终一瞥：{list}',
+    rarityB: 'B',
+    rarityA: 'A',
+    rarityS: 'S',
     good: '善良',
     evil: '邪恶',
     nightSeconds: '夜晚时长',
@@ -558,16 +602,388 @@ const RULEBOOK = {
     {title: 'A night', items: ['Everyone does homework: correct answers earn 1 Knowledge and 1 Grade; wrong answers lose 1 of each.', 'Use skills and role actions on your phone. Everyone has those screens, so nobody can tell who acts.', 'Professors learn if a player is good or evil. Demons learn if a roommate is a Professor. Demon Kings may slay any living player (not on night 1; locks can block).']},
     {title: 'A day', items: ['Talk, move to another room, learn a skill (draw 2, keep 1), use day skills.', 'Then everyone marks one suspect. The top accused defend (about 1 per 4 players — 3 for a table of 12; fewer if not enough people were named).', 'After the defense, everyone picks one accused to expel, or nobody. Most votes wins; a tie expels nobody.']},
     {title: 'Rooms and locks', items: ['Campus opens about 1 room per 3 players (2 at 6, 3 at 9, max 5). Who sleeps where is hidden by day.', 'At night your phone shows only your room and who is with you. “In your room” skills use that secret layout.', 'Demons only investigate other players in their own room. Demons know the Demon King; the King does not know the Demons.', 'Each player has one key per game. A locked room keeps out a Demon King who sleeps somewhere else.']},
-    {title: 'Skills', items: [`Pay ${SPELL_COST} Knowledge to draw 2 random skills and keep one. Hold at most ${MAX_SPELLS} skills (and at most one passive). Use at most 2 a night.`, 'Night skills can be set up by day or used at night; once set, they can’t change.', 'Exchange Students earn double Knowledge but look evil to Professors and skills.']},
+    {title: 'Skills', items: [`Pay ${SPELL_COST} Knowledge to draw 2 skills (weighted B/A/S) and keep one — the card shows its rank. Hold at most ${MAX_SPELLS} (one passive). Some skills only appear for your role. Actives are 1 use; at most 2 night skills a night.`, 'Night skills can be set up by day or used at night; once set, they can’t change.', 'Exchange Students earn double Knowledge but look evil to Professors and skills.']},
   ],
   zh: [
     {title: '目标', items: ['善良阵营（学生、交换生、教授）在所有魔王被开除或击倒时获胜。如果本局没有魔王，则需要所有魔出局。', '魔与魔王人数达到场上剩余玩家的一半或更多时，邪恶获胜。']},
     {title: '夜晚', items: ['所有人做作业：答对获得 1 点知识和 1 点成绩；答错各扣 1 点。', '在手机上使用技能和角色行动。每个人都有这些界面，所以没人知道谁在行动。', '教授得知一名玩家是善良还是邪恶。魔得知同房一人是否是教授。魔王可击倒任意存活玩家（首夜除外；上锁可挡）。']},
     {title: '白天', items: ['讨论、换到别的房间、学习技能（二选一）、使用白天技能。', '然后每人标出一名怀疑对象。得票最高的若干人辩护（大约每 4 人 1 个席位——12 人时 3 席；若被点名的人不够则更少）。', '辩护结束后，每人从被告中选一人开除，或谁也不开除。得票最多者出局，平票则无人被开除。']},
     {title: '房间与锁', items: ['校园大约每 3 人开 1 间房（6 人 2 间、9 人 3 间，最多 5 间）。白天不公开谁睡在哪。', '夜里手机只显示你自己的房间和同房的人。“你房间里”的技能按这套隐藏布局结算。', '魔只能调查自己房间里的其他人。魔知道魔王是谁；魔王不知道谁是魔。', '每名玩家每局有一把钥匙。上锁的房间能挡住睡在别处的魔王。']},
-    {title: '技能', items: [`花 ${SPELL_COST} 知识随机抽出 2 个技能并留下 1 个。最多持有 ${MAX_SPELLS} 个技能（被动最多 1 个）。每晚最多使用 2 个。`, '夜晚技能可以在白天设定，也可以在夜里使用；设定后不能更改。', '交换生获得双倍知识，但在教授和技能眼中是邪恶的。']},
+    {title: '技能', items: [`花 ${SPELL_COST} 知识按 B/A/S 权重抽出 2 个技能并留下 1 个（卡片显示稀有度）。最多持有 ${MAX_SPELLS} 个（被动最多 1 个）；部分技能仅本角色可抽。主动技均为 1 次；每晚最多排 2 个夜技。`, '夜晚技能可以在白天设定，也可以在夜里使用；设定后不能更改。', '交换生获得双倍知识，但在教授和技能眼中是邪恶的。']},
   ],
 };
+
+// ------------------------------------------------------------------ host
+
+const prefersReducedMotion = () =>
+  typeof window !== 'undefined' && window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+
+/** Compact grade-card face reused by the host elimination fly clone. */
+function GradeCardFace({p, name, score, lang}) {
+  return (
+    <>
+      <div className={styles.gradeCardTop}>
+        <span className={styles.gradeSeat}>{p ? p.seat : '?'}</span>
+        <Avatar avatar={p && p.avatar} color={p && p.color} size="sm" />
+        <span className={styles.gradeWho}>{name}</span>
+      </div>
+      <div className={styles.gradeScore} title={tu(lang, 'grade')}>
+        <span className={styles.gradeScoreNum}>{score}</span>
+        <small>{tu(lang, 'grade')}</small>
+      </div>
+    </>
+  );
+}
+
+/**
+ * Host spectacle: lift a grade card to center → red → disabled → return to slot.
+ * Plays a queue of {id, kind:'expel'|'slain'} one at a time.
+ */
+function HostElimLayer({queue, g, state: s, lang, onDone}) {
+  const [item, setItem] = useState(null);
+  const [stage, setStage] = useState(null);
+  const [box, setBox] = useState(null);
+  const timers = useRef([]);
+  const queueRef = useRef(queue);
+  queueRef.current = queue;
+
+  const clearTimers = () => {
+    timers.current.forEach(clearTimeout);
+    timers.current = [];
+  };
+
+  const measure = (id) => {
+    const el = typeof document !== 'undefined' ? document.getElementById(`grade-${id}`) : null;
+    if (!el) return null;
+    const r = el.getBoundingClientRect();
+    return {left: r.left, top: r.top, width: r.width, height: r.height};
+  };
+
+  const finishOne = () => {
+    clearTimers();
+    setItem(null);
+    setStage(null);
+    setBox(null);
+    const rest = queueRef.current.slice(1);
+    onDone(rest);
+  };
+
+  useEffect(() => {
+    if (!queue.length) {
+      setItem(null);
+      setStage(null);
+      return undefined;
+    }
+    const next = queue[0];
+    const start = measure(next.id) || {
+      left: typeof window !== 'undefined' ? window.innerWidth / 2 - 120 : 200,
+      top: typeof window !== 'undefined' ? window.innerHeight / 2 - 60 : 200,
+      width: 240,
+      height: 120,
+    };
+    setItem(next);
+    setBox(start);
+    clearTimers();
+    if (prefersReducedMotion()) {
+      setStage('mark');
+      timers.current.push(setTimeout(() => setStage('disable'), 350));
+      timers.current.push(setTimeout(finishOne, 900));
+      return () => clearTimers();
+    }
+    setStage('lift');
+    timers.current.push(setTimeout(() => setStage('mark'), 450));
+    timers.current.push(setTimeout(() => setStage('disable'), 1100));
+    timers.current.push(
+      setTimeout(() => {
+        const back = measure(next.id) || start;
+        setBox(back);
+        setStage('return');
+      }, 1700),
+    );
+    timers.current.push(setTimeout(finishOne, 2300));
+    return () => clearTimers();
+  }, [queue]);
+
+  if (!item || !box || !stage) return null;
+  const p = g.players[item.id];
+  const score = (s.grade && s.grade[item.id]) || 0;
+  const centered = stage === 'lift' || stage === 'mark' || stage === 'disable';
+  return (
+    <div className={styles.elimLayer} aria-hidden="true">
+      <div className={styles.elimScrim} data-on={centered || undefined} />
+      <div
+        className={styles.elimFly}
+        data-stage={stage}
+        data-kind={item.kind}
+        style={{
+          '--sx': `${box.left}px`,
+          '--sy': `${box.top}px`,
+          '--sw': `${box.width}px`,
+          '--seat': p && p.color ? p.color : '#2e86de',
+        }}>
+        <div className={styles.gradeCard} data-fly="">
+          <GradeCardFace p={p} name={p ? p.name : '?'} score={score} lang={lang} />
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function UniversityHostView({g, state: s, lang, hostAct}) {
+  const name = (id) => (g.players[id] ? g.players[id].name : '?');
+  const slots = defenseSlots(alive(s).length);
+  const accused = (s.accused && s.accused.length ? s.accused : null) || (s.suspectRanked || []).slice(0, slots);
+  const accusedNames = accused.map((x) => `${name(x.id)} (${x.n})`).join(', ');
+  const roster = [...s.seats].sort((a, b) => ((s.grade && s.grade[b]) || 0) - ((s.grade && s.grade[a]) || 0));
+  const [elimQueue, setElimQueue] = useState([]);
+  const playedRef = useRef(new Set());
+  const flyingId = elimQueue[0] ? elimQueue[0].id : null;
+
+  useEffect(() => {
+    let key = null;
+    let next = [];
+    if (s.phase === 'execution' && s.expelled) {
+      key = `exec-${s.day}-${s.expelled}`;
+      next = [{id: s.expelled, kind: 'expel'}];
+    } else if (s.phase === 'dawn' && s.deaths && s.deaths.length) {
+      key = `dawn-${s.night}-${s.deaths.join(',')}`;
+      next = s.deaths.map((id) => ({id, kind: 'slain'}));
+    }
+    if (!key || playedRef.current.has(key)) return;
+    playedRef.current.add(key);
+    setElimQueue(next);
+  }, [s.phase, s.day, s.night, s.expelled, s.deaths]);
+
+  const defendSlots = (
+    <span className={styles.defendLine}>
+      <span>{tu(lang, 'defenseSlots', {n: accused.length || slots})}</span>
+      {accused.length > 0 && (
+        <span className={styles.defendFaces}>
+          {accused.map((x) => {
+            const p = g.players[x.id];
+            return (
+              <span key={x.id} className={styles.defendFace} title={`${p ? p.seat : '?'}. ${name(x.id)} (${x.n})`}>
+                <Avatar avatar={p && p.avatar} color={p && p.color} size="sm" />
+                <small>{p ? p.seat : '?'}</small>
+              </span>
+            );
+          })}
+        </span>
+      )}
+    </span>
+  );
+
+  return (
+    <div className={styles.host} data-night={s.phase === 'night' || undefined}>
+      <HostElimLayer queue={elimQueue} g={g} state={s} lang={lang} onDone={setElimQueue} />
+      <div className={styles.banner}>
+        {s.phase === 'roles' && <b>{tu(lang, 'holdRole')}</b>}
+        {s.phase === 'night' && (
+          <>
+            <b>{tu(lang, 'night', {n: s.night})}</b> {tu(lang, 'hostNight')}
+          </>
+        )}
+        {s.phase === 'dawn' && (
+          <>
+            <b>{tu(lang, 'dawn')}</b> {s.deaths && s.deaths.length ? `${tu(lang, 'slainTonight')} ${s.deaths.map(name).join(', ')}` : tu(lang, 'peaceful')}
+          </>
+        )}
+        {s.phase === 'day' && (
+          <>
+            <b>{tu(lang, 'day', {n: s.day})}</b>
+            {defendSlots}
+          </>
+        )}
+        {s.phase === 'suspect' && (
+          <>
+            <b>{tu(lang, 'day', {n: s.day})}</b>
+            <span className={styles.voteLine}>{tu(lang, 'suspectOpen')}</span>
+            {defendSlots}
+            <button type="button" className="button button--sm button--secondary" onClick={() => hostAct({action: 'endDay'})}>
+              {tu(lang, 'closeSuspect')}
+            </button>
+          </>
+        )}
+        {s.phase === 'suspectReveal' && (
+          <>
+            <b>{tu(lang, 'day', {n: s.day})}</b>
+            <span className={styles.voteLine}>{tu(lang, 'revealing')}</span>
+            {defendSlots}
+          </>
+        )}
+        {s.phase === 'defense' && (
+          <>
+            <b>{tu(lang, 'day', {n: s.day})}</b>
+            <span className={styles.voteLine}>{tu(lang, 'defense')}</span>
+            {defendSlots}
+            {accusedNames && <span className={shell.muted}>{tu(lang, 'accusedList', {names: accusedNames})}</span>}
+          </>
+        )}
+        {s.phase === 'vote' && (
+          <>
+            <b>{tu(lang, 'day', {n: s.day})}</b>
+            <span className={styles.voteLine}>{tu(lang, s.ballot && s.ballot.runoff ? 'voteRunoffQ' : 'voteQ')}</span>
+            {defendSlots}
+            {accusedNames && <span className={shell.muted}>{tu(lang, 'accusedList', {names: accusedNames})}</span>}
+          </>
+        )}
+        {s.phase === 'voteReveal' && (
+          <>
+            <b>{tu(lang, 'day', {n: s.day})}</b>
+            <span className={styles.voteLine}>{tu(lang, 'revealing')}</span>
+            {defendSlots}
+            {s.block && <span>{tu(lang, 'onBlock', {name: name(s.block.id), n: s.block.yes})}</span>}
+            {!s.block && s.voteReveal && s.voteReveal.tied && <span>{tu(lang, 'tieReveal')}</span>}
+            {!s.block && !(s.voteReveal && s.voteReveal.tied) && <span>{tu(lang, 'noExpel')}</span>}
+          </>
+        )}
+        {s.phase === 'execution' && <b>{s.expelled ? tu(lang, 'expelled', {name: name(s.expelled)}) : tu(lang, 'noExpel')}</b>}
+        {s.over && (
+          <b>
+            {tu(lang, s.winner === 'good' ? 'goodWin' : 'evilWin')} <span className={shell.muted}>{tu(lang, `why_${s.winWhy}`)}</span>
+          </b>
+        )}
+      </div>
+      <div className={styles.campus}>
+        <div className={styles.campusArt} data-night={s.phase === 'night' || undefined} aria-hidden="true">
+          <Sprite
+            path={s.phase === 'night' ? 'university-night.webp' : 'university-light.webp'}
+            emoji="🏫"
+            label=""
+            tint={s.phase === 'night' ? '#1d2350' : '#fbf3df'}
+            shape="card"
+            size="100%"
+            className={styles.campusSprite}
+          />
+        </div>
+        <div className={styles.map}>
+          {activeRooms(s)
+            .filter((r) => ROOMS[r])
+            .map((r) => {
+              const here = s.seats.filter((p) => s.room[p] === r);
+              const living = here.filter((p) => !s.dead[p]).length;
+              return (
+                <RoomCard
+                  key={r}
+                  roomId={r}
+                  lang={lang}
+                  locked={Boolean(s.locks[r]) && s.phase === 'night'}
+                  secret={!s.over}
+                  count={s.over ? null : living}
+                  people={
+                    s.over
+                      ? here.map((p) => ({
+                          id: p,
+                          seat: g.players[p] ? g.players[p].seat : 0,
+                          name: name(p),
+                          avatar: g.players[p] && g.players[p].avatar,
+                          color: g.players[p] && g.players[p].color,
+                          dead: Boolean(s.dead[p]),
+                          role: s.role[p],
+                        }))
+                      : null
+                  }
+                />
+              );
+            })}
+        </div>
+      </div>
+      {s.phase !== 'night' && s.phase !== 'roles' && (
+        <div className={styles.gradeBoard}>
+          <div className={styles.gradeHead}>
+            <b>{tu(lang, 'grades')}</b>
+            {s.reviveAt > 0 && (
+              <span className={styles.gradeMeta}>
+                {tu(lang, 'reviveAt')}: {s.reviveAt}
+              </span>
+            )}
+          </div>
+          <div className={styles.gradeGrid}>
+            {roster.map((id, rank) => {
+              const p = g.players[id];
+              const score = (s.grade && s.grade[id]) || 0;
+              const voting = s.phase === 'suspect' || s.phase === 'vote';
+              const revealing = s.phase === 'suspectReveal' || s.phase === 'voteReveal';
+              const hasVoted =
+                (s.phase === 'suspect' && s.suspect && s.suspect[id] != null) ||
+                (s.phase === 'vote' && s.ballot && s.ballot.picks[id] != null);
+              const target = s.suspect && s.suspect[id];
+              const targetP = target && g.players[target];
+              const voters =
+                s.phase === 'voteReveal' && s.voteReveal && s.voteReveal.voters
+                  ? s.voteReveal.voters[id] || []
+                  : s.suspect
+                    ? Object.entries(s.suspect)
+                        .filter(([, t]) => t === id)
+                        .map(([voter]) => voter)
+                    : [];
+              const voteScore =
+                s.phase === 'voteReveal' && s.voteReveal && s.voteReveal.scores ? s.voteReveal.scores[id] || 0 : voters.length;
+              const showVotes = revealing || ['defense', 'execution', 'over'].includes(s.phase);
+              return (
+                <div
+                  key={id}
+                  id={`grade-${id}`}
+                  className={styles.gradeCard}
+                  data-dead={Boolean(s.dead[id]) || undefined}
+                  data-slain={s.deaths && s.deaths.includes(id) ? '' : undefined}
+                  data-reveal={revealing || undefined}
+                  data-flying={flyingId === id ? '' : undefined}
+                  style={{'--seat': p && p.color ? p.color : '#2e86de', '--i': rank}}>
+                  <div className={styles.gradeCardTop}>
+                    <span className={styles.gradeSeat}>{p ? p.seat : '?'}</span>
+                    <Avatar avatar={p && p.avatar} color={p && p.color} size="sm" />
+                    <span className={styles.gradeWho}>{name(id)}</span>
+                    {voting && (
+                      <span className={styles.iVotedPill} data-on={hasVoted || undefined}>
+                        {hasVoted ? tu(lang, 'iVoted') : tu(lang, 'waitingVote')}
+                      </span>
+                    )}
+                  </div>
+                  <div className={styles.gradeScore} title={tu(lang, 'grade')}>
+                    <span className={styles.gradeScoreNum}>{score}</span>
+                    <small>{tu(lang, 'grade')}</small>
+                  </div>
+                  <div className={styles.gradeFoot}>
+                    {voting ? null : showVotes ? (
+                      <>
+                        {s.phase !== 'voteReveal' && (
+                          <span className={styles.gradeChip} data-empty={!targetP || undefined}>
+                            {tu(lang, 'suspectCol')}: {targetP ? `${targetP.seat}. ${name(target)}` : tu(lang, 'suspectNone')}
+                          </span>
+                        )}
+                        {voteScore >= 6 ? (
+                          <span className={`${styles.gradeVotes} ${styles.votePop}`} data-hot="">
+                            {voteScore} {tu(lang, 'votesCol')}
+                          </span>
+                        ) : voteScore > 0 ? (
+                          <span className={styles.gradeFaces} title={`${voteScore} ${tu(lang, 'votesCol')}`}>
+                            {voters.map((vid, i) => {
+                              const v = g.players[vid];
+                              return (
+                                <span
+                                  key={vid}
+                                  className={`${styles.gradeFace} ${styles.votePop}`}
+                                  style={{'--i': i}}
+                                  title={v ? `${v.seat}. ${name(vid)}` : '?'}>
+                                  <Avatar avatar={v && v.avatar} color={v && v.color} size="xs" />
+                                </span>
+                              );
+                            })}
+                          </span>
+                        ) : null}
+                      </>
+                    ) : null}
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
 
 // ------------------------------------------------------------------ module
 
@@ -778,237 +1194,7 @@ const university = {
     );
   },
 
-  HostView({g, state: s, lang, hostAct}) {
-    const name = (id) => (g.players[id] ? g.players[id].name : '?');
-    const slots = defenseSlots(alive(s).length);
-    const accused = (s.accused && s.accused.length ? s.accused : null) || (s.suspectRanked || []).slice(0, slots);
-    const accusedNames = accused.map((x) => `${name(x.id)} (${x.n})`).join(', ');
-    const roster = [...s.seats].sort((a, b) => ((s.grade && s.grade[b]) || 0) - ((s.grade && s.grade[a]) || 0));
-    const defendSlots = (
-      <span className={styles.defendLine}>
-        <span>{tu(lang, 'defenseSlots', {n: accused.length || slots})}</span>
-        {accused.length > 0 && (
-          <span className={styles.defendFaces}>
-            {accused.map((x) => {
-              const p = g.players[x.id];
-              return (
-                <span key={x.id} className={styles.defendFace} title={`${p ? p.seat : '?'}. ${name(x.id)} (${x.n})`}>
-                  <Avatar avatar={p && p.avatar} color={p && p.color} size="sm" />
-                  <small>{p ? p.seat : '?'}</small>
-                </span>
-              );
-            })}
-          </span>
-        )}
-      </span>
-    );
-    return (
-      <div className={styles.host} data-night={s.phase === 'night' || undefined}>
-        <div className={styles.banner}>
-          {s.phase === 'roles' && <b>{tu(lang, 'holdRole')}</b>}
-          {s.phase === 'night' && (
-            <>
-              <b>{tu(lang, 'night', {n: s.night})}</b> {tu(lang, 'hostNight')}
-            </>
-          )}
-          {s.phase === 'dawn' && (
-            <>
-              <b>{tu(lang, 'dawn')}</b> {s.deaths && s.deaths.length ? `${tu(lang, 'slainTonight')} ${s.deaths.map(name).join(', ')}` : tu(lang, 'peaceful')}
-            </>
-          )}
-          {s.phase === 'day' && (
-            <>
-              <b>{tu(lang, 'day', {n: s.day})}</b>
-              {defendSlots}
-            </>
-          )}
-          {s.phase === 'suspect' && (
-            <>
-              <b>{tu(lang, 'day', {n: s.day})}</b>
-              <span className={styles.voteLine}>{tu(lang, 'suspectOpen')}</span>
-              {defendSlots}
-              <button type="button" className="button button--sm button--secondary" onClick={() => hostAct({action: 'endDay'})}>
-                {tu(lang, 'closeSuspect')}
-              </button>
-            </>
-          )}
-          {s.phase === 'suspectReveal' && (
-            <>
-              <b>{tu(lang, 'day', {n: s.day})}</b>
-              <span className={styles.voteLine}>{tu(lang, 'revealing')}</span>
-              {defendSlots}
-            </>
-          )}
-          {s.phase === 'defense' && (
-            <>
-              <b>{tu(lang, 'day', {n: s.day})}</b>
-              <span className={styles.voteLine}>{tu(lang, 'defense')}</span>
-              {defendSlots}
-              {accusedNames && <span className={shell.muted}>{tu(lang, 'accusedList', {names: accusedNames})}</span>}
-            </>
-          )}
-          {s.phase === 'vote' && (
-            <>
-              <b>{tu(lang, 'day', {n: s.day})}</b>
-              <span className={styles.voteLine}>{tu(lang, s.ballot && s.ballot.runoff ? 'voteRunoffQ' : 'voteQ')}</span>
-              {defendSlots}
-              {accusedNames && <span className={shell.muted}>{tu(lang, 'accusedList', {names: accusedNames})}</span>}
-            </>
-          )}
-          {s.phase === 'voteReveal' && (
-            <>
-              <b>{tu(lang, 'day', {n: s.day})}</b>
-              <span className={styles.voteLine}>{tu(lang, 'revealing')}</span>
-              {defendSlots}
-              {s.block && <span>{tu(lang, 'onBlock', {name: name(s.block.id), n: s.block.yes})}</span>}
-              {!s.block && s.voteReveal && s.voteReveal.tied && <span>{tu(lang, 'tieReveal')}</span>}
-              {!s.block && !(s.voteReveal && s.voteReveal.tied) && <span>{tu(lang, 'noExpel')}</span>}
-            </>
-          )}
-          {s.phase === 'execution' && <b>{s.expelled ? tu(lang, 'expelled', {name: name(s.expelled)}) : tu(lang, 'noExpel')}</b>}
-          {s.over && (
-            <b>
-              {tu(lang, s.winner === 'good' ? 'goodWin' : 'evilWin')} <span className={shell.muted}>{tu(lang, `why_${s.winWhy}`)}</span>
-            </b>
-          )}
-        </div>
-        <div className={styles.campus}>
-          <div
-            className={styles.campusArt}
-            data-night={s.phase === 'night' || undefined}
-            aria-hidden="true">
-            <Sprite
-              path={s.phase === 'night' ? 'university-night.webp' : 'university-light.webp'}
-              emoji="🏫"
-              label=""
-              tint={s.phase === 'night' ? '#1d2350' : '#fbf3df'}
-              shape="card"
-              size="100%"
-              className={styles.campusSprite}
-            />
-          </div>
-          <div className={styles.map}>
-            {activeRooms(s).filter((r) => ROOMS[r]).map((r) => {
-              const here = s.seats.filter((p) => s.room[p] === r);
-              const living = here.filter((p) => !s.dead[p]).length;
-              return (
-                <RoomCard
-                  key={r}
-                  roomId={r}
-                  lang={lang}
-                  locked={Boolean(s.locks[r]) && s.phase === 'night'}
-                  secret={!s.over}
-                  count={s.over ? null : living}
-                  people={
-                    s.over
-                      ? here.map((p) => ({
-                          id: p,
-                          seat: g.players[p] ? g.players[p].seat : 0,
-                          name: name(p),
-                          avatar: g.players[p] && g.players[p].avatar,
-                          color: g.players[p] && g.players[p].color,
-                          dead: Boolean(s.dead[p]),
-                          role: s.role[p],
-                        }))
-                      : null
-                  }
-                />
-              );
-            })}
-          </div>
-        </div>
-        {s.phase !== 'night' && s.phase !== 'roles' && (
-          <div className={styles.gradeBoard}>
-            <div className={styles.gradeHead}>
-              <b>{tu(lang, 'grades')}</b>
-              {s.reviveAt > 0 && <span className={styles.gradeMeta}>{tu(lang, 'reviveAt')}: {s.reviveAt}</span>}
-            </div>
-            <div className={styles.gradeGrid}>
-              {roster.map((id, rank) => {
-                const p = g.players[id];
-                const score = (s.grade && s.grade[id]) || 0;
-                const voting = s.phase === 'suspect' || s.phase === 'vote';
-                const revealing = s.phase === 'suspectReveal' || s.phase === 'voteReveal';
-                const hasVoted =
-                  (s.phase === 'suspect' && s.suspect && s.suspect[id] != null) ||
-                  (s.phase === 'vote' && s.ballot && s.ballot.picks[id] != null);
-                const target = s.suspect && s.suspect[id];
-                const targetP = target && g.players[target];
-                const voters =
-                  s.phase === 'voteReveal' && s.voteReveal && s.voteReveal.voters
-                    ? s.voteReveal.voters[id] || []
-                    : s.suspect
-                      ? Object.entries(s.suspect)
-                          .filter(([, t]) => t === id)
-                          .map(([voter]) => voter)
-                      : [];
-                const voteScore =
-                  s.phase === 'voteReveal' && s.voteReveal && s.voteReveal.scores
-                    ? s.voteReveal.scores[id] || 0
-                    : voters.length;
-                const showVotes = revealing || ['defense', 'execution', 'over'].includes(s.phase);
-                return (
-                  <div
-                    key={id}
-                    className={styles.gradeCard}
-                    data-dead={Boolean(s.dead[id]) || undefined}
-                    data-slain={s.deaths && s.deaths.includes(id) ? '' : undefined}
-                    data-reveal={revealing || undefined}
-                    style={{'--seat': p && p.color ? p.color : '#2e86de', '--i': rank}}>
-                    <div className={styles.gradeCardTop}>
-                      <span className={styles.gradeSeat}>{p ? p.seat : '?'}</span>
-                      <Avatar avatar={p && p.avatar} color={p && p.color} size="sm" />
-                      <span className={styles.gradeWho}>{name(id)}</span>
-                      {voting && (
-                        <span className={styles.iVotedPill} data-on={hasVoted || undefined}>
-                          {hasVoted ? tu(lang, 'iVoted') : tu(lang, 'waitingVote')}
-                        </span>
-                      )}
-                    </div>
-                    <div className={styles.gradeScore} title={tu(lang, 'grade')}>
-                      <span className={styles.gradeScoreNum}>{score}</span>
-                      <small>{tu(lang, 'grade')}</small>
-                    </div>
-                    <div className={styles.gradeFoot}>
-                      {voting ? null : showVotes ? (
-                        <>
-                          {s.phase !== 'voteReveal' && (
-                            <span className={styles.gradeChip} data-empty={!targetP || undefined}>
-                              {tu(lang, 'suspectCol')}: {targetP ? `${targetP.seat}. ${name(target)}` : tu(lang, 'suspectNone')}
-                            </span>
-                          )}
-                          {voteScore >= 6 ? (
-                            <span className={`${styles.gradeVotes} ${styles.votePop}`} data-hot="">
-                              {voteScore} {tu(lang, 'votesCol')}
-                            </span>
-                          ) : voteScore > 0 ? (
-                            <span className={styles.gradeFaces} title={`${voteScore} ${tu(lang, 'votesCol')}`}>
-                              {voters.map((vid, i) => {
-                                const v = g.players[vid];
-                                return (
-                                  <span
-                                    key={vid}
-                                    className={`${styles.gradeFace} ${styles.votePop}`}
-                                    style={{'--i': i}}
-                                    title={v ? `${v.seat}. ${name(vid)}` : '?'}>
-                                    <Avatar avatar={v && v.avatar} color={v && v.color} size="xs" />
-                                  </span>
-                                );
-                              })}
-                            </span>
-                          ) : null}
-                        </>
-                      ) : null}
-                    </div>
-                  </div>
-                );
-              })}
-            </div>
-          </div>
-        )}
-      </div>
-    );
-  },
+  HostView: UniversityHostView,
 
   PhoneView({view, lang, send}) {
     // Fresh state each night and each day, but not on every suspect or vote.
@@ -1029,18 +1215,21 @@ function InfoLine({x, view, lang}) {
     return p ? `${p.name} (#${p.seat})` : '?';
   };
   const list = (x.lines || [])
-    .map((row) => `${nm(row.player)} → ${tu(lang, row.evil ? 'evil' : 'good')}`)
+    .map((row) => (row.evil == null ? nm(row.player) : `${nm(row.player)} → ${tu(lang, row.evil ? 'evil' : 'good')}`))
     .join('; ');
   return (
     <>
       {tu(lang, `info_${x.key}`, {
         name: nm(x.player),
+        nameA: nm(x.a),
+        nameB: nm(x.b),
         align: tu(lang, x.evil ? 'evil' : 'good'),
         isProf: tu(lang, x.yes ? 'isProf' : 'notProf'),
         answer: tu(lang, x.yes ? 'did' : 'didNot'),
+        demonPair: tu(lang, x.yes ? 'demonPairYes' : 'demonPairNo'),
         n: x.n,
         room: x.room ? roomName(x.room, lang) : '',
-        list,
+        list: list || '—',
       })}
     </>
   );
@@ -1186,6 +1375,7 @@ function SpellList({view, lang, send, night, showLearn = false}) {
           const q = queuedFor(h.k);
           const selected = open === h.k;
           const tag = sp.type === 'passive' ? tu(lang, 'tagPassive') : q ? tu(lang, 'tagSet') : null;
+          const rarity = sp.rarity || 'B';
           return (
             <button
               key={h.k}
@@ -1198,6 +1388,9 @@ function SpellList({view, lang, send, night, showLearn = false}) {
               aria-pressed={selected}
               aria-label={tag ? `${L(sp, lang)}. ${tag}` : L(sp, lang)}
               onClick={() => setOpen((cur) => (cur === h.k ? null : h.k))}>
+              <span className={styles.rarityTag} data-rarity={rarity}>
+                {tu(lang, `rarity${rarity}`)}
+              </span>
               {tag && <span className={styles.skillTag}>{tag}</span>}
               <span className={styles.skillArt}>
                 <SpellIcon k={h.k} lang={lang} size="100%" />
@@ -1342,6 +1535,9 @@ function LearnModal({view, lang, send}) {
             const sp = SPELLS[k];
             return (
               <button key={k} type="button" className={styles.offerSpell} onClick={() => send({action: 'pick', spell: k})}>
+                <span className={styles.rarityTag} data-rarity={sp.rarity || 'B'}>
+                  {tu(lang, `rarity${sp.rarity || 'B'}`)}
+                </span>
                 <span className={styles.offerArt}>
                   <SpellIcon k={k} lang={lang} size="100%" />
                 </span>
