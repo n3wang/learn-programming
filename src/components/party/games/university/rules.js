@@ -115,8 +115,10 @@ export function setupUniversity(seats, settings, ctx) {
     day: 0,
     nightS: Number(settings.nightSeconds || 60),
     dayS: Number(settings.dayMinutes || 4) * 60,
-    // Grade needed to buy a new life; 0 disables revive. Each seat may revive at most MAX_REVIVES times.
+    // Grade needed to buy a new life; 0 disables revive.
     reviveAt: Math.max(0, Math.floor(Number(settings.reviveAt ?? 100))),
+    // Per-seat revive cap: 1, 2, or 0 = unlimited (host setting).
+    reviveMax: [0, 1, 2].includes(Number(settings.reviveMax)) ? Number(settings.reviveMax) : 2,
     reviveUsed: Object.fromEntries(seats.map((id) => [id, 0])),
     // When living players exceed this, Demons get roommate kills instead of kill-votes.
     demonKillAt: Math.max(0, Math.floor(Number(settings.demonKillAt ?? DEMON_KILL_ALIVE_DEFAULT))),
@@ -355,20 +357,29 @@ export function homework(s, ctx, id, total, wrongs = 0) {
   return true;
 }
 
-/** Max times one seat may buy a new life this game. */
+/** Default per-seat revive cap when host setting is missing (2). `0` means unlimited. */
 export const MAX_REVIVES = 2;
 
-export function revivesLeft(s, id) {
-  const used = (s.reviveUsed && s.reviveUsed[id]) || 0;
-  return Math.max(0, MAX_REVIVES - used);
+/** Host cap: 1, 2, or 0 = unlimited. */
+export function reviveLimitOf(s) {
+  const n = Number(s.reviveMax);
+  return [0, 1, 2].includes(n) ? n : MAX_REVIVES;
 }
 
-/** Spend grade to return from the dead (when reviveAt > 0; at most {@link MAX_REVIVES} times). */
+export function revivesLeft(s, id) {
+  const lim = reviveLimitOf(s);
+  // Finite stand-in for unlimited (JSON-safe for phone views).
+  if (lim === 0) return 999;
+  const used = (s.reviveUsed && s.reviveUsed[id]) || 0;
+  return Math.max(0, lim - used);
+}
+
+/** Spend grade to return from the dead (when reviveAt > 0; host sets 1 / 2 / unlimited). */
 export function revive(s, ctx, id) {
   const need = s.reviveAt || 0;
   if (!need || !s.dead[id] || s.over) return false;
   if (s.afkOut && s.afkOut[id]) return false;
-  if (revivesLeft(s, id) < 1) return false;
+  if (!(revivesLeft(s, id) > 0)) return false;
   if ((s.grade[id] || 0) < need) return false;
   s.grade[id] -= need;
   s.reviveUsed = {...(s.reviveUsed || {}), [id]: ((s.reviveUsed && s.reviveUsed[id]) || 0) + 1};

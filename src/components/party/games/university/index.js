@@ -30,6 +30,7 @@ import {
   mustPickRoleFirst,
   pickSpell,
   revive,
+  reviveLimitOf,
   revivesLeft,
   roleAct,
   roleTargets,
@@ -169,9 +170,14 @@ const tu = makeT({
     peaceful: 'Nobody was slain.',
     dead: 'You are out. Keep doing math to raise your Grade. You may still talk, and vote once more.',
     revive: 'Buy a new life ({n} Grade · {left}/{max} left)',
+    reviveInf: 'Buy a new life ({n} Grade)',
     reviveNeed: 'Need {n} Grade for a new life (you have {have}). {left}/{max} revives left.',
+    reviveNeedInf: 'Need {n} Grade for a new life (you have {have}).',
     reviveMaxed: 'No more lives — you already returned {max} times.',
     reviveOff: 'Revive is off this game.',
+    reviveMax: 'Revives per player',
+    reviveMaxInf: '∞',
+    reviveMaxHint: 'How many times one player can buy a new life (1, 2, or unlimited).',
     goodWin: 'The university is saved!',
     evilWin: 'The Demons take the university!',
     why_leadersOut: 'Every Demon King is gone.',
@@ -385,9 +391,14 @@ const tu = makeT({
     peaceful: '昨夜无人被击倒。',
     dead: '你已出局。继续做数学提高成绩。你仍然可以发言，还能再投一票。',
     revive: '换一条新命（{n} 成绩 · 剩 {left}/{max}）',
+    reviveInf: '换一条新命（{n} 成绩）',
     reviveNeed: '新命需要 {n} 成绩（你有 {have}）。还可复活 {left}/{max} 次。',
+    reviveNeedInf: '新命需要 {n} 成绩（你有 {have}）。',
     reviveMaxed: '不能再复活——本局已换命 {max} 次。',
     reviveOff: '本局未开启复活。',
+    reviveMax: '每人可复活次数',
+    reviveMaxInf: '∞',
+    reviveMaxHint: '一名玩家本局最多换命几次（1、2 或无限）。',
     goodWin: '大学得救了！',
     evilWin: '魔占领了大学！',
     why_leadersOut: '所有魔王都出局了。',
@@ -1040,6 +1051,9 @@ function UniversityHostView({g, state: s, lang, hostAct}) {
             {s.reviveAt > 0 && (
               <span className={styles.gradeMeta}>
                 {tu(lang, 'reviveAt')}: {s.reviveAt}
+                {' · '}
+                {tu(lang, 'reviveMax')}:{' '}
+                {reviveLimitOf(s) === 0 ? tu(lang, 'reviveMaxInf') : reviveLimitOf(s)}
               </span>
             )}
             <span className={styles.gradeMeta}>
@@ -1185,6 +1199,7 @@ const university = {
     dayMinutes: 4,
     nightSeconds: 60,
     reviveAt: 100,
+    reviveMax: 2,
     demonKillAt: 10,
     showRooms: false,
     showHwPop: true,
@@ -1266,7 +1281,8 @@ const university = {
       grade: (s.grade && s.grade[id]) || 0,
       reviveAt: s.reviveAt || 0,
       revivesLeft: revivesLeft(s, id),
-      reviveMax: MAX_REVIVES,
+      reviveMax: reviveLimitOf(s),
+      reviveUnlimited: reviveLimitOf(s) === 0,
       spellCost: s.spellCost || SPELL_COST,
       canRevive: Boolean(
         s.dead[id] &&
@@ -1386,6 +1402,11 @@ const university = {
           <span>{tu(lang, 'reviveAt')}</span>
           {[0, 20, 25, 30, 50, 100, 150].map((m) => radio('reviveAt', m, m === 0 ? tu(lang, 'reviveNone') : String(m)))}
         </div>
+        <div className={shell.buttonRow}>
+          <span>{tu(lang, 'reviveMax')}</span>
+          {[1, 2, 0].map((m) => radio('reviveMax', m, m === 0 ? tu(lang, 'reviveMaxInf') : String(m)))}
+        </div>
+        <p className={shell.muted}>{tu(lang, 'reviveMaxHint')}</p>
         <div className={shell.buttonRow}>
           <span>{tu(lang, 'demonKillAt')}</span>
           {[8, 10, 12, 15, 20].map((m) => radio('demonKillAt', m, String(m)))}
@@ -2015,20 +2036,24 @@ function UniPhone({view, lang, send}) {
     <div className={shell.card}>
       <p className={shell.notice}>{tu(lang, 'dead')}</p>
       {view.reviveAt > 0 ? (
-        (view.revivesLeft || 0) < 1 ? (
+        !view.reviveUnlimited && !(view.revivesLeft > 0) ? (
           <p className={shell.muted}>{tu(lang, 'reviveMaxed', {max: view.reviveMax || MAX_REVIVES})}</p>
         ) : view.canRevive ? (
           <button type="button" className="button button--block" onClick={() => send({action: 'revive'})}>
-            {tu(lang, 'revive', {n: view.reviveAt, left: view.revivesLeft, max: view.reviveMax || MAX_REVIVES})}
+            {view.reviveUnlimited
+              ? tu(lang, 'reviveInf', {n: view.reviveAt})
+              : tu(lang, 'revive', {n: view.reviveAt, left: view.revivesLeft, max: view.reviveMax || MAX_REVIVES})}
           </button>
         ) : (
           <p className={shell.muted}>
-            {tu(lang, 'reviveNeed', {
-              n: view.reviveAt,
-              have: view.grade || 0,
-              left: view.revivesLeft || 0,
-              max: view.reviveMax || MAX_REVIVES,
-            })}
+            {view.reviveUnlimited
+              ? tu(lang, 'reviveNeedInf', {n: view.reviveAt, have: view.grade || 0})
+              : tu(lang, 'reviveNeed', {
+                  n: view.reviveAt,
+                  have: view.grade || 0,
+                  left: view.revivesLeft || 0,
+                  max: view.reviveMax || MAX_REVIVES,
+                })}
           </p>
         )
       ) : (
