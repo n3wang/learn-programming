@@ -11,9 +11,10 @@
  * at the end of the timer. A locked room stops a Demon King's slay unless
  * the King sleeps in that room too; each player has one key per game.
  * Demons know the Demon King; the King does not know the Demons.
- * When more than 10 players are alive, Demons' night pick slays a roommate.
- * When ≤10 alive, Demons vote a kill target (King sees the votes; if there
- * is no King, that vote slays). Demon King slays ignore room locks.
+ * When living players exceed the host `demonKillAt` threshold (default 10),
+ * Demons' night pick slays a roommate. At or below that count, Demons vote a
+ * kill target (King sees the votes; if there is no King, that vote slays).
+ * Demon King slays ignore room locks.
  * Actors with a night pick must choose before homework counts.
  */
 
@@ -55,9 +56,14 @@ export function counts(n) {
 
 export const alive = (s) => s.seats.filter((id) => !s.dead[id]);
 export const isEvil = (s, id) => ROLES[s.role[id]].side === 'evil';
-/** Large tables: Demons (cultists) gain a base room kill instead of Professor check. */
-export const DEMON_KILL_ALIVE = 10;
-export const demonCanKill = (s) => alive(s).length > DEMON_KILL_ALIVE;
+/** Default alive-count above which Demons gain a base roommate kill (host can change). */
+export const DEMON_KILL_ALIVE_DEFAULT = 10;
+/** Large tables: Demons (cultists) gain a base roommate kill. Threshold is `s.demonKillAt`. */
+export const demonCanKill = (s) => {
+  const at = Number(s.demonKillAt);
+  const threshold = Number.isFinite(at) ? at : DEMON_KILL_ALIVE_DEFAULT;
+  return alive(s).length > threshold;
+};
 // Games saved before the six-room campus have no `rooms`: they get an empty map, not a crash.
 export const activeRooms = (s) => s.rooms || [];
 
@@ -103,6 +109,8 @@ export function setupUniversity(seats, settings, ctx) {
     dayS: Number(settings.dayMinutes || 4) * 60,
     // Grade needed to buy a new life; 0 disables revive.
     reviveAt: Math.max(0, Math.floor(Number(settings.reviveAt ?? 100))),
+    // When living players exceed this, Demons get roommate kills instead of kill-votes.
+    demonKillAt: Math.max(0, Math.floor(Number(settings.demonKillAt ?? DEMON_KILL_ALIVE_DEFAULT))),
     // Homework question types (core/mathQuestions pools).
     pools: normalizePools(settings.pools),
     log: [],
@@ -187,14 +195,23 @@ function info(s, id, item) {
 
 // ------------------------------------------------------------------ night
 
+/** Dead players keep grinding Grade via practice — seed from tonight's hw so totals don't double-count. */
+function beginGhostPractice(s, id, now) {
+  s.practice = s.practice || {};
+  s.practiceWrong = s.practiceWrong || {};
+  s.practiceSince = s.practiceSince || {};
+  if (s.practice[id] == null) s.practice[id] = s.hw[id] || 0;
+  if (s.practiceWrong[id] == null) s.practiceWrong[id] = (s.hwWrong && s.hwWrong[id]) || 0;
+  if (!s.practiceSince[id]) s.practiceSince[id] = now || Date.now();
+}
+
 function startNight(s, ctx) {
   s.night += 1;
   s.phase = 'night';
   s.roleTarget = {};
   s.hw = {};
   s.hwWrong = {};
-  s.practice = {};
-  s.practiceWrong = {};
+  // Keep dead players' practice counters across nights so they can keep doing math.
   s.nightStart = ctx.now;
   if (s.night === 1) snapshotGrades(s, 'start');
   else if (s.day > 0) snapshotGrades(s, 'day');
@@ -260,22 +277,30 @@ export function mustPickRoleFirst(s, id) {
 /**
  * Homework / practice: the phone reports running totals of correct and wrong
  * answers for this session. Correct raises Grade (+ Knowledge if alive);
- * wrong lowers Grade by 1 each (floor 0). Dead may practice any phase.
+ * wrong lowers Grade by 1 each (floor 0). Dead may practice any phase, any time.
  */
 export function homework(s, ctx, id, total, wrongs = 0) {
   if (s.over) return false;
   const dead = Boolean(s.dead[id]);
   if (!dead && s.phase !== 'night' && s.phase !== 'dawn') return false;
   if (!dead && mustPickRoleFirst(s, id)) return false;
-  const end = dead ? ctx.now : Math.min(ctx.now, s.deadline || ctx.now);
-  const elapsed = Math.max(0, end - (s.nightStart || ctx.now - 60000)) / 1000 / (ctx.speed || 1);
-  const cap = dead
-    ? Math.ceil(elapsed * 0.5) + 40
-    : Math.ceil(elapsed * MAX_HW_PER_S) + 2;
+  if (dead) beginGhostPractice(s, id, ctx.now);
+  const speed = ctx.speed || 1;
+  let cap;
+  if (dead) {
+    const since = (s.practiceSince && s.practiceSince[id]) || ctx.now;
+    const elapsed = Math.max(0, (ctx.now - since) / 1000 / speed);
+    // Steady grind for ghosts — not tied to the living night timer.
+    cap = Math.ceil(elapsed * MAX_HW_PER_S) + Math.max(20, (s.practice[id] || 0) + 5);
+  } else {
+    const end = Math.min(ctx.now, s.deadline || ctx.now);
+    const elapsed = Math.max(0, end - (s.nightStart || ctx.now - 60000)) / 1000 / speed;
+    cap = Math.ceil(elapsed * MAX_HW_PER_S) + 2;
+  }
   const n = Math.max(0, Math.min(Math.floor(Number(total) || 0), cap));
   const w = Math.max(0, Math.min(Math.floor(Number(wrongs) || 0), cap + 20));
-  const bag = dead ? (s.practice = s.practice || {}) : s.hw;
-  const wBag = dead ? (s.practiceWrong = s.practiceWrong || {}) : (s.hwWrong = s.hwWrong || {});
+  const bag = dead ? s.practice : s.hw;
+  const wBag = dead ? s.practiceWrong : (s.hwWrong = s.hwWrong || {});
   const before = bag[id] || 0;
   const wBefore = wBag[id] || 0;
   const delta = Math.max(0, n - before);
@@ -634,6 +659,7 @@ function resolveNight(s, ctx) {
       info(s, t, {key: 'raven', lines: names.map((p) => ({player: p}))});
     }
     s.dead[t] = true;
+    beginGhostPractice(s, t, ctx.now);
     deaths.push(t);
     noteDeath(s, t);
     log(s, {kind: 'slain', target: t, by});
@@ -975,6 +1001,7 @@ function endDay(s, ctx) {
       expelled = id;
       s.expelled = id;
       s.dead[id] = true;
+      beginGhostPractice(s, id, ctx.now);
       noteDeath(s, id);
       cue(s, 'expelled', {seat: ctx.seatOf(id)});
       log(s, {kind: 'expelled', target: id});

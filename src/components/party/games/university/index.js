@@ -225,6 +225,8 @@ const tu = makeT({
     dayMinutes: 'Day length',
     reviveAt: 'New life at Grade',
     reviveNone: 'Off',
+    demonKillAt: 'Demon roommate-kill when alive above',
+    demonKillAtHint: 'At or below this many living players, Demons vote a kill; above it, they slay a roommate.',
     tables: 'Homework questions',
     sec: '{n} s',
     min: '{n} min',
@@ -416,6 +418,8 @@ const tu = makeT({
     dayMinutes: '白天时长',
     reviveAt: '成绩换命门槛',
     reviveNone: '关闭',
+    demonKillAt: '存活超过此人数时魔可击倒同房',
+    demonKillAtHint: '存活人数不超过该值时魔投票击杀；超过后改为击倒同房。',
     tables: '作业题型',
     sec: '{n} 秒',
     min: '{n} 分钟',
@@ -926,6 +930,9 @@ function UniversityHostView({g, state: s, lang, hostAct}) {
                 {tu(lang, 'reviveAt')}: {s.reviveAt}
               </span>
             )}
+            <span className={styles.gradeMeta}>
+              {tu(lang, 'demonKillAt')}: {s.demonKillAt ?? 10}
+            </span>
           </div>
           <div className={styles.gradeGrid}>
             {roster.map((id, rank) => {
@@ -1052,7 +1059,7 @@ const university = {
   coverTint: '#2e5a3a',
   themeClass: shell.themeUni,
   night: (x) => x.phase === 'night',
-  defaultSettings: {dayMinutes: 4, nightSeconds: 60, reviveAt: 100, pools: ['basic']},
+  defaultSettings: {dayMinutes: 4, nightSeconds: 60, reviveAt: 100, demonKillAt: 10, pools: ['basic']},
   voiceLines: VOICE,
 
   setup(g, seats, ctx) {
@@ -1239,6 +1246,11 @@ const university = {
           {[0, 50, 100, 150].map((m) => radio('reviveAt', m, m === 0 ? tu(lang, 'reviveNone') : String(m)))}
         </div>
         <div className={shell.buttonRow}>
+          <span>{tu(lang, 'demonKillAt')}</span>
+          {[8, 10, 12, 15, 20].map((m) => radio('demonKillAt', m, String(m)))}
+        </div>
+        <p className={shell.muted}>{tu(lang, 'demonKillAtHint')}</p>
+        <div className={shell.buttonRow}>
           <span>{tu(lang, 'tables')}</span>
           <PoolPicker value={settings.pools} onChange={(pools) => set({pools})} lang={lang} />
         </div>
@@ -1305,6 +1317,15 @@ function Homework({view, lang, send}) {
     sent.current = {ok, bad};
     send({action: 'hw', total: ok, wrong: bad});
   };
+  // Keep phone totals in sync when you die mid-session or practice carries across nights.
+  useEffect(() => {
+    setTotal((t) => Math.max(t, base));
+    setWrong((w) => Math.max(w, baseWrong));
+    sent.current = {
+      ok: Math.max(sent.current.ok, base),
+      bad: Math.max(sent.current.bad, baseWrong),
+    };
+  }, [base, baseWrong, view.dead]);
   useEffect(() => () => {
     const {ok, bad} = latest.current;
     if (ok > sent.current.ok || bad > sent.current.bad) flush(ok, bad);
@@ -1956,7 +1977,9 @@ function UniPhone({view, lang, send}) {
             )}
           </div>
         )}
-        {view.mustPickFirst ? (
+        {view.dead ? (
+          <Homework view={view} lang={lang} send={send} />
+        ) : view.mustPickFirst ? (
           <div className={shell.card}>
             <p className={shell.muted}>{tu(lang, 'mustPickFirst')}</p>
           </div>
