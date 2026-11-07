@@ -11,6 +11,10 @@
  * at the end of the timer. A locked room stops a Demon King's slay unless
  * the King sleeps in that room too; each player has one key per game.
  * Demons know the Demon King; the King does not know the Demons.
+ * When more than 10 players are alive, Demons' night pick slays a roommate.
+ * When ≤10 alive, Demons vote a kill target (King sees the votes; if there
+ * is no King, that vote slays). Demon King slays ignore room locks.
+ * Actors with a night pick must choose before homework counts.
  */
 
 import {cue, duration, log, pick, shuffle} from '../../core/partyCore';
@@ -51,6 +55,9 @@ export function counts(n) {
 
 export const alive = (s) => s.seats.filter((id) => !s.dead[id]);
 export const isEvil = (s, id) => ROLES[s.role[id]].side === 'evil';
+/** Large tables: Demons (cultists) gain a base room kill instead of Professor check. */
+export const DEMON_KILL_ALIVE = 10;
+export const demonCanKill = (s) => alive(s).length > DEMON_KILL_ALIVE;
 // Games saved before the six-room campus have no `rooms`: they get an empty map, not a crash.
 export const activeRooms = (s) => s.rooms || [];
 
@@ -208,22 +215,46 @@ function startNight(s, ctx) {
 export function roleTargets(s, id) {
   const r = s.role[id];
   if (!ACTORS.includes(r) || s.dead[id] || s.phase !== 'night') return [];
-  // Demon King: any living player after night 1 (locks checked at resolve).
+  // Demon King: any living player after night 1 (locks never block the slay).
   if (r === 'demonking') {
     if (s.night === 1) return [];
     return alive(s).filter((p) => p !== id);
   }
-  // Demon: only others in your room (King is secret from other Demons).
+  // Demon: large table = roommate kill; small table = kill vote (any living).
   if (r === 'demon') {
+    if (demonCanKill(s)) {
+      return alive(s).filter((p) => p !== id && s.room[p] === s.room[id]);
+    }
+    return alive(s).filter((p) => p !== id);
+  }
+  // Professor: once per night, someone sleeping in your room only.
+  if (r === 'professor') {
     return alive(s).filter((p) => p !== id && s.room[p] === s.room[id]);
   }
   return alive(s).filter((p) => p !== id);
 }
 
+/** Alignment read at the moment of a Professor investigate (queued masks count). */
+export function instantReadEvil(s, target) {
+  const queued = (pid, k) => (s.queued[pid] || []).some((q) => q.k === k);
+  if (queued(target, 'disguise') || queued(target, 'recluseveil')) return false;
+  return isEvil(s, target) || s.role[target] === 'exchange';
+}
+
 export function roleAct(s, ctx, id, target) {
   if (s.roleTarget[id] || !roleTargets(s, id).includes(target)) return false;
   s.roleTarget[id] = target;
+  // Professor: learn good/evil immediately (one investigate per night, room only).
+  if (s.role[id] === 'professor') {
+    info(s, id, {key: 'prof', player: target, evil: instantReadEvil(s, target), instant: true});
+  }
   return true;
+}
+
+/** Living actors must lock in their night pick before homework. */
+export function mustPickRoleFirst(s, id) {
+  if (s.dead[id] || s.phase !== 'night') return false;
+  return roleTargets(s, id).length > 0 && !s.roleTarget[id];
 }
 
 /**
@@ -235,6 +266,7 @@ export function homework(s, ctx, id, total, wrongs = 0) {
   if (s.over) return false;
   const dead = Boolean(s.dead[id]);
   if (!dead && s.phase !== 'night' && s.phase !== 'dawn') return false;
+  if (!dead && mustPickRoleFirst(s, id)) return false;
   const end = dead ? ctx.now : Math.min(ctx.now, s.deadline || ctx.now);
   const elapsed = Math.max(0, end - (s.nightStart || ctx.now - 60000)) / 1000 / (ctx.speed || 1);
   const cap = dead
@@ -485,6 +517,11 @@ function resolveNight(s, ctx) {
   const safe = {};
   const deaths = [];
   const casts = [];
+  // After round 2: Demons who could act but picked nobody are inactive (AFK).
+  const idleDemons =
+    s.night > 2
+      ? alive(s).filter((id) => s.role[id] === 'demon' && !s.roleTarget[id] && roleTargets(s, id).length > 0)
+      : [];
   for (const id of alive(s)) for (const q of s.queued[id]) casts.push({id, ...q});
   const each = (k, fn) => {
     for (const c of casts) {
@@ -518,7 +555,6 @@ function resolveNight(s, ctx) {
     if (reader && hallPoison[pos[reader]] && pos[p] === pos[reader] && p !== reader) evil = !evil;
     return evil;
   };
-  const appearsProfessor = (p) => !veiled[p] && s.role[p] === 'professor';
   each('protection', (id, t) => {
     safe[t] = true;
   });
@@ -526,13 +562,9 @@ function resolveNight(s, ctx) {
     const here = shuffle(roommatesOf(s, id, pos), rng);
     for (const p of [id, ...here].slice(0, 4)) safe[p] = true;
   });
-  // Role actions.
-  for (const id of alive(s)) {
-    const t = s.roleTarget[id];
-    if (!t) continue;
-    if (s.role[id] === 'professor') info(s, id, {key: 'prof', player: t, evil: appearsEvil(t, id)});
-    if (s.role[id] === 'demon') info(s, id, {key: 'cult', player: t, yes: appearsProfessor(t)});
-  }
+  // Snapshot before slays: >10 alive → Demon roommate kill; ≤10 → kill vote.
+  const cultistsKill = demonCanKill(s);
+  // Professor investigate already resolved instantly on pick — do not repeat at dawn.
   each('reveal', (id) => {
     const others = roommatesOf(s, id, pos);
     if (!others.length) {
@@ -612,10 +644,20 @@ function resolveNight(s, ctx) {
     for (const id of alive(s)) {
       const t = s.roleTarget[id];
       if (s.role[id] !== 'demonking' || !t) continue;
-      const prey = s.ojoPrey && s.ojoPrey[id];
-      const ignoreLock = prey && prey === t;
-      if (!ignoreLock && s.locks[pos[t]] && pos[id] !== pos[t]) continue;
+      // Locks never stop the King — they can slay anyone instantly.
       slay(t, id, {king: true});
+    }
+  }
+  // Demons (cultists):
+  // >10 alive → roommate kill.
+  // ≤10 with no King → their vote is the kill (any living target).
+  // ≤10 with a King → vote only (King executes; shown live on King's phone).
+  if (cultistsKill || !s.hasLeaders) {
+    for (const id of alive(s)) {
+      const t = s.roleTarget[id];
+      if (s.role[id] !== 'demon' || !t || s.dead[t]) continue;
+      if (cultistsKill && pos[t] !== pos[id]) continue;
+      slay(t, id);
     }
   }
   each('ignition', (id, t) => {
@@ -631,6 +673,21 @@ function resolveNight(s, ctx) {
     if (t && s.role[t] === 'demon') slay(t, id);
   });
   each('ojo', () => {});
+  // Inactive Demon → pass role to a living Student (after the second round).
+  for (const id of idleDemons) {
+    if (s.dead[id] || s.role[id] !== 'demon') continue;
+    const pool = alive(s).filter((p) => p !== id && s.role[p] === 'student');
+    const fallback = alive(s).filter((p) => p !== id && !isEvil(s, p));
+    const heir = pick(pool.length ? pool : fallback, rng);
+    if (!heir) continue;
+    s.role[id] = 'student';
+    s.role[heir] = 'demon';
+    s.cultHeirOf = {...(s.cultHeirOf || {}), [heir]: s.night};
+    info(s, id, {key: 'cultAway', player: heir});
+    info(s, heir, {key: 'cultHeir', player: id});
+    log(s, {kind: 'cultTransfer', from: id, to: heir});
+    cue(s, 'cultTransfer', {from: ctx.seatOf(id), to: ctx.seatOf(heir)});
+  }
   for (const id of s.seats) s.queued[id] = [];
   s.ojoPrey = {};
   s.room = pos;

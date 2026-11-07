@@ -16,6 +16,7 @@ import {
   counts,
   cultOf,
   defenseSlots,
+  demonCanKill,
   drawSpell,
   freeUses,
   homework,
@@ -23,6 +24,7 @@ import {
   isEvil,
   markReady,
   moveTo,
+  mustPickRoleFirst,
   pickSpell,
   revive,
   roleAct,
@@ -95,6 +97,15 @@ const tu = makeT({
     sleepWith: 'With: {names}',
     sleepAlone: 'You are alone in this room.',
     cultReach: 'Investigate someone in your room',
+    cultKillReach: 'Slay someone in your room (large class)',
+    cultVoteReach: 'Vote who should die tonight (King sees this)',
+    cultVotesTitle: 'Demon kill votes',
+    cultVoteLine: '{seat}. {name} → {target}',
+    cultVoteNone: 'No Demon votes yet.',
+    mustPickFirst: 'Pick your night target before homework.',
+    profReach: 'Investigate one roommate (once tonight — result is instant)',
+    profReachEmpty: 'No one else is in your room to investigate.',
+    profResultNow: 'Result (instant):',
     cultReachEmpty: 'No one else is in your room tonight.',
     lockKey: 'Lock my room tonight (one key per game)',
     keyUsed: 'Your key is used.',
@@ -200,6 +211,10 @@ const tu = makeT({
     info_godfather: 'Fall Guy: you died in the Demon King’s place.',
     info_godfatherSave: 'Fall Guy: a Demon died instead of you.',
     info_scarlet: 'Heir: you are now the Demon King.',
+    info_cultAway: 'You went quiet — your Demon (cultist) role passed to {name}.',
+    info_cultHeir: 'YOU ARE NOW THE CULTIST (Demon). Open your role tile — you see the Demon King and vote kills for evil.',
+    becameCultist: 'YOU ARE NOW THE CULTIST',
+    becameCultistHint: 'Tap your name to open your new Demon role. You are evil now.',
     info_raven: 'Last Glimpse: {list}',
     rarityB: 'B',
     rarityA: 'A',
@@ -273,6 +288,15 @@ const tu = makeT({
     sleepWith: '同房：{names}',
     sleepAlone: '这间房里只有你。',
     cultReach: '调查你房间里的某人',
+    cultKillReach: '击倒你房间里的某人（大桌）',
+    cultVoteReach: '投票今晚谁该死（魔王可见）',
+    cultVotesTitle: '魔的击杀投票',
+    cultVoteLine: '{seat}. {name} → {target}',
+    cultVoteNone: '还没有魔投票。',
+    mustPickFirst: '先选今晚目标，再做作业。',
+    profReach: '调查一名同房（今晚一次——结果立刻显示）',
+    profReachEmpty: '你房间里没有其他人可调查。',
+    profResultNow: '调查结果（即时）：',
     cultReachEmpty: '今晚你房间里没有其他人。',
     lockKey: '今晚锁上我的房间（每局一把钥匙）',
     keyUsed: '你的钥匙已经用掉了。',
@@ -378,6 +402,10 @@ const tu = makeT({
     info_godfather: '替罪：你替魔王死了。',
     info_godfatherSave: '替罪：一名魔替你死了。',
     info_scarlet: '继位：你现在是魔王。',
+    info_cultAway: '你太久没行动——你的魔（邪教徒）身份传给了{name}。',
+    info_cultHeir: '你现在是邪教徒（魔）！点开角色牌——你能看见魔王，并为邪恶阵营投票击杀。',
+    becameCultist: '你现在是邪教徒',
+    becameCultistHint: '点按你的名字查看新的魔身份。你现在属于邪恶阵营。',
     info_raven: '临终一瞥：{list}',
     rarityB: 'B',
     rarityA: 'A',
@@ -402,6 +430,7 @@ const VOICE = {
   dusk: {en: 'Night falls. Everyone, open your homework.', zh: '夜幕降临。所有人，打开你的作业。'},
   slain: {en: '{seat} was slain in the night.', zh: '{seat}在夜里被击倒了。'},
   peaceful: {en: 'Morning comes. Nobody was slain.', zh: '天亮了。昨夜无人被击倒。'},
+  cultTransfer: {en: 'A quiet Demon passed their role to another student.', zh: '一名不活跃的魔把身份传给了另一名学生。'},
   day: {en: 'Skills are open. Talk, move, then mark your suspects.', zh: '可以学习技能了。讨论、移动，然后标出你怀疑的人。'},
   suspect: {en: 'Suspicion vote. Mark who you distrust.', zh: '怀疑投票。标出你不信任的人。'},
   defense: {en: 'The accused may speak.', zh: '被指控者可以发言。'},
@@ -1081,10 +1110,14 @@ const university = {
       task: `${kind}-${s.night}-${s.day}`,
       kind,
       phase: s.phase,
-      urgent: ['roles', 'suspect', 'vote'].includes(kind) || (s.phase === 'night' && roleTargets(s, id).length > 0 && !s.roleTarget[id]),
+      urgent:
+        ['roles', 'suspect', 'vote'].includes(kind) ||
+        (s.phase === 'night' && roleTargets(s, id).length > 0 && !s.roleTarget[id]) ||
+        Boolean(s.cultHeirOf && s.cultHeirOf[id] === s.night && s.role[id] === 'demon'),
       role: s.role[id],
       night: s.night,
       day: s.day,
+      becameCultist: Boolean(s.cultHeirOf && s.cultHeirOf[id] === s.night && s.role[id] === 'demon'),
       dead: Boolean(s.dead[id]),
       ghost: s.dead[id] ? !s.ghost[id] : null,
       me: id,
@@ -1125,19 +1158,39 @@ const university = {
         .filter((p) => s.room[p] === s.room[id])
         .map(player);
     }
-    // Demon investigate: room card for your own bedroom only.
-    if (s.phase === 'night' && !s.dead[id] && s.role[id] === 'demon' && s.room[id]) {
-      const reach = new Set(roleTargets(s, id));
-      const r = s.room[id];
-      v.cultRoomCards = [
-        {
-          id: r,
-          people: alive(s)
-            .filter((p) => s.room[p] === r)
-            .map((p) => ({...player(p), pickable: reach.has(p)})),
-        },
-      ];
+    // Demon kill (large) / Professor investigate: room card for own bedroom.
+    if (s.phase === 'night' && !s.dead[id] && (s.role[id] === 'demon' || s.role[id] === 'professor') && s.room[id]) {
+      if (s.role[id] === 'demon') {
+        v.demonKill = demonCanKill(s);
+        v.demonVote = !v.demonKill;
+      }
+      if (s.role[id] === 'professor' || v.demonKill) {
+        const reach = new Set(roleTargets(s, id));
+        const r = s.room[id];
+        v.cultRoomCards = [
+          {
+            id: r,
+            people: alive(s)
+              .filter((p) => s.room[p] === r)
+              .map((p) => ({...player(p), pickable: reach.has(p)})),
+          },
+        ];
+      }
     }
+    if (s.role[id] === 'professor' && s.roleTarget[id]) {
+      const hit = [...(s.info[id] || [])].reverse().find((x) => x.key === 'prof' && x.player === s.roleTarget[id] && x.night === s.night);
+      if (hit) v.profResult = {player: s.roleTarget[id], evil: hit.evil};
+    }
+    // Demon King sees live Demon kill votes on small tables.
+    if (s.phase === 'night' && !s.dead[id] && s.role[id] === 'demonking' && !demonCanKill(s)) {
+      v.cultVotes = alive(s)
+        .filter((p) => s.role[p] === 'demon' && s.roleTarget[p])
+        .map((p) => ({
+          ...player(p),
+          target: player(s.roleTarget[p]),
+        }));
+    }
+    v.mustPickFirst = mustPickRoleFirst(s, id);
     if (s.phase === 'suspect' || s.phase === 'suspectReveal') {
       v.suspectTargets = alive(s)
         .filter((p) => p !== id)
@@ -1461,6 +1514,12 @@ function UniYouBar({env, view, lang, msLeft}) {
   const cult = view.cult;
   return (
     <div className={styles.youBlock}>
+      {view.becameCultist && (
+        <div className={shell.notice} role="status" style={{borderColor: SIDE_TINT.evil, color: SIDE_TINT.evil, fontWeight: 700}}>
+          <div>{tu(lang, 'becameCultist')}</div>
+          <small style={{fontWeight: 500}}>{tu(lang, 'becameCultistHint')}</small>
+        </div>
+      )}
       <button
         type="button"
         className={`${shell.youBar} ${styles.youRole}`}
@@ -1474,6 +1533,9 @@ function UniYouBar({env, view, lang, msLeft}) {
           <>
             <RoleToken role={view.role} lang={lang} size={40} />
             <span className={styles.youRoleText}>
+              {view.becameCultist && (
+                <b style={{'--side': SIDE_TINT.evil, color: SIDE_TINT.evil}}>{tu(lang, 'becameCultist')}</b>
+              )}
               <b style={{'--side': SIDE_TINT[r.side]}}>{L(r, lang)} · {r.side === 'good' ? tu(lang, 'good') : tu(lang, 'evil')}</b>
               <small>{L(r.ab, lang)}</small>
               {evil && view.role === 'demonking' && (
@@ -1813,49 +1875,102 @@ function UniPhone({view, lang, send}) {
     );
   }
 
-  // Night: room card, skill/role cards only when there is something to do, then homework.
+  // Night: room card, role pick first (blocks homework), then skills / homework.
   if (view.kind === 'night') {
     const hasSkills = !view.dead && (view.spells || []).length > 0;
     const hasRoleAct = !view.dead && (view.roleTarget || (view.roleTargets && view.roleTargets.length > 0));
+    const demonPrompt = view.demonKill ? 'cultKillReach' : view.demonVote ? 'cultVoteReach' : 'cultReach';
     return (
       <div className={styles.nightPhone}>
         <p className={shell.kicker}>{tu(lang, 'night', {n: view.night})}</p>
         {!view.dead && view.sleepRoom && (
           <RoomCard roomId={view.sleepRoom} lang={lang} me={view.me} people={view.roommates || []} />
         )}
-        {hasSkills && (
-          <div className={shell.card}>
-            <b>{tu(lang, 'mySpells')}</b>
-            <SpellList view={view} lang={lang} send={send} night />
-          </div>
-        )}
         {hasRoleAct && (
           <div className={shell.card}>
             <b>{tu(lang, 'roleAction')}</b>
             {view.roleTarget ? (
-              <p>{tu(lang, 'chosen', {name: nm(view.roleTarget)})}</p>
-            ) : view.role === 'demon' ? (
-              <>
-                <p className={shell.muted}>{tu(lang, 'cultReach')}</p>
-                <div className={styles.mapStack}>
-                  {(view.cultRoomCards || []).map((rm) => (
-                    <RoomCard
-                      key={rm.id}
-                      roomId={rm.id}
+              view.role === 'professor' && view.profResult ? (
+                <div>
+                  <p className={shell.muted}>{tu(lang, 'profResultNow')}</p>
+                  <p>
+                    <InfoLine
+                      x={{key: 'prof', player: view.profResult.player, evil: view.profResult.evil}}
+                      view={view}
                       lang={lang}
-                      me={view.me}
-                      people={rm.people}
-                      onPersonClick={(t) => send({action: 'act', target: t})}
                     />
-                  ))}
+                  </p>
                 </div>
+              ) : (
+                <p>{tu(lang, 'chosen', {name: nm(view.roleTarget)})}</p>
+              )
+            ) : (view.role === 'demon' && view.demonKill) || view.role === 'professor' ? (
+              <>
+                <p className={shell.muted}>
+                  {tu(lang, view.role === 'professor' ? 'profReach' : demonPrompt)}
+                </p>
+                {(view.cultRoomCards || []).length ? (
+                  <div className={styles.mapStack}>
+                    {(view.cultRoomCards || []).map((rm) => (
+                      <RoomCard
+                        key={rm.id}
+                        roomId={rm.id}
+                        lang={lang}
+                        me={view.me}
+                        people={rm.people}
+                        onPersonClick={(t) => send({action: 'act', target: t})}
+                      />
+                    ))}
+                  </div>
+                ) : (
+                  <p className={shell.muted}>
+                    {tu(lang, view.role === 'professor' ? 'profReachEmpty' : 'cultReachEmpty')}
+                  </p>
+                )}
               </>
             ) : (
-              <PlayerPick ids={view.roleTargets} view={view} lang={lang} onPick={(t) => send({action: 'act', target: t})} />
+              <>
+                {view.role === 'demon' ? <p className={shell.muted}>{tu(lang, demonPrompt)}</p> : null}
+                <PlayerPick ids={view.roleTargets} view={view} lang={lang} onPick={(t) => send({action: 'act', target: t})} />
+              </>
             )}
           </div>
         )}
-        <Homework view={view} lang={lang} send={send} />
+        {view.role === 'demonking' && view.cultVotes && (
+          <div className={shell.card}>
+            <b>{tu(lang, 'cultVotesTitle')}</b>
+            {(view.cultVotes || []).length === 0 ? (
+              <p className={shell.muted}>{tu(lang, 'cultVoteNone')}</p>
+            ) : (
+              <ul className={styles.cultList}>
+                {view.cultVotes.map((v) => (
+                  <li key={v.id}>
+                    {tu(lang, 'cultVoteLine', {
+                      seat: v.seat,
+                      name: v.name,
+                      target: v.target ? `${v.target.seat}. ${v.target.name}` : '?',
+                    })}
+                  </li>
+                ))}
+              </ul>
+            )}
+          </div>
+        )}
+        {view.mustPickFirst ? (
+          <div className={shell.card}>
+            <p className={shell.muted}>{tu(lang, 'mustPickFirst')}</p>
+          </div>
+        ) : (
+          <>
+            {hasSkills && (
+              <div className={shell.card}>
+                <b>{tu(lang, 'mySpells')}</b>
+                <SpellList view={view} lang={lang} send={send} night />
+              </div>
+            )}
+            <Homework view={view} lang={lang} send={send} />
+          </>
+        )}
         {reviveBox}
       </div>
     );
