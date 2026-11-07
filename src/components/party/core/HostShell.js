@@ -6,6 +6,7 @@ import {apiOverride, createPartySocket} from '@site/src/api/partyClient';
 import {reactionEmoji} from '@site/src/components/BetsAndWagers/logic';
 import {Avatar, ConnectionBadge, Countdown, readJson, writeJson} from '@site/src/components/BetsAndWagers/ui';
 import {LangSwitch, useLang} from '@site/src/components/BetsAndWagers/strings';
+import {rememberBlockedName} from '@site/src/components/BetsAndWagers/names';
 import {
   MAX_SEATS,
   addBot,
@@ -382,12 +383,13 @@ export default function HostShell({mod}) {
     });
 
   const kick = (playerId) => {
-    if (isBotId(playerId)) {
-      commit((draft) => {
-        delete draft.players[playerId];
-      });
-      return;
-    }
+    const p = gameRef.current.players[playerId];
+    if (!p) return;
+    commit((draft) => {
+      draft.blockedNames = rememberBlockedName(draft.blockedNames, p.name);
+      if (isBotId(playerId)) delete draft.players[playerId];
+    });
+    if (isBotId(playerId)) return;
     socketRef.current.send({type: 'kick', playerId});
   };
 

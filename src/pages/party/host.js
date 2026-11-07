@@ -15,6 +15,10 @@ export default function PartyHostPage() {
           const {findGame} = require('@site/src/components/party/registry');
           const mod = findGame(new URLSearchParams(window.location.search).get('game'));
           if (mod) {
+            if (mod.externalUrl) {
+              const ExternalPartyDesk = require('@site/src/components/party/desk/ExternalPartyDesk').default;
+              return <ExternalPartyDesk mod={mod} />;
+            }
             const HostShell = require('@site/src/components/party/core/HostShell').default;
             return <HostShell mod={mod} />;
           }

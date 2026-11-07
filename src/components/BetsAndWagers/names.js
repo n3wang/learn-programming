@@ -68,3 +68,59 @@ export function isGeneratedName(name) {
     (adjective) => base.startsWith(adjective) && NAME_WORDS.zh.nouns.includes(base.slice(adjective.length)),
   );
 }
+
+/** Case-fold + trim for kick-block comparisons. */
+export function normalizeNameKey(name) {
+  return String(name || '').trim().toLowerCase();
+}
+
+/** Levenshtein on Unicode code points (so one Chinese character counts as one edit). */
+export function editDistance(a, b) {
+  const s = Array.from(String(a));
+  const t = Array.from(String(b));
+  if (Math.abs(s.length - t.length) > 1) return Math.abs(s.length - t.length);
+  const rows = s.length + 1;
+  const cols = t.length + 1;
+  const prev = new Array(cols);
+  const cur = new Array(cols);
+  for (let j = 0; j < cols; j++) prev[j] = j;
+  for (let i = 1; i < rows; i++) {
+    cur[0] = i;
+    for (let j = 1; j < cols; j++) {
+      const cost = s[i - 1] === t[j - 1] ? 0 : 1;
+      cur[j] = Math.min(prev[j] + 1, cur[j - 1] + 1, prev[j - 1] + cost);
+    }
+    for (let j = 0; j < cols; j++) prev[j] = cur[j];
+  }
+  return prev[t.length];
+}
+
+/** True if `wanted` matches a blocked name exactly or with one character of difference. */
+export function isBlockedName(wanted, blocked) {
+  const w = normalizeNameKey(wanted);
+  if (!w || !blocked || !blocked.length) return false;
+  return blocked.some((entry) => {
+    const k = normalizeNameKey(entry);
+    return k && editDistance(w, k) <= 1;
+  });
+}
+
+/** Append a kicked name to the room's block list (idempotent). */
+export function rememberBlockedName(blocked, name) {
+  const trimmed = String(name || '').trim();
+  if (!trimmed) return blocked || [];
+  const list = Array.isArray(blocked) ? [...blocked] : [];
+  const key = normalizeNameKey(trimmed);
+  if (list.some((entry) => normalizeNameKey(entry) === key)) return list;
+  list.push(trimmed);
+  return list;
+}
+
+/** Like generateName, but skip anything near a blocked kick name. */
+export function generateUnblockedName(lang = 'en', taken = [], blocked = [], rng = Math.random) {
+  for (let attempt = 0; attempt < 80; attempt++) {
+    const name = generateName(lang, taken, rng);
+    if (!isBlockedName(name, blocked)) return name;
+  }
+  return generateName(lang, taken, rng);
+}

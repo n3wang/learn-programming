@@ -41,7 +41,7 @@ import {
 import {AnimatedBank, AtLeastNumber, Avatar, Coin, CoinPile, ConnectionBadge, Countdown, QuestionImage, RevealNote, boardDensity, readJson, writeJson} from './ui';
 import {noteFor, noteFromResult} from '@site/src/data/party/notes';
 import {LangSwitch, t, useLang} from './strings';
-import {generateName, isGeneratedName} from './names';
+import {generateUnblockedName, isBlockedName, isGeneratedName, rememberBlockedName} from './names';
 import {playSfx, playSfxBurst, usePartySfx} from '@site/src/components/party/core/sfx';
 import GamePicker from '@site/src/components/party/core/GamePicker';
 import styles from './styles.module.css';
@@ -70,10 +70,12 @@ function defaultLockedNames() {
 
 /** Locked rooms keep only generated names; anything typed is swapped for one. */
 function renameUnsafePlayers(g, lang) {
-  if (!g.lockedNames) return;
+  const blocked = g.blockedNames || [];
   for (const p of Object.values(g.players)) {
-    if (isGeneratedName(p.name)) continue;
-    p.name = generateName(lang, Object.values(g.players).map((other) => other.name));
+    const others = Object.values(g.players).filter((other) => other !== p).map((other) => other.name);
+    if (isBlockedName(p.name, blocked) || (g.lockedNames && !isGeneratedName(p.name))) {
+      p.name = generateUnblockedName(lang, others, blocked);
+    }
   }
 }
 
@@ -83,6 +85,8 @@ function newGame(settings = {}) {
     packs: settings.packs || PACKS.map((pack) => pack.id),
     rounds: settings.rounds || 7,
     lockedNames: typeof settings.lockedNames === 'boolean' ? settings.lockedNames : defaultLockedNames(),
+    /** Names kicked this room — exact or 1 character off is refused on join. */
+    blockedNames: Array.isArray(settings.blockedNames) ? [...settings.blockedNames] : [],
     players: {},
     questionIds: [],
     dealtAt: 0,
@@ -95,6 +99,17 @@ function newGame(settings = {}) {
     result: null,
     nextBot: 1,
   };
+}
+
+function admitWagersName(g, wanted, lang, others) {
+  const blocked = g.blockedNames || [];
+  const raw = String(wanted || '').trim();
+  if (isBlockedName(raw, blocked) || (g.lockedNames && !isGeneratedName(raw))) {
+    return generateUnblockedName(lang, others, blocked);
+  }
+  const unique = uniqueName(raw, others);
+  if (isBlockedName(unique, blocked)) return generateUnblockedName(lang, others, blocked);
+  return unique;
 }
 
 function resetCoins(players) {
@@ -122,7 +137,7 @@ function addBotSeat(g, lang) {
   g.nextBot = n + 1;
   const id = `${BOT_ID_PREFIX}${n}`;
   seatPlayer(g, id, {
-    name: generateName(lang, Object.values(g.players).map((p) => p.name)),
+    name: generateUnblockedName(lang, Object.values(g.players).map((p) => p.name), g.blockedNames || []),
     avatar: randomAvatar(),
     bot: true,
   });
@@ -143,8 +158,9 @@ function migrateGame(raw) {
     if (isBot(p, id)) p.connected = true;
   }
   const stale = g.phase !== 'lobby' && g.dealtAt && Date.now() - g.dealtAt > STALE_DEAL_MS;
+  if (!Array.isArray(g.blockedNames)) g.blockedNames = [];
   if (g.phase === 'end' || stale) {
-    const next = newGame({packs: g.packs, rounds: g.rounds, lockedNames: g.lockedNames});
+    const next = newGame({packs: g.packs, rounds: g.rounds, lockedNames: g.lockedNames, blockedNames: g.blockedNames});
     next.players = g.players || {};
     resetCoins(next.players);
     return next;
@@ -385,6 +401,7 @@ export default function HostScreen() {
         commit((g) => {
           if (!sameRoom) {
             Object.assign(g, newGame({packs: g.packs, rounds: g.rounds, lockedNames: g.lockedNames}));
+            // Fresh room code → clear kick blocks from the previous room.
             return;
           }
           for (const [playerId, p] of Object.entries(g.players)) {
@@ -410,19 +427,15 @@ export default function HostScreen() {
             // A rejoin from the lobby may carry a newly picked avatar or name.
             if (isValidAvatar(msg.avatar)) existing.avatar = msg.avatar;
             const others = Object.entries(g.players).filter(([pid]) => pid !== id).map(([, p]) => p.name);
-            if (msg.name && msg.name !== existing.name && (!g.lockedNames || isGeneratedName(msg.name))) {
-              existing.name = uniqueName(msg.name, others);
+            if (msg.name && msg.name !== existing.name) {
+              existing.name = admitWagersName(g, msg.name, lang, others);
             }
             return;
           }
           if (Object.keys(g.players).length >= MAX_PLAYERS) return false;
-          const others = Object.values(g.players);
+          const others = Object.values(g.players).map((p) => p.name);
           seatPlayer(g, id, {
-            // Locked rooms never show a typed name, even from a tampered phone.
-            name:
-              g.lockedNames && !isGeneratedName(msg.name)
-                ? generateName(lang, others.map((p) => p.name))
-                : uniqueName(msg.name, others.map((p) => p.name)),
+            name: admitWagersName(g, msg.name, lang, others),
             avatar: isValidAvatar(msg.avatar) ? msg.avatar : null,
           });
         });
@@ -594,7 +607,7 @@ export default function HostScreen() {
   const resetToLobby = () =>
     commit((g) => {
       const players = g.players;
-      Object.assign(g, newGame({packs: g.packs, rounds: g.rounds, lockedNames: g.lockedNames}));
+      Object.assign(g, newGame({packs: g.packs, rounds: g.rounds, lockedNames: g.lockedNames, blockedNames: g.blockedNames}));
       g.players = players;
       resetCoins(players);
     });
@@ -643,6 +656,9 @@ export default function HostScreen() {
   const kick = (playerId) => {
     const p = gameRef.current.players[playerId];
     if (!p || !window.confirm(t(lang, 'removeConfirm', {name: p.name}))) return;
+    commit((g) => {
+      g.blockedNames = rememberBlockedName(g.blockedNames, p.name);
+    });
     if (isBot(p, playerId)) {
       commit((g, now) => {
         delete g.players[playerId];

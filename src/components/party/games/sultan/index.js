@@ -53,6 +53,15 @@ const tg = makeT({
     hand: 'Your hand',
     city: 'Your city',
     yourChars: 'Your characters',
+    tapPreview: 'Tap a card to preview',
+    closePreview: 'Close',
+    pickThis: 'Pick this character',
+    keepThis: 'Keep this card',
+    buildThis: 'Build this district',
+    type: 'Type',
+    cost: 'Cost',
+    number: 'Number',
+    frame: 'Colour',
     gold: '{n} coins',
     ability: 'Ability',
     abilityLeft: 'Ability ({n} left)',
@@ -168,6 +177,15 @@ const tg = makeT({
     hand: '你的手牌',
     city: '你的城市',
     yourChars: '你的角色',
+    tapPreview: '点卡片可预览',
+    closePreview: '关闭',
+    pickThis: '选择这个角色',
+    keepThis: '留下这张牌',
+    buildThis: '建造这个区域',
+    type: '类型',
+    cost: '费用',
+    number: '号码',
+    frame: '颜色',
     gold: '{n} 金币',
     ability: '能力',
     abilityLeft: '能力（还可用 {n} 次）',
@@ -335,6 +353,88 @@ function DistrictCard({k, lang, size = 60, invest = 0}) {
 
 function EventCard({ev, lang, size = 56}) {
   return <Sprite path={`sultan/${EVENT_ART[ev.kind]}-${ev.frame}.webp`} emoji="📜" label={L(EVENTS[ev.kind], lang)} tint={FRAMES[ev.frame].tint} shape="tall" size={`${size}px`} />;
+}
+
+/** Full-card peek: large art + side text. Optional `action` runs a pick/build/keep. */
+function CardInspect({item, lang, onClose}) {
+  if (!item) return null;
+  let art = null;
+  let title = '';
+  let rows = [];
+  let ability = '';
+  if (item.kind === 'char') {
+    const c = charOf(item.key);
+    if (!c) return null;
+    art = <CharCard k={item.key} lang={lang} size={168} stats />;
+    title = charName(item.key, lang);
+    rows = [
+      [tg(lang, 'number'), c.n == null ? '–' : String(c.n)],
+      [tg(lang, 'frame'), L(FRAMES[c.frame], lang)],
+      [tg(lang, 'combat'), String(c.combat)],
+      [tg(lang, 'charisma'), String(c.charisma)],
+    ];
+    ability = L(c.ab, lang);
+    if (item.married) ability = `${ability}\n${tg(lang, 'married', {name: charName(item.married, lang)})}`;
+  } else if (item.kind === 'district') {
+    const d = DISTRICT[item.key];
+    if (!d) return null;
+    art = <DistrictCard k={item.key} lang={lang} size={150} invest={item.invest || 0} />;
+    title = L(d, lang);
+    rows = [
+      [tg(lang, 'type'), L(TYPES[d.type], lang)],
+      [tg(lang, 'cost'), String(d.cost)],
+    ];
+    if (item.invest > 0) rows.push([tg(lang, 'value', {n: d.cost + item.invest}), '']);
+    ability = d.note ? L(d.note, lang) : '';
+  } else if (item.kind === 'event') {
+    const ev = EVENTS[item.key];
+    if (!ev) return null;
+    art = <EventCard ev={{kind: item.key, frame: item.frame}} lang={lang} size={150} />;
+    title = L(ev, lang);
+    rows = [
+      [tg(lang, 'frame'), L(FRAMES[item.frame], lang)],
+      [tg(lang, 'ability'), tg(lang, ev.stat === 'combat' ? 'combat' : 'charisma')],
+    ];
+    ability = L(ev.ab, lang);
+  }
+  return (
+    <div className={styles.inspectScrim} role="dialog" aria-modal="true" aria-label={title} onClick={onClose}>
+      <div className={styles.inspectPanel} onClick={(e) => e.stopPropagation()}>
+        <div className={styles.inspectArt}>{art}</div>
+        <div className={styles.inspectText}>
+          <h3 className={styles.inspectTitle}>{title}</h3>
+          <dl className={styles.inspectMeta}>
+            {rows.map(([label, value], i) =>
+              value === '' && !label ? null : (
+                <div key={i} className={styles.inspectRow}>
+                  <dt>{label}</dt>
+                  {value !== '' && <dd>{value}</dd>}
+                </div>
+              ),
+            )}
+          </dl>
+          {ability && <p className={styles.inspectAbility}>{ability}</p>}
+          <div className={styles.inspectActions}>
+            {item.action && (
+              <button
+                type="button"
+                className="button button--primary"
+                disabled={item.action.disabled}
+                onClick={() => {
+                  item.action.onClick();
+                  onClose();
+                }}>
+                {item.action.label}
+              </button>
+            )}
+            <button type="button" className="button button--secondary" onClick={onClose}>
+              {tg(lang, 'closePreview')}
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
 }
 
 const coin = <Sprite path="sultan/token-coin.webp" emoji="🪙" label="" tint="#d9a520" shape="token" size="18px" />;
@@ -702,6 +802,14 @@ function LogLine({e, lang, name}) {
 // ------------------------------------------------------------------ phone
 
 function SultanPhone({view, lang, send}) {
+  const [inspect, setInspect] = useState(null);
+  const closeInspect = () => setInspect(null);
+  const openChar = (key, extra = {}) => setInspect({kind: 'char', key, ...extra});
+  const openDistrict = (key, extra = {}) => setInspect({kind: 'district', key, ...extra});
+  const openEvent = (ev) => setInspect({kind: 'event', key: ev.kind, frame: ev.frame});
+
+  const modal = <CardInspect item={inspect} lang={lang} onClose={closeInspect} />;
+
   const status = (
     <div className={shell.card}>
       <p className={shell.kicker}>
@@ -710,12 +818,15 @@ function SultanPhone({view, lang, send}) {
       {view.mine.length > 0 && (
         <>
           <p className={shell.kicker}>{tg(lang, 'yourChars')}</p>
+          <p className={shell.muted}>{tg(lang, 'tapPreview')}</p>
           <div className={styles.cards}>
             {view.mine.map((c) => (
-              <span key={c.key} className={styles.charWrap}>
-                <CharCard k={c.key} lang={lang} size={46} stats={view.statsOn} />
-                {c.married && <small>{tg(lang, 'married', {name: charName(c.married, lang)})}</small>}
-              </span>
+              <button key={c.key} type="button" className={styles.cardButton} onClick={() => openChar(c.key, {married: c.married || null})}>
+                <span className={styles.charWrap}>
+                  <CharCard k={c.key} lang={lang} size={46} stats={view.statsOn} />
+                  {c.married && <small>{tg(lang, 'married', {name: charName(c.married, lang)})}</small>}
+                </span>
+              </button>
             ))}
           </div>
         </>
@@ -725,7 +836,9 @@ function SultanPhone({view, lang, send}) {
       </p>
       <div className={styles.cards}>
         {view.city.map((c) => (
-          <DistrictCard key={c.uid} k={c.key} lang={lang} size={40} invest={c.invest} />
+          <button key={c.uid} type="button" className={styles.cardButton} onClick={() => openDistrict(c.key, {invest: c.invest})}>
+            <DistrictCard k={c.key} lang={lang} size={40} invest={c.invest} />
+          </button>
         ))}
       </div>
     </div>
@@ -733,9 +846,12 @@ function SultanPhone({view, lang, send}) {
   const handView = (
     <div className={shell.card}>
       <p className={shell.kicker}>{tg(lang, 'hand')}</p>
+      <p className={shell.muted}>{tg(lang, 'tapPreview')}</p>
       <div className={styles.cards}>
         {view.hand.map((c) => (
-          <DistrictCard key={c.uid} k={c.key} lang={lang} size={48} />
+          <button key={c.uid} type="button" className={styles.cardButton} onClick={() => openDistrict(c.key)}>
+            <DistrictCard k={c.key} lang={lang} size={48} />
+          </button>
         ))}
       </div>
     </div>
@@ -746,17 +862,40 @@ function SultanPhone({view, lang, send}) {
       <>
         <div className={`${shell.card} ${shell.bigText}`}>{tg(lang, 'points', {n: view.score})}</div>
         {status}
+        {modal}
       </>
     );
   }
-  if (view.kind === 'prompt') return <PromptCard view={view} lang={lang} send={send} />;
+  if (view.kind === 'prompt') {
+    return (
+      <>
+        <PromptCard view={view} lang={lang} send={send} openChar={openChar} />
+        {modal}
+      </>
+    );
+  }
   if (view.kind === 'draft') {
     return (
       <>
         <p className={shell.bigText}>{tg(lang, 'pickChar', {n: view.picksLeft})}</p>
+        <p className={shell.muted}>{tg(lang, 'tapPreview')}</p>
         <div className={styles.cards}>
           {view.available.map((c) => (
-            <button key={c.key} type="button" className={`${styles.cardButton} ${styles.draftOption}`} disabled={!c.ok} onClick={() => send({action: 'draft', card: c.key})}>
+            <button
+              key={c.key}
+              type="button"
+              className={`${styles.cardButton} ${styles.draftOption}`}
+              onClick={() =>
+                openChar(c.key, {
+                  married: c.married || null,
+                  action: c.ok
+                    ? {
+                        label: tg(lang, 'pickThis'),
+                        onClick: () => send({action: 'draft', card: c.key}),
+                      }
+                    : {label: tg(lang, 'pickThis'), disabled: true},
+                })
+              }>
               <CharCard k={c.key} lang={lang} size={70} stats={view.statsOn} />
               <span className={styles.abilityText}>{L(charOf(c.key).ab, lang)}</span>
               {c.married && <small>{tg(lang, 'married', {name: charName(c.married, lang)})}</small>}
@@ -764,6 +903,7 @@ function SultanPhone({view, lang, send}) {
           ))}
         </div>
         {status}
+        {modal}
       </>
     );
   }
@@ -771,7 +911,9 @@ function SultanPhone({view, lang, send}) {
     const ev = view.events.find((e) => e.kind === 'pyrrhic');
     return (
       <>
-        <EventCard ev={ev} lang={lang} size={70} />
+        <button type="button" className={styles.cardButton} onClick={() => openEvent(ev)}>
+          <EventCard ev={ev} lang={lang} size={70} />
+        </button>
         <p className={shell.bigText}>{tg(lang, 'challengeWho')}</p>
         <div className={shell.choiceGrid}>
           {view.targets.map((p) => (
@@ -782,21 +924,30 @@ function SultanPhone({view, lang, send}) {
         </div>
         <p className={shell.muted}>{tg(lang, 'skip')}: {tg(lang, 'waiting')}</p>
         {status}
+        {modal}
       </>
     );
   }
-  if (view.kind === 'turn') return <TurnView view={view} lang={lang} send={send} status={status} handView={handView} />;
+  if (view.kind === 'turn') {
+    return (
+      <>
+        <TurnView view={view} lang={lang} send={send} status={status} handView={handView} openChar={openChar} openDistrict={openDistrict} openEvent={openEvent} />
+        {modal}
+      </>
+    );
+  }
   return (
     <>
       <p className={shell.waiting}>{view.legacy ? tg(lang, 'legacy') : view.waitFor ? tg(lang, 'waitFor', {name: view.waitFor}) : view.turnDone ? tg(lang, 'turnDone') : view.mine.length ? tg(lang, 'nobodyCalled') : tg(lang, 'waitDraft')}</p>
       {view.calling != null && <div className={shell.card}>{tg(lang, 'calling', {n: view.calling})}</div>}
       {status}
       {handView}
+      {modal}
     </>
   );
 }
 
-function PromptCard({view, lang, send}) {
+function PromptCard({view, lang, send, openChar}) {
   const p = view.prompt;
   const yesNo = (yesLabel, noLabel) => (
     <div className={shell.choiceGrid}>
@@ -812,7 +963,9 @@ function PromptCard({view, lang, send}) {
     <div className={shell.card}>
       {p.kind === 'shield' && (
         <>
-          <CharCard k="priest" lang={lang} size={70} />
+          <button type="button" className={styles.cardButton} onClick={() => openChar && openChar('priest')}>
+            <CharCard k="priest" lang={lang} size={70} />
+          </button>
           <p className={shell.bigText}>{tg(lang, 'p_shield', {name: p.from, what: tg(lang, `eff_${p.what}`)})}</p>
           {yesNo(tg(lang, 'useShield'), tg(lang, 'noShield'))}
         </>
@@ -834,7 +987,20 @@ function PromptCard({view, lang, send}) {
           <p className={shell.bigText}>{tg(lang, 'p_champion')}</p>
           <div className={styles.cards}>
             {p.cards.map((k) => (
-              <button key={k} type="button" className={styles.cardButton} onClick={() => send({action: 'answer', card: k})}>
+              <button
+                key={k}
+                type="button"
+                className={styles.cardButton}
+                onClick={() =>
+                  openChar
+                    ? openChar(k, {
+                        action: {
+                          label: tg(lang, 'pickThis'),
+                          onClick: () => send({action: 'answer', card: k}),
+                        },
+                      })
+                    : send({action: 'answer', card: k})
+                }>
                 <CharCard k={k} lang={lang} size={70} stats />
               </button>
             ))}
@@ -844,9 +1010,13 @@ function PromptCard({view, lang, send}) {
       {p.kind === 'date' && (
         <>
           <div className={styles.cards}>
-            <CharCard k={p.mine} lang={lang} size={60} stats />
+            <button type="button" className={styles.cardButton} onClick={() => openChar && openChar(p.mine)}>
+              <CharCard k={p.mine} lang={lang} size={60} stats />
+            </button>
             <span className={shell.bigText}>+</span>
-            <CharCard k={p.other} lang={lang} size={60} stats />
+            <button type="button" className={styles.cardButton} onClick={() => openChar && openChar(p.other)}>
+              <CharCard k={p.other} lang={lang} size={60} stats />
+            </button>
           </div>
           <p>{tg(lang, 'p_date', {name: p.from, mine: charName(p.mine, lang), other: charName(p.other, lang)})}</p>
           {yesNo(tg(lang, 'agree'), tg(lang, 'refuse'))}
@@ -862,7 +1032,7 @@ function PromptCard({view, lang, send}) {
   );
 }
 
-function TurnView({view, lang, send, status, handView}) {
+function TurnView({view, lang, send, status, handView, openChar, openDistrict, openEvent}) {
   const tv = view.turn;
   const c = charOf(tv.card);
   const act = (msg) => send({...msg, card: tv.card});
@@ -872,7 +1042,9 @@ function TurnView({view, lang, send, status, handView}) {
   const [gifts, setGifts] = useState({});
   const header = (
     <div className={styles.turnHead}>
-      <CharCard k={tv.card} lang={lang} size={56} stats={view.statsOn} />
+      <button type="button" className={styles.cardButton} onClick={() => openChar(tv.card)}>
+        <CharCard k={tv.card} lang={lang} size={56} stats={view.statsOn} />
+      </button>
       <div>
         <p className={shell.bigText}>{tg(lang, 'yourTurn', {name: lang === 'zh' ? c.zh : c.en})}</p>
         <p className={shell.muted}>{L(c.ab, lang)}</p>
@@ -902,7 +1074,18 @@ function TurnView({view, lang, send, status, handView}) {
         <p className={shell.bigText}>{tg(lang, 'keepOne')}</p>
         <div className={styles.cards}>
           {tv.drawn.map((d) => (
-            <button key={d.uid} type="button" className={styles.cardButton} onClick={() => act({action: 'keep', uid: d.uid})}>
+            <button
+              key={d.uid}
+              type="button"
+              className={styles.cardButton}
+              onClick={() =>
+                openDistrict(d.key, {
+                  action: {
+                    label: tg(lang, 'keepThis'),
+                    onClick: () => act({action: 'keep', uid: d.uid}),
+                  },
+                })
+              }>
               <DistrictCard k={d.key} lang={lang} size={84} />
             </button>
           ))}
@@ -937,7 +1120,18 @@ function TurnView({view, lang, send, status, handView}) {
         guessTarget ? (
           <div className={styles.cards}>
             {tv.guesses.map((g) => (
-              <button key={g} type="button" className={styles.cardButton} onClick={() => act({action: 'guess', target: guessTarget, guess: g})}>
+              <button
+                key={g}
+                type="button"
+                className={styles.cardButton}
+                onClick={() =>
+                  openChar(g, {
+                    action: {
+                      label: tg(lang, 'pickThis'),
+                      onClick: () => act({action: 'guess', target: guessTarget, guess: g}),
+                    },
+                  })
+                }>
                 <CharCard k={g} lang={lang} size={40} />
               </button>
             ))}
@@ -982,7 +1176,18 @@ function TurnView({view, lang, send, status, handView}) {
         tg(lang, 'reserve'),
         <div className={styles.cards}>
           {tv.unpicked.map((u) => (
-            <button key={u} type="button" className={styles.cardButton} onClick={() => act({action: 'reserve', pick: u})}>
+            <button
+              key={u}
+              type="button"
+              className={styles.cardButton}
+              onClick={() =>
+                openChar(u, {
+                  action: {
+                    label: tg(lang, 'reserve'),
+                    onClick: () => act({action: 'reserve', pick: u}),
+                  },
+                })
+              }>
               <CharCard k={u} lang={lang} size={40} />
             </button>
           ))}
@@ -1033,7 +1238,18 @@ function TurnView({view, lang, send, status, handView}) {
           tg(lang, 'stealPick'),
           <div className={styles.cards}>
             {tv.stealFrom.map((d) => (
-              <button key={d.uid} type="button" className={styles.cardButton} onClick={() => act({action: 'steal', uid: d.uid})}>
+              <button
+                key={d.uid}
+                type="button"
+                className={styles.cardButton}
+                onClick={() =>
+                  openDistrict(d.key, {
+                    action: {
+                      label: tg(lang, 'stealPick'),
+                      onClick: () => act({action: 'steal', uid: d.uid}),
+                    },
+                  })
+                }>
                 <DistrictCard k={d.key} lang={lang} size={48} />
               </button>
             ))}
@@ -1061,10 +1277,10 @@ function TurnView({view, lang, send, status, handView}) {
           <b>{tg(lang, 'events')}</b>
           <div className={styles.cards}>
             {view.events.map((e) => (
-              <span key={e.kind} className={styles.eventSlot} data-used={Boolean(e.usedBy) || !e.can}>
+              <button key={e.kind} type="button" className={`${styles.cardButton} ${styles.eventSlot}`} data-used={Boolean(e.usedBy) || !e.can} onClick={() => openEvent(e)}>
                 <EventCard ev={e} lang={lang} size={40} />
                 <small>{tg(lang, 'eventNeeds', {frame: L(FRAMES[e.frame], lang), price: e.price})}</small>
-              </span>
+              </button>
             ))}
           </div>
           {ev('marriage') && tv.dates.length > 0 && !tv.waiting && (
@@ -1072,7 +1288,18 @@ function TurnView({view, lang, send, status, handView}) {
               <p className={shell.kicker}>{tg(lang, 'marry')}</p>
               <div className={styles.cards}>
                 {tv.dates.map((d) => (
-                  <button key={d.key} type="button" className={styles.cardButton} onClick={() => act({action: 'marry', mine: tv.card, other: d.key})}>
+                  <button
+                    key={d.key}
+                    type="button"
+                    className={styles.cardButton}
+                    onClick={() =>
+                      openChar(d.key, {
+                        action: {
+                          label: tg(lang, 'marry'),
+                          onClick: () => act({action: 'marry', mine: tv.card, other: d.key}),
+                        },
+                      })
+                    }>
                     <CharCard k={d.key} lang={lang} size={40} stats />
                     <small>{d.owner}</small>
                   </button>
@@ -1143,9 +1370,22 @@ function TurnView({view, lang, send, status, handView}) {
       )}
       <p className={shell.kicker}>{tg(lang, 'build', {n: tv.buildLeft})}</p>
       <div className={shell.card}>
+        <p className={shell.muted}>{tg(lang, 'tapPreview')}</p>
         <div className={styles.cards}>
           {view.hand.map((h) => (
-            <button key={h.uid} type="button" className={styles.cardButton} disabled={!h.ok} onClick={() => act({action: 'build', uid: h.uid})}>
+            <button
+              key={h.uid}
+              type="button"
+              className={styles.cardButton}
+              onClick={() =>
+                openDistrict(h.key, {
+                  action: {
+                    label: tg(lang, 'buildThis'),
+                    disabled: !h.ok,
+                    onClick: () => act({action: 'build', uid: h.uid}),
+                  },
+                })
+              }>
               <DistrictCard k={h.key} lang={lang} size={60} />
             </button>
           ))}
