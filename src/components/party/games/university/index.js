@@ -191,8 +191,12 @@ const tu = makeT({
     info_flower: 'Flower Watch: a Demon King {answer} vote yes yesterday.',
     did: 'DID',
     didNot: 'did not',
-    info_secondwind: 'Second Wind saved you from being slain!',
-    info_soldier: 'Iron Student: the Demon King’s slay failed on you.',
+    info_secondwind: 'Second Wind: a night-slay failed on you (votes can still expel you).',
+    info_soldier: 'Iron Student: the Demon King’s night-slay failed on you.',
+    info_dormplate: 'Dorm Armor: a non–Demon King night-slay failed on you.',
+    info_golemhide: 'Stone Skin: you were alone — the night-slay failed.',
+    info_cultGuard: 'Your Demon bond blocked the Demon King’s night-slay.',
+    info_cultGuardKing: 'Your night-slay failed: {name} is a Demon (protected).',
     info_gifted: '{name} gave you {n} Knowledge.',
     info_chamber: 'Same Dorm: {name} is {align}.',
     info_drunk: 'Tipsy Alibi: {name} is truly {align}.',
@@ -227,6 +231,16 @@ const tu = makeT({
     reviveNone: 'Off',
     demonKillAt: 'Demon roommate-kill when alive above',
     demonKillAtHint: 'At or below this many living players, Demons vote a kill; above it, they slay a roommate.',
+    showRooms: 'Show who is in each room (day, big screen)',
+    showRoomsOn: 'Show names',
+    showRoomsOff: 'Hide names (icons still show)',
+    showRoomsHint: 'Day only on the host screen. Night stays secret either way. Avatars always appear on room cards.',
+    showHwPop: 'Homework +1/−1 floats on rooms',
+    showHwPopOn: 'On',
+    showHwPopOff: 'Off',
+    showHwPopHint: 'When someone scores homework, a +1 or −1 floats up from their room with their icon.',
+    spellCost: 'Knowledge to learn a skill',
+    spellCostHint: 'Cost to draw 2 skills and keep 1.',
     tables: 'Homework questions',
     sec: '{n} s',
     min: '{n} min',
@@ -384,8 +398,12 @@ const tu = makeT({
     info_flower: '花之守望：昨天魔王{answer}投赞成票。',
     did: '有',
     didNot: '没有',
-    info_secondwind: '回气救了你，你没有被击倒！',
-    info_soldier: '铁生：魔王对你的击倒失败了。',
+    info_secondwind: '回气：一次夜晚击倒对你失败了（投票仍可开除你）。',
+    info_soldier: '铁生：魔王的夜晚击倒对你失败了。',
+    info_dormplate: '寝甲：一次非魔王夜晚击倒对你失败了。',
+    info_golemhide: '石肤：你独自在房——夜晚击倒失败了。',
+    info_cultGuard: '魔的羁绊挡住了魔王的夜晚击倒。',
+    info_cultGuardKing: '你的夜晚击倒失败了：{name} 是魔（受保护）。',
     info_gifted: '{name} 送给你 {n} 点知识。',
     info_chamber: '同寝：{name} 是{align}的。',
     info_drunk: '醉辩：{name} 真实阵营是{align}。',
@@ -420,6 +438,16 @@ const tu = makeT({
     reviveNone: '关闭',
     demonKillAt: '存活超过此人数时魔可击倒同房',
     demonKillAtHint: '存活人数不超过该值时魔投票击杀；超过后改为击倒同房。',
+    showRooms: '白天大屏显示各房间里有谁',
+    showRoomsOn: '显示名字',
+    showRoomsOff: '隐藏名字（仍显示头像）',
+    showRoomsHint: '仅白天大屏。夜晚无论怎样都保密。房间卡上始终显示头像。',
+    showHwPop: '作业 ±1 从房间飘出',
+    showHwPopOn: '开',
+    showHwPopOff: '关',
+    showHwPopHint: '有人答对/答错作业时，对应房间飘出带头像的 +1 或 −1。',
+    spellCost: '学习技能所需知识',
+    spellCostHint: '花这些知识抽出 2 个技能并留下 1 个。',
     tables: '作业题型',
     sec: '{n} 秒',
     min: '{n} 分钟',
@@ -469,6 +497,8 @@ function RoomCard({
   onRoomClick,
   onPersonClick,
   me = null,
+  pops = null,
+  onPopDone = null,
 }) {
   const [named, setNamed] = useState(null);
   if (!ROOMS[roomId]) return null;
@@ -500,20 +530,42 @@ function RoomCard({
     <>
       <div className={styles.roomArt} aria-hidden="true">
         <RoomPlan r={roomId} size={120} />
+        {pops && pops.length > 0 && (
+          <span className={styles.hwPopLayer} aria-hidden="true">
+            {pops.map((pop, i) => (
+              <span
+                key={pop.key}
+                className={styles.hwFloat}
+                data-neg={pop.n < 0 || undefined}
+                style={{animationDelay: `${Math.min(i, 6) * 70}ms`}}
+                onAnimationEnd={() => onPopDone && onPopDone(pop.key)}
+              >
+                {pop.avatar != null || pop.color != null ? (
+                  <Avatar avatar={pop.avatar} color={pop.color} size="xs" />
+                ) : null}
+                <b>{pop.n > 0 ? '+1' : '−1'}</b>
+              </span>
+            ))}
+          </span>
+        )}
       </div>
       <div className={styles.roomInfo}>
         <span className={styles.roomHead}>
           <b>{L(ROOMS[roomId], lang)}</b>
           {locked && <span className={styles.lockTag}>{tu(lang, 'lockedTag')}</span>}
         </span>
-        {secret && countLabel && <span className={styles.roomCount}>{countLabel}</span>}
-        {secret && !countLabel && <span className={shell.muted}>{tu(lang, 'roomsSecret')}</span>}
+        {secret && !(people && people.length) && countLabel && (
+          <span className={styles.roomCount}>{countLabel}</span>
+        )}
+        {secret && !(people && people.length) && !countLabel && (
+          <span className={shell.muted}>{tu(lang, 'roomsSecret')}</span>
+        )}
         {!secret && people && people.length === 0 && <span className={shell.muted}>{tu(lang, 'sleepAlone')}</span>}
-        {!secret && people && people.length > 0 && (
+        {people && people.length > 0 && (
           <span className={styles.people}>
             {people.map((p) => {
-              const role = p.role && ROLES[p.role];
-              const showName = named === p.id;
+              const role = !secret && p.role && ROLES[p.role];
+              const showName = !secret && named === p.id;
               return (
                 <button
                   key={p.id}
@@ -522,16 +574,21 @@ function RoomCard({
                   data-me={p.id === me || undefined}
                   data-dead={p.dead || undefined}
                   data-named={showName || undefined}
+                  data-secret={secret || undefined}
                   aria-pressed={showName}
-                  aria-label={showName ? p.name : `${p.seat}`}
-                  title={p.name}
+                  aria-label={secret ? `${p.seat}` : showName ? p.name : `${p.seat}`}
+                  title={secret ? undefined : p.name}
                   onClick={(e) => {
                     e.stopPropagation();
+                    if (secret) {
+                      if (p.pickable && onPersonClick) onPersonClick(p.id);
+                      return;
+                    }
                     setNamed((cur) => (cur === p.id ? null : p.id));
                     if (p.pickable && onPersonClick) onPersonClick(p.id);
                   }}>
                   <Avatar avatar={p.avatar} color={p.color} size="sm" />
-                  <small>{p.seat}</small>
+                  {!secret && <small>{p.seat}</small>}
                   {showName && <span className={styles.personName}>{p.name}</span>}
                   {role && (
                     <em className={styles.roleTag} data-evil={role.side === 'evil' || undefined}>
@@ -594,7 +651,7 @@ function botMove(s, g, id, ctx) {
     return null;
   }
   if (s.phase === 'day' || s.phase === 'dawn' || s.phase === 'suspect') {
-    if (rng() < 0.02 && canLearn(s, id) && s.knowledge[id] >= SPELL_COST) {
+    if (rng() < 0.02 && canLearn(s, id) && s.knowledge[id] >= (s.spellCost || SPELL_COST)) {
       if (s.offer && s.offer[id] && s.offer[id].length) return {action: 'pick', spell: pick(s.offer[id], rng)};
       return {action: 'draw'};
     }
@@ -635,14 +692,14 @@ const RULEBOOK = {
     {title: 'A night', items: ['Everyone does homework: correct answers earn 1 Knowledge and 1 Grade; wrong answers lose 1 of each.', 'Use skills and role actions on your phone. Everyone has those screens, so nobody can tell who acts.', 'Professors learn if a player is good or evil. Demons learn if a roommate is a Professor. Demon Kings may slay any living player (not on night 1; locks can block).']},
     {title: 'A day', items: ['Talk, move to another room, learn a skill (draw 2, keep 1), use day skills.', 'Then everyone marks one suspect. The top accused defend (about 1 per 4 players — 3 for a table of 12; fewer if not enough people were named).', 'After the defense, everyone picks one accused to expel, or nobody. Most votes wins; a tie expels nobody.']},
     {title: 'Rooms and locks', items: ['Campus opens about 1 room per 3 players (2 at 6, 3 at 9, max 5). Who sleeps where is hidden by day.', 'At night your phone shows only your room and who is with you. “In your room” skills use that secret layout.', 'Demons only investigate other players in their own room. Demons know the Demon King; the King does not know the Demons.', 'Each player has one key per game. A locked room keeps out a Demon King who sleeps somewhere else.']},
-    {title: 'Skills', items: [`Pay ${SPELL_COST} Knowledge to draw 2 skills (weighted B/A/S) and keep one — the card shows its rank. Hold at most ${MAX_SPELLS} (one passive). Some skills only appear for your role. Actives are 1 use; at most 2 night skills a night.`, 'Night skills can be set up by day or used at night; once set, they can’t change.', 'Exchange Students earn double Knowledge but look evil to Professors and skills.']},
+    {title: 'Skills', items: [`Pay Knowledge (host sets 3, 6, or 8; default ${SPELL_COST}) to draw 2 skills (weighted B/A/S) and keep one — the card shows its rank. Hold at most ${MAX_SPELLS} (one passive). Some skills only appear for your role. Actives are 1 use; at most 2 night skills a night.`, 'Night skills can be set up by day or used at night; once set, they can’t change.', 'Exchange Students earn double Knowledge but look evil to Professors and skills.']},
   ],
   zh: [
     {title: '目标', items: ['善良阵营（学生、交换生、教授）在所有魔王被开除或击倒时获胜。如果本局没有魔王，则需要所有魔出局。', '魔与魔王人数达到场上剩余玩家的一半或更多时，邪恶获胜。']},
     {title: '夜晚', items: ['所有人做作业：答对获得 1 点知识和 1 点成绩；答错各扣 1 点。', '在手机上使用技能和角色行动。每个人都有这些界面，所以没人知道谁在行动。', '教授得知一名玩家是善良还是邪恶。魔得知同房一人是否是教授。魔王可击倒任意存活玩家（首夜除外；上锁可挡）。']},
     {title: '白天', items: ['讨论、换到别的房间、学习技能（二选一）、使用白天技能。', '然后每人标出一名怀疑对象。得票最高的若干人辩护（大约每 4 人 1 个席位——12 人时 3 席；若被点名的人不够则更少）。', '辩护结束后，每人从被告中选一人开除，或谁也不开除。得票最多者出局，平票则无人被开除。']},
     {title: '房间与锁', items: ['校园大约每 3 人开 1 间房（6 人 2 间、9 人 3 间，最多 5 间）。白天不公开谁睡在哪。', '夜里手机只显示你自己的房间和同房的人。“你房间里”的技能按这套隐藏布局结算。', '魔只能调查自己房间里的其他人。魔知道魔王是谁；魔王不知道谁是魔。', '每名玩家每局有一把钥匙。上锁的房间能挡住睡在别处的魔王。']},
-    {title: '技能', items: [`花 ${SPELL_COST} 知识按 B/A/S 权重抽出 2 个技能并留下 1 个（卡片显示稀有度）。最多持有 ${MAX_SPELLS} 个（被动最多 1 个）；部分技能仅本角色可抽。主动技均为 1 次；每晚最多排 2 个夜技。`, '夜晚技能可以在白天设定，也可以在夜里使用；设定后不能更改。', '交换生获得双倍知识，但在教授和技能眼中是邪恶的。']},
+    {title: '技能', items: [`花知识学习技能（房主可选 3、6 或 8，默认 ${SPELL_COST}）：按 B/A/S 权重抽出 2 个并留下 1 个（卡片显示稀有度）。最多持有 ${MAX_SPELLS} 个（被动最多 1 个）；部分技能仅本角色可抽。主动技均为 1 次；每晚最多排 2 个夜技。`, '夜晚技能可以在白天设定，也可以在夜里使用；设定后不能更改。', '交换生获得双倍知识，但在教授和技能眼中是邪恶的。']},
   ],
 };
 
@@ -769,7 +826,9 @@ function UniversityHostView({g, state: s, lang, hostAct}) {
   const accusedNames = accused.map((x) => `${name(x.id)} (${x.n})`).join(', ');
   const roster = [...s.seats].sort((a, b) => ((s.grade && s.grade[b]) || 0) - ((s.grade && s.grade[a]) || 0));
   const [elimQueue, setElimQueue] = useState([]);
+  const [hwFloats, setHwFloats] = useState([]);
   const playedRef = useRef(new Set());
+  const seenHwPops = useRef(new Set());
   const flyingId = elimQueue[0] ? elimQueue[0].id : null;
 
   useEffect(() => {
@@ -786,6 +845,26 @@ function UniversityHostView({g, state: s, lang, hostAct}) {
     playedRef.current.add(key);
     setElimQueue(next);
   }, [s.phase, s.day, s.night, s.expelled, s.deaths]);
+
+  useEffect(() => {
+    if (!s.showHwPop || !s.hwPops || !s.hwPops.length) return;
+    const fresh = [];
+    for (const pop of s.hwPops) {
+      if (seenHwPops.current.has(pop.key)) continue;
+      seenHwPops.current.add(pop.key);
+      const p = g.players[pop.player];
+      fresh.push({
+        ...pop,
+        avatar: p && p.avatar,
+        color: p && p.color,
+      });
+    }
+    if (fresh.length) setHwFloats((cur) => [...cur, ...fresh].slice(-36));
+  }, [s.hwPops, s.showHwPop, g.players]);
+
+  const clearHwPop = (key) => {
+    setHwFloats((cur) => cur.filter((p) => p.key !== key));
+  };
 
   const defendSlots = (
     <span className={styles.defendLine}>
@@ -895,27 +974,28 @@ function UniversityHostView({g, state: s, lang, hostAct}) {
             .map((r) => {
               const here = s.seats.filter((p) => s.room[p] === r);
               const living = here.filter((p) => !s.dead[p]).length;
+              const dayOpen = !['night', 'roles', 'dawn'].includes(s.phase);
+              const revealRooms = s.over || (Boolean(s.showRooms) && dayOpen);
+              const occupants = here.map((p) => ({
+                id: p,
+                seat: g.players[p] ? g.players[p].seat : 0,
+                name: name(p),
+                avatar: g.players[p] && g.players[p].avatar,
+                color: g.players[p] && g.players[p].color,
+                dead: Boolean(s.dead[p]),
+                role: s.over ? s.role[p] : undefined,
+              }));
               return (
                 <RoomCard
                   key={r}
                   roomId={r}
                   lang={lang}
                   locked={Boolean(s.locks[r]) && s.phase === 'night'}
-                  secret={!s.over}
-                  count={s.over ? null : living}
-                  people={
-                    s.over
-                      ? here.map((p) => ({
-                          id: p,
-                          seat: g.players[p] ? g.players[p].seat : 0,
-                          name: name(p),
-                          avatar: g.players[p] && g.players[p].avatar,
-                          color: g.players[p] && g.players[p].color,
-                          dead: Boolean(s.dead[p]),
-                          role: s.role[p],
-                        }))
-                      : null
-                  }
+                  secret={!revealRooms}
+                  count={revealRooms || occupants.length ? null : living}
+                  people={occupants}
+                  pops={hwFloats.filter((f) => f.room === r)}
+                  onPopDone={clearHwPop}
                 />
               );
             })}
@@ -932,6 +1012,9 @@ function UniversityHostView({g, state: s, lang, hostAct}) {
             )}
             <span className={styles.gradeMeta}>
               {tu(lang, 'demonKillAt')}: {s.demonKillAt ?? 10}
+            </span>
+            <span className={styles.gradeMeta}>
+              {tu(lang, 'spellCost')}: {s.spellCost || SPELL_COST}
             </span>
           </div>
           <div className={styles.gradeGrid}>
@@ -1050,7 +1133,7 @@ const university = {
   },
   reference(lang) {
     const roles = Object.entries(ROLES).map(([k, r]) => ({group: L({en: 'Roles', zh: '角色'}, lang), emoji: <RoleToken role={k} lang={lang} size={26} />, tint: SIDE_TINT[r.side], title: L(r, lang), tag: L({en: r.side === 'good' ? 'Good' : 'Evil', zh: r.side === 'good' ? '善良' : '邪恶'}, lang), text: r.ab, more: r.tip, key: k}));
-    const skills = Object.entries(SPELLS).map(([k, sp]) => ({group: L({en: 'Starter skills', zh: '初始技能'}, lang), emoji: <SpellIcon k={k} lang={lang} size={30} />, tint: '#ffe566', title: `${L(sp, lang)} · ${tu(lang, 'cost', {n: SPELL_COST})}`, tag: sp.type, text: sp.ab}));
+    const skills = Object.entries(SPELLS).map(([k, sp]) => ({group: L({en: 'Starter skills', zh: '初始技能'}, lang), emoji: <SpellIcon k={k} lang={lang} size={30} />, tint: '#ffe566', title: `${L(sp, lang)} · ${tu(lang, 'cost', {n: '3/6/8'})}`, tag: sp.type, text: sp.ab}));
     return [...roles, ...skills];
   },
   inspiredBy: 'Blood on the Clocktower (The Pandemonium Institute)',
@@ -1059,7 +1142,16 @@ const university = {
   coverTint: '#2e5a3a',
   themeClass: shell.themeUni,
   night: (x) => x.phase === 'night',
-  defaultSettings: {dayMinutes: 4, nightSeconds: 60, reviveAt: 100, demonKillAt: 10, pools: ['basic']},
+  defaultSettings: {
+    dayMinutes: 4,
+    nightSeconds: 60,
+    reviveAt: 100,
+    demonKillAt: 10,
+    showRooms: false,
+    showHwPop: true,
+    spellCost: 6,
+    pools: ['basic'],
+  },
   voiceLines: VOICE,
 
   setup(g, seats, ctx) {
@@ -1133,6 +1225,7 @@ const university = {
       knowledge: s.knowledge[id],
       grade: (s.grade && s.grade[id]) || 0,
       reviveAt: s.reviveAt || 0,
+      spellCost: s.spellCost || SPELL_COST,
       canRevive: Boolean(s.dead[id] && (s.reviveAt || 0) > 0 && ((s.grade && s.grade[id]) || 0) >= (s.reviveAt || 0)),
       learned: (s.learned || {})[id] || 0,
       canLearn: canLearn(s, id),
@@ -1243,13 +1336,30 @@ const university = {
         </div>
         <div className={shell.buttonRow}>
           <span>{tu(lang, 'reviveAt')}</span>
-          {[0, 50, 100, 150].map((m) => radio('reviveAt', m, m === 0 ? tu(lang, 'reviveNone') : String(m)))}
+          {[0, 20, 25, 30, 50, 100, 150].map((m) => radio('reviveAt', m, m === 0 ? tu(lang, 'reviveNone') : String(m)))}
         </div>
         <div className={shell.buttonRow}>
           <span>{tu(lang, 'demonKillAt')}</span>
           {[8, 10, 12, 15, 20].map((m) => radio('demonKillAt', m, String(m)))}
         </div>
         <p className={shell.muted}>{tu(lang, 'demonKillAtHint')}</p>
+        <div className={shell.buttonRow}>
+          <span>{tu(lang, 'showRooms')}</span>
+          {radio('showRooms', true, tu(lang, 'showRoomsOn'))}
+          {radio('showRooms', false, tu(lang, 'showRoomsOff'))}
+        </div>
+        <p className={shell.muted}>{tu(lang, 'showRoomsHint')}</p>
+        <div className={shell.buttonRow}>
+          <span>{tu(lang, 'showHwPop')}</span>
+          {radio('showHwPop', true, tu(lang, 'showHwPopOn'))}
+          {radio('showHwPop', false, tu(lang, 'showHwPopOff'))}
+        </div>
+        <p className={shell.muted}>{tu(lang, 'showHwPopHint')}</p>
+        <div className={shell.buttonRow}>
+          <span>{tu(lang, 'spellCost')}</span>
+          {[3, 6, 8].map((m) => radio('spellCost', m, String(m)))}
+        </div>
+        <p className={shell.muted}>{tu(lang, 'spellCostHint')}</p>
         <div className={shell.buttonRow}>
           <span>{tu(lang, 'tables')}</span>
           <PoolPicker value={settings.pools} onChange={(pools) => set({pools})} lang={lang} />
@@ -1399,14 +1509,15 @@ function SpellList({view, lang, send, night, showLearn = false}) {
     return p ? p.name : ROOMS[id] ? roomName(id, lang) : '?';
   };
   const handFull = (view.spells || []).length >= MAX_SPELLS;
-  const learnDisabled = !view.canLearn || view.knowledge < SPELL_COST || Boolean(view.offer);
+  const spellCost = view.spellCost || SPELL_COST;
+  const learnDisabled = !view.canLearn || view.knowledge < spellCost || Boolean(view.offer);
   const learnTitle = handFull
     ? tu(lang, 'learnedHandFull', {max: MAX_SPELLS})
     : !view.canLearn
       ? tu(lang, 'learnedAllPool')
-      : view.knowledge < SPELL_COST
-        ? tu(lang, 'needKnowledge', {n: SPELL_COST})
-        : tu(lang, 'drawCost', {n: SPELL_COST});
+      : view.knowledge < spellCost
+        ? tu(lang, 'needKnowledge', {n: spellCost})
+        : tu(lang, 'drawCost', {n: spellCost});
   const queuedFor = (k) => (view.queued || []).find((q) => q.k === k);
   const usable = (h) => {
     const sp = SPELLS[h.k];
@@ -1482,7 +1593,7 @@ function SpellList({view, lang, send, night, showLearn = false}) {
             title={learnTitle}
             aria-label={tu(lang, 'learnAdd')}>
             <span aria-hidden="true">+</span>
-            <small>{SPELL_COST}</small>
+            <small>{spellCost}</small>
           </button>
         )}
       </div>

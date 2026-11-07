@@ -33,7 +33,7 @@
 | knight | B | night | roomPlayer | Tainted Wing |
 | advocate | B | day | randomRoommate | Devil’s Pardon |
 | fortune | B | night | self | Twin Probe |
-| protection | A | night | player | Protection |
+| protection | A | night | player | Protection (can target self) |
 | ignition | A | night | roomPlayer | Sudden Ignition |
 | disguise | A | night | self | Disguise |
 | loud | A | day | self | Loud Voice |
@@ -41,6 +41,10 @@
 | secondwind | A | passive | self | Second Wind |
 | raven | A | passive | self | Last Glimpse |
 | soldier | A | passive | self | Iron Student |
+| nightwatch | B | night | self | Night Watch (self safe tonight) |
+| dormplate | B | passive | self | Dorm Armor (first non-King slay fails) |
+| allnighter | A | night | self | All-Nighter (self safe tonight) |
+| golemhide | A | passive | self | Stone Skin (first alone-in-room slay fails) |
 | banshee | A | passive | self | Ghost Ballot |
 | sanctuary | S | night | room | Sanctuary |
 | reveal | S | night | room | Reveal Light |

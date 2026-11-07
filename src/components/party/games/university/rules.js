@@ -111,6 +111,15 @@ export function setupUniversity(seats, settings, ctx) {
     reviveAt: Math.max(0, Math.floor(Number(settings.reviveAt ?? 100))),
     // When living players exceed this, Demons get roommate kills instead of kill-votes.
     demonKillAt: Math.max(0, Math.floor(Number(settings.demonKillAt ?? DEMON_KILL_ALIVE_DEFAULT))),
+    // Host big screen: list who is in each room during the day (night stays secret).
+    showRooms: Boolean(settings.showRooms),
+    // Host: floating +1/−1 from a player's room when homework scores.
+    showHwPop: settings.showHwPop !== false,
+    hwPops: [],
+    // Knowledge cost to draw skills (host: 3 / 6 / 8).
+    spellCost: [3, 6, 8].includes(Number(settings.spellCost))
+      ? Number(settings.spellCost)
+      : SPELL_COST,
     // Homework question types (core/mathQuestions pools).
     pools: normalizePools(settings.pools),
     log: [],
@@ -314,6 +323,18 @@ export function homework(s, ctx, id, total, wrongs = 0) {
     if (delta > 0) s.knowledge[id] += delta * (s.role[id] === 'exchange' ? 2 : 1);
     if (wrongDelta > 0) s.knowledge[id] = Math.max(0, s.knowledge[id] - wrongDelta);
   }
+  if (s.showHwPop) {
+    const room = s.room[id] || null;
+    const stamp = ctx.now;
+    const pops = [];
+    for (let i = 0; i < delta; i += 1) {
+      pops.push({key: `${stamp}+${id}-${i}`, player: id, room, n: 1});
+    }
+    for (let i = 0; i < wrongDelta; i += 1) {
+      pops.push({key: `${stamp}-${id}-${i}`, player: id, room, n: -1});
+    }
+    if (pops.length) s.hwPops = [...(s.hwPops || []), ...pops].slice(-48);
+  }
   return true;
 }
 
@@ -345,7 +366,12 @@ function roommatesOf(s, id, pos = s.room) {
 /** Players a spell may target right now. */
 export function spellTargets(s, id, k) {
   const sp = SPELLS[k];
-  if (sp.range === 'player') return alive(s).filter((p) => p !== id);
+  if (sp.range === 'player') {
+    const others = alive(s).filter((p) => p !== id);
+    // Protection can cover yourself (self-ward vs Demon kills).
+    if (k === 'protection') return [id, ...others];
+    return others;
+  }
   if (sp.range === 'roomPlayer') return roommatesOf(s, id);
   if (sp.range === 'move') return activeRooms(s).filter((r) => r !== s.room[id] && !s.locks[r]);
   return [];
@@ -409,13 +435,19 @@ function weightedDraw(pool, n, rng) {
  * Pay the flat spell cost and open a draw of {@link SPELL_DRAW} weighted
  * unowned spells. The player must then {@link pickSpell} one of them.
  */
+export function spellCostOf(s) {
+  const n = Number(s.spellCost);
+  return [3, 6, 8].includes(n) ? n : SPELL_COST;
+}
+
 export function drawSpell(s, ctx, id) {
   if (s.dead[id] || !dayPhase(s) || !canLearn(s, id) || (s.offer && s.offer[id])) return false;
-  if (s.knowledge[id] < SPELL_COST) return false;
+  const cost = spellCostOf(s);
+  if (s.knowledge[id] < cost) return false;
   const pool = unownedSpells(s, id);
   if (!pool.length) return false;
   const offer = weightedDraw(pool, Math.min(SPELL_DRAW, pool.length), ctx.rng);
-  s.knowledge[id] -= SPELL_COST;
+  s.knowledge[id] -= cost;
   s.offer = {...(s.offer || {}), [id]: offer};
   log(s, {kind: 'draw', actor: id});
   return true;
@@ -583,6 +615,12 @@ function resolveNight(s, ctx) {
   each('protection', (id, t) => {
     safe[t] = true;
   });
+  each('nightwatch', (id) => {
+    safe[id] = true;
+  });
+  each('allnighter', (id) => {
+    safe[id] = true;
+  });
   each('sanctuary', (id) => {
     const here = shuffle(roommatesOf(s, id, pos), rng);
     for (const p of [id, ...here].slice(0, 4)) safe[p] = true;
@@ -641,11 +679,30 @@ function resolveNight(s, ctx) {
     info(s, id, {key: 'washer', a: names[0], b: names[1]});
   });
   // Slays.
+  // Night-slay only. Day expulsion is a separate path (Devil’s Pardon / vote) — never uses `slay`.
   const slay = (t, by, {king = false} = {}) => {
     if (s.dead[t] || safe[t]) return false;
+    // Demons are protected from Demon King night-slays (no evil teamkill).
+    if (king && s.role[t] === 'demon') {
+      info(s, t, {key: 'cultGuard'});
+      if (by) info(s, by, {key: 'cultGuardKing', player: t});
+      return false;
+    }
     if (king && passive(s, t, 'soldier')) {
       spend(s, t, 'soldier');
       info(s, t, {key: 'soldier'});
+      return false;
+    }
+    // Dorm Armor: first non–Demon King night-slay (cultist roommate kill, Ignition, …).
+    if (!king && passive(s, t, 'dormplate')) {
+      spend(s, t, 'dormplate');
+      info(s, t, {key: 'dormplate'});
+      return false;
+    }
+    // Stone Skin: first night-slay while alone in the room.
+    if (passive(s, t, 'golemhide') && roommatesOf(s, t, pos).length === 0) {
+      spend(s, t, 'golemhide');
+      info(s, t, {key: 'golemhide'});
       return false;
     }
     if (passive(s, t, 'secondwind')) {
