@@ -8,7 +8,9 @@ import {Avatar, Countdown} from '@site/src/components/BetsAndWagers/ui';
 import {MAX_NIGHT_CASTS, MAX_SPELLS, ROLES, ROOMS, SPELL_COST, SPELLS} from './data';
 import {
   activeRooms,
+  accuseTargets,
   alive,
+  canAccuse,
   canLearn,
   canVoteYes,
   cast,
@@ -23,10 +25,12 @@ import {
   hostEndDay,
   isEvil,
   markReady,
+  MAX_REVIVES,
   moveTo,
   mustPickRoleFirst,
   pickSpell,
   revive,
+  revivesLeft,
   roleAct,
   roleTargets,
   setLock,
@@ -131,6 +135,9 @@ const tu = makeT({
     holdNews: 'Hold to see last night’s result',
     noNews: 'Nothing new last night.',
     suspectTitle: 'Who do you suspect?',
+    suspectNoGrade: 'Players with Grade 0 can’t be accused (do some homework first).',
+    suspectNoneLeft: 'Nobody with Grade > 0 to accuse — skipping.',
+    suspectSkippedGrade: 'Skipped — Grade 0 players don’t vote (do homework to join ballots).',
     suspectPicked: 'You voted for {name}',
     suspectCol: 'Suspects',
     votesCol: 'Votes',
@@ -161,8 +168,9 @@ const tu = makeT({
     slainTonight: 'Slain tonight:',
     peaceful: 'Nobody was slain.',
     dead: 'You are out. Keep doing math to raise your Grade. You may still talk, and vote once more.',
-    revive: 'Buy a new life ({n} Grade)',
-    reviveNeed: 'Need {n} Grade for a new life (you have {have}).',
+    revive: 'Buy a new life ({n} Grade · {left}/{max} left)',
+    reviveNeed: 'Need {n} Grade for a new life (you have {have}). {left}/{max} revives left.',
+    reviveMaxed: 'No more lives — you already returned {max} times.',
     reviveOff: 'Revive is off this game.',
     goodWin: 'The university is saved!',
     evilWin: 'The Demons take the university!',
@@ -241,6 +249,11 @@ const tu = makeT({
     showHwPopHint: 'When someone scores homework, a +1 or −1 floats up from their room with their icon.',
     spellCost: 'Knowledge to learn a skill',
     spellCostHint: 'Cost to draw 2 skills and keep 1.',
+    idleKickNights: 'Kick if no homework',
+    idleKickOff: 'Off',
+    idleKickHint: 'Living players who skip homework this many nights in a row are removed (any correct or wrong answer counts).',
+    idleKickedTonight: 'Removed (no homework):',
+    info_idleKick: 'Removed: no homework for {n} nights in a row.',
     tables: 'Homework questions',
     sec: '{n} s',
     min: '{n} min',
@@ -338,6 +351,9 @@ const tu = makeT({
     holdNews: '按住查看昨夜结果',
     noNews: '昨夜没有新消息。',
     suspectTitle: '你怀疑谁？',
+    suspectNoGrade: '成绩为 0 的玩家不能被指控（先做作业）。',
+    suspectNoneLeft: '没有成绩 > 0 的可指控对象——自动跳过。',
+    suspectSkippedGrade: '已跳过——成绩为 0 不参与投票（先做作业才能投票）。',
     suspectPicked: '你投了 {name}',
     suspectCol: '怀疑',
     votesCol: '票数',
@@ -368,8 +384,9 @@ const tu = makeT({
     slainTonight: '昨夜被击倒：',
     peaceful: '昨夜无人被击倒。',
     dead: '你已出局。继续做数学提高成绩。你仍然可以发言，还能再投一票。',
-    revive: '换一条新命（{n} 成绩）',
-    reviveNeed: '新命需要 {n} 成绩（你有 {have}）。',
+    revive: '换一条新命（{n} 成绩 · 剩 {left}/{max}）',
+    reviveNeed: '新命需要 {n} 成绩（你有 {have}）。还可复活 {left}/{max} 次。',
+    reviveMaxed: '不能再复活——本局已换命 {max} 次。',
     reviveOff: '本局未开启复活。',
     goodWin: '大学得救了！',
     evilWin: '魔占领了大学！',
@@ -448,6 +465,11 @@ const tu = makeT({
     showHwPopHint: '有人答对/答错作业时，对应房间飘出带头像的 +1 或 −1。',
     spellCost: '学习技能所需知识',
     spellCostHint: '花这些知识抽出 2 个技能并留下 1 个。',
+    idleKickNights: '不做功课则踢出',
+    idleKickOff: '关',
+    idleKickHint: '连续这么多个夜晚完全不做功课（对或错都算）的存活玩家会被移出本局。',
+    idleKickedTonight: '因不做功课移出：',
+    info_idleKick: '你被移出：连续 {n} 个夜晚没有做作业。',
     tables: '作业题型',
     sec: '{n} 秒',
     min: '{n} 分钟',
@@ -463,6 +485,7 @@ const VOICE = {
   slain: {en: '{seat} was slain in the night.', zh: '{seat}在夜里被击倒了。'},
   peaceful: {en: 'Morning comes. Nobody was slain.', zh: '天亮了。昨夜无人被击倒。'},
   cultTransfer: {en: 'A quiet Demon passed their role to another student.', zh: '一名不活跃的魔把身份传给了另一名学生。'},
+  idleKick: {en: '{seat} is removed for skipping homework.', zh: '{seat}因不做功课被移出。'},
   day: {en: 'Skills are open. Talk, move, then mark your suspects.', zh: '可以学习技能了。讨论、移动，然后标出你怀疑的人。'},
   suspect: {en: 'Suspicion vote. Mark who you distrust.', zh: '怀疑投票。标出你不信任的人。'},
   defense: {en: 'The accused may speak.', zh: '被指控者可以发言。'},
@@ -665,14 +688,14 @@ function botMove(s, g, id, ctx) {
     if (s.phase === 'suspect' && rng() < 0.02) return {action: 'move', room: pick(activeRooms(s), rng)};
   }
   if (s.phase === 'suspect' && !s.dead[id] && s.suspect[id] == null) {
-    const options = alive(s).filter((p) => p !== id);
-    if (!options.length) return null;
+    const options = accuseTargets(s, id);
+    if (!options.length) return {action: 'suspect', target: 'none'};
     if (officer) return {action: 'suspect', target: pick(options, rng)};
     const biased = options.filter((p) => (isEvil(s, id) ? !isEvil(s, p) || rng() < 0.25 : true));
     return {action: 'suspect', target: pick(biased.length ? biased : options, rng)};
   }
   if (s.phase === 'vote' && s.ballot && s.ballot.picks[id] == null) {
-    const accused = s.ballot.accused;
+    const accused = s.ballot.accused.filter((p) => canAccuse(s, p));
     if (!accused.length) return {action: 'vote', target: 'none'};
     if (officer) return {action: 'vote', target: rng() < 0.55 ? pick(accused, rng) : 'none'};
     if (isEvil(s, id)) {
@@ -689,15 +712,15 @@ function botMove(s, g, id, ctx) {
 const RULEBOOK = {
   en: [
     {title: 'The goal', items: ['Good (Students, Exchange Students, Professors) wins when every Demon King is expelled or slain. With no Demon King in the game, every Demon must go.', 'Evil wins when Demons and Demon Kings are at least half of the players still in the game.']},
-    {title: 'A night', items: ['Everyone does homework: correct answers earn 1 Knowledge and 1 Grade; wrong answers lose 1 of each.', 'Use skills and role actions on your phone. Everyone has those screens, so nobody can tell who acts.', 'Professors learn if a player is good or evil. Demons learn if a roommate is a Professor. Demon Kings may slay any living player (not on night 1; locks can block).']},
-    {title: 'A day', items: ['Talk, move to another room, learn a skill (draw 2, keep 1), use day skills.', 'Then everyone marks one suspect. The top accused defend (about 1 per 4 players — 3 for a table of 12; fewer if not enough people were named).', 'After the defense, everyone picks one accused to expel, or nobody. Most votes wins; a tie expels nobody.']},
+    {title: 'A night', items: ['Everyone does homework: correct answers earn 1 Knowledge and 1 Grade; wrong answers lose 1 of each. The host can auto-remove anyone who skips homework several nights in a row (default 2).', 'Use skills and role actions on your phone. Everyone has those screens, so nobody can tell who acts.', 'Professors learn if a player is good or evil. Demons learn if a roommate is a Professor. Demon Kings may slay any living player (not on night 1; locks can block).']},
+    {title: 'A day', items: ['Talk, move to another room, learn a skill (draw 2, keep 1), use day skills.', 'Then everyone marks one suspect (players with Grade 0 can’t be accused). The top accused defend (about 1 per 4 players — 3 for a table of 12; fewer if not enough people were named).', 'After the defense, everyone picks one accused to expel, or nobody. Most votes wins; a tie expels nobody.']},
     {title: 'Rooms and locks', items: ['Campus opens about 1 room per 3 players (2 at 6, 3 at 9, max 5). Who sleeps where is hidden by day.', 'At night your phone shows only your room and who is with you. “In your room” skills use that secret layout.', 'Demons only investigate other players in their own room. Demons know the Demon King; the King does not know the Demons.', 'Each player has one key per game. A locked room keeps out a Demon King who sleeps somewhere else.']},
     {title: 'Skills', items: [`Pay Knowledge (host sets 3, 6, or 8; default ${SPELL_COST}) to draw 2 skills (weighted B/A/S) and keep one — the card shows its rank. Hold at most ${MAX_SPELLS} (one passive). Some skills only appear for your role. Actives are 1 use; at most 2 night skills a night.`, 'Night skills can be set up by day or used at night; once set, they can’t change.', 'Exchange Students earn double Knowledge but look evil to Professors and skills.']},
   ],
   zh: [
     {title: '目标', items: ['善良阵营（学生、交换生、教授）在所有魔王被开除或击倒时获胜。如果本局没有魔王，则需要所有魔出局。', '魔与魔王人数达到场上剩余玩家的一半或更多时，邪恶获胜。']},
-    {title: '夜晚', items: ['所有人做作业：答对获得 1 点知识和 1 点成绩；答错各扣 1 点。', '在手机上使用技能和角色行动。每个人都有这些界面，所以没人知道谁在行动。', '教授得知一名玩家是善良还是邪恶。魔得知同房一人是否是教授。魔王可击倒任意存活玩家（首夜除外；上锁可挡）。']},
-    {title: '白天', items: ['讨论、换到别的房间、学习技能（二选一）、使用白天技能。', '然后每人标出一名怀疑对象。得票最高的若干人辩护（大约每 4 人 1 个席位——12 人时 3 席；若被点名的人不够则更少）。', '辩护结束后，每人从被告中选一人开除，或谁也不开除。得票最多者出局，平票则无人被开除。']},
+    {title: '夜晚', items: ['所有人做作业：答对获得 1 点知识和 1 点成绩；答错各扣 1 点。房主可设定连续若干晚不做功课则自动移出（默认 2 晚）。', '在手机上使用技能和角色行动。每个人都有这些界面，所以没人知道谁在行动。', '教授得知一名玩家是善良还是邪恶。魔得知同房一人是否是教授。魔王可击倒任意存活玩家（首夜除外；上锁可挡）。']},
+    {title: '白天', items: ['讨论、换到别的房间、学习技能（二选一）、使用白天技能。', '然后每人标出一名怀疑对象（成绩为 0 的不能被指控）。得票最高的若干人辩护（大约每 4 人 1 个席位——12 人时 3 席；若被点名的人不够则更少）。', '辩护结束后，每人从被告中选一人开除，或谁也不开除。得票最多者出局，平票则无人被开除。']},
     {title: '房间与锁', items: ['校园大约每 3 人开 1 间房（6 人 2 间、9 人 3 间，最多 5 间）。白天不公开谁睡在哪。', '夜里手机只显示你自己的房间和同房的人。“你房间里”的技能按这套隐藏布局结算。', '魔只能调查自己房间里的其他人。魔知道魔王是谁；魔王不知道谁是魔。', '每名玩家每局有一把钥匙。上锁的房间能挡住睡在别处的魔王。']},
     {title: '技能', items: [`花知识学习技能（房主可选 3、6 或 8，默认 ${SPELL_COST}）：按 B/A/S 权重抽出 2 个并留下 1 个（卡片显示稀有度）。最多持有 ${MAX_SPELLS} 个（被动最多 1 个）；部分技能仅本角色可抽。主动技均为 1 次；每晚最多排 2 个夜技。`, '夜晚技能可以在白天设定，也可以在夜里使用；设定后不能更改。', '交换生获得双倍知识，但在教授和技能眼中是邪恶的。']},
   ],
@@ -897,7 +920,16 @@ function UniversityHostView({g, state: s, lang, hostAct}) {
         )}
         {s.phase === 'dawn' && (
           <>
-            <b>{tu(lang, 'dawn')}</b> {s.deaths && s.deaths.length ? `${tu(lang, 'slainTonight')} ${s.deaths.map(name).join(', ')}` : tu(lang, 'peaceful')}
+            <b>{tu(lang, 'dawn')}</b>{' '}
+            {(() => {
+              const afk = s.idleKicks || [];
+              const slain = (s.deaths || []).filter((id) => !afk.includes(id));
+              if (!slain.length && !afk.length) return tu(lang, 'peaceful');
+              const bits = [];
+              if (slain.length) bits.push(`${tu(lang, 'slainTonight')} ${slain.map(name).join(', ')}`);
+              if (afk.length) bits.push(`${tu(lang, 'idleKickedTonight')} ${afk.map(name).join(', ')}`);
+              return bits.join(' · ');
+            })()}
           </>
         )}
         {s.phase === 'day' && (
@@ -1016,6 +1048,11 @@ function UniversityHostView({g, state: s, lang, hostAct}) {
             <span className={styles.gradeMeta}>
               {tu(lang, 'spellCost')}: {s.spellCost || SPELL_COST}
             </span>
+            {(s.idleKickNights || 0) > 0 && (
+              <span className={styles.gradeMeta}>
+                {tu(lang, 'idleKickNights')}: {s.idleKickNights}
+              </span>
+            )}
           </div>
           <div className={styles.gradeGrid}>
             {roster.map((id, rank) => {
@@ -1023,7 +1060,9 @@ function UniversityHostView({g, state: s, lang, hostAct}) {
               const score = (s.grade && s.grade[id]) || 0;
               const voting = s.phase === 'suspect' || s.phase === 'vote';
               const revealing = s.phase === 'suspectReveal' || s.phase === 'voteReveal';
+              const gradeZeroSkip = !s.dead[id] && score <= 0;
               const hasVoted =
+                gradeZeroSkip ||
                 (s.phase === 'suspect' && s.suspect && s.suspect[id] != null) ||
                 (s.phase === 'vote' && s.ballot && s.ballot.picks[id] != null);
               const target = s.suspect && s.suspect[id];
@@ -1150,6 +1189,7 @@ const university = {
     showRooms: false,
     showHwPop: true,
     spellCost: 6,
+    idleKickNights: 2,
     pools: ['basic'],
   },
   voiceLines: VOICE,
@@ -1201,8 +1241,8 @@ const university = {
     const player = (p) => ({id: p, name: g.players[p] ? g.players[p].name : '?', seat: g.players[p] ? g.players[p].seat : 0, avatar: g.players[p] && g.players[p].avatar, color: g.players[p] && g.players[p].color, dead: Boolean(s.dead[p])});
     let kind = s.phase;
     if (s.phase === 'roles' && s.ready[id]) kind = 'wait';
-    if (s.phase === 'vote' && s.ballot && s.ballot.picks[id] != null) kind = 'voted';
-    if (s.phase === 'suspect' && s.suspect && s.suspect[id] != null) kind = 'suspectDone';
+    if (s.phase === 'vote' && s.ballot && (s.ballot.picks[id] != null || (!s.dead[id] && !canAccuse(s, id)))) kind = 'voted';
+    if (s.phase === 'suspect' && ((s.suspect && s.suspect[id] != null) || (!s.dead[id] && !canAccuse(s, id)))) kind = 'suspectDone';
     const dayish = ['day', 'suspect', 'suspectReveal', 'defense', 'vote', 'voteReveal', 'dawn'].includes(s.phase);
     const cult = cultOf(s, id);
     const v = {
@@ -1225,8 +1265,16 @@ const university = {
       knowledge: s.knowledge[id],
       grade: (s.grade && s.grade[id]) || 0,
       reviveAt: s.reviveAt || 0,
+      revivesLeft: revivesLeft(s, id),
+      reviveMax: MAX_REVIVES,
       spellCost: s.spellCost || SPELL_COST,
-      canRevive: Boolean(s.dead[id] && (s.reviveAt || 0) > 0 && ((s.grade && s.grade[id]) || 0) >= (s.reviveAt || 0)),
+      canRevive: Boolean(
+        s.dead[id] &&
+          (s.reviveAt || 0) > 0 &&
+          revivesLeft(s, id) > 0 &&
+          !(s.afkOut && s.afkOut[id]) &&
+          ((s.grade && s.grade[id]) || 0) >= (s.reviveAt || 0),
+      ),
       learned: (s.learned || {})[id] || 0,
       canLearn: canLearn(s, id),
       offer: (s.offer && s.offer[id]) || null,
@@ -1292,17 +1340,17 @@ const university = {
     }
     v.mustPickFirst = mustPickRoleFirst(s, id);
     if (s.phase === 'suspect' || s.phase === 'suspectReveal') {
-      v.suspectTargets = alive(s)
-        .filter((p) => p !== id)
-        .map(player);
-      v.mySuspect = s.suspect[id] || null;
+      v.suspectTargets = accuseTargets(s, id).map(player);
+      v.mySuspect = s.suspect[id] && s.suspect[id] !== 'none' ? s.suspect[id] : null;
+      v.noSuspectTargets = accuseTargets(s, id).length === 0;
+      v.suspectSkippedGrade = !s.dead[id] && !canAccuse(s, id);
     }
     if (s.ballot) {
       v.canYes = canVoteYes(s, id);
       v.hushed = Boolean(s.hush[id]);
       v.loudUsed = Boolean(s.ballot.loud[id]);
       v.myPick = s.ballot.picks[id] || null;
-      v.ballotAccused = s.ballot.accused.map(player);
+      v.ballotAccused = s.ballot.accused.filter((p) => canAccuse(s, p)).map(player);
       v.voteRunoff = Boolean(s.ballot.runoff);
     }
     if (s.phase === 'voteReveal' && s.voteReveal) {
@@ -1360,6 +1408,11 @@ const university = {
           {[3, 6, 8].map((m) => radio('spellCost', m, String(m)))}
         </div>
         <p className={shell.muted}>{tu(lang, 'spellCostHint')}</p>
+        <div className={shell.buttonRow}>
+          <span>{tu(lang, 'idleKickNights')}</span>
+          {[0, 1, 2, 3].map((m) => radio('idleKickNights', m, m === 0 ? tu(lang, 'idleKickOff') : String(m)))}
+        </div>
+        <p className={shell.muted}>{tu(lang, 'idleKickHint')}</p>
         <div className={shell.buttonRow}>
           <span>{tu(lang, 'tables')}</span>
           <PoolPicker value={settings.pools} onChange={(pools) => set({pools})} lang={lang} />
@@ -1962,12 +2015,21 @@ function UniPhone({view, lang, send}) {
     <div className={shell.card}>
       <p className={shell.notice}>{tu(lang, 'dead')}</p>
       {view.reviveAt > 0 ? (
-        view.canRevive ? (
+        (view.revivesLeft || 0) < 1 ? (
+          <p className={shell.muted}>{tu(lang, 'reviveMaxed', {max: view.reviveMax || MAX_REVIVES})}</p>
+        ) : view.canRevive ? (
           <button type="button" className="button button--block" onClick={() => send({action: 'revive'})}>
-            {tu(lang, 'revive', {n: view.reviveAt})}
+            {tu(lang, 'revive', {n: view.reviveAt, left: view.revivesLeft, max: view.reviveMax || MAX_REVIVES})}
           </button>
         ) : (
-          <p className={shell.muted}>{tu(lang, 'reviveNeed', {n: view.reviveAt, have: view.grade || 0})}</p>
+          <p className={shell.muted}>
+            {tu(lang, 'reviveNeed', {
+              n: view.reviveAt,
+              have: view.grade || 0,
+              left: view.revivesLeft || 0,
+              max: view.reviveMax || MAX_REVIVES,
+            })}
+          </p>
         )
       ) : (
         <p className={shell.muted}>{tu(lang, 'reviveOff')}</p>
@@ -2119,19 +2181,26 @@ function UniPhone({view, lang, send}) {
       {view.kind === 'suspect' && !view.dead && (
         <div className={shell.card}>
           <p className={styles.phasePrompt}>{tu(lang, 'suspectTitle')}</p>
-          <PlayerPick
-            ids={(view.suspectTargets || []).map((p) => p.id)}
-            view={view}
-            lang={lang}
-            onPick={(t) => send({action: 'suspect', target: t})}
-          />
+          <p className={shell.muted}>{tu(lang, 'suspectNoGrade')}</p>
+          {view.noSuspectTargets ? (
+            <button type="button" className="button button--primary" onClick={() => send({action: 'suspect', target: 'none'})}>
+              {tu(lang, 'suspectNoneLeft')}
+            </button>
+          ) : (
+            <PlayerPick
+              ids={(view.suspectTargets || []).map((p) => p.id)}
+              view={view}
+              lang={lang}
+              onPick={(t) => send({action: 'suspect', target: t})}
+            />
+          )}
         </div>
       )}
       {view.kind === 'suspectDone' && (
         <div className={shell.card}>
-          <p className={styles.phasePrompt}>{tu(lang, 'iVoted')}</p>
+          <p className={styles.phasePrompt}>{tu(lang, view.suspectSkippedGrade ? 'suspectSkippedGrade' : 'iVoted')}</p>
           {view.mySuspect && <p className={styles.phaseMeta}>{tu(lang, 'suspectPicked', {name: nm(view.mySuspect)})}</p>}
-          <p className={styles.phaseMeta}>{tu(lang, 'votedLocked')}</p>
+          {!view.suspectSkippedGrade && <p className={styles.phaseMeta}>{tu(lang, 'votedLocked')}</p>}
         </div>
       )}
       {(view.kind === 'suspectReveal' || view.kind === 'voteReveal') && (
@@ -2160,7 +2229,7 @@ function UniPhone({view, lang, send}) {
       {view.kind === 'defense' && <p className={styles.phasePrompt}>{tu(lang, 'defense')}</p>}
       {view.kind === 'voted' && (
         <div className={shell.card}>
-          <p className={styles.phasePrompt}>{tu(lang, 'iVoted')}</p>
+          <p className={styles.phasePrompt}>{tu(lang, view.grade === 0 && !view.dead ? 'suspectSkippedGrade' : 'iVoted')}</p>
           <p className={styles.phaseMeta}>{tu(lang, 'voted')}</p>
         </div>
       )}

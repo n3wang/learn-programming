@@ -128,6 +128,23 @@ export default function HostShell({mod}) {
     }
   }
 
+  /** Room kick (lobby button or game rules e.g. university AFK homework). */
+  function kickPlayer(playerId) {
+    const p = gameRef.current.players[playerId];
+    if (!p) return;
+    const midGame = gameRef.current.phase === 'play' || gameRef.current.phase === 'end';
+    commit((draft) => {
+      draft.blockedNames = rememberBlockedName(draft.blockedNames, p.name);
+      if (isBotId(playerId)) delete draft.players[playerId];
+      else if (midGame && draft.players[playerId]) {
+        draft.players[playerId].connected = false;
+        draft.players[playerId].gone = true;
+      }
+    });
+    if (isBotId(playerId)) return;
+    socketRef.current?.send({type: 'kick', playerId});
+  }
+
   /** Every change: mutate a copy, settle the end, save, push views, redraw. */
   function commit(mutate) {
     const draft = structuredClone(gameRef.current);
@@ -137,10 +154,17 @@ export default function HostShell({mod}) {
       draft.phase = 'end';
       playSfx('bonus');
     }
+    const kicks = draft.state && Array.isArray(draft.state.pendingKicks) ? [...draft.state.pendingKicks] : [];
+    if (draft.state && kicks.length) draft.state.pendingKicks = [];
     gameRef.current = draft;
     persist();
     broadcast();
     rerender();
+    if (kicks.length) {
+      queueMicrotask(() => {
+        for (const id of kicks) kickPlayer(id);
+      });
+    }
     return true;
   }
 
@@ -382,16 +406,7 @@ export default function HostShell({mod}) {
       for (const id of Object.keys(draft.players)) if (isBotId(id)) delete draft.players[id];
     });
 
-  const kick = (playerId) => {
-    const p = gameRef.current.players[playerId];
-    if (!p) return;
-    commit((draft) => {
-      draft.blockedNames = rememberBlockedName(draft.blockedNames, p.name);
-      if (isBotId(playerId)) delete draft.players[playerId];
-    });
-    if (isBotId(playerId)) return;
-    socketRef.current.send({type: 'kick', playerId});
-  };
+  const kick = (playerId) => kickPlayer(playerId);
 
   const fullScreen = () => {
     const el = document.documentElement;

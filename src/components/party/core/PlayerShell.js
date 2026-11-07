@@ -17,12 +17,18 @@ function classRoster(id) {
   return id && CLASS_ROSTERS[id] ? CLASS_ROSTERS[id] : null;
 }
 
-/** Names still free on a class roster (keep current name available when renaming). */
-function openClassNames(roster, taken, keep = null) {
-  if (!roster) return [];
-  const used = new Set((taken || []).map(String));
-  if (keep) used.delete(keep);
-  return roster.names.filter((n) => !used.has(n));
+/** Class roster picks — every base name stays selectable; duplicates become "Name 2". */
+function openClassNames(roster) {
+  return roster ? [...roster.names] : [];
+}
+
+/** Map "Nelson 2" back to roster base "Nelson" for the select value. */
+function rosterSelectValue(roster, name) {
+  if (!roster || !name) return '';
+  if (roster.names.includes(name)) return name;
+  const m = String(name).match(/^(.*) (\d+)$/);
+  if (m && roster.names.includes(m[1])) return m[1];
+  return roster.names[0] || '';
 }
 
 /**
@@ -236,8 +242,8 @@ export default function PlayerShell({mod}) {
   const locked = Boolean(roomSettings?.lockedNames) && !roster;
   const takenNames = roomInfo && roomInfo.code === formCode ? roomInfo.takenNames || [] : [];
   const takenAvatars = roomInfo && roomInfo.code === formCode ? roomInfo.takenAvatars || [] : [];
-  const joinClassNames = openClassNames(roster, takenNames, null);
-  const lobbyClassNames = openClassNames(roster, takenNames, env?.you?.name || seatRef.current?.name);
+  const joinClassNames = openClassNames(roster);
+  const lobbyClassNames = openClassNames(roster);
 
   useEffect(() => {
     if (seat || !locked || isGeneratedName(form.name)) return;
@@ -378,10 +384,9 @@ export default function PlayerShell({mod}) {
               <>
                 <select
                   className={styles.nameSelect}
-                  value={joinClassNames.includes(form.name) ? form.name : joinClassNames[0] || ''}
+                  value={rosterSelectValue(roster, form.name)}
                   disabled={!joinClassNames.length}
                   onChange={(e) => setForm({...form, name: e.target.value})}>
-                  {!joinClassNames.length && <option value="">{st(lang, 'errNameTaken')}</option>}
                   {joinClassNames.map((n) => (
                     <option key={n} value={n}>
                       {n}
@@ -410,7 +415,7 @@ export default function PlayerShell({mod}) {
             <span>{st(lang, 'chooseAvatar')}</span>
             <AvatarPicker value={form.avatar} taken={takenAvatars} onChange={(avatar) => setForm({...form, avatar})} lang={lang} />
           </div>
-          <button type="submit" className="button button--lg button--block" disabled={status !== 'open' || joining || (Boolean(roster) && !joinClassNames.length)}>
+          <button type="submit" className="button button--lg button--block" disabled={status !== 'open' || joining || (Boolean(roster) && !roster.names.length)}>
             {st(lang, status !== 'open' ? 'connectingButton' : joining ? 'joining' : 'joinParty')}
           </button>
         </form>
@@ -450,9 +455,9 @@ export default function PlayerShell({mod}) {
                       {st(lang, 'pickClassName')}
                       <select
                         className={styles.nameSelect}
-                        value={lobbyClassNames.includes(lobbyDraft) ? lobbyDraft : env.you?.name || ''}
+                        value={rosterSelectValue(classRoster(env.nameClass), lobbyDraft || env.you?.name)}
                         onChange={(e) => setLobbyName(e.target.value)}>
-                        {(lobbyClassNames.length ? lobbyClassNames : [env.you?.name].filter(Boolean)).map((n) => (
+                        {lobbyClassNames.map((n) => (
                           <option key={n} value={n}>
                             {n}
                           </option>

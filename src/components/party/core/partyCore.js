@@ -51,7 +51,7 @@ export function rosterOf(g) {
   return id && CLASS_ROSTERS[id] ? CLASS_ROSTERS[id] : null;
 }
 
-/** Roster names still free (optionally keep `keep` selectable for rename). */
+/** Unused base roster names (optionally keep `keep` selectable for rename). */
 export function freeRosterNames(g, keep = null) {
   const roster = rosterOf(g);
   if (!roster) return [];
@@ -59,6 +59,14 @@ export function freeRosterNames(g, keep = null) {
   if (keep) taken.delete(keep);
   const blocked = g.blockedNames || [];
   return roster.names.filter((n) => !taken.has(n) && !isBlockedName(n, blocked));
+}
+
+/** Unblocked base roster names (duplicates allowed — callers uniquify with a number). */
+export function rosterPickNames(g) {
+  const roster = rosterOf(g);
+  if (!roster) return [];
+  const blocked = g.blockedNames || [];
+  return roster.names.filter((n) => !isBlockedName(n, blocked));
 }
 
 export function newShellGame(gameId, mod, prefs = {}) {
@@ -103,9 +111,12 @@ export function admittedName(g, wanted, lang) {
   if (roster) {
     const raw = String(wanted || '').trim();
     const match = roster.names.find((n) => n === raw);
-    if (match && !others.includes(match) && !isBlockedName(match, blocked)) return match;
+    // Same class name twice → "Nelson 2", "Nelson 3", …
+    if (match && !isBlockedName(match, blocked)) return uniqueName(match, others);
     const free = roster.names.filter((n) => !others.includes(n) && !isBlockedName(n, blocked));
     if (free.length) return free[Math.floor(Math.random() * free.length)];
+    const pool = rosterPickNames(g);
+    if (pool.length) return uniqueName(pool[Math.floor(Math.random() * pool.length)], others);
     return generateUnblockedName(lang, others, blocked);
   }
   const raw = String(wanted || '').trim();
@@ -123,7 +134,15 @@ export function addBot(g, lang) {
   const id = `${BOT_ID_PREFIX}${n}`;
   const taken = Object.values(g.players).map((p) => p.name);
   const free = freeRosterNames(g);
-  const name = free.length ? free[Math.floor(Math.random() * free.length)] : generateUnblockedName(lang, taken, g.blockedNames || []);
+  let name;
+  if (free.length) {
+    name = free[Math.floor(Math.random() * free.length)];
+  } else {
+    const pool = rosterPickNames(g);
+    name = pool.length
+      ? uniqueName(pool[Math.floor(Math.random() * pool.length)], taken)
+      : generateUnblockedName(lang, taken, g.blockedNames || []);
+  }
   seatPlayer(g, id, {name, bot: true});
   return id;
 }

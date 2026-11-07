@@ -18,7 +18,7 @@
  * Actors with a night pick must choose before homework counts.
  */
 
-import {cue, duration, log, pick, shuffle} from '../../core/partyCore';
+import {cue, duration, isBotId, log, pick, shuffle} from '../../core/partyCore';
 import {normalizePools} from '../../core/mathQuestions';
 import {ACTORS, GIFT_AMOUNT, MAX_NIGHT_CASTS, MAX_SPELLS, RARITY_WEIGHT, ROLES, SPELL_COST, SPELL_DRAW, SPELLS, roomsFor} from './data';
 
@@ -55,6 +55,14 @@ export function counts(n) {
 }
 
 export const alive = (s) => s.seats.filter((id) => !s.dead[id]);
+
+/** Grade 0 (no homework progress) can't be accused — blocks troll / AFK pile-ons. */
+export const canAccuse = (s, id) => !s.dead[id] && ((s.grade && s.grade[id]) || 0) > 0;
+
+/** Living players with Grade > 0 that `voter` may mark / expel. */
+export function accuseTargets(s, voter) {
+  return alive(s).filter((p) => p !== voter && canAccuse(s, p));
+}
 export const isEvil = (s, id) => ROLES[s.role[id]].side === 'evil';
 /** Default alive-count above which Demons gain a base roommate kill (host can change). */
 export const DEMON_KILL_ALIVE_DEFAULT = 10;
@@ -107,8 +115,9 @@ export function setupUniversity(seats, settings, ctx) {
     day: 0,
     nightS: Number(settings.nightSeconds || 60),
     dayS: Number(settings.dayMinutes || 4) * 60,
-    // Grade needed to buy a new life; 0 disables revive.
+    // Grade needed to buy a new life; 0 disables revive. Each seat may revive at most MAX_REVIVES times.
     reviveAt: Math.max(0, Math.floor(Number(settings.reviveAt ?? 100))),
+    reviveUsed: Object.fromEntries(seats.map((id) => [id, 0])),
     // When living players exceed this, Demons get roommate kills instead of kill-votes.
     demonKillAt: Math.max(0, Math.floor(Number(settings.demonKillAt ?? DEMON_KILL_ALIVE_DEFAULT))),
     // Host big screen: list who is in each room during the day (night stays secret).
@@ -120,6 +129,14 @@ export function setupUniversity(seats, settings, ctx) {
     spellCost: [3, 6, 8].includes(Number(settings.spellCost))
       ? Number(settings.spellCost)
       : SPELL_COST,
+    // Kick living humans who skip homework this many nights in a row (0 = off).
+    idleKickNights: [0, 1, 2, 3].includes(Number(settings.idleKickNights))
+      ? Number(settings.idleKickNights)
+      : 2,
+    idleNights: {},
+    idleKicks: [],
+    pendingKicks: [],
+    afkOut: {},
     // Homework question types (core/mathQuestions pools).
     pools: normalizePools(settings.pools),
     log: [],
@@ -338,15 +355,26 @@ export function homework(s, ctx, id, total, wrongs = 0) {
   return true;
 }
 
-/** Spend grade to return from the dead (when reviveAt > 0). */
+/** Max times one seat may buy a new life this game. */
+export const MAX_REVIVES = 2;
+
+export function revivesLeft(s, id) {
+  const used = (s.reviveUsed && s.reviveUsed[id]) || 0;
+  return Math.max(0, MAX_REVIVES - used);
+}
+
+/** Spend grade to return from the dead (when reviveAt > 0; at most {@link MAX_REVIVES} times). */
 export function revive(s, ctx, id) {
   const need = s.reviveAt || 0;
   if (!need || !s.dead[id] || s.over) return false;
+  if (s.afkOut && s.afkOut[id]) return false;
+  if (revivesLeft(s, id) < 1) return false;
   if ((s.grade[id] || 0) < need) return false;
   s.grade[id] -= need;
+  s.reviveUsed = {...(s.reviveUsed || {}), [id]: ((s.reviveUsed && s.reviveUsed[id]) || 0) + 1};
   delete s.dead[id];
   delete s.ghost[id];
-  log(s, {kind: 'revive', actor: id, cost: need});
+  log(s, {kind: 'revive', actor: id, cost: need, left: revivesLeft(s, id)});
   return true;
 }
 
@@ -771,6 +799,33 @@ function resolveNight(s, ctx) {
     log(s, {kind: 'cultTransfer', from: id, to: heir});
     cue(s, 'cultTransfer', {from: ctx.seatOf(id), to: ctx.seatOf(heir)});
   }
+  // Skip homework N nights in a row → out of the game (host setting; bots exempt).
+  const needIdle = s.idleKickNights || 0;
+  s.idleNights = s.idleNights || {};
+  s.idleKicks = [];
+  if (needIdle > 0) {
+    for (const id of alive(s)) {
+      if (isBotId(id)) continue;
+      const didHw = (s.hw[id] || 0) + ((s.hwWrong && s.hwWrong[id]) || 0) > 0;
+      if (didHw) {
+        s.idleNights[id] = 0;
+        continue;
+      }
+      s.idleNights[id] = (s.idleNights[id] || 0) + 1;
+      if (s.idleNights[id] < needIdle) continue;
+      s.dead[id] = true;
+      s.afkOut = {...(s.afkOut || {}), [id]: true};
+      beginGhostPractice(s, id, ctx.now);
+      noteDeath(s, id);
+      maybeScarlet(s, id);
+      deaths.push(id);
+      s.idleKicks.push(id);
+      s.pendingKicks = [...(s.pendingKicks || []), id];
+      info(s, id, {key: 'idleKick', n: needIdle});
+      log(s, {kind: 'idleKick', target: id, nights: s.idleNights[id]});
+      cue(s, 'idleKick', {seat: ctx.seatOf(id)});
+    }
+  }
   for (const id of s.seats) s.queued[id] = [];
   s.ojoPrey = {};
   s.room = pos;
@@ -811,6 +866,8 @@ function startDay(s, ctx) {
   cue(s, 'day');
   cue(s, 'suspect');
   log(s, {kind: 'suspectOpen'});
+  // Grade 0 seats are skipped immediately so the day isn't stuck on trolls.
+  if (suspectsComplete(s)) startSuspectReveal(s, ctx);
 }
 
 export function moveTo(s, ctx, id, room) {
@@ -831,29 +888,59 @@ function startSuspect(s, ctx) {
   s.deadline = ctx.now + duration(ctx, SUSPECT_S + Math.min(30, alive(s).length));
   cue(s, 'suspect');
   log(s, {kind: 'suspectOpen'});
+  if (suspectsComplete(s)) startSuspectReveal(s, ctx);
+}
+
+/** Grade 0 (and anyone with no valid target) skip — voting doesn't wait on them. */
+function fillAutoSuspects(s) {
+  for (const id of alive(s)) {
+    if (s.suspect[id] != null) continue;
+    if (!canAccuse(s, id) || !accuseTargets(s, id).length) s.suspect[id] = 'none';
+  }
+}
+
+function suspectsComplete(s) {
+  fillAutoSuspects(s);
+  return alive(s).every((p) => s.suspect[p] != null);
 }
 
 /**
  * Lock in a suspicion vote (Among Us style: no changes). Living players only.
- * When everyone living has voted, open the public reveal.
+ * Grade 0 players are auto-skipped; targets must have Grade > 0.
  */
 export function suspectVote(s, ctx, id, target) {
   if (s.phase !== 'suspect' || s.dead[id] || s.suspect[id] != null) return false;
-  if (!s.seats.includes(target) || target === id || s.dead[target]) return false;
-  s.suspect[id] = target;
-  log(s, {kind: 'suspect', actor: id, target});
-  if (alive(s).every((p) => s.suspect[p] != null)) startSuspectReveal(s, ctx);
+  if (!canAccuse(s, id)) {
+    fillAutoSuspects(s);
+    if (suspectsComplete(s)) startSuspectReveal(s, ctx);
+    return true;
+  }
+  fillAutoSuspects(s);
+  if (s.suspect[id] != null) {
+    if (suspectsComplete(s)) startSuspectReveal(s, ctx);
+    return true;
+  }
+  if (target === 'none') {
+    if (accuseTargets(s, id).length) return false;
+    s.suspect[id] = 'none';
+  } else {
+    if (!s.seats.includes(target) || target === id || !canAccuse(s, target)) return false;
+    s.suspect[id] = target;
+  }
+  log(s, {kind: 'suspect', actor: id, target: s.suspect[id]});
+  if (suspectsComplete(s)) startSuspectReveal(s, ctx);
   return true;
 }
 
 function rankSuspects(s, ctx) {
   const living = alive(s);
-  const tally = Object.fromEntries(living.map((id) => [id, 0]));
+  const eligible = living.filter((id) => canAccuse(s, id));
+  const tally = Object.fromEntries(eligible.map((id) => [id, 0]));
   for (const id of living) {
     const t = s.suspect[id];
-    if (t && tally[t] != null) tally[t] += 1;
+    if (t && t !== 'none' && tally[t] != null) tally[t] += 1;
   }
-  return living
+  return eligible
     .map((id) => ({id, n: tally[id]}))
     .filter((x) => x.n > 0)
     .sort((a, b) => b.n - a.n || (ctx.seatOf(a.id) || 0) - (ctx.seatOf(b.id) || 0));
@@ -862,6 +949,7 @@ function rankSuspects(s, ctx) {
 /** Public reveal of suspicion votes, then defense (or skip day if nobody was named). */
 function startSuspectReveal(s, ctx) {
   if (s.phase === 'suspectReveal') return;
+  fillAutoSuspects(s);
   const ranked = rankSuspects(s, ctx);
   s.phase = 'suspectReveal';
   s.suspectRanked = ranked;
@@ -877,7 +965,7 @@ function startSuspectReveal(s, ctx) {
 function tallySuspects(s, ctx) {
   if (s.phase === 'suspect') startSuspectReveal(s, ctx);
   if (s.phase !== 'suspectReveal') return;
-  const ranked = s.suspectRanked || rankSuspects(s, ctx);
+  const ranked = (s.suspectRanked || rankSuspects(s, ctx)).filter((x) => canAccuse(s, x.id));
   const slots = defenseSlots(alive(s).length);
   const accused = ranked.slice(0, slots);
   s.accused = accused;
@@ -897,7 +985,8 @@ function tallySuspects(s, ctx) {
  * Open a final ballot. Pass `runoffIds` after a tie to revote among only those seats.
  */
 function startFinalVote(s, ctx, runoffIds = null) {
-  const pool = runoffIds && runoffIds.length ? runoffIds : (s.accused || []).map((x) => x.id);
+  const raw = runoffIds && runoffIds.length ? runoffIds : (s.accused || []).map((x) => x.id);
+  const pool = raw.filter((id) => canAccuse(s, id));
   if (!pool.length) {
     s.block = null;
     endDay(s, ctx);
@@ -917,15 +1006,23 @@ function startFinalVote(s, ctx, runoffIds = null) {
   s.deadline = ctx.now + duration(ctx, VOTE_S + Math.min(20, pool.length * 4));
   cue(s, 'vote');
   log(s, {kind: runoffIds ? 'voteRunoff' : 'voteOpen', accused: pool});
+  // Grade 0 living (and hush / spent ghosts) don't block the ballot.
+  if (ballotComplete(s)) startVoteReveal(s, ctx);
 }
 
 /** Dead players keep one ghost vote (Banshee: one extra). Hushed sit this out. */
 export const canVoteYes = (s, id) => !s.hush[id] && (!s.dead[id] || !s.ghost[id] || Boolean(s.extraGhost && s.extraGhost[id]));
 
+/** Living Grade 0 trolls are skipped; everyone else follows canVoteYes. */
+function mustBallot(s, id) {
+  if (!s.dead[id] && !canAccuse(s, id)) return false;
+  return canVoteYes(s, id);
+}
+
 function fillAutoVotes(s) {
   for (const id of s.seats) {
     if (s.ballot.picks[id] != null) continue;
-    if (!canVoteYes(s, id)) s.ballot.picks[id] = 'none';
+    if (!mustBallot(s, id)) s.ballot.picks[id] = 'none';
   }
 }
 
@@ -944,7 +1041,7 @@ export function castVote(s, ctx, id, target) {
     s.ballot.picks[id] = 'none';
   } else if (!target || target === 'none') {
     s.ballot.picks[id] = 'none';
-  } else if (s.ballot.accused.includes(target)) {
+  } else if (s.ballot.accused.includes(target) && canAccuse(s, target)) {
     s.ballot.picks[id] = target;
   } else {
     return false;
