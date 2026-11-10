@@ -538,12 +538,7 @@ function AnswerPanel({ fields, isLast, onReveal, onFinish }) {
           <Button variant="contained" onClick={check}>
             检查
           </Button>
-          {attempts > 0 ? (
-            <Button variant="text" onClick={giveUp}>
-              看解答（本题算错）
-            </Button>
-          ) : null}
-          <Typography variant="body2" sx={{ color: anyBad ? BAD : 'text.secondary' }}>
+          <Typography variant="body2" sx={{ color: anyBad ? BAD : 'text.secondary', flex: '1 1 200px' }}>
             {anyInvalid
               ? '看不懂这个数——请填整数、小数或分数（如 5/2）。'
               : anyEmpty
@@ -552,6 +547,18 @@ function AnswerPanel({ fields, isLast, onReveal, onFinish }) {
                   ? `有 ${Object.values(marks).filter((m) => m === 'bad').length} 个不对，改一改再检查（第 ${attempts} 次）。`
                   : '分数可以写成 5/2，按回车也能检查。'}
           </Typography>
+          {/* Always available, but looking costs the question and the streak. */}
+          <Button
+            variant="outlined"
+            onClick={giveUp}
+            title="看完整讲解。本题算错，连对次数清零。"
+            sx={{ ml: 'auto', color: BAD, borderColor: BAD }}
+          >
+            💡 看讲解
+            <Box component="span" sx={{ fontSize: '0.8em', ml: 0.5, opacity: 0.85 }}>
+              （算错·连对清零）
+            </Box>
+          </Button>
         </Stack>
       ) : (
         <Stack direction="row" spacing={1.5} alignItems="center" flexWrap="wrap" useFlexGap>
@@ -560,7 +567,9 @@ function AnswerPanel({ fields, isLast, onReveal, onFinish }) {
               ? attempts === 1
                 ? '✓ 全对！'
                 : `✓ 做对了（第 ${attempts} 次）`
-              : '✗ 本题算错——对照下面的解答找出错在哪一步。'}
+              : attempts === 0
+                ? '✗ 看了讲解：本题算错，连对清零。读懂后可以在纸上再做一遍。'
+                : '✗ 本题算错，连对清零——对照下面的解答找出错在哪一步。'}
           </Typography>
           <button
             ref={nextBtn}
@@ -576,9 +585,28 @@ function AnswerPanel({ fields, isLast, onReveal, onFinish }) {
   );
 }
 
+/** Consecutive correct answers ending at the latest result (a wrong one / 看讲解 resets it). */
+function currentStreak(results) {
+  let n = 0;
+  for (let i = results.length - 1; i >= 0 && results[i].ok; i--) n++;
+  return n;
+}
+
+function bestStreak(results) {
+  let best = 0;
+  let run = 0;
+  results.forEach((r) => {
+    run = r.ok ? run + 1 : 0;
+    best = Math.max(best, run);
+  });
+  return best;
+}
+
 function Summary({ categories, items, results, count, onCount, onRestart }) {
   const correct = results.filter((r) => r.ok).length;
   const firstTry = results.filter((r) => r.ok && r.attempts === 1).length;
+  const explained = results.filter((r) => !r.ok && r.attempts === 0).length;
+  const best = bestStreak(results);
   const byCat = categories.map((cat) => {
     const idx = items.map((it, i) => (it.catId === cat.id ? i : -1)).filter((i) => i >= 0);
     return { cat, total: idx.length, right: idx.filter((i) => results[i] && results[i].ok).length };
@@ -591,7 +619,7 @@ function Summary({ categories, items, results, count, onCount, onRestart }) {
         {correct} / {items.length} 题做对
       </Typography>
       <Typography variant="body2" color="text.secondary" sx={{ mb: 1.5 }}>
-        其中 {firstTry} 题一次就对。
+        其中 {firstTry} 题一次就对，最长连对 {best} 题{explained ? `，看了 ${explained} 次讲解` : ''}。
       </Typography>
 
       <Box sx={{ display: 'grid', gap: 0.75, mb: 2 }}>
@@ -618,6 +646,11 @@ function Summary({ categories, items, results, count, onCount, onRestart }) {
               {r.ok && r.attempts > 1 ? (
                 <Box component="span" sx={{ color: 'text.secondary', ml: 0.75 }}>
                   （第 {r.attempts} 次对）
+                </Box>
+              ) : null}
+              {!r.ok && r.attempts === 0 ? (
+                <Box component="span" sx={{ color: 'text.secondary', ml: 0.75 }}>
+                  （看了讲解）
                 </Box>
               ) : null}
             </li>
@@ -703,6 +736,7 @@ export default function MixedPractice({ categories, defaultCount = 10, anchorId 
   };
 
   const correct = results.filter((r) => r.ok).length;
+  const streak = currentStreak(results);
 
   return (
     <Box id={anchorId} sx={{ my: 2, scrollMarginTop: 80 }}>
@@ -727,6 +761,22 @@ export default function MixedPractice({ categories, defaultCount = 10, anchorId 
           <Typography variant="body2" color="text.secondary">
             已对 {correct} / {results.length}
           </Typography>
+          <Box
+            title="连续答对的题数。答错或看讲解会清零。"
+            sx={{
+              px: 1,
+              py: 0.25,
+              borderRadius: 999,
+              fontSize: '0.85em',
+              fontWeight: 700,
+              fontVariantNumeric: 'tabular-nums',
+              color: streak > 0 ? GOOD : 'text.secondary',
+              border: '1px solid',
+              borderColor: streak > 0 ? GOOD : 'divider',
+            }}
+          >
+            连对 {streak}{streak >= 3 ? ' 🔥' : ''}
+          </Box>
           <CountPicker value={count} onChange={changeCount} />
         </Stack>
       </Stack>

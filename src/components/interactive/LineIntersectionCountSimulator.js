@@ -56,7 +56,7 @@ export default function LineIntersectionCountSimulator() {
       <p style={{ marginTop: 0 }}>
         两条直线相交，有一个交点。{p.n} 条直线相交，最多有多少个交点？
       </p>
-      <p>书上先问 3 条、4 条，再找规律。点「随机」可换成别的条数。</p>
+      {!practice ? <p>书上先问 3 条、4 条，再找规律。点「随机」可换成别的条数。</p> : null}
     </ProblemShell>
   );
 }
