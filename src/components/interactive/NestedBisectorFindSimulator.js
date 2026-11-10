@@ -1,5 +1,7 @@
 import React, { useMemo, useState } from 'react';
 import ProblemShell from '@site/src/components/interactive/shell/ProblemShell';
+import { usePracticeMode, usePracticeAnswer } from '@site/src/components/interactive/shell/PracticeModeContext';
+import { degField } from '@site/src/components/interactive/shell/practiceFields';
 import { SolutionStep, stepStyles } from '@site/src/components/interactive/shell/SolutionStep';
 import { randInt } from '@site/src/components/interactive/shell/mathRandom';
 
@@ -13,7 +15,9 @@ function generate() {
 
 export default function NestedBisectorFindSimulator() {
   const [key, setKey] = useState(0);
-  const [p, setP] = useState(bookProblem);
+  const practice = usePracticeMode();
+  const [p, setP] = useState(() => (practice ? generate() : bookProblem()));
+  usePracticeAnswer([degField("aob", "角 AOB", p.cod * 4)]);
   const ans = useMemo(() => ({ aoc: p.cod * 2, aob: p.cod * 4 }), [p]);
 
   const solution = (

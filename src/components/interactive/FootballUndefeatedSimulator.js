@@ -7,6 +7,8 @@ import TableCell from '@site/src/components/ui/TableCell';
 import TableHead from '@site/src/components/ui/TableHead';
 import TableRow from '@site/src/components/ui/TableRow';
 import ProblemShell from '@site/src/components/interactive/shell/ProblemShell';
+import { usePracticeMode, usePracticeAnswer } from '@site/src/components/interactive/shell/PracticeModeContext';
+import { numberField, choiceField } from '@site/src/components/interactive/shell/practiceFields';
 import AnimatedNumber from '@site/src/components/interactive/shell/AnimatedNumber';
 import { randInt, pickOne } from '@site/src/components/interactive/shell/mathRandom';
 
@@ -53,7 +55,13 @@ function generate() {
 
 export default function FootballUndefeatedSimulator() {
   const [key, setKey] = useState(0);
-  const [p, setP] = useState(bookProblem);
+  const practice = usePracticeMode();
+  const [p, setP] = useState(() => (practice ? generate() : bookProblem()));
+  usePracticeAnswer([
+    numberField("w", "（1）胜场数", p.wins),
+    numberField("d", "平场数", p.draws),
+    choiceField("eq", "（2）胜场总积分能等于平场总积分吗？", ["能", "不能"], (p.drawPts * p.G) % (p.winPts + p.drawPts) === 0 ? "能" : "不能"),
+  ]);
 
   const derived = useMemo(() => {
     //  winPts·w + drawPts·(G−w) = points  →  w = (points − drawPts·G) / (winPts − drawPts)

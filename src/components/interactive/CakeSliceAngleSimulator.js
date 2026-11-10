@@ -1,5 +1,7 @@
 import React, { useState } from 'react';
 import ProblemShell from '@site/src/components/interactive/shell/ProblemShell';
+import { usePracticeMode, usePracticeAnswer } from '@site/src/components/interactive/shell/PracticeModeContext';
+import { degField, numberField } from '@site/src/components/interactive/shell/practiceFields';
 import { SolutionStep, stepStyles } from '@site/src/components/interactive/shell/SolutionStep';
 import { randInt } from '@site/src/components/interactive/shell/mathRandom';
 
@@ -15,7 +17,9 @@ function generate() {
 
 export default function CakeSliceAngleSimulator() {
   const [key, setKey] = useState(0);
-  const [p, setP] = useState(bookProblem);
+  const practice = usePracticeMode();
+  const [p, setP] = useState(() => (practice ? generate() : bookProblem()));
+  usePracticeAnswer([degField("each", "每份的角", 360 / p.parts), numberField("n", "每份 " + p.each + "° 时应分成几份", 360 / p.each, "n")]);
 
   const solution = (
     <div className={stepStyles.solution}>

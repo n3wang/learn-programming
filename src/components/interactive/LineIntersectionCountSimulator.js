@@ -1,5 +1,7 @@
 import React, { useMemo, useState } from 'react';
 import ProblemShell from '@site/src/components/interactive/shell/ProblemShell';
+import { usePracticeMode, usePracticeAnswer } from '@site/src/components/interactive/shell/PracticeModeContext';
+import { numberField } from '@site/src/components/interactive/shell/practiceFields';
 import { SolutionStep, stepStyles } from '@site/src/components/interactive/shell/SolutionStep';
 import { randInt } from '@site/src/components/interactive/shell/mathRandom';
 
@@ -17,7 +19,9 @@ function generate() {
 
 export default function LineIntersectionCountSimulator() {
   const [key, setKey] = useState(0);
-  const [p, setP] = useState(bookProblem);
+  const practice = usePracticeMode();
+  const [p, setP] = useState(() => (practice ? generate() : bookProblem()));
+  usePracticeAnswer([numberField("n", `${p.n} 条直线最多的交点个数`, (p.n * (p.n - 1)) / 2, "n")]);
   const max = useMemo(() => count(p.n), [p]);
 
   const solution = (

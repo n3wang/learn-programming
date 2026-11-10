@@ -18,6 +18,7 @@
  * Actors with a night pick must choose before homework counts.
  */
 
+import {randomAvatar} from '@site/src/components/BetsAndWagers/logic';
 import {cue, duration, isBotId, log, pick, shuffle} from '../../core/partyCore';
 import {normalizePools} from '../../core/mathQuestions';
 import {ACTORS, GIFT_AMOUNT, MAX_NIGHT_CASTS, MAX_SPELLS, RARITY_WEIGHT, ROLES, SPELL_COST, SPELL_DRAW, SPELLS, roomsFor} from './data';
@@ -115,7 +116,7 @@ export function setupUniversity(seats, settings, ctx) {
     day: 0,
     nightS: Number(settings.nightSeconds || 60),
     dayS: Number(settings.dayMinutes || 4) * 60,
-    // Grade needed to buy a new life; 0 disables revive.
+    // Knowledge needed to graduate into a new life; 0 disables revive.
     reviveAt: Math.max(0, Math.floor(Number(settings.reviveAt ?? 100))),
     // Per-seat revive cap: 1, 2, or 0 = unlimited (host setting).
     reviveMax: [0, 1, 2].includes(Number(settings.reviveMax)) ? Number(settings.reviveMax) : 2,
@@ -338,10 +339,9 @@ export function homework(s, ctx, id, total, wrongs = 0) {
   if (wrongDelta > 0) wBag[id] = w;
   s.grade = s.grade || {};
   s.grade[id] = Math.max(0, (s.grade[id] || 0) + delta - wrongDelta);
-  if (!dead) {
-    if (delta > 0) s.knowledge[id] += delta * (s.role[id] === 'exchange' ? 2 : 1);
-    if (wrongDelta > 0) s.knowledge[id] = Math.max(0, s.knowledge[id] - wrongDelta);
-  }
+  // Living homework and ghost practice both mint Knowledge (ghosts save up to graduate).
+  if (delta > 0) s.knowledge[id] += delta * (s.role[id] === 'exchange' ? 2 : 1);
+  if (wrongDelta > 0) s.knowledge[id] = Math.max(0, s.knowledge[id] - wrongDelta);
   if (s.showHwPop) {
     const room = s.room[id] || null;
     const stamp = ctx.now;
@@ -374,18 +374,56 @@ export function revivesLeft(s, id) {
   return Math.max(0, lim - used);
 }
 
-/** Spend grade to return from the dead (when reviveAt > 0; host sets 1 / 2 / unlimited). */
-export function revive(s, ctx, id) {
+/** Append another “Jr” for each graduation (Edward → Edward Jr → Edward Jr Jr). */
+export function juniorName(name) {
+  const base = String(name || '').trim() || '?';
+  return `${base} Jr`;
+}
+
+/** New face for the little sibling — prefer an avatar nobody else is using. */
+function graduateAvatar(g, id) {
+  const taken = new Set(
+    Object.entries(g.players || {})
+      .filter(([pid]) => pid !== id)
+      .map(([, p]) => p && p.avatar)
+      .filter((a) => a != null),
+  );
+  const current = g.players[id] && g.players[id].avatar;
+  for (let i = 0; i < 24; i += 1) {
+    const next = randomAvatar();
+    if (next !== current && !taken.has(next)) return next;
+  }
+  let next = randomAvatar();
+  if (next === current) next = randomAvatar();
+  return next;
+}
+
+/**
+ * Spend Knowledge to graduate: same seat/role, new “Jr” name + avatar,
+ * Knowledge resets to 0, Grade is kept (when reviveAt > 0).
+ * Pass `g` so the shell player row can be rewritten.
+ */
+export function revive(s, ctx, id, g) {
   const need = s.reviveAt || 0;
   if (!need || !s.dead[id] || s.over) return false;
   if (s.afkOut && s.afkOut[id]) return false;
   if (!(revivesLeft(s, id) > 0)) return false;
-  if ((s.grade[id] || 0) < need) return false;
-  s.grade[id] -= need;
+  if ((s.knowledge[id] || 0) < need) return false;
+  s.knowledge[id] = 0;
   s.reviveUsed = {...(s.reviveUsed || {}), [id]: ((s.reviveUsed && s.reviveUsed[id]) || 0) + 1};
   delete s.dead[id];
   delete s.ghost[id];
-  log(s, {kind: 'revive', actor: id, cost: need, left: revivesLeft(s, id)});
+  // Fresh practice bag so the next ghost grind starts from zero.
+  if (s.practice) delete s.practice[id];
+  if (s.practiceWrong) delete s.practiceWrong[id];
+  if (g && g.players && g.players[id]) {
+    const before = g.players[id].name;
+    g.players[id].name = juniorName(before);
+    g.players[id].avatar = graduateAvatar(g, id);
+    log(s, {kind: 'revive', actor: id, cost: need, left: revivesLeft(s, id), name: g.players[id].name, was: before});
+  } else {
+    log(s, {kind: 'revive', actor: id, cost: need, left: revivesLeft(s, id)});
+  }
   return true;
 }
 

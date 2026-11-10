@@ -1,5 +1,7 @@
 import React, { useMemo, useState } from 'react';
 import ProblemShell from '@site/src/components/interactive/shell/ProblemShell';
+import { usePracticeMode, usePracticeAnswer } from '@site/src/components/interactive/shell/PracticeModeContext';
+import { dmsField } from '@site/src/components/interactive/shell/practiceFields';
 import { SolutionStep, stepStyles } from '@site/src/components/interactive/shell/SolutionStep';
 import { randInt } from '@site/src/components/interactive/shell/mathRandom';
 
@@ -20,7 +22,9 @@ function generate() {
 
 export default function DegreeComplementFindSimulator() {
   const [key, setKey] = useState(0);
-  const [p, setP] = useState(bookProblem);
+  const practice = usePracticeMode();
+  const [p, setP] = useState(() => (practice ? generate() : bookProblem()));
+  usePracticeAnswer([dmsField("c", "余角", (90 * 60 - (p.d * 60 + p.m)) * 60), dmsField("s", "补角", (180 * 60 - (p.d * 60 + p.m)) * 60)]);
   const ans = useMemo(() => {
     const given = p.d * 60 + p.m;
     return {

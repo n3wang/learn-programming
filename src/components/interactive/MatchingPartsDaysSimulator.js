@@ -1,6 +1,8 @@
 import React, { useMemo, useState } from 'react';
 import Typography from '@site/src/components/ui/Typography';
 import ProblemShell from '@site/src/components/interactive/shell/ProblemShell';
+import { usePracticeMode, usePracticeAnswer } from '@site/src/components/interactive/shell/PracticeModeContext';
+import { numberField } from '@site/src/components/interactive/shell/practiceFields';
 import AnimatedNumber from '@site/src/components/interactive/shell/AnimatedNumber';
 import MathText from '@site/src/components/ProblemSet/MathText';
 import { SolutionStep, stepStyles } from '@site/src/components/interactive/shell/SolutionStep';
@@ -39,8 +41,10 @@ function derive(p) {
 
 export default function MatchingPartsDaysSimulator() {
   const [key, setKey] = useState(0);
-  const [p, setP] = useState(bookProblem);
+  const practice = usePracticeMode();
+  const [p, setP] = useState(() => (practice ? generate() : bookProblem()));
   const d = useMemo(() => derive(p), [p]);
+  usePracticeAnswer([numberField("a", "甲种零件做几天", d.daysA, "x"), numberField("b", "乙种零件做几天", d.daysB, "y")]);
 
   const solution = (
     <div className={stepStyles.solution}>

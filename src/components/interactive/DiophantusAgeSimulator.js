@@ -1,6 +1,8 @@
 import React, { useMemo, useState } from 'react';
 import Typography from '@site/src/components/ui/Typography';
 import ProblemShell from '@site/src/components/interactive/shell/ProblemShell';
+import { usePracticeMode, usePracticeAnswer } from '@site/src/components/interactive/shell/PracticeModeContext';
+import { numberField } from '@site/src/components/interactive/shell/practiceFields';
 import AnimatedNumber from '@site/src/components/interactive/shell/AnimatedNumber';
 import MathText from '@site/src/components/ProblemSet/MathText';
 import { SolutionStep, stepStyles } from '@site/src/components/interactive/shell/SolutionStep';
@@ -59,8 +61,10 @@ function derive(p) {
 
 export default function DiophantusAgeSimulator() {
   const [key, setKey] = useState(0);
-  const [p, setP] = useState(bookProblem);
+  const practice = usePracticeMode();
+  const [p, setP] = useState(() => (practice ? generate() : bookProblem()));
   const d = useMemo(() => derive(p), [p]);
+  usePracticeAnswer([numberField("age", "（1）丢番图的寿命（岁）", d.age, "x"), numberField("father", "（2）开始当爸爸时的年龄（岁）", d.fatherAge, "\\text{岁数}")]);
 
   const solution = (
     <div className={stepStyles.solution}>

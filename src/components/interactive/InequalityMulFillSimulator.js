@@ -1,5 +1,7 @@
 import React, { useState } from 'react';
 import ProblemShell from '@site/src/components/interactive/shell/ProblemShell';
+import { usePracticeMode, usePracticeAnswer } from '@site/src/components/interactive/shell/PracticeModeContext';
+import { choiceField } from '@site/src/components/interactive/shell/practiceFields';
 import { SolutionStep, stepStyles } from '@site/src/components/interactive/shell/SolutionStep';
 import { randInt } from '@site/src/components/interactive/shell/mathRandom';
 
@@ -34,7 +36,9 @@ const chip = {
 
 export default function InequalityMulFillSimulator() {
   const [key, setKey] = useState(0);
-  const [p, setP] = useState(bookProblem);
+  const practice = usePracticeMode();
+  const [p, setP] = useState(() => (practice ? generate() : bookProblem()));
+  usePracticeAnswer(p.factors.map((n) => choiceField(`r${n}`, `${p.left} × (${n})　□　${p.right} × (${n})`, [">", "<"], n > 0 ? p.sign : flip(p.sign))));
   const [marks, setMarks] = useState({});
 
   function cycle(id) {
@@ -79,15 +83,19 @@ export default function InequalityMulFillSimulator() {
       solution={solution}
     >
       <p style={{ marginTop: 0 }}>
-        已知 {p.left} {p.sign} {p.right}。点选每一行的不等号。
+        已知 {p.left} {p.sign} {p.right}。{practice ? '在下面填出每一行的不等号。' : '点选每一行的不等号。'}
       </p>
       <div style={{ display: 'grid', gap: 8 }}>
         {p.factors.map((n) => (
           <div key={n}>
             {p.left} × ({n}){' '}
-            <button type="button" onClick={() => cycle(n)} style={chip}>
-              {marks[n] || '□'}
-            </button>{' '}
+            {practice ? (
+              '□'
+            ) : (
+              <button type="button" onClick={() => cycle(n)} style={chip}>
+                {marks[n] || '□'}
+              </button>
+            )}{' '}
             {p.right} × ({n})
           </div>
         ))}

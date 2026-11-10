@@ -2,6 +2,8 @@ import React, { useMemo, useState } from 'react';
 import Box from '@site/src/components/ui/Box';
 import Typography from '@site/src/components/ui/Typography';
 import ProblemShell from '@site/src/components/interactive/shell/ProblemShell';
+import { usePracticeMode, usePracticeAnswer } from '@site/src/components/interactive/shell/PracticeModeContext';
+import { numberField } from '@site/src/components/interactive/shell/practiceFields';
 import AnimatedNumber from '@site/src/components/interactive/shell/AnimatedNumber';
 import { randInt } from '@site/src/components/interactive/shell/mathRandom';
 
@@ -22,9 +24,11 @@ function generate() {
 
 export default function BookSortingRateSimulator() {
   const [key, setKey] = useState(0);
-  const [p, setP] = useState(generate);
+  const practice = usePracticeMode();
+  const [p, setP] = useState(() => (practice ? generate() : generate()));
 
   const solvedX = useMemo(() => Math.round((p.H - p.t2 * p.a) / (p.t1 + p.t2)), [p]);
+  usePracticeAnswer([numberField("x", "先安排的人数", solvedX)]);
 
   const randomize = () => {
     setP(generate());

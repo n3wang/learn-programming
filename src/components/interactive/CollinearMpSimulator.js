@@ -1,5 +1,7 @@
 import React, { useMemo, useState } from 'react';
 import ProblemShell from '@site/src/components/interactive/shell/ProblemShell';
+import { usePracticeMode, usePracticeAnswer } from '@site/src/components/interactive/shell/PracticeModeContext';
+import { numberField } from '@site/src/components/interactive/shell/practiceFields';
 import AnimatedNumber from '@site/src/components/interactive/shell/AnimatedNumber';
 import { SolutionStep, stepStyles } from '@site/src/components/interactive/shell/SolutionStep';
 import { randInt } from '@site/src/components/interactive/shell/mathRandom';
@@ -39,7 +41,9 @@ function LineCase({ order, mn, np, scale }) {
 
 export default function CollinearMpSimulator() {
   const [key, setKey] = useState(0);
-  const [p, setP] = useState(bookProblem);
+  const practice = usePracticeMode();
+  const [p, setP] = useState(() => (practice ? generate() : bookProblem()));
+  usePracticeAnswer([numberField("long", "N 在 M、P 之间时 MP（cm）", p.mn + p.np, "MP"), numberField("short", "P 在 M、N 之间时 MP（cm）", p.mn - p.np, "MP")]);
   const sums = useMemo(() => ({ long: p.mn + p.np, short: p.mn - p.np }), [p]);
   const scale = 22;
 

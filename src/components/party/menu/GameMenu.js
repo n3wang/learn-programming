@@ -1,4 +1,4 @@
-import React, {useState} from 'react';
+import React, {useEffect, useState} from 'react';
 import Link from '@docusaurus/Link';
 import useBaseUrl from '@docusaurus/useBaseUrl';
 import {LangSwitch, useLang} from '@site/src/components/BetsAndWagers/strings';
@@ -7,13 +7,51 @@ import {L, st} from '../core/strings';
 import {GameLogo} from '../core/GamePicker';
 import styles from '../core/party.module.css';
 
-/** A game's cover: its own cover art when there is one, else its logo sprite. */
+/**
+ * Democracy Inc. gets a full-bleed cover.webp. Every other game keeps the
+ * tinted frame with a centered logo (old menu look).
+ */
 function Cover({game}) {
-  const src = useBaseUrl(`/img/party/${game.id}/cover.webp`);
-  const [missing, setMissing] = useState(false);
+  const isBleed = game.id === 'lifesim';
+  const coverSrc = useBaseUrl(`/img/party/${game.id}/cover.webp`);
+  const [bg, setBg] = useState(isBleed ? coverSrc : '');
+  const [failed, setFailed] = useState(!isBleed);
+
+  useEffect(() => {
+    if (!isBleed) {
+      setBg('');
+      setFailed(true);
+      return undefined;
+    }
+    let cancelled = false;
+    setFailed(false);
+    setBg(coverSrc);
+    const probe = new Image();
+    probe.onload = () => {
+      if (!cancelled) setBg(coverSrc);
+    };
+    probe.onerror = () => {
+      if (!cancelled) {
+        setBg('');
+        setFailed(true);
+      }
+    };
+    probe.src = coverSrc;
+    return () => {
+      cancelled = true;
+    };
+  }, [isBleed, coverSrc]);
+
   return (
-    <div className={styles.menuCover} style={{background: game.coverTint}}>
-      {missing ? <GameLogo game={game} size={150} /> : <img src={src} alt="" onError={() => setMissing(true)} />}
+    <div
+      className={styles.menuCover}
+      style={{
+        backgroundColor: game.coverTint,
+        backgroundImage: bg ? `url(${bg})` : undefined,
+      }}
+      role="img"
+      aria-label={typeof game.title === 'string' ? game.title : game.title?.en || game.id}>
+      {failed ? <GameLogo game={game} size={150} /> : null}
     </div>
   );
 }

@@ -1,5 +1,7 @@
 import React, { useMemo, useState } from 'react';
 import ProblemShell from '@site/src/components/interactive/shell/ProblemShell';
+import { usePracticeMode, usePracticeAnswer } from '@site/src/components/interactive/shell/PracticeModeContext';
+import { dmsField } from '@site/src/components/interactive/shell/practiceFields';
 import { SolutionStep, stepStyles } from '@site/src/components/interactive/shell/SolutionStep';
 import { randInt } from '@site/src/components/interactive/shell/mathRandom';
 
@@ -29,9 +31,11 @@ function formatDiv(whole, div) {
 
 export default function DegreeMulDivSimulator() {
   const [key, setKey] = useState(0);
-  const [p, setP] = useState(bookProblem);
+  const practice = usePracticeMode();
+  const [p, setP] = useState(() => (practice ? generate() : bookProblem()));
   const mul = useMemo(() => formatMul(p.d, p.m, p.n), [p]);
   const quot = useMemo(() => formatDiv(p.whole, p.div), [p]);
+  usePracticeAnswer([dmsField("mul", `${p.d}°${p.m}′ × ${p.n}`, { d: mul.d, m: mul.m }), dmsField("div", `${p.whole}° ÷ ${p.div}（精确到分）`, { d: quot.d, m: quot.m }, false, 30)]);
 
   const solution = (
     <div className={stepStyles.solution}>

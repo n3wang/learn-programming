@@ -1,5 +1,7 @@
 import React, { useState } from 'react';
 import ProblemShell from '@site/src/components/interactive/shell/ProblemShell';
+import { usePracticeMode, usePracticeAnswer } from '@site/src/components/interactive/shell/PracticeModeContext';
+import { ineqField } from '@site/src/components/interactive/shell/practiceFields';
 import { SolutionStep, stepStyles } from '@site/src/components/interactive/shell/SolutionStep';
 import { randInt } from '@site/src/components/interactive/shell/mathRandom';
 import SolutionSetNumberLine from '@site/src/components/interactive/shell/SolutionSetNumberLine';
@@ -145,7 +147,11 @@ const chip = {
 
 export default function InequalitySolvePracticeSimulator() {
   const [key, setKey] = useState(0);
-  const [items, setItems] = useState(bookItems);
+  const practice = usePracticeMode();
+  const [items, setItems] = useState(() => (practice ? randomItems() : bookItems()));
+  usePracticeAnswer(
+    items.map((item) => ineqField(`q${item.id}`, `（${item.id}）${item.text}`, item.result)),
+  );
   const [picks, setPicks] = useState({});
 
   const solution = (
@@ -190,13 +196,15 @@ export default function InequalitySolvePracticeSimulator() {
         return (
           <div key={item.id} style={{ marginBottom: 12 }}>
             <div>（{item.id}） {item.text}</div>
-            <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', margin: '6px 0' }}>
-              {choicesFor(item).map((choice) => (
-                <button key={choice} type="button" style={chip} onClick={() => setPicks((prev) => ({ ...prev, [item.id]: choice }))}>
-                  {choice}
-                </button>
-              ))}
-            </div>
+            {!practice ? (
+              <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', margin: '6px 0' }}>
+                {choicesFor(item).map((choice) => (
+                  <button key={choice} type="button" style={chip} onClick={() => setPicks((prev) => ({ ...prev, [item.id]: choice }))}>
+                    {choice}
+                  </button>
+                ))}
+              </div>
+            ) : null}
             {picked ? (
               <div>
                 {ok

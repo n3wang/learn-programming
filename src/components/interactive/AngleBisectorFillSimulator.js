@@ -1,5 +1,7 @@
 import React, { useMemo, useState } from 'react';
 import ProblemShell from '@site/src/components/interactive/shell/ProblemShell';
+import { usePracticeMode, usePracticeAnswer } from '@site/src/components/interactive/shell/PracticeModeContext';
+import { dmsField } from '@site/src/components/interactive/shell/practiceFields';
 import { SolutionStep, stepStyles } from '@site/src/components/interactive/shell/SolutionStep';
 import { randInt } from '@site/src/components/interactive/shell/mathRandom';
 
@@ -13,13 +15,15 @@ function generate() {
 
 export default function AngleBisectorFillSimulator() {
   const [key, setKey] = useState(0);
-  const [p, setP] = useState(bookProblem);
+  const practice = usePracticeMode();
+  const [p, setP] = useState(() => (practice ? generate() : bookProblem()));
   const each = useMemo(() => {
     const deg = Math.floor(p.whole / p.parts);
     const rem = p.whole - deg * p.parts;
     const minutes = Math.round((rem * 60) / p.parts);
     return { deg, minutes };
   }, [p]);
+  usePracticeAnswer([dmsField("each", "每份约（精确到分）", { d: each.deg, m: each.minutes }, false, 30)]);
 
   const solution = (
     <div className={stepStyles.solution}>

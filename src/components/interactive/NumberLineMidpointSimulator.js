@@ -1,5 +1,7 @@
 import React, { useMemo, useState } from 'react';
 import ProblemShell from '@site/src/components/interactive/shell/ProblemShell';
+import { usePracticeMode, usePracticeAnswer } from '@site/src/components/interactive/shell/PracticeModeContext';
+import { numberField } from '@site/src/components/interactive/shell/practiceFields';
 import { SolutionStep, stepStyles } from '@site/src/components/interactive/shell/SolutionStep';
 import { randInt } from '@site/src/components/interactive/shell/mathRandom';
 
@@ -13,7 +15,9 @@ function generate() {
 
 export default function NumberLineMidpointSimulator() {
   const [key, setKey] = useState(0);
-  const [p, setP] = useState(bookProblem);
+  const practice = usePracticeMode();
+  const [p, setP] = useState(() => (practice ? generate() : bookProblem()));
+  usePracticeAnswer([numberField("r", "B 在 A 右边时，点 C 表示", p.a + p.len / 2, "c_1"), numberField("l", "B 在 A 左边时，点 C 表示", p.a - p.len / 2, "c_2")]);
   const answers = useMemo(() => {
     const right = p.a + p.len;
     const left = p.a - p.len;

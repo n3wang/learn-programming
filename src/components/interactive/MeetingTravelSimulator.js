@@ -1,7 +1,8 @@
 import React, { useMemo, useState } from 'react';
 import Typography from '@site/src/components/ui/Typography';
 import ProblemShell from '@site/src/components/interactive/shell/ProblemShell';
-import AnimatedNumber from '@site/src/components/interactive/shell/AnimatedNumber';
+import { usePracticeMode, usePracticeAnswer } from '@site/src/components/interactive/shell/PracticeModeContext';
+import { numberField } from '@site/src/components/interactive/shell/practiceFields';
 import MathText from '@site/src/components/ProblemSet/MathText';
 import { SolutionStep, stepStyles } from '@site/src/components/interactive/shell/SolutionStep';
 import { fmtNum, pickOne } from '@site/src/components/interactive/shell/mathRandom';
@@ -62,8 +63,14 @@ function derive(p) {
 
 export default function MeetingTravelSimulator() {
   const [key, setKey] = useState(0);
-  const [p, setP] = useState(bookProblem);
+  const practice = usePracticeMode();
+  const [p, setP] = useState(() => (practice ? generate() : bookProblem()));
   const d = useMemo(() => derive(p), [p]);
+  usePracticeAnswer([
+    numberField("v1", "李明的速度（km/h）", d.v1Str, "x", 1e-4),
+    numberField("v2", "刘伟的速度（km/h）", d.v2Str, "y", 1e-4),
+    numberField("t", "相遇后刘伟到 A 地还要（min）", d.afterMinStr, "t", 0.01),
+  ]);
 
   const solution = (
     <div className={stepStyles.solution}>
@@ -103,9 +110,9 @@ export default function MeetingTravelSimulator() {
       </SolutionStep>
       <SolutionStep badge="答" badgeClass={stepStyles.badgeAnswer}>
         <div className={stepStyles.answer}>
-          李明 <AnimatedNumber value={Number(d.v1Str)} /> km/h，刘伟{' '}
-          <AnimatedNumber value={Number(d.v2Str)} /> km/h；相遇后再过{' '}
-          <AnimatedNumber value={Number(d.afterMinStr)} /> min 刘伟到达 A 地。
+          李明 {d.v1Str} km/h，刘伟{' '}
+          {d.v2Str} km/h；相遇后再过{' '}
+          {d.afterMinStr} min 刘伟到达 A 地。
         </div>
       </SolutionStep>
     </div>

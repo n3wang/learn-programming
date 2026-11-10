@@ -17,10 +17,10 @@ import lifesim from './games/lifesim';
 export const WAGERS = {
   id: 'wagers',
   logo: 'clocktower/role-gambler.webp',
-  title: {en: 'School Quiz', zh: '课堂测验'},
+  title: {en: 'Math and Wagers', zh: '数学与竞猜'},
   blurb: {
-    en: 'Class trivia: guess the number, then pick the closest answer.',
-    zh: '课堂问答：先猜数字，再选最接近的答案。',
+    en: 'Roll your math. Knowledge and strategy.',
+    zh: '用数学开局。知识与策略。',
   },
   players: {min: 3, max: 64},
   minutes: 15,
@@ -30,7 +30,7 @@ export const WAGERS = {
 export const GAMES = [fibpics, powergrab, secrethitler, sultan, clocktower, university, lifesim];
 
 /** Games left off the /party menu for now; their host links (/party/host?game=…) still work. */
-const HIDDEN = ['fibpics', 'clocktower'];
+const HIDDEN = ['fibpics', 'clocktower', 'secrethitler'];
 
 /** What the /party menu shows, Wagers first. */
 export const MENU = [WAGERS, ...GAMES.filter((game) => !HIDDEN.includes(game.id))];

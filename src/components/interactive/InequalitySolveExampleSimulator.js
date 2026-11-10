@@ -1,5 +1,7 @@
 import React, { useState } from 'react';
 import ProblemShell from '@site/src/components/interactive/shell/ProblemShell';
+import { usePracticeMode, usePracticeAnswer } from '@site/src/components/interactive/shell/PracticeModeContext';
+import { ineqField } from '@site/src/components/interactive/shell/practiceFields';
 import { SolutionStep, stepStyles } from '@site/src/components/interactive/shell/SolutionStep';
 import { randInt } from '@site/src/components/interactive/shell/mathRandom';
 import SolutionSetNumberLine from '@site/src/components/interactive/shell/SolutionSetNumberLine';
@@ -153,8 +155,10 @@ const chip = {
 
 export default function InequalitySolveExampleSimulator() {
   const [key, setKey] = useState(0);
-  const [mode, setMode] = useState('book');
-  const [problem, setProblem] = useState(null);
+  const practice = usePracticeMode();
+  const [mode, setMode] = useState(practice ? 'random' : 'book');
+  const [problem, setProblem] = useState(() => (practice ? randomProblem() : null));
+  usePracticeAnswer(problem ? [ineqField('r', `解不等式 ${problem.text}`, problem.result)] : null);
   const [picks, setPicks] = useState({});
 
   const items = mode === 'book' ? BOOK : [problem];
@@ -207,7 +211,9 @@ export default function InequalitySolveExampleSimulator() {
       <p style={{ marginTop: 0 }}>
         {mode === 'book'
           ? '（1）（2）课本已经画在数轴上。（3）（4）请你选射线方向。'
-          : '随机一题，步骤和书上例 3 相同。选出解集在数轴上的方向。'}
+          : practice
+            ? '解这个不等式，写出解集。'
+            : '随机一题，步骤和书上例 3 相同。选出解集在数轴上的方向。'}
       </p>
       {items.filter(Boolean).map((item) => {
         const chosen = picks[item.id];
@@ -219,7 +225,7 @@ export default function InequalitySolveExampleSimulator() {
               {item.id === 'r' ? '不等式' : `（${item.id}）`} {item.text}
               {item.drawnInBook ? `，解集 ${item.result}` : null}
             </div>
-            {!item.drawnInBook ? (
+            {!item.drawnInBook && !practice ? (
               <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', margin: '6px 0' }}>
                 <button type="button" style={chip} onClick={() => setDir(item.id, 'right')}>
                   向右（大于）

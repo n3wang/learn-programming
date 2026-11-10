@@ -1,5 +1,7 @@
 import React, { useMemo, useRef, useState } from 'react';
 import ProblemShell from '@site/src/components/interactive/shell/ProblemShell';
+import { usePracticeMode, usePracticeAnswer } from '@site/src/components/interactive/shell/PracticeModeContext';
+import { rangeField } from '@site/src/components/interactive/shell/practiceFields';
 import { SolutionStep, stepStyles } from '@site/src/components/interactive/shell/SolutionStep';
 import { randInt } from '@site/src/components/interactive/shell/mathRandom';
 import InequalitySystemNumberLine from '@site/src/components/interactive/shell/InequalitySystemNumberLine';
@@ -168,7 +170,15 @@ function ChipButton({ chip, onClick }) {
 
 export default function InequalitySystemSolveSimulator() {
   const [key, setKey] = useState(0);
-  const [items, setItems] = useState(bookItems);
+  const practice = usePracticeMode();
+  const [items, setItems] = useState(() =>
+    practice
+      ? randomItems()
+          .sort(() => Math.random() - 0.5)
+          .map((it, i) => ({ ...it, id: String(i + 1) }))
+      : bookItems(),
+  );
+  usePracticeAnswer(items.map((it) => rangeField(`q${it.id}`, `（${it.id}）${it.text}`, it.answer)));
   const [chips, setChips] = useState(() => buildChips(bookItems()));
   const [slots, setSlots] = useState(() => Object.fromEntries(bookItems().map((it) => [it.id, null])));
   const [activeSlot, setActiveSlot] = useState(null);
@@ -232,6 +242,19 @@ export default function InequalitySystemSolveSimulator() {
       ))}
     </div>
   );
+
+  if (practice) {
+    return (
+      <ProblemShell title="解不等式组" subtitle="分别解两个不等式，再取公共部分" problemKey={key} solution={solution}>
+        <p style={{ marginTop: 0 }}>写出每个不等式组的解集：</p>
+        {items.map((it) => (
+          <div key={it.id} style={{ marginBottom: 8 }}>
+            （{it.id}）{'{'} {it.text} {'}'}
+          </div>
+        ))}
+      </ProblemShell>
+    );
+  }
 
   return (
     <ProblemShell

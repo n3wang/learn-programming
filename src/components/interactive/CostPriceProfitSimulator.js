@@ -2,6 +2,8 @@ import React, { useMemo, useState } from 'react';
 import Box from '@site/src/components/ui/Box';
 import Typography from '@site/src/components/ui/Typography';
 import ProblemShell from '@site/src/components/interactive/shell/ProblemShell';
+import { usePracticeMode, usePracticeAnswer } from '@site/src/components/interactive/shell/PracticeModeContext';
+import { numberField } from '@site/src/components/interactive/shell/practiceFields';
 import AnimatedNumber from '@site/src/components/interactive/shell/AnimatedNumber';
 import MathText from '@site/src/components/ProblemSet/MathText';
 import { SolutionStep, stepStyles } from '@site/src/components/interactive/shell/SolutionStep';
@@ -41,8 +43,15 @@ function derive(p) {
 
 export default function CostPriceProfitSimulator() {
   const [key, setKey] = useState(0);
-  const [p, setP] = useState(bookProblem);
+  const practice = usePracticeMode();
+  const [p, setP] = useState(() => (practice ? generate() : bookProblem()));
   const d = useMemo(() => derive(p), [p]);
+  usePracticeAnswer([
+    numberField("g1", "(a) 利润（元）", d.gainAmount, "\\text{利润}"),
+    numberField("g2", "(a) 售价（元）", d.gainSell, "\\text{售价}"),
+    numberField("l1", "(b) 亏损（元）", d.lossAmount, "\\text{亏损}"),
+    numberField("l2", "(b) 售价（元）", d.lossSell, "\\text{售价}"),
+  ]);
 
   const solution = (
     <div className={stepStyles.solution}>

@@ -3,6 +3,7 @@ import {pick} from '../../core/partyCore';
 import {L, makeT, st} from '../../core/strings';
 import Sprite from '../../core/Sprite';
 import MathPad, {PoolPicker} from '../../core/MathPad';
+import SettingHelp from '../../core/SettingHelp';
 import {checkAnswer, makeQuestion} from '../../core/mathQuestions';
 import {Avatar, Countdown} from '@site/src/components/BetsAndWagers/ui';
 import {MAX_NIGHT_CASTS, MAX_SPELLS, ROLES, ROOMS, SPELL_COST, SPELLS} from './data';
@@ -74,7 +75,7 @@ const tu = makeT({
     lockedTag: 'Locked',
     correct: '{n} correct',
     wrongReveal: 'Incorrect — you entered {got}; correct is {answer}',
-    practiceHelp: 'Correct raises Grade; wrong loses 1 Grade. Reach the set score to buy a new life.',
+    practiceHelp: 'Correct raises Grade and Knowledge; wrong loses 1 of each. Reach the Knowledge cost to graduate as Jr.',
     ok: 'OK',
     panel: 'Skills & actions',
     closePanel: 'Back to homework',
@@ -168,16 +169,16 @@ const tu = makeT({
     dawn: 'Dawn',
     slainTonight: 'Slain tonight:',
     peaceful: 'Nobody was slain.',
-    dead: 'You are out. Keep doing math to raise your Grade. You may still talk, and vote once more.',
-    revive: 'Buy a new life ({n} Grade · {left}/{max} left)',
-    reviveInf: 'Buy a new life ({n} Grade)',
-    reviveNeed: 'Need {n} Grade for a new life (you have {have}). {left}/{max} revives left.',
-    reviveNeedInf: 'Need {n} Grade for a new life (you have {have}).',
-    reviveMaxed: 'No more lives — you already returned {max} times.',
+    dead: 'You are out. Keep doing math to raise Knowledge (and Grade). Graduate as Jr when you can afford it. You may still talk, and vote once more.',
+    revive: 'Graduate as Jr ({n} Knowledge · {left}/{max} left)',
+    reviveInf: 'Graduate as Jr ({n} Knowledge)',
+    reviveNeed: 'Need {n} Knowledge to graduate (you have {have}). {left}/{max} revives left.',
+    reviveNeedInf: 'Need {n} Knowledge to graduate (you have {have}).',
+    reviveMaxed: 'No more lives — you already graduated {max} times.',
     reviveOff: 'Revive is off this game.',
     reviveMax: 'Revives per player',
     reviveMaxInf: '∞',
-    reviveMaxHint: 'How many times one player can buy a new life (1, 2, or unlimited).',
+    reviveMaxHint: 'How many times one player can graduate as Jr (1, 2, or unlimited).',
     goodWin: 'The university is saved!',
     evilWin: 'The Demons take the university!',
     why_leadersOut: 'Every Demon King is gone.',
@@ -241,7 +242,7 @@ const tu = makeT({
     evil: 'evil',
     nightSeconds: 'Night length',
     dayMinutes: 'Day length',
-    reviveAt: 'New life at Grade',
+    reviveAt: 'New life at Knowledge',
     reviveNone: 'Off',
     demonKillAt: 'Demon roommate-kill when alive above',
     demonKillAtHint: 'At or below this many living players, Demons vote a kill; above it, they slay a roommate.',
@@ -295,7 +296,7 @@ const tu = makeT({
     lockedTag: '已上锁',
     correct: '答对 {n} 题',
     wrongReveal: '答错 — 你的输入：{got}；正确答案：{answer}',
-    practiceHelp: '答对加成绩，答错扣 1 点成绩。达到设定分数可换一条新命。',
+    practiceHelp: '答对加成绩和知识，答错各扣 1 点。攒够知识可毕业变成 Jr。',
     ok: '确定',
     panel: '技能与行动',
     closePanel: '回到作业',
@@ -389,16 +390,16 @@ const tu = makeT({
     dawn: '天亮了',
     slainTonight: '昨夜被击倒：',
     peaceful: '昨夜无人被击倒。',
-    dead: '你已出局。继续做数学提高成绩。你仍然可以发言，还能再投一票。',
-    revive: '换一条新命（{n} 成绩 · 剩 {left}/{max}）',
-    reviveInf: '换一条新命（{n} 成绩）',
-    reviveNeed: '新命需要 {n} 成绩（你有 {have}）。还可复活 {left}/{max} 次。',
-    reviveNeedInf: '新命需要 {n} 成绩（你有 {have}）。',
-    reviveMaxed: '不能再复活——本局已换命 {max} 次。',
+    dead: '你已出局。继续做数学攒知识（成绩也会涨）。够知识就能毕业变成 Jr。你仍然可以发言，还能再投一票。',
+    revive: '毕业变成 Jr（{n} 知识 · 剩 {left}/{max}）',
+    reviveInf: '毕业变成 Jr（{n} 知识）',
+    reviveNeed: '毕业需要 {n} 知识（你有 {have}）。还可复活 {left}/{max} 次。',
+    reviveNeedInf: '毕业需要 {n} 知识（你有 {have}）。',
+    reviveMaxed: '不能再复活——本局已毕业 {max} 次。',
     reviveOff: '本局未开启复活。',
     reviveMax: '每人可复活次数',
     reviveMaxInf: '∞',
-    reviveMaxHint: '一名玩家本局最多换命几次（1、2 或无限）。',
+    reviveMaxHint: '一名玩家本局最多毕业变成 Jr 几次（1、2 或无限）。',
     goodWin: '大学得救了！',
     evilWin: '魔占领了大学！',
     why_leadersOut: '所有魔王都出局了。',
@@ -462,7 +463,7 @@ const tu = makeT({
     evil: '邪恶',
     nightSeconds: '夜晚时长',
     dayMinutes: '白天时长',
-    reviveAt: '成绩换命门槛',
+    reviveAt: '知识换命门槛',
     reviveNone: '关闭',
     demonKillAt: '存活超过此人数时魔可击倒同房',
     demonKillAtHint: '存活人数不超过该值时魔投票击杀；超过后改为击倒同房。',
@@ -727,6 +728,7 @@ const RULEBOOK = {
     {title: 'A day', items: ['Talk, move to another room, learn a skill (draw 2, keep 1), use day skills.', 'Then everyone marks one suspect (players with Grade 0 can’t be accused). The top accused defend (about 1 per 4 players — 3 for a table of 12; fewer if not enough people were named).', 'After the defense, everyone picks one accused to expel, or nobody. Most votes wins; a tie expels nobody.']},
     {title: 'Rooms and locks', items: ['Campus opens about 1 room per 3 players (2 at 6, 3 at 9, max 5). Who sleeps where is hidden by day.', 'At night your phone shows only your room and who is with you. “In your room” skills use that secret layout.', 'Demons only investigate other players in their own room. Demons know the Demon King; the King does not know the Demons.', 'Each player has one key per game. A locked room keeps out a Demon King who sleeps somewhere else.']},
     {title: 'Skills', items: [`Pay Knowledge (host sets 3, 6, or 8; default ${SPELL_COST}) to draw 2 skills (weighted B/A/S) and keep one — the card shows its rank. Hold at most ${MAX_SPELLS} (one passive). Some skills only appear for your role. Actives are 1 use; at most 2 night skills a night.`, 'Night skills can be set up by day or used at night; once set, they can’t change.', 'Exchange Students earn double Knowledge but look evil to Professors and skills.']},
+    {title: 'Death and Jr', items: ['Dead players keep practicing math: correct answers still raise Grade and Knowledge.', 'Spend the host’s Knowledge cost to graduate: you return with a new face, your name gains another “Jr”, Knowledge resets to 0, and Grade stays.', 'Each graduation stacks another Jr (Edward → Edward Jr → Edward Jr Jr). The host can cap how many times this happens.']},
   ],
   zh: [
     {title: '目标', items: ['善良阵营（学生、交换生、教授）在所有魔王被开除或击倒时获胜。如果本局没有魔王，则需要所有魔出局。', '魔与魔王人数达到场上剩余玩家的一半或更多时，邪恶获胜。']},
@@ -734,6 +736,7 @@ const RULEBOOK = {
     {title: '白天', items: ['讨论、换到别的房间、学习技能（二选一）、使用白天技能。', '然后每人标出一名怀疑对象（成绩为 0 的不能被指控）。得票最高的若干人辩护（大约每 4 人 1 个席位——12 人时 3 席；若被点名的人不够则更少）。', '辩护结束后，每人从被告中选一人开除，或谁也不开除。得票最多者出局，平票则无人被开除。']},
     {title: '房间与锁', items: ['校园大约每 3 人开 1 间房（6 人 2 间、9 人 3 间，最多 5 间）。白天不公开谁睡在哪。', '夜里手机只显示你自己的房间和同房的人。“你房间里”的技能按这套隐藏布局结算。', '魔只能调查自己房间里的其他人。魔知道魔王是谁；魔王不知道谁是魔。', '每名玩家每局有一把钥匙。上锁的房间能挡住睡在别处的魔王。']},
     {title: '技能', items: [`花知识学习技能（房主可选 3、6 或 8，默认 ${SPELL_COST}）：按 B/A/S 权重抽出 2 个并留下 1 个（卡片显示稀有度）。最多持有 ${MAX_SPELLS} 个（被动最多 1 个）；部分技能仅本角色可抽。主动技均为 1 次；每晚最多排 2 个夜技。`, '夜晚技能可以在白天设定，也可以在夜里使用；设定后不能更改。', '交换生获得双倍知识，但在教授和技能眼中是邪恶的。']},
+    {title: '出局与 Jr', items: ['出局后仍可练数学：答对继续加成绩和知识。', '花掉房主设定的知识即可毕业：换新头像、名字多一个 Jr、知识归零、成绩保留。', '每次毕业再叠一个 Jr（Edward → Edward Jr → Edward Jr Jr）。房主可限制每人毕业次数。']},
   ],
 };
 
@@ -1164,8 +1167,8 @@ const university = {
   logo: 'university.webp',
   title: {en: 'Clocktower University', zh: '钟楼大学'},
   blurb: {
-    en: 'Demons hide on campus. Do homework at night to earn Knowledge, learn secret skills, move between rooms, and expel the Demon King. 5–64 players.',
-    zh: '魔藏在校园里。夜里做作业赚知识，学习秘密技能，在房间之间移动，把魔王开除出去。5–64 人。',
+    en: 'Conquer the darkness through math. Complete assignments, unlock secret abilities, and survive the night.',
+    zh: '通过数学解开黑暗的谜题。完成作业，解锁秘密能力，度过夜晚。',
   },
   howTo: {
     en: [
@@ -1173,12 +1176,14 @@ const university = {
       'Night: everyone does math homework. Correct answers earn Knowledge and Grade; wrong answers lose 1 of each. Use skills and role actions in secret.',
       'Day: move, learn skills, talk. Then mark a suspect; the top accused defend and the class picks one to expel.',
       'About 1 defense seat per 4 living players (3 for a table of 12). A tie on the final ballot expels nobody.',
+      'Dead players keep earning Knowledge. Spend the set cost to graduate as Jr (new face, Knowledge resets, Grade stays).',
     ],
     zh: [
       '点名字条查看你的角色。魔会看到魔王（魔王看不到魔）。善良阵营要开除魔王。',
       '夜晚：所有人做数学作业。答对获得知识和成绩，答错各扣 1 点。秘密使用技能和角色行动。',
       '白天：移动、学习技能、讨论；然后标出怀疑对象，最高票者辩护，全班再选出一人开除。',
       '大约每 4 名存活玩家 1 个辩护席位（12 人时 3 席）。最终投票平票则无人被开除。',
+      '出局后仍可攒知识；花够设定费用就毕业变成 Jr（换头像、知识归零、成绩保留）。',
     ],
   },
   rulebook(lang) {
@@ -1237,7 +1242,7 @@ const university = {
       case 'vote':
         return castVote(s, ctx, id, msg.target != null ? msg.target : msg.yes === false ? 'none' : msg.yes);
       case 'revive':
-        return revive(s, ctx, id);
+        return revive(s, ctx, id, g);
       default:
         return false;
     }
@@ -1289,7 +1294,7 @@ const university = {
           (s.reviveAt || 0) > 0 &&
           revivesLeft(s, id) > 0 &&
           !(s.afkOut && s.afkOut[id]) &&
-          ((s.grade && s.grade[id]) || 0) >= (s.reviveAt || 0),
+          ((s.knowledge && s.knowledge[id]) || 0) >= (s.reviveAt || 0),
       ),
       learned: (s.learned || {})[id] || 0,
       canLearn: canLearn(s, id),
@@ -1382,60 +1387,59 @@ const university = {
   bot: botMove,
 
   SettingsView({settings, set, lang, playerCount: n = 0}) {
-    const radio = (key, value, label) => (
+    const label = (key, hintKey) => (
+      <span>
+        {tu(lang, key)} {hintKey ? <SettingHelp text={tu(lang, hintKey)} /> : null}
+      </span>
+    );
+    const radio = (key, value, text) => (
       <button key={String(value)} type="button" role="radio" aria-checked={settings[key] === value} className="button button--sm button--secondary" onClick={() => set({[key]: value})}>
-        {label}
+        {text}
       </button>
     );
     const c = n >= 5 ? counts(n) : null;
     return (
       <>
         <div className={shell.buttonRow}>
-          <span>{tu(lang, 'dayMinutes')}</span>
+          {label('dayMinutes')}
           {[2, 4, 6].map((m) => radio('dayMinutes', m, tu(lang, 'min', {n: m})))}
         </div>
         <div className={shell.buttonRow}>
-          <span>{tu(lang, 'nightSeconds')}</span>
+          {label('nightSeconds')}
           {[45, 60, 90].map((m) => radio('nightSeconds', m, tu(lang, 'sec', {n: m})))}
         </div>
         <div className={shell.buttonRow}>
-          <span>{tu(lang, 'reviveAt')}</span>
+          {label('reviveAt')}
           {[0, 20, 25, 30, 50, 100, 150].map((m) => radio('reviveAt', m, m === 0 ? tu(lang, 'reviveNone') : String(m)))}
         </div>
         <div className={shell.buttonRow}>
-          <span>{tu(lang, 'reviveMax')}</span>
+          {label('reviveMax', 'reviveMaxHint')}
           {[1, 2, 0].map((m) => radio('reviveMax', m, m === 0 ? tu(lang, 'reviveMaxInf') : String(m)))}
         </div>
-        <p className={shell.muted}>{tu(lang, 'reviveMaxHint')}</p>
         <div className={shell.buttonRow}>
-          <span>{tu(lang, 'demonKillAt')}</span>
+          {label('demonKillAt', 'demonKillAtHint')}
           {[8, 10, 12, 15, 20].map((m) => radio('demonKillAt', m, String(m)))}
         </div>
-        <p className={shell.muted}>{tu(lang, 'demonKillAtHint')}</p>
         <div className={shell.buttonRow}>
-          <span>{tu(lang, 'showRooms')}</span>
+          {label('showRooms', 'showRoomsHint')}
           {radio('showRooms', true, tu(lang, 'showRoomsOn'))}
           {radio('showRooms', false, tu(lang, 'showRoomsOff'))}
         </div>
-        <p className={shell.muted}>{tu(lang, 'showRoomsHint')}</p>
         <div className={shell.buttonRow}>
-          <span>{tu(lang, 'showHwPop')}</span>
+          {label('showHwPop', 'showHwPopHint')}
           {radio('showHwPop', true, tu(lang, 'showHwPopOn'))}
           {radio('showHwPop', false, tu(lang, 'showHwPopOff'))}
         </div>
-        <p className={shell.muted}>{tu(lang, 'showHwPopHint')}</p>
         <div className={shell.buttonRow}>
-          <span>{tu(lang, 'spellCost')}</span>
+          {label('spellCost', 'spellCostHint')}
           {[3, 6, 8].map((m) => radio('spellCost', m, String(m)))}
         </div>
-        <p className={shell.muted}>{tu(lang, 'spellCostHint')}</p>
         <div className={shell.buttonRow}>
-          <span>{tu(lang, 'idleKickNights')}</span>
+          {label('idleKickNights', 'idleKickHint')}
           {[0, 1, 2, 3].map((m) => radio('idleKickNights', m, m === 0 ? tu(lang, 'idleKickOff') : String(m)))}
         </div>
-        <p className={shell.muted}>{tu(lang, 'idleKickHint')}</p>
         <div className={shell.buttonRow}>
-          <span>{tu(lang, 'tables')}</span>
+          {label('tables')}
           <PoolPicker value={settings.pools} onChange={(pools) => set({pools})} lang={lang} />
         </div>
         {c && <p className={shell.muted}>{tu(lang, 'setupLine', {n, ...c})}</p>}
@@ -2047,10 +2051,10 @@ function UniPhone({view, lang, send}) {
         ) : (
           <p className={shell.muted}>
             {view.reviveUnlimited
-              ? tu(lang, 'reviveNeedInf', {n: view.reviveAt, have: view.grade || 0})
+              ? tu(lang, 'reviveNeedInf', {n: view.reviveAt, have: view.knowledge || 0})
               : tu(lang, 'reviveNeed', {
                   n: view.reviveAt,
-                  have: view.grade || 0,
+                  have: view.knowledge || 0,
                   left: view.revivesLeft || 0,
                   max: view.reviveMax || MAX_REVIVES,
                 })}

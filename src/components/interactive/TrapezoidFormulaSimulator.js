@@ -1,6 +1,8 @@
 import React, { useMemo, useState } from 'react';
 import Typography from '@site/src/components/ui/Typography';
 import ProblemShell from '@site/src/components/interactive/shell/ProblemShell';
+import { usePracticeMode, usePracticeAnswer } from '@site/src/components/interactive/shell/PracticeModeContext';
+import { numberField } from '@site/src/components/interactive/shell/practiceFields';
 import AnimatedNumber from '@site/src/components/interactive/shell/AnimatedNumber';
 import MathText from '@site/src/components/ProblemSet/MathText';
 import { SolutionStep, stepStyles } from '@site/src/components/interactive/shell/SolutionStep';
@@ -45,8 +47,10 @@ function derive(p) {
 
 export default function TrapezoidFormulaSimulator() {
   const [key, setKey] = useState(0);
-  const [p, setP] = useState(bookProblem);
+  const practice = usePracticeMode();
+  const [p, setP] = useState(() => (practice ? generate() : bookProblem()));
   const d = useMemo(() => derive(p), [p]);
+  usePracticeAnswer([numberField("b1", "（1）", d.b1, "b"), numberField("a2", "（2）", d.a2, "a"), numberField("h3", "（3）", d.h3, "h", 1e-6)]);
 
   const solution = (
     <div className={stepStyles.solution}>

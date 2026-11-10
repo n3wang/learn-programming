@@ -1,5 +1,7 @@
 import React, { useMemo, useState } from 'react';
 import ProblemShell from '@site/src/components/interactive/shell/ProblemShell';
+import { usePracticeMode, usePracticeAnswer } from '@site/src/components/interactive/shell/PracticeModeContext';
+import { choiceField, ineqField } from '@site/src/components/interactive/shell/practiceFields';
 import { SolutionStep, stepStyles } from '@site/src/components/interactive/shell/SolutionStep';
 import { randInt } from '@site/src/components/interactive/shell/mathRandom';
 import SolutionSetNumberLine from '@site/src/components/interactive/shell/SolutionSetNumberLine';
@@ -59,9 +61,16 @@ export default function InequalitySolutionSetSimulator({
 
 function SolutionSetInquiry() {
   const [key, setKey] = useState(0);
-  const [p, setP] = useState(bookProblem);
+  const practice = usePracticeMode();
+  const [p, setP] = useState(() => (practice ? generate() : bookProblem()));
   const [picked, setPicked] = useState(110);
   const cut = useMemo(() => p.bound / p.coef, [p]);
+  usePracticeAnswer([
+    ...[cut - 5, cut, cut + 5].map((n, i) =>
+      choiceField(`t${i}`, `x = ${n} 是解吗？`, ['是', '不是'], p.coef * n > p.bound ? '是' : '不是'),
+    ),
+    ineqField('set', '解集', `x > ${cut}`),
+  ]);
   const values = useMemo(() => trials(cut), [cut]);
   const product = p.coef * picked;
   const holds = product > p.bound;
@@ -79,6 +88,16 @@ function SolutionSetInquiry() {
       </SolutionStep>
     </div>
   );
+
+  if (practice) {
+    return (
+      <ProblemShell title="探究：哪些数是不等式的解？" subtitle="代入几个数试一试，再写出解集" problemKey={key} solution={solution}>
+        <p style={{ marginTop: 0 }}>
+          不等式 {p.coef}x &gt; {p.bound}。判断下面几个数是不是它的解，并写出解集。
+        </p>
+      </ProblemShell>
+    );
+  }
 
   return (
     <ProblemShell

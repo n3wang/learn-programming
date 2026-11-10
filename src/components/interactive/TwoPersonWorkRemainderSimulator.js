@@ -1,7 +1,8 @@
 import React, { useMemo, useState } from 'react';
 import Typography from '@site/src/components/ui/Typography';
 import ProblemShell from '@site/src/components/interactive/shell/ProblemShell';
-import AnimatedNumber from '@site/src/components/interactive/shell/AnimatedNumber';
+import { usePracticeMode, usePracticeAnswer } from '@site/src/components/interactive/shell/PracticeModeContext';
+import { numberField } from '@site/src/components/interactive/shell/practiceFields';
 import MathText from '@site/src/components/ProblemSet/MathText';
 import { SolutionStep, stepStyles } from '@site/src/components/interactive/shell/SolutionStep';
 import { fmtNum, pickOne } from '@site/src/components/interactive/shell/mathRandom';
@@ -54,8 +55,10 @@ function derive(p) {
 
 export default function TwoPersonWorkRemainderSimulator() {
   const [key, setKey] = useState(0);
-  const [p, setP] = useState(bookProblem);
+  const practice = usePracticeMode();
+  const [p, setP] = useState(() => (practice ? generate() : bookProblem()));
   const d = useMemo(() => derive(p), [p]);
+  usePracticeAnswer([numberField("t", "一共需要（h）", d.totalStr, "t", 1e-4)]);
 
   const solution = (
     <div className={stepStyles.solution}>
@@ -77,7 +80,7 @@ export default function TwoPersonWorkRemainderSimulator() {
       </SolutionStep>
       <SolutionStep badge="答" badgeClass={stepStyles.badgeAnswer}>
         <div className={stepStyles.answer}>
-          一共需要 <AnimatedNumber value={Number(d.totalStr)} /> h（
+          一共需要 {d.totalStr} h（
           {p.together} + {d.aloneStr}）。
         </div>
       </SolutionStep>

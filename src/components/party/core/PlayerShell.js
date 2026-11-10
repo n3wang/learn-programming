@@ -105,7 +105,8 @@ export default function PlayerShell({mod}) {
   const [joining, setJoining] = useState(false);
   const [roomInfo, setRoomInfo] = useState(null);
   const [pickingAvatar, setPickingAvatar] = useState(false);
-  const [lobbyName, setLobbyName] = useState('');
+  /** null = follow server name; '' = player cleared the field (must not fall back to you.name). */
+  const [lobbyName, setLobbyName] = useState(null);
   const [showRules, setShowRules] = useState(false);
   /** A tap went out and the host hasn't answered yet: block double taps. */
   const [sending, setSending] = useState(false);
@@ -154,6 +155,8 @@ export default function PlayerShell({mod}) {
         playSfx('pop');
         rememberSeat({code: msg.code, playerId: msg.playerId, name: msg.name, avatar: isValidAvatar(msg.avatar) ? msg.avatar : seatRef.current?.avatar, game: gameId});
         writeJson(NAME_KEY, msg.name);
+        // Host may uniquify ("Alice" → "Alice 2"); keep the lobby field in sync.
+        setLobbyName(msg.name);
         setError(null);
         setJoining(false);
         setNotice(msg.hostConnected ? null : 'hostAway');
@@ -172,7 +175,10 @@ export default function PlayerShell({mod}) {
           return;
         }
         const current = seatRef.current;
-        if (current && msg.you && msg.you.name !== current.name) rememberSeat({...current, name: msg.you.name});
+        if (current && msg.you && msg.you.name !== current.name) {
+          rememberSeat({...current, name: msg.you.name});
+          if (msg.phase === 'lobby') setLobbyName(msg.you.name);
+        }
         pendingRef.current = null;
         setSending(false);
         setEnv(msg);
@@ -316,13 +322,19 @@ export default function PlayerShell({mod}) {
   }
 
   useEffect(() => {
-    if (env?.phase === 'lobby' && env.you?.name) setLobbyName(env.you.name);
+    if (env?.phase === 'lobby' && env.you?.name) {
+      // First lobby paint only — do not wipe an in-progress edit on every state tick.
+      setLobbyName((prev) => (prev == null ? env.you.name : prev));
+      return;
+    }
+    if (env?.phase !== 'lobby') setLobbyName(null);
   }, [env?.phase, env?.you?.name]);
 
   const msLeft = env ? env.endsIn - (Date.now() - receivedAt) : 0;
   const offline = Boolean(seat) && status !== 'open';
   const {PhoneView, YouBar} = mod;
-  const lobbyDraft = lobbyName || env?.you?.name || '';
+  // Use != null so clearing the field to '' does not snap back to you.name.
+  const lobbyDraft = lobbyName != null ? lobbyName : env?.you?.name || '';
   const canSaveLobbyName = Boolean(lobbyDraft.trim()) && lobbyDraft.trim() !== (env?.you?.name || '');
 
   return (

@@ -7,6 +7,8 @@ import TableCell from '@site/src/components/ui/TableCell';
 import TableHead from '@site/src/components/ui/TableHead';
 import TableRow from '@site/src/components/ui/TableRow';
 import ProblemShell from '@site/src/components/interactive/shell/ProblemShell';
+import { usePracticeMode, usePracticeAnswer } from '@site/src/components/interactive/shell/PracticeModeContext';
+import { numberField } from '@site/src/components/interactive/shell/practiceFields';
 import AnimatedNumber from '@site/src/components/interactive/shell/AnimatedNumber';
 import { randInt, pickOne } from '@site/src/components/interactive/shell/mathRandom';
 
@@ -73,7 +75,9 @@ function fmtH(n) {
 
 export default function InterestGroupTimeSimulator() {
   const [key, setKey] = useState(0);
-  const [p, setP] = useState(bookProblem);
+  const practice = usePracticeMode();
+  const [p, setP] = useState(() => (practice ? generate() : bookProblem()));
+  usePracticeAnswer([numberField("m", "九年级文艺小组次数", p.g9Art, "m"), numberField("n", "九年级科技小组次数", p.g9Tech, "n")]);
 
   const derived = useMemo(() => {
     const [r7, r8] = p.rows;

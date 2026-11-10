@@ -1,5 +1,7 @@
 import React, { useMemo, useState } from 'react';
 import ProblemShell from '@site/src/components/interactive/shell/ProblemShell';
+import { usePracticeMode, usePracticeAnswer } from '@site/src/components/interactive/shell/PracticeModeContext';
+import { numberField } from '@site/src/components/interactive/shell/practiceFields';
 import { SolutionStep, stepStyles } from '@site/src/components/interactive/shell/SolutionStep';
 import { randInt } from '@site/src/components/interactive/shell/mathRandom';
 
@@ -43,8 +45,10 @@ function RayFigure({ rays }) {
 
 export default function OcSideCountSimulator() {
   const [key, setKey] = useState(0);
-  const [p, setP] = useState(bookProblem);
+  const practice = usePracticeMode();
+  const [p, setP] = useState(() => (practice ? generate() : bookProblem()));
   const names = useMemo(() => pairsWith(p.rays, p.side), [p]);
+  usePracticeAnswer([numberField("n", `以 O${p.side} 为一边的角的个数`, names.length, "n")]);
 
   const solution = (
     <div className={stepStyles.solution}>

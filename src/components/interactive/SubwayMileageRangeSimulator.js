@@ -1,5 +1,7 @@
 import React, { useState } from 'react';
 import ProblemShell from '@site/src/components/interactive/shell/ProblemShell';
+import { usePracticeMode, usePracticeAnswer } from '@site/src/components/interactive/shell/PracticeModeContext';
+import { rangeField } from '@site/src/components/interactive/shell/practiceFields';
 import { SolutionStep, stepStyles } from '@site/src/components/interactive/shell/SolutionStep';
 import { randInt } from '@site/src/components/interactive/shell/mathRandom';
 
@@ -29,9 +31,11 @@ const chip = {
 
 export default function SubwayMileageRangeSimulator() {
   const [key, setKey] = useState(0);
-  const [fare, setFare] = useState(8);
+  const practice = usePracticeMode();
+  const [fare, setFare] = useState(() => (practice ? randInt(4, 9) : 8));
   const [picked, setPicked] = useState(null);
   const answer = rangeFor(fare).text;
+  usePracticeAnswer([rangeField('m', '里程 x（km）满足', answer)]);
   const options = [4, 5, 6, 7, 8, 9].map((n) => rangeFor(n).text);
 
   const solution = (
@@ -49,7 +53,7 @@ export default function SubwayMileageRangeSimulator() {
 
   return (
     <ProblemShell
-      title="地铁票价 8 元时，里程满足什么不等式？"
+      title={`地铁票价 ${fare} 元时，里程满足什么不等式？`}
       subtitle="先对上分段，超过 32 km 后每 1 元增加 20 km"
       problemKey={key}
       onRandomize={() => {
@@ -68,13 +72,15 @@ export default function SubwayMileageRangeSimulator() {
         收费标准：不超过 6 km 为 3 元；超过 6 km 到 12 km（含）为 4 元；超过 12 km 到 22 km（含）为 5 元；超过 22 km 到 32 km（含）为 6 元；超过 32 km 的部分，每增加 1 元可再乘坐 20 km。
       </p>
       <p>单次购票花费 {fare} 元。选出里程 x km 的范围。</p>
-      <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
-        {options.map((choice) => (
-          <button key={choice} type="button" style={chip} onClick={() => setPicked(choice)}>
-            {choice}
-          </button>
-        ))}
-      </div>
+      {!practice ? (
+        <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+          {options.map((choice) => (
+            <button key={choice} type="button" style={chip} onClick={() => setPicked(choice)}>
+              {choice}
+            </button>
+          ))}
+        </div>
+      ) : null}
       {picked ? <p>{picked === answer ? '对。上端含，下端不含。' : '再数一数从 6 元、32 km 起，多付了几元。'}</p> : null}
     </ProblemShell>
   );

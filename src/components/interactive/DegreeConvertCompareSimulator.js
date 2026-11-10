@@ -1,5 +1,7 @@
 import React, { useMemo, useRef, useState } from 'react';
 import ProblemShell from '@site/src/components/interactive/shell/ProblemShell';
+import { usePracticeMode, usePracticeAnswer } from '@site/src/components/interactive/shell/PracticeModeContext';
+import { numberField, dmsField, choiceField } from '@site/src/components/interactive/shell/practiceFields';
 import { SolutionStep, stepStyles } from '@site/src/components/interactive/shell/SolutionStep';
 import { randInt } from '@site/src/components/interactive/shell/mathRandom';
 
@@ -138,7 +140,8 @@ const SLOT_IDS = ['min', 'sec', 'rel', 'decDms', 'cmp'];
 
 export default function DegreeConvertCompareSimulator() {
   const [key, setKey] = useState(0);
-  const [p, setP] = useState(bookProblem);
+  const practice = usePracticeMode();
+  const [p, setP] = useState(() => (practice ? generate() : bookProblem()));
   const [chips, setChips] = useState(() => buildChips(bookProblem()));
   const [slots, setSlots] = useState(() => Object.fromEntries(SLOT_IDS.map((id) => [id, null])));
   const [activeSlot, setActiveSlot] = useState(null);
@@ -152,6 +155,12 @@ export default function DegreeConvertCompareSimulator() {
   const decAsDms = `${whole}°${mins}′`;
   const dmsBigger = fromDms > p.decimal;
   const cmpLabel = dmsBigger ? `${dmsLabel} > ${p.decimal}°` : `${p.decimal}° > ${dmsLabel}`;
+  usePracticeAnswer([
+    numberField('min', `（1）${p.deg}° 是多少分`, p.deg * 60, '\\text{分}'),
+    numberField('sec', `${p.deg}° 是多少秒`, p.deg * 3600, '\\text{秒}'),
+    dmsField('dec', `（2）${p.decimal}° 化成度分（精确到分）`, Math.round(p.decimal * 3600), false, 30),
+    choiceField('cmp', `${dmsLabel} 和 ${p.decimal}° 哪个大？`, [dmsLabel, `${p.decimal}°`, '一样大'], dmsBigger ? dmsLabel : `${p.decimal}°`),
+  ]);
 
   const chipById = useMemo(() => Object.fromEntries(chips.map((c) => [c.id, c])), [chips]);
   const answers = {
@@ -242,6 +251,15 @@ export default function DegreeConvertCompareSimulator() {
   const s3 = slotState('rel');
   const s4 = slotState('decDms');
   const s5 = slotState('cmp');
+
+  if (practice) {
+    return (
+      <ProblemShell title="度、分、秒的换算与比较" subtitle="1° = 60′，1′ = 60″；小数部分 × 60 才是分" problemKey={key} solution={solution}>
+        <p style={{ marginTop: 0 }}>（1）{p.deg}° 等于多少分？等于多少秒？</p>
+        <p>（2）把 {p.decimal}° 化成度、分（精确到分），并比较 {dmsLabel} 和 {p.decimal}° 的大小。</p>
+      </ProblemShell>
+    );
+  }
 
   return (
     <ProblemShell

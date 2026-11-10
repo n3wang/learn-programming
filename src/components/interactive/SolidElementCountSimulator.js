@@ -1,6 +1,8 @@
 import React, { useMemo, useState } from 'react';
 import Typography from '@site/src/components/ui/Typography';
 import ProblemShell from '@site/src/components/interactive/shell/ProblemShell';
+import { usePracticeMode, usePracticeAnswer } from '@site/src/components/interactive/shell/PracticeModeContext';
+import { numberField } from '@site/src/components/interactive/shell/practiceFields';
 import SolidFigureView from '@site/src/components/interactive/solidView/SolidFigureView';
 import AnimatedNumber from '@site/src/components/interactive/shell/AnimatedNumber';
 import { SolutionStep, stepStyles } from '@site/src/components/interactive/shell/SolutionStep';
@@ -56,9 +58,11 @@ function generate() {
 
 export default function SolidElementCountSimulator() {
   const [key, setKey] = useState(0);
-  const [p, setP] = useState(bookProblem);
+  const practice = usePracticeMode();
+  const [p, setP] = useState(() => (practice ? generate() : bookProblem()));
   const [highlight, setHighlight] = useState('faces');
   const s = useMemo(() => SOLIDS[p.id], [p]);
+  usePracticeAnswer([numberField("f", "面", s.faces, "F"), numberField("e", "棱", s.edges, "E"), numberField("v", "顶点", s.vertices, "V")]);
 
   const solution = (
     <div className={stepStyles.solution}>

@@ -1,5 +1,7 @@
 import React, { useState } from 'react';
 import ProblemShell from '@site/src/components/interactive/shell/ProblemShell';
+import { usePracticeMode, usePracticeAnswer } from '@site/src/components/interactive/shell/PracticeModeContext';
+import { numberField } from '@site/src/components/interactive/shell/practiceFields';
 import { SolutionStep, stepStyles } from '@site/src/components/interactive/shell/SolutionStep';
 import { randInt } from '@site/src/components/interactive/shell/mathRandom';
 
@@ -31,10 +33,12 @@ const chip = {
 
 export default function PoetryAdvanceSimulator() {
   const [key, setKey] = useState(0);
-  const [p, setP] = useState(bookContest);
+  const practice = usePracticeMode();
+  const [p, setP] = useState(() => (practice ? generate() : bookContest()));
   const [picked, setPicked] = useState(null);
   const cut = cutOf(p);
   const least = Math.floor(cut) + 1;
+  usePracticeAnswer([numberField("n", "至少答对的题数", least, "x")]);
   const trials = [least - 1, least, least + 1].filter((n) => n >= 0 && n <= p.total);
 
   const solution = (
@@ -68,15 +72,17 @@ export default function PoetryAdvanceSimulator() {
       solution={solution}
     >
       <p style={{ marginTop: 0 }}>
-        共 {p.total} 道题，答对得 {p.gain} 分，答错或不答扣 {p.loss} 分。成绩超过 {p.need} 分晋级。点一个答对题数试一试。
+        共 {p.total} 道题，答对得 {p.gain} 分，答错或不答扣 {p.loss} 分。成绩超过 {p.need} 分晋级。{practice ? '至少要答对几道题？' : '点一个答对题数试一试。'}
       </p>
-      <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
-        {trials.map((n) => (
-          <button key={n} type="button" style={chip} onClick={() => setPicked(n)}>
-            答对 {n} 道
-          </button>
-        ))}
-      </div>
+      {!practice ? (
+        <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+          {trials.map((n) => (
+            <button key={n} type="button" style={chip} onClick={() => setPicked(n)}>
+              答对 {n} 道
+            </button>
+          ))}
+        </div>
+      ) : null}
       {picked != null ? (
         <p>
           成绩是 {score(p, picked)} 分。

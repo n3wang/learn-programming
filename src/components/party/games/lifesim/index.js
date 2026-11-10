@@ -1,5 +1,5 @@
 /**
- * Desk / Life Sim party — hosted on a separate service. This module is a
+ * Democracy Inc. (民主大业) — hosted on a separate service. This module is a
  * promotional desk page on /party (QR + how-to), not a full HostShell game.
  */
 
@@ -9,15 +9,15 @@ const lifesim = {
   id: 'lifesim',
   /** Opens on a separate Expo desk build; HostShell is skipped. */
   externalUrl: LIFESIM_PARTY_URL,
-  logo: 'university.webp',
-  title: {en: 'Life Sim Party', zh: '人生模拟派对'},
+  logo: 'lifesim/logo.webp',
+  title: {en: 'Democracy Inc.', zh: '民主大业'},
   blurb: {
-    en: 'Run shops in one town with friends. Simultaneous weeks, politics, and a slim profile — not the full career.',
-    zh: '和朋友在同一座城里开店。同步周回合、政治与精简角色——不是完整生涯模式。',
+    en: 'From a school teacher to a corrupt politician. We all share the same city, sometimes the same dream.',
+    zh: '从一名学校老师变成腐败的政治家。我们都在同座城市里挣扎。',
   },
   players: {min: 2, max: 64},
   minutes: 40,
-  coverTint: '#3d8b7a',
+  coverTint: '#5c4a32',
   howTo: {
     en: [
       'Scan the QR (or open the link) on every phone. One person hosts; everyone else joins the room.',

@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import ProblemShell from '@site/src/components/interactive/shell/ProblemShell';
+import { usePracticeMode, usePracticeAnswer } from '@site/src/components/interactive/shell/PracticeModeContext';
 import { SolutionStep, stepStyles } from '@site/src/components/interactive/shell/SolutionStep';
 import { randInt } from '@site/src/components/interactive/shell/mathRandom';
 
@@ -31,7 +32,8 @@ const chip = {
 
 export default function InequalityPropertyApplySimulator() {
   const [key, setKey] = useState(0);
-  const [p, setP] = useState(bookPractice);
+  const practice = usePracticeMode();
+  const [p, setP] = useState(() => (practice ? generate() : bookPractice()));
   const [marks, setMarks] = useState({});
 
   function cycle(id) {
@@ -39,6 +41,12 @@ export default function InequalityPropertyApplySimulator() {
   }
 
   const bound = p.bound == null ? 3 : p.bound;
+  usePracticeAnswer([
+    { name: "r1", type: "ineq", display: "m + 5", value: { op: ">", bound: bound + 5 } },
+    { name: "r2", type: "ineq", display: "\\dfrac{m}{6}", value: { op: ">", bound: bound / 6 } },
+    { name: "r3", type: "ineq", display: "-2m", value: { op: "<", bound: -2 * bound } },
+    { name: "r4", type: "ineq", display: "3m - 4", value: { op: ">", bound: 3 * bound - 4 } },
+  ]);
   const ranges = [
     { id: 'r1', text: `m + 5 > ${bound + 5}`, why: '性质 1：两边加 5。' },
     { id: 'r2', text: `m/6 > ${bound}/6`, why: '性质 2：两边除以正数 6。' },

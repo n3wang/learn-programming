@@ -1,5 +1,7 @@
 import React, { useState } from 'react';
 import ProblemShell from '@site/src/components/interactive/shell/ProblemShell';
+import { usePracticeMode, usePracticeAnswer } from '@site/src/components/interactive/shell/PracticeModeContext';
+import { numberField } from '@site/src/components/interactive/shell/practiceFields';
 import { SolutionStep, stepStyles } from '@site/src/components/interactive/shell/SolutionStep';
 import { randInt } from '@site/src/components/interactive/shell/mathRandom';
 
@@ -30,9 +32,11 @@ const chip = {
 
 export default function EnergyDeclineSimulator() {
   const [key, setKey] = useState(0);
-  const [p, setP] = useState(bookPlan);
+  const practice = usePracticeMode();
+  const [p, setP] = useState(() => (practice ? generate() : bookPlan()));
   const [picked, setPicked] = useState(null);
   const cap = maxMilli(p);
+  usePracticeAnswer([numberField("e", "今年能耗至多（t 标准煤）", cap / 1000, "x")]);
   const trials = [cap - 8, cap, cap + 8];
 
   const solution = (
@@ -66,15 +70,17 @@ export default function EnergyDeclineSimulator() {
       solution={solution}
     >
       <p style={{ marginTop: 0 }}>
-        去年万元地区生产总值能耗是 {(p.last / 1000).toFixed(3)} t 标准煤。今年下降率不小于 {p.percent}%。点一个今年的能耗，看它是否合格。
+        去年万元地区生产总值能耗是 {(p.last / 1000).toFixed(3)} t 标准煤。今年下降率不小于 {p.percent}%。{practice ? '今年的能耗至多是多少吨标准煤？' : '点一个今年的能耗，看它是否合格。'}
       </p>
-      <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
-        {trials.map((milli) => (
-          <button key={milli} type="button" style={chip} onClick={() => setPicked(milli)}>
-            {(milli / 1000).toFixed(3)} t
-          </button>
-        ))}
-      </div>
+      {!practice ? (
+        <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+          {trials.map((milli) => (
+            <button key={milli} type="button" style={chip} onClick={() => setPicked(milli)}>
+              {(milli / 1000).toFixed(3)} t
+            </button>
+          ))}
+        </div>
+      ) : null}
       {picked != null ? (
         <p>
           下降率约为 {decline(p, picked).toFixed(2)}%。

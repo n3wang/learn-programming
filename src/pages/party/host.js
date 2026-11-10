@@ -7,8 +7,8 @@ export default function PartyHostPage() {
   const zh = useDocusaurusContext().i18n.currentLocale.startsWith('zh');
   return (
     <Layout
-      title={zh ? '课堂测验 — 主持' : 'School Quiz — Host'}
-      description={zh ? '在大屏幕上主持课堂测验，玩家用手机加入。' : 'Host a School Quiz on a shared screen; players join on their phones.'}>
+      title={zh ? '数学与竞猜 — 主持' : 'Math and Wagers — Host'}
+      description={zh ? '在大屏幕上主持数学与竞猜，玩家用手机加入。' : 'Host Math and Wagers on a shared screen; players join on their phones.'}>
       <BrowserOnly fallback={<p className="container margin-vert--lg">Loading…</p>}>
         {() => {
           // ?game=<id> picks a game from the /party menu; no game is Bets & Wagers.

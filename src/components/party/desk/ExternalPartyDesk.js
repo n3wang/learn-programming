@@ -9,7 +9,7 @@ import styles from '../core/party.module.css';
 import desk from './externalDesk.module.css';
 
 /**
- * Big-screen desk for a party mode that lives on another host (e.g. Life Sim).
+ * Big-screen desk for a party mode that lives on another host (e.g. Democracy Inc.).
  * Same chrome as a lobby: QR + copy link + how-to, no relay seats.
  */
 export default function ExternalPartyDesk({mod}) {

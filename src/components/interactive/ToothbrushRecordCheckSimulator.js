@@ -119,6 +119,15 @@ export default function ToothbrushRecordCheckSimulator() {
                 )}
               </>
             }
+            practiceFields={[
+              {
+                name: 'judge',
+                label: '这个记录有误吗？',
+                type: 'choice',
+                options: ['有误', '没有误'],
+                value: p.consistent ? '没有误' : '有误',
+              },
+            ]}
             x={p.consistent ? p.x : '\\text{无解}'}
             y={p.consistent ? p.y : '\\text{无解}'}
             answer={

@@ -23,6 +23,7 @@ import {CLASS_ROSTERS} from '@site/src/data/classRosters';
 import {useVoice} from './voice';
 import {playSfx, usePartySfx} from './sfx';
 import RulesSheet from './RulesSheet';
+import SettingHelp from './SettingHelp';
 import {L, st} from './strings';
 import styles from './party.module.css';
 
@@ -128,21 +129,33 @@ export default function HostShell({mod}) {
     }
   }
 
-  /** Room kick (lobby button or game rules e.g. university AFK homework). */
-  function kickPlayer(playerId) {
-    const p = gameRef.current.players[playerId];
-    if (!p) return;
+  /**
+   * Room kick (lobby ✕, clear buttons, or game rules e.g. university AFK).
+   * Lobby always deletes the seat locally — offline phones never send
+   * `player_left`, so waiting on the relay alone left ghost rows.
+   */
+  function removePlayers(playerIds) {
     const midGame = gameRef.current.phase === 'play' || gameRef.current.phase === 'end';
+    const humans = [];
     commit((draft) => {
-      draft.blockedNames = rememberBlockedName(draft.blockedNames, p.name);
-      if (isBotId(playerId)) delete draft.players[playerId];
-      else if (midGame && draft.players[playerId]) {
-        draft.players[playerId].connected = false;
-        draft.players[playerId].gone = true;
+      for (const playerId of playerIds) {
+        const p = draft.players[playerId];
+        if (!p) continue;
+        draft.blockedNames = rememberBlockedName(draft.blockedNames, p.name);
+        if (isBotId(playerId) || !midGame) delete draft.players[playerId];
+        else {
+          p.connected = false;
+          p.gone = true;
+        }
+        if (!isBotId(playerId)) humans.push(playerId);
       }
     });
-    if (isBotId(playerId)) return;
-    socketRef.current?.send({type: 'kick', playerId});
+    for (const playerId of humans) socketRef.current?.send({type: 'kick', playerId});
+  }
+
+  function kickPlayer(playerId) {
+    if (!gameRef.current.players[playerId]) return;
+    removePlayers([playerId]);
   }
 
   /** Every change: mutate a copy, settle the end, save, push views, redraw. */
@@ -376,6 +389,7 @@ export default function HostShell({mod}) {
   const subtitle = useVoice({gameId, lines: mod.voiceLines, state: g.state, lang, enabled: voiceOn});
   const ids = seatedIds(g);
   const humans = ids.filter((id) => !isBotId(id));
+  const offlineIds = ids.filter((id) => !g.players[id].connected);
   const max = Math.min(mod.players.max, MAX_SEATS);
   const canStart = ids.length >= mod.players.min;
   const now = Date.now();
@@ -405,6 +419,16 @@ export default function HostShell({mod}) {
     commit((draft) => {
       for (const id of Object.keys(draft.players)) if (isBotId(id)) delete draft.players[id];
     });
+
+  const clearOffline = () => {
+    const offline = Object.keys(gameRef.current.players).filter((id) => !gameRef.current.players[id].connected);
+    if (offline.length) removePlayers(offline);
+  };
+
+  const clearRoom = () => {
+    const all = Object.keys(gameRef.current.players);
+    if (all.length) removePlayers(all);
+  };
 
   const kick = (playerId) => kickPlayer(playerId);
 
@@ -514,9 +538,24 @@ export default function HostShell({mod}) {
                   {st(lang, 'removeBots')}
                 </button>
               )}
+              {offlineIds.length > 0 && (
+                <button type="button" className="button button--sm button--secondary" onClick={clearOffline}>
+                  {st(lang, 'clearOffline')}
+                </button>
+              )}
+              {ids.length > 0 && (
+                <button type="button" className="button button--sm button--secondary" onClick={clearRoom}>
+                  {st(lang, 'clearRoom')}
+                </button>
+              )}
             </div>
 
-            <h3 className={styles.subTitle}>{st(lang, 'names')}</h3>
+            <h3 className={styles.subTitle}>
+              {st(lang, 'names')}{' '}
+              {g.nameClass ? (
+                <SettingHelp text={st(lang, 'classNamesHint', {class: CLASS_ROSTERS[g.nameClass].label})} />
+              ) : null}
+            </h3>
             <div className={styles.buttonRow} role="radiogroup" aria-label={st(lang, 'names')}>
               <button type="button" role="radio" aria-checked={Boolean(g.lockedNames && !g.nameClass)} className="button button--sm button--secondary" onClick={() => setLocked(true)}>
                 {st(lang, 'lockedNames')}
@@ -536,7 +575,6 @@ export default function HostShell({mod}) {
                 </button>
               ))}
             </div>
-            {g.nameClass && <p className={styles.muted}>{st(lang, 'classNamesHint', {class: CLASS_ROSTERS[g.nameClass].label})}</p>}
 
             {SettingsView && (
               <>

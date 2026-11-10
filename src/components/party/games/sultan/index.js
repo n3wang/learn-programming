@@ -450,8 +450,8 @@ const sultan = {
   logo: 'sultan/char-04-king.webp',
   title: {en: 'City of the Sultan', zh: '苏丹之城'},
   blurb: {
-    en: 'Pick secret characters each round, collect gold and build the finest city. Optional duels, weddings and conquests.',
-    zh: '每轮秘密挑选角色，收集金币，建造最华美的城市。可选决斗、婚姻与征服。',
+    en: 'Bloodshed, marriage, and conquest, they are just tools of the trade.',
+    zh: '血腥、婚姻与征服，它们只是交易的工具。',
   },
   howTo: {
     en: [

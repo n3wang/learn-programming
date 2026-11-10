@@ -1,6 +1,8 @@
 import React, { useMemo, useState } from 'react';
 import Typography from '@site/src/components/ui/Typography';
 import ProblemShell from '@site/src/components/interactive/shell/ProblemShell';
+import { usePracticeMode, usePracticeAnswer } from '@site/src/components/interactive/shell/PracticeModeContext';
+import { numberField } from '@site/src/components/interactive/shell/practiceFields';
 import AnimatedNumber from '@site/src/components/interactive/shell/AnimatedNumber';
 import MathText from '@site/src/components/ProblemSet/MathText';
 import { SolutionStep, stepStyles } from '@site/src/components/interactive/shell/SolutionStep';
@@ -68,8 +70,10 @@ function derive(p) {
 
 export default function MooncakeFlourPlanSimulator() {
   const [key, setKey] = useState(0);
-  const [p, setP] = useState(bookProblem);
+  const practice = usePracticeMode();
+  const [p, setP] = useState(() => (practice ? generate() : bookProblem()));
   const d = useMemo(() => derive(p), [p]);
+  usePracticeAnswer([numberField("large", "大月饼用面粉（kg）", d.largeStr, "x", 1e-4), numberField("small", "小月饼用面粉（kg）", d.smallStr, "y", 1e-4)]);
 
   const solution = (
     <div className={stepStyles.solution}>
@@ -105,8 +109,8 @@ export default function MooncakeFlourPlanSimulator() {
       </SolutionStep>
       <SolutionStep badge="答" badgeClass={stepStyles.badgeAnswer}>
         <div className={stepStyles.answer}>
-          大月饼用 <AnimatedNumber value={Number(d.largeStr)} /> kg 面粉，小月饼用{' '}
-          <AnimatedNumber value={Number(d.smallStr)} /> kg 面粉，最多约{' '}
+          大月饼用 {d.largeStr} kg 面粉，小月饼用{' '}
+          {d.smallStr} kg 面粉，最多约{' '}
           <AnimatedNumber value={d.boxes} /> 盒。
         </div>
       </SolutionStep>

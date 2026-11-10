@@ -1,5 +1,7 @@
 import React, { useState } from 'react';
 import ProblemShell from '@site/src/components/interactive/shell/ProblemShell';
+import { usePracticeMode, usePracticeAnswer } from '@site/src/components/interactive/shell/PracticeModeContext';
+import { choiceField } from '@site/src/components/interactive/shell/practiceFields';
 import { SolutionStep, stepStyles } from '@site/src/components/interactive/shell/SolutionStep';
 import { randInt } from '@site/src/components/interactive/shell/mathRandom';
 
@@ -34,7 +36,8 @@ const chip = {
 
 export default function InequalityMemberCheckSimulator() {
   const [key, setKey] = useState(0);
-  const [p, setP] = useState(bookProblem);
+  const practice = usePracticeMode();
+  const [p, setP] = useState(() => (practice ? generate() : bookProblem()));
   const [marks, setMarks] = useState({});
 
   function holds(n) {
@@ -44,6 +47,7 @@ export default function InequalityMemberCheckSimulator() {
   const yes = p.values.filter(holds);
   const no = p.values.filter((n) => !holds(n));
   const cut = (p.bound - p.add) / p.coef;
+  usePracticeAnswer(p.values.map((n, i) => choiceField(`v${i}`, `x = ${n} 是解吗？`, ["是", "不是"], holds(n) ? "是" : "不是")));
 
   const solution = (
     <div className={stepStyles.solution}>
@@ -76,22 +80,24 @@ export default function InequalityMemberCheckSimulator() {
       solution={solution}
     >
       <p style={{ marginTop: 0 }}>
-        不等式 {p.coef}x + {p.add} &gt; {p.bound}。点每个数，标成「是」或「不是」。
+        不等式 {p.coef}x + {p.add} &gt; {p.bound}。{practice ? '下面每个数是不是它的解？' : '点每个数，标成「是」或「不是」。'}
       </p>
-      <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-        {p.values.map((n) => {
-          const mark = marks[n];
-          const ok = mark && ((mark === 'yes') === holds(n));
-          return (
-            <div key={n} style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
-              <span style={{ minWidth: 48 }}>{n}</span>
-              <button type="button" style={chip} onClick={() => setMarks((prev) => ({ ...prev, [n]: 'yes' }))}>是</button>
-              <button type="button" style={chip} onClick={() => setMarks((prev) => ({ ...prev, [n]: 'no' }))}>不是</button>
-              {mark ? <span>{ok ? '对。' : '再代入算一次。'}</span> : null}
-            </div>
-          );
-        })}
-      </div>
+      {!practice ? (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+          {p.values.map((n) => {
+            const mark = marks[n];
+            const ok = mark && ((mark === 'yes') === holds(n));
+            return (
+              <div key={n} style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
+                <span style={{ minWidth: 48 }}>{n}</span>
+                <button type="button" style={chip} onClick={() => setMarks((prev) => ({ ...prev, [n]: 'yes' }))}>是</button>
+                <button type="button" style={chip} onClick={() => setMarks((prev) => ({ ...prev, [n]: 'no' }))}>不是</button>
+                {mark ? <span>{ok ? '对。' : '再代入算一次。'}</span> : null}
+              </div>
+            );
+          })}
+        </div>
+      ) : null}
     </ProblemShell>
   );
 }

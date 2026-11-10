@@ -1,5 +1,6 @@
 import React, { useMemo, useState } from 'react';
 import ProblemShell from '@site/src/components/interactive/shell/ProblemShell';
+import { usePracticeMode } from '@site/src/components/interactive/shell/PracticeModeContext';
 
 /**
  * Shared frame for 二元一次方程组 word-problem practice widgets:
@@ -14,7 +15,8 @@ export default function TwoVarWordProblemBase({
   renderSolution,
 }) {
   const [key, setKey] = useState(0);
-  const [p, setP] = useState(bookProblem);
+  const practice = usePracticeMode();
+  const [p, setP] = useState(() => (practice ? generate() : bookProblem()));
 
   const solved = useMemo(() => ({ x: p.x, y: p.y }), [p]);
 

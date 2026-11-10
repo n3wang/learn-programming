@@ -6,6 +6,7 @@ import DraftHomeworkButton, {
   textFromNode,
 } from '@site/src/components/homework/DraftHomeworkButton';
 import CEBlock from './CEBlock';
+import { usePracticeMode } from './PracticeModeContext';
 
 /**
  * Shared frame for randomized word-problem practice: problem statement,
@@ -26,7 +27,9 @@ export default function ProblemShell({
   draftPrompt,
   draftAnswer,
 }) {
-  const [showAnswer, setShowAnswer] = useState(false);
+  const practice = usePracticeMode();
+  const [localShowAnswer, setShowAnswer] = useState(false);
+  const showAnswer = practice ? Boolean(practice.showAnswer) : localShowAnswer;
   const promptRef = useRef(null);
   const solutionRef = useRef(null);
 
@@ -71,7 +74,7 @@ export default function ProblemShell({
   );
 
   return (
-    <CEBlock title={title} subtitle={subtitle} headerAction={actions}>
+    <CEBlock title={title} subtitle={subtitle} headerAction={practice ? null : actions}>
       <div ref={promptRef}>
         <TranslatableParagraph as="div" translateKey={`prompt:${problemKey}`}>
           {typeof children === 'function' ? children(showAnswer) : children}

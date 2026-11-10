@@ -1,4 +1,5 @@
-import React from 'react';
+import React, { useEffect } from 'react';
+import { usePracticeMode } from './PracticeModeContext';
 import MathText from '@site/src/components/ProblemSet/MathText';
 import { texSystem, texX, texY, X_COLOR, Y_COLOR } from './texMath';
 import styles from './TwoVarSolution.module.css';
@@ -29,6 +30,8 @@ function formatSol(v) {
  * @param {number|string} x, y       — solution values (string allowed for 无解 / fractions)
  * @param {React.ReactNode} answer   — final “答：…” line
  * @param {React.ReactNode} [check]  — optional 验算 line
+ * @param {Array} [practiceFields]    — override the answer inputs a mixed-practice runner asks for
+ *                                     (default: x and y, labelled by legendX / legendY)
  */
 export default function TwoVarSolution({
   setText,
@@ -41,7 +44,21 @@ export default function TwoVarSolution({
   y,
   answer,
   check,
+  practiceFields,
 }) {
+  const practice = usePracticeMode();
+  const reportFields = practice && practice.reportFields;
+  const fieldsSig = JSON.stringify(practiceFields || [legendX, legendY, x, y]);
+  useEffect(() => {
+    if (!reportFields) return;
+    reportFields(
+      practiceFields || [
+        { name: 'x', label: legendX, value: x },
+        { name: 'y', label: legendY, value: y },
+      ],
+    );
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [reportFields, fieldsSig]);
   return (
     <div className={styles.solution}>
       <div className={styles.legend}>

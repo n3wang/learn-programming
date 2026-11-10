@@ -1,7 +1,8 @@
 import React, { useMemo, useState } from 'react';
 import Typography from '@site/src/components/ui/Typography';
 import ProblemShell from '@site/src/components/interactive/shell/ProblemShell';
-import AnimatedNumber from '@site/src/components/interactive/shell/AnimatedNumber';
+import { usePracticeMode, usePracticeAnswer } from '@site/src/components/interactive/shell/PracticeModeContext';
+import { numberField } from '@site/src/components/interactive/shell/practiceFields';
 import MathText from '@site/src/components/ProblemSet/MathText';
 import { SolutionStep, stepStyles } from '@site/src/components/interactive/shell/SolutionStep';
 import { fmtNum, pickOne } from '@site/src/components/interactive/shell/mathRandom';
@@ -34,8 +35,10 @@ function derive(p) {
 
 export default function DiscountVolumeBoostSimulator() {
   const [key, setKey] = useState(0);
-  const [p, setP] = useState(bookProblem);
+  const practice = usePracticeMode();
+  const [p, setP] = useState(() => (practice ? generate() : bookProblem()));
   const d = useMemo(() => derive(p), [p]);
+  usePracticeAnswer([numberField("boost", "销售量要增加的百分数（填 % 前面的数）", d.boostStr, "x", 1e-4)]);
 
   const solution = (
     <div className={stepStyles.solution}>
@@ -57,7 +60,7 @@ export default function DiscountVolumeBoostSimulator() {
       </SolutionStep>
       <SolutionStep badge="答" badgeClass={stepStyles.badgeAnswer}>
         <div className={stepStyles.answer}>
-          销售量要比按原价销售时增加 <AnimatedNumber value={Number(d.boostStr)} />%。
+          销售量要比按原价销售时增加 {d.boostStr}%。
         </div>
       </SolutionStep>
     </div>

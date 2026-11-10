@@ -1,5 +1,7 @@
 import React, { useState } from 'react';
 import ProblemShell from '@site/src/components/interactive/shell/ProblemShell';
+import { usePracticeMode, usePracticeAnswer } from '@site/src/components/interactive/shell/PracticeModeContext';
+import { degField } from '@site/src/components/interactive/shell/practiceFields';
 import { SolutionStep, stepStyles } from '@site/src/components/interactive/shell/SolutionStep';
 import { randInt } from '@site/src/components/interactive/shell/mathRandom';
 
@@ -13,7 +15,9 @@ function generate() {
 
 export default function AngleSumDiffSimulator() {
   const [key, setKey] = useState(0);
-  const [p, setP] = useState(bookProblem);
+  const practice = usePracticeMode();
+  const [p, setP] = useState(() => (practice ? generate() : bookProblem()));
+  usePracticeAnswer([degField("aoc", "角 AOC", p.a + p.b), degField("diff", "角 AOC − 角 AOB", p.b)]);
 
   const solution = (
     <div className={stepStyles.solution}>
@@ -44,7 +48,7 @@ export default function AngleSumDiffSimulator() {
       solution={solution}
     >
       <p style={{ marginTop: 0 }}>
-        射线 OB 在角 AOC 的内部。角 AOB = {p.a}°，角 BOC = {p.b}°。
+        射线 OB 在角 AOC 的内部。角 AOB = {p.a}°，角 BOC = {p.b}°。{practice ? ' 求角 AOC，以及角 AOC − 角 AOB。' : null}
       </p>
       <svg viewBox="0 0 240 110" width="100%" height="100">
         <line x1="28" y1="92" x2="210" y2="92" stroke="#1565c0" strokeWidth="1.6" />

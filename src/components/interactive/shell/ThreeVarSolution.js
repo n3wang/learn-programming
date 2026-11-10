@@ -1,4 +1,5 @@
-import React from 'react';
+import React, { useEffect } from 'react';
+import { usePracticeMode } from './PracticeModeContext';
 import MathText from '@site/src/components/ProblemSet/MathText';
 import { texSystem3, texX, texY, texZ, X_COLOR, Y_COLOR, Z_COLOR } from './texMath';
 import styles from './TwoVarSolution.module.css';
@@ -35,6 +36,18 @@ export default function ThreeVarSolution({
   answer,
   check,
 }) {
+  const practice = usePracticeMode();
+  const reportFields = practice && practice.reportFields;
+  const fieldsSig = JSON.stringify([legendX, legendY, legendZ, x, y, z]);
+  useEffect(() => {
+    if (!reportFields) return;
+    reportFields([
+      { name: 'x', label: legendX, value: x },
+      { name: 'y', label: legendY, value: y },
+      { name: 'z', label: legendZ, value: z },
+    ]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [reportFields, fieldsSig]);
   return (
     <div className={styles.solution}>
       <div className={styles.legend}>

@@ -1,5 +1,7 @@
 import React, { useState } from 'react';
 import ProblemShell from '@site/src/components/interactive/shell/ProblemShell';
+import { usePracticeMode, usePracticeAnswer } from '@site/src/components/interactive/shell/PracticeModeContext';
+import { rangeField } from '@site/src/components/interactive/shell/practiceFields';
 import { SolutionStep, stepStyles } from '@site/src/components/interactive/shell/SolutionStep';
 import { randInt } from '@site/src/components/interactive/shell/mathRandom';
 
@@ -32,7 +34,9 @@ const chip = {
 
 export default function TemperatureRangeSimulator() {
   const [key, setKey] = useState(0);
-  const [p, setP] = useState(bookDay);
+  const practice = usePracticeMode();
+  const [p, setP] = useState(() => (practice ? generate() : bookDay()));
+  usePracticeAnswer([rangeField("t", "气温范围", `${p.low} ≤ t ≤ ${p.high}`)]);
   const [picked, setPicked] = useState(null);
   const answer = `${p.low} ≤ t ≤ ${p.high}`;
 
@@ -67,13 +71,15 @@ export default function TemperatureRangeSimulator() {
       <p style={{ marginTop: 0 }}>
         某日最低气温是 {p.low} °C，最高气温是 {p.high} °C。用不等式表示这天的气温 t（单位：°C）的变化范围。
       </p>
-      <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
-        {choices(p.low, p.high).map((choice) => (
-          <button key={choice} type="button" style={chip} onClick={() => setPicked(choice)}>
-            {choice}
-          </button>
-        ))}
-      </div>
+      {!practice ? (
+        <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+          {choices(p.low, p.high).map((choice) => (
+            <button key={choice} type="button" style={chip} onClick={() => setPicked(choice)}>
+              {choice}
+            </button>
+          ))}
+        </div>
+      ) : null}
       {picked ? (
         <p>
           {picked === answer

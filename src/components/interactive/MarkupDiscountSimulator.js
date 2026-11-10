@@ -7,6 +7,8 @@ import TableCell from '@site/src/components/ui/TableCell';
 import TableHead from '@site/src/components/ui/TableHead';
 import TableRow from '@site/src/components/ui/TableRow';
 import ProblemShell from '@site/src/components/interactive/shell/ProblemShell';
+import { usePracticeMode, usePracticeAnswer } from '@site/src/components/interactive/shell/PracticeModeContext';
+import { numberField, choiceField } from '@site/src/components/interactive/shell/practiceFields';
 import AnimatedNumber from '@site/src/components/interactive/shell/AnimatedNumber';
 import { randInt, pickOne } from '@site/src/components/interactive/shell/mathRandom';
 
@@ -69,7 +71,12 @@ function bookProblem() {
 
 export default function MarkupDiscountSimulator() {
   const [key, setKey] = useState(0);
-  const [p, setP] = useState(bookProblem);
+  const practice = usePracticeMode();
+  const [p, setP] = useState(() => (practice ? generate() : bookProblem()));
+  usePracticeAnswer([
+    choiceField("pl", "盈利还是亏损？", ["盈利", "亏损", "不盈不亏"], p.sell > p.cost ? "盈利" : p.sell < p.cost ? "亏损" : "不盈不亏"),
+    numberField("amt", "盈亏的钱数（元）", Math.abs(p.sell - p.cost), "\\text{金额}"),
+  ]);
 
   const { marked, diff, isLoss } = useMemo(() => {
     const markedPrice = (p.cost * (100 + p.markup)) / 100;
