@@ -452,7 +452,7 @@ function FieldInput({ field: f, value, mark, locked, inputRef, onChange, onEnter
  * Typed answer inputs for one problem — one control per field (see FieldInput).
  * 「检查」 marks each field; wrong answers can be retried or given up on with 「看解答」.
  */
-function AnswerPanel({ fields, isLast, onReveal, onFinish }) {
+function AnswerPanel({ fields, isLast, onReveal, onFinish, onError }) {
   const [values, setValues] = useState({});
   const [marks, setMarks] = useState({}); // name -> 'ok' | 'bad' | 'empty' | 'invalid'
   const [status, setStatus] = useState('answering'); // answering | correct | gaveup
@@ -486,11 +486,14 @@ function AnswerPanel({ fields, isLast, onReveal, onFinish }) {
     if (states.every((st) => st === 'ok')) {
       setStatus('correct');
       onReveal();
+    } else {
+      onError(); // a wrong 检查 restarts the error-free timer
     }
   };
 
   const giveUp = () => {
     setStatus('gaveup');
+    onError();
     onReveal();
   };
 
@@ -585,6 +588,54 @@ function AnswerPanel({ fields, isLast, onReveal, onFinish }) {
   );
 }
 
+/** 65000 ms → "1:05"; an hour or more → "1:02:03". */
+function formatDuration(ms) {
+  const total = Math.max(0, Math.floor(ms / 1000));
+  const h = Math.floor(total / 3600);
+  const m = Math.floor((total % 3600) / 60);
+  const s = total % 60;
+  const pad = (n) => String(n).padStart(2, '0');
+  return h > 0 ? `${h}:${pad(m)}:${pad(s)}` : `${m}:${pad(s)}`;
+}
+
+/**
+ * Time since the set started or the last error (wrong 检查 / 看讲解). Ticks every
+ * second; frozen at `stopAt` once the set is finished. Flashes red right after a reset.
+ */
+function ErrorFreeTimer({ since, stopAt, flashAt }) {
+  const [now, setNow] = useState(() => Date.now());
+  useEffect(() => {
+    setNow(Date.now());
+    if (stopAt) return undefined;
+    const id = setInterval(() => setNow(Date.now()), 1000);
+    return () => clearInterval(id);
+  }, [since, stopAt]);
+  const end = stopAt || now;
+  const flashing = flashAt && end - flashAt < 1500 && !stopAt;
+  return (
+    <Box
+      role="timer"
+      title="从开始（或上一次出错）到现在的时间。答错或看讲解会从 0 重新计时。"
+      sx={{
+        px: 1,
+        py: 0.25,
+        borderRadius: 999,
+        fontSize: '0.85em',
+        fontWeight: 700,
+        fontVariantNumeric: 'tabular-nums',
+        color: flashing ? BAD : 'text.primary',
+        border: '1px solid',
+        borderColor: flashing ? BAD : 'divider',
+        transition: 'color 0.3s, border-color 0.3s',
+        minWidth: 92,
+        textAlign: 'center',
+      }}
+    >
+      ⏱ 无错 {formatDuration(end - since)}
+    </Box>
+  );
+}
+
 /** Consecutive correct answers ending at the latest result (a wrong one / 看讲解 resets it). */
 function currentStreak(results) {
   let n = 0;
@@ -602,7 +653,7 @@ function bestStreak(results) {
   return best;
 }
 
-function Summary({ categories, items, results, count, onCount, onRestart }) {
+function Summary({ categories, items, results, count, onCount, onRestart, bestClean = 0 }) {
   const correct = results.filter((r) => r.ok).length;
   const firstTry = results.filter((r) => r.ok && r.attempts === 1).length;
   const explained = results.filter((r) => !r.ok && r.attempts === 0).length;
@@ -619,7 +670,7 @@ function Summary({ categories, items, results, count, onCount, onRestart }) {
         {correct} / {items.length} 题做对
       </Typography>
       <Typography variant="body2" color="text.secondary" sx={{ mb: 1.5 }}>
-        其中 {firstTry} 题一次就对，最长连对 {best} 题{explained ? `，看了 ${explained} 次讲解` : ''}。
+        其中 {firstTry} 题一次就对，最长连对 {best} 题，最长无错 {formatDuration(bestClean)}{explained ? `，看了 ${explained} 次讲解` : ''}。
       </Typography>
 
       <Box sx={{ display: 'grid', gap: 0.75, mb: 2 }}>
@@ -684,7 +735,12 @@ function Summary({ categories, items, results, count, onCount, onRestart }) {
   );
 }
 
-export default function MixedPractice({ categories, defaultCount = 10, anchorId = 'mixed-practice-top' }) {
+/**
+ * `children` (optional): the page's how-to / intro text. It is hidden behind a
+ * round「?」button in the header so the practice itself stays front and centre.
+ */
+export default function MixedPractice({ categories, defaultCount = 10, anchorId = 'mixed-practice-top', children }) {
+  const [showHelp, setShowHelp] = useState(false);
   const [count, setCount] = useState(defaultCount);
   const [items, setItems] = useState(() => buildRun(categories, defaultCount));
   const [index, setIndex] = useState(0);
@@ -692,6 +748,15 @@ export default function MixedPractice({ categories, defaultCount = 10, anchorId 
   const [showAnswer, setShowAnswer] = useState(false);
   // Answer fields reported by an embedded simulator, tagged with the item they belong to.
   const [simFields, setSimFields] = useState({ key: null, fields: null });
+  // Error-free timer: `since` = set start or last error; `best` = longest error-free stretch so far.
+  const [clock, setClock] = useState(() => ({ since: Date.now(), best: 0, flashAt: 0, stopAt: 0 }));
+  const markError = useCallback(() => {
+    setClock((c) => {
+      if (c.stopAt) return c;
+      const now = Date.now();
+      return { ...c, since: now, best: Math.max(c.best, now - c.since), flashAt: now };
+    });
+  }, []);
 
   const done = index >= items.length;
   const item = items[index];
@@ -713,6 +778,7 @@ export default function MixedPractice({ categories, defaultCount = 10, anchorId 
     setIndex(0);
     setResults([]);
     setShowAnswer(false);
+    setClock({ since: Date.now(), best: 0, flashAt: 0, stopAt: 0 });
   };
 
   const changeCount = (n) => {
@@ -726,6 +792,13 @@ export default function MixedPractice({ categories, defaultCount = 10, anchorId 
   };
 
   const finish = (result) => {
+    if (index + 1 >= items.length) {
+      // Set finished: freeze the timer and count the final stretch toward the best.
+      setClock((c) => {
+        const now = Date.now();
+        return { ...c, stopAt: now, best: Math.max(c.best, now - c.since) };
+      });
+    }
     setResults((r) => [...r, result]);
     setShowAnswer(false);
     setIndex((i) => i + 1);
@@ -757,7 +830,7 @@ export default function MixedPractice({ categories, defaultCount = 10, anchorId 
             </Typography>
           ) : null}
         </Typography>
-        <Stack direction="row" spacing={1.5} alignItems="center" useFlexGap>
+        <Stack direction="row" spacing={1} alignItems="center" flexWrap="wrap" useFlexGap>
           <Typography variant="body2" color="text.secondary">
             已对 {correct} / {results.length}
           </Typography>
@@ -777,9 +850,75 @@ export default function MixedPractice({ categories, defaultCount = 10, anchorId 
           >
             连对 {streak}{streak >= 3 ? ' 🔥' : ''}
           </Box>
+          <ErrorFreeTimer since={clock.since} stopAt={clock.stopAt} flashAt={clock.flashAt} />
           <CountPicker value={count} onChange={changeCount} />
+          {children ? (
+            <Box
+              component="button"
+              type="button"
+              onClick={() => setShowHelp((v) => !v)}
+              aria-expanded={showHelp}
+              aria-controls={`${anchorId}-help`}
+              aria-label="说明：题目来源和作答方法"
+              title="说明：题目来源和作答方法"
+              sx={{
+                width: 28,
+                height: 28,
+                borderRadius: '50%',
+                border: '1.5px solid',
+                borderColor: showHelp ? 'primary.main' : 'divider',
+                backgroundColor: showHelp ? 'primary.main' : 'transparent',
+                color: showHelp ? '#fff' : 'text.secondary',
+                fontWeight: 700,
+                fontSize: '0.95rem',
+                lineHeight: 1,
+                cursor: 'pointer',
+                p: 0,
+              }}
+            >
+              ?
+            </Box>
+          ) : null}
         </Stack>
       </Stack>
+
+      {children && showHelp ? (
+        <Box
+          id={`${anchorId}-help`}
+          sx={{
+            position: 'relative',
+            mb: 1.5,
+            px: 2,
+            pt: 1.5,
+            pb: 0.5,
+            border: '1px solid',
+            borderColor: 'divider',
+            borderRadius: 2,
+            backgroundColor: 'action.hover',
+            fontSize: '0.95em',
+          }}
+        >
+          <Box
+            component="button"
+            type="button"
+            onClick={() => setShowHelp(false)}
+            aria-label="关闭说明"
+            sx={{
+              position: 'absolute',
+              top: 6,
+              right: 8,
+              border: 'none',
+              background: 'transparent',
+              cursor: 'pointer',
+              color: 'text.secondary',
+              fontSize: '1.1rem',
+            }}
+          >
+            ×
+          </Box>
+          {children}
+        </Box>
+      ) : null}
 
       <Box sx={{ display: 'flex', gap: '3px', mb: 1 }} aria-hidden>
         {items.map((it, i) => (
@@ -805,6 +944,7 @@ export default function MixedPractice({ categories, defaultCount = 10, anchorId 
       {done ? (
         <Summary
           categories={categories}
+          bestClean={clock.best}
           items={items}
           results={results}
           count={count}
@@ -826,6 +966,7 @@ export default function MixedPractice({ categories, defaultCount = 10, anchorId 
               isLast={index === items.length - 1}
               onReveal={() => setShowAnswer(true)}
               onFinish={finish}
+              onError={markError}
             />
           ) : (
             <Typography variant="body2" color="text.secondary">

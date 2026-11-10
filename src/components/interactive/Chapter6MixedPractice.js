@@ -93,6 +93,10 @@ const CATEGORIES = [
   },
 ];
 
-export default function Chapter6MixedPractice({ defaultCount = 10 }) {
-  return <MixedPractice categories={CATEGORIES} defaultCount={defaultCount} anchorId="ch6-practice-top" />;
+export default function Chapter6MixedPractice({ defaultCount = 10, children }) {
+  return (
+    <MixedPractice categories={CATEGORIES} defaultCount={defaultCount} anchorId="ch6-practice-top">
+      {children}
+    </MixedPractice>
+  );
 }
