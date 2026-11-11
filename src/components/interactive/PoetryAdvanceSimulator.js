@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import ProblemShell from '@site/src/components/interactive/shell/ProblemShell';
+import { Solution, Step, EqBox, M, Answer, c, texDms, plainToTex, InequalityRules, ItemSteps, systemRule, BLUE, GREEN, RED, ORANGE } from '@site/src/components/interactive/shell/SolutionKit';
 import { usePracticeMode, usePracticeAnswer } from '@site/src/components/interactive/shell/PracticeModeContext';
 import { numberField } from '@site/src/components/interactive/shell/practiceFields';
 import { SolutionStep, stepStyles } from '@site/src/components/interactive/shell/SolutionStep';
@@ -42,16 +43,32 @@ export default function PoetryAdvanceSimulator() {
   const trials = [least - 1, least, least + 1].filter((n) => n >= 0 && n <= p.total);
 
   const solution = (
-    <div className={stepStyles.solution}>
-      <SolutionStep badge="列" badgeClass={stepStyles.badgeSet}>
-        设答对 x 道。答错或不答共 {p.total} − x 道。超过 {p.need} 分才能晋级：{p.gain}x − {p.loss}({p.total} − x) &gt; {p.need}。
-      </SolutionStep>
-      <SolutionStep badge="解" badgeClass={stepStyles.badgeAnswer}>
-        <div className={stepStyles.answer}>
-          去括号得 {p.gain + p.loss}x − {p.loss * p.total} &gt; {p.need}，所以 x &gt; {cut}。x 是正整数，至少答对 {least} 道。答对 {least} 道得 {score(p, least)} 分，答对 {least - 1} 道得 {score(p, least - 1)} 分。
-        </div>
-      </SolutionStep>
-    </div>
+    <Solution legend={[[BLUE, '已知'], [ORANGE, '分界'], [GREEN, '所求']]}>
+      <Step b="设" kind="set">
+        设答对 <M t="x" /> 道，则答错或不答的有 <M t={`${p.total} - x`} /> 道。
+      </Step>
+      <Step b="列" kind="list">
+        得分 = 答对得分 − 扣分，「超过 {p.need} 分」写成 &gt;：
+        <EqBox lines={[`${c(BLUE, p.gain)}x - ${c(BLUE, p.loss)}(${p.total} - x) > ${c(BLUE, p.need)}`]} />
+      </Step>
+      <Step b="解" kind="solve">
+        <EqBox
+          lines={[
+            `${p.gain}x - ${p.loss * p.total} + ${p.loss}x > ${p.need}`,
+            `${p.gain + p.loss}x > ${p.need + p.loss * p.total}`,
+            `x > ${c(ORANGE, Number(cut.toFixed(4)))}`,
+          ]}
+        />
+        x 表示题数，必须是正整数，所以比 {Number(cut.toFixed(4))} 大的最小整数是 <M t={c(GREEN, least)} />。
+      </Step>
+      <Step b="验" kind="check">
+        答对 {least} 道：<M t={`${p.gain}\\times ${least} - ${p.loss}\\times ${p.total - least} = ${score(p, least)} > ${p.need}`} />；
+        答对 {least - 1} 道：<M t={`${score(p, least - 1)} \\le ${p.need}`} />，不够 ✓
+      </Step>
+      <Step b="答" kind="answer">
+        <Answer>至少要答对 {least} 道题才能晋级。</Answer>
+      </Step>
+    </Solution>
   );
 
   return (

@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import ProblemShell from '@site/src/components/interactive/shell/ProblemShell';
+import { Solution, Step, EqBox, M, Answer, c, texDms, plainToTex, InequalityRules, ItemSteps, systemRule, BLUE, GREEN, RED, ORANGE } from '@site/src/components/interactive/shell/SolutionKit';
 import { usePracticeMode, usePracticeAnswer } from '@site/src/components/interactive/shell/PracticeModeContext';
 import { choiceField } from '@site/src/components/interactive/shell/practiceFields';
 import { SolutionStep, stepStyles } from '@site/src/components/interactive/shell/SolutionStep';
@@ -50,16 +51,33 @@ export default function InequalityMemberCheckSimulator() {
   usePracticeAnswer(p.values.map((n, i) => choiceField(`v${i}`, `x = ${n} 是解吗？`, ["是", "不是"], holds(n) ? "是" : "不是")));
 
   const solution = (
-    <div className={stepStyles.solution}>
-      <SolutionStep badge="化" badgeClass={stepStyles.badgeSet}>
-        {p.coef}x + {p.add} &gt; {p.bound}，两边减 {p.add} 再除以 {p.coef}，方向不变，解集是 x &gt; {cut}。
-      </SolutionStep>
-      <SolutionStep badge="判" badgeClass={stepStyles.badgeAnswer}>
-        <div className={stepStyles.answer}>
-          是解：{yes.join('，')}。不是解：{no.join('，')}。等于 {cut} 时不等式不成立。
-        </div>
-      </SolutionStep>
-    </div>
+    <Solution legend={[[ORANGE, '分界点'], [GREEN, '是解'], [RED, '不是解']]}>
+      <Step b="化" kind="set">
+        先把不等式化简成 <M t="x > a" />：
+        <EqBox
+          lines={[
+            `${p.coef}x + ${p.add} > ${p.bound}`,
+            `${p.coef}x > ${p.bound} - ${p.add} = ${p.bound - p.add}\\quad(\\text{性质 1})`,
+            `x > ${c(ORANGE, cut)}\\quad(\\text{性质 2：除以正数 } ${p.coef})`,
+          ]}
+        />
+      </Step>
+      <Step b="判" kind="solve">
+        比 {cut} 大的是解；等于或小于 {cut} 的都不是解：
+        <EqBox
+          lines={[
+            `${c(GREEN, '\\text{是解：}')}\\ ${yes.join(',\\ ') || '\\text{无}'}`,
+            `${c(RED, '\\text{不是解：}')}\\ ${no.join(',\\ ') || '\\text{无}'}`,
+          ]}
+        />
+        特别注意 <M t={`x = ${cut}`} />：代入得 <M t={`${p.coef}\\times ${cut} + ${p.add} = ${p.bound}`} />，等于 {p.bound}，不满足「&gt;」。
+      </Step>
+      <Step b="答" kind="answer">
+        <Answer>
+          是解：{yes.join('，') || '无'}；不是解：{no.join('，') || '无'}。
+        </Answer>
+      </Step>
+    </Solution>
   );
 
   return (

@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import ProblemShell from '@site/src/components/interactive/shell/ProblemShell';
+import { Solution, Step, EqBox, M, Answer, c, texDms, plainToTex, InequalityRules, ItemSteps, systemRule, BLUE, GREEN, RED, ORANGE } from '@site/src/components/interactive/shell/SolutionKit';
 import { usePracticeMode, usePracticeAnswer } from '@site/src/components/interactive/shell/PracticeModeContext';
 import { choiceField } from '@site/src/components/interactive/shell/practiceFields';
 import { SolutionStep, stepStyles } from '@site/src/components/interactive/shell/SolutionStep';
@@ -47,20 +48,26 @@ export default function InequalityAddFillSimulator() {
   }
 
   const solution = (
-    <div className={stepStyles.solution}>
-      <SolutionStep badge="填" badgeClass={stepStyles.badgeSet}>
-        {p.adds.map((n) => (
-          <div key={n}>
-            {p.left} + ({n}) = {p.left + n}，{p.right} + ({n}) = {p.right + n}，所以仍是 {p.sign}。
-          </div>
-        ))}
-      </SolutionStep>
-      <SolutionStep badge="规律" badgeClass={stepStyles.badgeAnswer}>
-        <div className={stepStyles.answer}>
-          不等式两边加同一个数，不等号的方向不变。减去同一个数也一样，因为减法可以看成加上相反数。
-        </div>
-      </SolutionStep>
-    </div>
+    <Solution legend={[[BLUE, '加的数'], [GREEN, '不等号']]}>
+      <Step b="知" kind="set">
+        已知 <M t={`${p.left} ${p.sign} ${p.right}`} />。两边都加上同一个数，算出来再比大小。
+      </Step>
+      <Step b="算" kind="list">
+        <EqBox
+          lines={p.adds.map(
+            (n) =>
+              `${p.left} + (${c(BLUE, n)}) = ${p.left + n},\\quad ${p.right} + (${c(BLUE, n)}) = ${p.right + n} \\;\\Rightarrow\\; ${p.left + n} ${c(GREEN, p.sign)} ${p.right + n}`,
+          )}
+        />
+        不管加的是正数、0 还是负数，大的那边仍然大。
+      </Step>
+      <Step b="规律" kind="solve">
+        <b>性质 1</b>：不等式两边加（或减）同一个数（或式子），不等号的方向<b>不变</b>。减去一个数，就是加上它的相反数。
+      </Step>
+      <Step b="答" kind="answer">
+        <Answer>三行都填「{p.sign}」。</Answer>
+      </Step>
+    </Solution>
   );
 
   return (

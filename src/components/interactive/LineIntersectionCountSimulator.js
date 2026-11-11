@@ -1,5 +1,6 @@
 import React, { useMemo, useState } from 'react';
 import ProblemShell from '@site/src/components/interactive/shell/ProblemShell';
+import { Solution, Step, EqBox, M, Answer, c, texDms, BLUE, GREEN, RED, ORANGE } from '@site/src/components/interactive/shell/SolutionKit';
 import { usePracticeMode, usePracticeAnswer } from '@site/src/components/interactive/shell/PracticeModeContext';
 import { numberField } from '@site/src/components/interactive/shell/practiceFields';
 import { SolutionStep, stepStyles } from '@site/src/components/interactive/shell/SolutionStep';
@@ -25,17 +26,30 @@ export default function LineIntersectionCountSimulator() {
   const max = useMemo(() => count(p.n), [p]);
 
   const solution = (
-    <div className={stepStyles.solution}>
-      <SolutionStep badge="最多" badgeClass={stepStyles.badgeSet}>
-        要使交点最多：任意两条都相交，并且没有三条直线交于同一点。
-      </SolutionStep>
-      <SolutionStep badge="规律" badgeClass={stepStyles.badgeAnswer}>
-        <div className={stepStyles.answer}>
-          2 条：1 个；3 条：3 个；4 条：6 个。n 条最多有 n(n − 1)/2 个交点。
-          {p.n} 条最多有 {max} 个交点。第 n 条新直线最多与前面 n − 1 条各交一次，所以比 n − 1 条时多 n − 1 个交点。
-        </div>
-      </SolutionStep>
-    </div>
+    <Solution legend={[[BLUE, '新增的交点'], [GREEN, '交点总数']]}>
+      <Step b="知" kind="set">
+        交点最多的条件：任意两条直线都相交，并且没有三条直线交于同一点。
+      </Step>
+      <Step b="找" kind="list">
+        每加一条新直线，它最多和前面的每一条各交一次：
+        <EqBox
+          lines={[
+            '2\\text{ 条}: 1',
+            `3\\text{ 条}: 1 + ${c(BLUE, 2)} = 3`,
+            `4\\text{ 条}: 3 + ${c(BLUE, 3)} = 6`,
+            `n\\text{ 条}: 1 + 2 + \\cdots + (n-1) = \\dfrac{n(n-1)}{2}`,
+          ]}
+        />
+      </Step>
+      <Step b="算" kind="solve">
+        <EqBox lines={[`\\dfrac{${p.n}\\times(${p.n}-1)}{2} = \\dfrac{${p.n}\\times ${p.n - 1}}{2} = ${c(GREEN, max)}`]} />
+      </Step>
+      <Step b="答" kind="answer">
+        <Answer>
+          {p.n} 条直线最多有 {max} 个交点。
+        </Answer>
+      </Step>
+    </Solution>
   );
 
   return (

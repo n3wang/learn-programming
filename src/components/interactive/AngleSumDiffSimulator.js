@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import ProblemShell from '@site/src/components/interactive/shell/ProblemShell';
+import { Solution, Step, EqBox, M, Answer, c, texDms, BLUE, GREEN, RED, ORANGE } from '@site/src/components/interactive/shell/SolutionKit';
 import { usePracticeMode, usePracticeAnswer } from '@site/src/components/interactive/shell/PracticeModeContext';
 import { degField } from '@site/src/components/interactive/shell/practiceFields';
 import { SolutionStep, stepStyles } from '@site/src/components/interactive/shell/SolutionStep';
@@ -20,16 +21,31 @@ export default function AngleSumDiffSimulator() {
   usePracticeAnswer([degField("aoc", "角 AOC", p.a + p.b), degField("diff", "角 AOC − 角 AOB", p.b)]);
 
   const solution = (
-    <div className={stepStyles.solution}>
-      <SolutionStep badge="和" badgeClass={stepStyles.badgeSet}>
-        角 AOC 是角 AOB 与角 BOC 的和，记作角 AOC = 角 AOB + 角 BOC = {p.a + p.b}°。
-      </SolutionStep>
-      <SolutionStep badge="差" badgeClass={stepStyles.badgeAnswer}>
-        <div className={stepStyles.answer}>
-          角 AOB = 角 AOC − 角 BOC = {p.a}°。角 AOC − 角 AOB = 角 BOC。
-        </div>
-      </SolutionStep>
-    </div>
+    <Solution legend={[[BLUE, '已知'], [GREEN, '所求']]}>
+      <Step b="知" kind="set">
+        射线 OB 在角 AOC 的内部，把角 AOC 分成两部分：
+        <EqBox lines={['\\angle AOC = \\angle AOB + \\angle BOC']} />
+      </Step>
+      <Step b="和" kind="list">
+        <EqBox
+          lines={[`\\angle AOC = ${c(BLUE, `${p.a}^\\circ`)} + ${c(BLUE, `${p.b}^\\circ`)} = ${c(GREEN, `${p.a + p.b}^\\circ`)}`]}
+        />
+      </Step>
+      <Step b="差" kind="solve">
+        从整个角里去掉一部分，剩下另一部分：
+        <EqBox
+          lines={[
+            `\\angle AOC - \\angle AOB = \\angle BOC = ${p.a + p.b}^\\circ - ${p.a}^\\circ = ${c(GREEN, `${p.b}^\\circ`)}`,
+            `\\angle AOC - \\angle BOC = \\angle AOB = ${p.a}^\\circ`,
+          ]}
+        />
+      </Step>
+      <Step b="答" kind="answer">
+        <Answer>
+          角 AOC = {p.a + p.b}°；角 AOC − 角 AOB = 角 BOC = {p.b}°。
+        </Answer>
+      </Step>
+    </Solution>
   );
 
   return (

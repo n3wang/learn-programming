@@ -7,6 +7,7 @@ import TableCell from '@site/src/components/ui/TableCell';
 import TableHead from '@site/src/components/ui/TableHead';
 import TableRow from '@site/src/components/ui/TableRow';
 import ProblemShell from '@site/src/components/interactive/shell/ProblemShell';
+import { Solution, Step, EqBox, M, Answer, c, texDms, plainToTex, InequalityRules, ItemSteps, systemRule, BLUE, GREEN, RED, ORANGE } from '@site/src/components/interactive/shell/SolutionKit';
 import { usePracticeMode, usePracticeAnswer } from '@site/src/components/interactive/shell/PracticeModeContext';
 import { numberField, choiceField } from '@site/src/components/interactive/shell/practiceFields';
 import AnimatedNumber from '@site/src/components/interactive/shell/AnimatedNumber';
@@ -64,63 +65,39 @@ export default function ProfitLossSimulator() {
   };
 
   const solution = (
-    <Box>
-      <Typography sx={{ mb: 1 }}>
-        设盈利 {p.pct}% 的那件衣服进价为 <b>x</b> 元，则 x + {p.pct}%x = {p.S}，解得 x ={' '}
-        <AnimatedNumber value={p.cost1} /> 元。
-      </Typography>
-      <Typography sx={{ mb: 1 }}>
-        设亏损 {p.pct}% 的那件衣服进价为 <b>y</b> 元，则 y − {p.pct}%y = {p.S}，解得 y ={' '}
-        <AnimatedNumber value={p.cost2} /> 元。
-      </Typography>
-
-      <Table size="small" sx={{ mb: 2, maxWidth: 420 }}>
-        <TableHead>
-          <TableRow>
-            <TableCell>衣服</TableCell>
-            <TableCell align="right">进价 / 元</TableCell>
-            <TableCell align="right">售价 / 元</TableCell>
-            <TableCell align="right">盈亏 / 元</TableCell>
-          </TableRow>
-        </TableHead>
-        <TableBody>
-          <TableRow>
-            <TableCell>盈利 {p.pct}%</TableCell>
-            <TableCell align="right">{p.cost1}</TableCell>
-            <TableCell align="right">{p.S}</TableCell>
-            <TableCell align="right">+{p.S - p.cost1}</TableCell>
-          </TableRow>
-          <TableRow>
-            <TableCell>亏损 {p.pct}%</TableCell>
-            <TableCell align="right">{p.cost2}</TableCell>
-            <TableCell align="right">{p.S}</TableCell>
-            <TableCell align="right">{p.S - p.cost2}</TableCell>
-          </TableRow>
-          <TableRow>
-            <TableCell sx={{ fontWeight: 700 }}>合计</TableCell>
-            <TableCell align="right" sx={{ fontWeight: 700 }}>
-              {totalCost}
-            </TableCell>
-            <TableCell align="right" sx={{ fontWeight: 700 }}>
-              {totalSell}
-            </TableCell>
-            <TableCell align="right" sx={{ fontWeight: 700 }}>
-              {diff}
-            </TableCell>
-          </TableRow>
-        </TableBody>
-      </Table>
-
-      <Typography sx={{ fontWeight: 700 }}>
-        总售价 − 总进价 = <AnimatedNumber value={diff} /> 元，所以卖这两件衣服共
-        {diff < 0 ? '亏损' : diff > 0 ? '盈利' : '不盈不亏'}{' '}
-        <AnimatedNumber value={Math.abs(diff)} /> 元。
-      </Typography>
-      <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 1 }}>
-        可以证明：只要盈利率和亏损率大小相等（都是同一个百分数），总售价 − 总进价 = −2S·p²/(1−p²)
-        恒小于 0 ——不管 S 和 p 取什么值，"一件加价 p%、一件降价 p%" 卖出，总是亏损。
-      </Typography>
-    </Box>
+    <Solution legend={[[BLUE, '已知'], [GREEN, '盈利'], [RED, '亏损']]}>
+      <Step b="知" kind="set">
+        盈亏要和<b>进价</b>比，不能只看售价。两件售价相同，但进价不同，要分别求：
+        <EqBox lines={['\\text{售价} = \\text{进价} \\times (1 \\pm \\text{盈亏率})']} />
+      </Step>
+      <Step b="1" kind="list">
+        盈利 {p.pct}% 的那件，设进价 <M t="x" /> 元：
+        <EqBox
+          lines={[`x(1 + ${c(BLUE, `${p.pct}\\%`)}) = ${c(BLUE, p.S)}, \\qquad x = ${p.S} \\div ${(100 + p.pct) / 100} = ${p.cost1}`]}
+        />
+        这件赚了 <M t={c(GREEN, `${p.S} - ${p.cost1} = ${p.S - p.cost1}`)} /> 元。
+      </Step>
+      <Step b="2" kind="list">
+        亏损 {p.pct}% 的那件，设进价 <M t="y" /> 元：
+        <EqBox
+          lines={[`y(1 - ${c(BLUE, `${p.pct}\\%`)}) = ${c(BLUE, p.S)}, \\qquad y = ${p.S} \\div ${(100 - p.pct) / 100} = ${p.cost2}`]}
+        />
+        这件亏了 <M t={c(RED, `${p.cost2} - ${p.S} = ${p.cost2 - p.S}`)} /> 元。
+      </Step>
+      <Step b="合" kind="solve">
+        <EqBox
+          lines={[
+            `\\text{总售价} - \\text{总进价} = ${totalSell} - (${p.cost1} + ${p.cost2}) = ${c(diff >= 0 ? GREEN : RED, diff)}`,
+          ]}
+        />
+        亏损那件的进价更高，同样是 {p.pct}%，亏的钱比赚的钱多{diff < 0 ? '，所以总的是亏损。' : '。'}
+      </Step>
+      <Step b="答" kind="answer">
+        <Answer>
+          {diff > 0 ? `总的盈利 ${diff} 元。` : diff < 0 ? `总的亏损 ${-diff} 元。` : '不盈不亏。'}
+        </Answer>
+      </Step>
+    </Solution>
   );
 
   return (

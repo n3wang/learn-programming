@@ -7,6 +7,7 @@ import TableCell from '@site/src/components/ui/TableCell';
 import TableHead from '@site/src/components/ui/TableHead';
 import TableRow from '@site/src/components/ui/TableRow';
 import ProblemShell from '@site/src/components/interactive/shell/ProblemShell';
+import { Solution, Step, EqBox, M, Answer, c, texDms, plainToTex, InequalityRules, ItemSteps, systemRule, BLUE, GREEN, RED, ORANGE } from '@site/src/components/interactive/shell/SolutionKit';
 import { usePracticeMode, usePracticeAnswer } from '@site/src/components/interactive/shell/PracticeModeContext';
 import { numberField } from '@site/src/components/interactive/shell/practiceFields';
 import AnimatedNumber from '@site/src/components/interactive/shell/AnimatedNumber';
@@ -103,51 +104,38 @@ export default function SameProfitTwoCostsSimulator() {
   };
 
   const solution = (
-    <Box>
-      <Typography sx={{ mb: 1 }}>
-        设{p.items.big}进价为 <b>x</b> 元，则{p.items.small}进价为 x − {p.diff} 元。
-      </Typography>
-      <Typography sx={{ mb: 1 }}>
-        利润额相同：{p.smallRate}% · (x − {p.diff}) = {p.bigRate}% · x，即
-      </Typography>
-      <Typography sx={{ mb: 1, fontFamily: 'monospace' }}>
-        {p.smallRate}(x − {p.diff}) = {p.bigRate}x
-      </Typography>
-      <Typography sx={{ mb: 1.5 }}>
-        解得 x = <AnimatedNumber value={p.bigCost} />，故{p.items.small}进价 ={' '}
-        <AnimatedNumber value={p.smallCost} /> 元。
-      </Typography>
-
-      <Table size="small" sx={{ mb: 1.5, maxWidth: 420 }}>
-        <TableHead>
-          <TableRow>
-            <TableCell>商品</TableCell>
-            <TableCell align="right">进价 / 元</TableCell>
-            <TableCell align="right">利润率</TableCell>
-            <TableCell align="right">利润额 / 元</TableCell>
-          </TableRow>
-        </TableHead>
-        <TableBody>
-          <TableRow>
-            <TableCell>{p.items.big}</TableCell>
-            <TableCell align="right">{p.bigCost}</TableCell>
-            <TableCell align="right">{p.bigRate}%</TableCell>
-            <TableCell align="right">{profit}</TableCell>
-          </TableRow>
-          <TableRow>
-            <TableCell>{p.items.small}</TableCell>
-            <TableCell align="right">{p.smallCost}</TableCell>
-            <TableCell align="right">{p.smallRate}%</TableCell>
-            <TableCell align="right">{profit}</TableCell>
-          </TableRow>
-        </TableBody>
-      </Table>
-
-      <Typography sx={{ fontWeight: 700 }}>
-        答：{p.items.big}进价 <AnimatedNumber value={p.bigCost} /> 元，
-        {p.items.small}进价 <AnimatedNumber value={p.smallCost} /> 元。
-      </Typography>
-    </Box>
+    <Solution legend={[[BLUE, '已知'], [GREEN, '进价']]}>
+      <Step b="知" kind="set">
+        <EqBox lines={['\\text{利润} = \\text{进价} \\times \\text{利润率}']} />
+        两种商品利润<b>一样多</b>，这就是相等关系。
+      </Step>
+      <Step b="设" kind="set">
+        设{p.items.big}进价为 <M t="x" /> 元，则{p.items.small}进价为 <M t={`x - ${c(BLUE, p.diff)}`} /> 元。
+      </Step>
+      <Step b="列" kind="list">
+        <EqBox lines={[`${c(BLUE, `${p.smallRate}\\%`)}(x - ${p.diff}) = ${c(BLUE, `${p.bigRate}\\%`)}x`]} />
+      </Step>
+      <Step b="解" kind="solve">
+        两边乘 100 去掉百分号：
+        <EqBox
+          lines={[
+            `${p.smallRate}(x - ${p.diff}) = ${p.bigRate}x`,
+            `${p.smallRate}x - ${p.smallRate * p.diff} = ${p.bigRate}x`,
+            `${p.smallRate - p.bigRate}x = ${p.smallRate * p.diff}`,
+            `x = ${c(GREEN, p.bigCost)}, \\qquad x - ${p.diff} = ${c(GREEN, p.smallCost)}`,
+          ]}
+        />
+      </Step>
+      <Step b="验" kind="check">
+        {p.items.big}利润 <M t={`${p.bigCost}\\times ${p.bigRate}\\% = ${profit}`} /> 元，{p.items.small}利润{' '}
+        <M t={`${p.smallCost}\\times ${p.smallRate}\\% = ${profit}`} /> 元，相等 ✓
+      </Step>
+      <Step b="答" kind="answer">
+        <Answer>
+          {p.items.big}进价 {p.bigCost} 元，{p.items.small}进价 {p.smallCost} 元。
+        </Answer>
+      </Step>
+    </Solution>
   );
 
   return (

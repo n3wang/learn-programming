@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import ProblemShell from '@site/src/components/interactive/shell/ProblemShell';
+import { Solution, Step, EqBox, M, Answer, c, texDms, plainToTex, InequalityRules, ItemSteps, systemRule, BLUE, GREEN, RED, ORANGE } from '@site/src/components/interactive/shell/SolutionKit';
 import { usePracticeMode, usePracticeAnswer } from '@site/src/components/interactive/shell/PracticeModeContext';
 import { rangeField } from '@site/src/components/interactive/shell/practiceFields';
 import { SolutionStep, stepStyles } from '@site/src/components/interactive/shell/SolutionStep';
@@ -38,17 +39,41 @@ export default function SubwayMileageRangeSimulator() {
   usePracticeAnswer([rangeField('m', '里程 x（km）满足', answer)]);
   const options = [4, 5, 6, 7, 8, 9].map((n) => rangeFor(n).text);
 
+  const extraYuan = fare - 6;
+  const rangeLo = fare <= 6 ? null : 32 + (extraYuan - 1) * 20;
+  const rangeHi = fare <= 6 ? null : 32 + extraYuan * 20;
   const solution = (
-    <div className={stepStyles.solution}>
-      <SolutionStep badge="表" badgeClass={stepStyles.badgeSet}>
-        32 km 以内最高票价是 6 元。超过 32 km 后，每增加 1 元，里程再增加 20 km，上端包含、下端不包含。
-      </SolutionStep>
-      <SolutionStep badge="8" badgeClass={stepStyles.badgeAnswer}>
-        <div className={stepStyles.answer}>
-          票价 {fare} 元对应 {answer}。8 元比 6 元多 2 元，每元 20 km，所以 52 &lt; x ≤ 72。
-        </div>
-      </SolutionStep>
-    </div>
+    <Solution legend={[[BLUE, '票价'], [GREEN, '里程范围']]}>
+      <Step b="知" kind="set">
+        每一档都是「超过下端、到上端为止（含）」，所以下端用 <M t="<" />，上端用 <M t="\le" />：
+        <EqBox
+          lines={[
+            '3\\text{ 元}: 0 < x \\le 6, \\qquad 4\\text{ 元}: 6 < x \\le 12',
+            '5\\text{ 元}: 12 < x \\le 22, \\qquad 6\\text{ 元}: 22 < x \\le 32',
+            '\\text{超过 32 km 后：每多 1 元，多坐 20 km}',
+          ]}
+        />
+      </Step>
+      {fare <= 6 ? (
+        <Step b="对" kind="solve">
+          票价 <M t={c(BLUE, `${fare}\\text{ 元}`)} /> 正好是表里的一档：<M t={c(GREEN, plainToTex(answer))} />。
+        </Step>
+      ) : (
+        <Step b="算" kind="solve">
+          票价 <M t={c(BLUE, `${fare}\\text{ 元}`)} /> 比 6 元多 <M t={`${fare} - 6 = ${extraYuan}`} /> 元：
+          <EqBox
+            lines={[
+              `\\text{上端} = 32 + ${extraYuan} \\times 20 = ${rangeHi}`,
+              `\\text{下端} = 32 + ${extraYuan - 1} \\times 20 = ${rangeLo}\\quad(\\text{少 1 元时的上端})`,
+              c(GREEN, `${rangeLo} < x \\le ${rangeHi}`),
+            ]}
+          />
+        </Step>
+      )}
+      <Step b="答" kind="answer">
+        <Answer>票价 {fare} 元时，里程 x（km）满足 {answer}。</Answer>
+      </Step>
+    </Solution>
   );
 
   return (

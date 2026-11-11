@@ -11,8 +11,7 @@ import MathText from '@site/src/components/ProblemSet/MathText';
 import CEBlock from './CEBlock';
 import PracticeModeContext from './PracticeModeContext';
 import styles from './EquationWorksheet.module.css';
-import useBaseUrl from '@docusaurus/useBaseUrl';
-import { readableText, buildExplainPrompt, openChatGpt } from './askChatGpt';
+import { Solution, Step, Answer } from './SolutionKit';
 
 
 /**
@@ -218,23 +217,28 @@ function EquationItem({ item, showAnswer }) {
   const { problem } = item;
   return (
     <CEBlock title={item.label} subtitle="在纸上写出过程，把结果填在下面">
-      <Box sx={{ fontSize: '1.05em' }} data-practice="prompt">
+      <Box sx={{ fontSize: '1.05em' }}>
         <MathText text={problem.prompt} />
       </Box>
       {showAnswer ? (
         <Box
           className={styles.solution}
-          data-practice="solution"
           sx={{ mt: 1.5, pt: 1.5, borderTop: '1px dashed', borderColor: 'divider' }}
         >
-          {problem.steps.map((step, i) => (
-            <Typography key={i} component="div" variant="body2" color="text.secondary" sx={{ mb: 0.5 }}>
-              <MathText text={step} />
-            </Typography>
-          ))}
-          <Typography component="div" sx={{ fontWeight: 700, mt: 0.75 }}>
-            <MathText text={problem.answer} />
-          </Typography>
+          <Solution>
+            <Step b="解" kind="solve">
+              {problem.steps.map((step, i) => (
+                <Box key={i} sx={{ mb: 0.5 }}>
+                  <MathText text={step} />
+                </Box>
+              ))}
+            </Step>
+            <Step b="答" kind="answer">
+              <Answer>
+                <MathText text={problem.answer} />
+              </Answer>
+            </Step>
+          </Solution>
         </Box>
       ) : null}
     </CEBlock>
@@ -455,59 +459,7 @@ function FieldInput({ field: f, value, mark, locked, inputRef, onChange, onEnter
  * Typed answer inputs for one problem — one control per field (see FieldInput).
  * 「检查」 marks each field; wrong answers can be retried or given up on with 「看解答」.
  */
-/** What the student entered, one line per field, with ✓ / ✗ — for the ChatGPT prompt. */
-function describeStudentAnswer(fields, values, marks, attempts) {
-  if (!attempts) return '我还没有作答，直接看了讲解。';
-  const show = (f, v) => {
-    if (v == null || v === '') return '（没填）';
-    if (f.type === 'ineq') return `${f.display || 'x'} ${v.op || '?'} ${v.bound ?? '?'}`;
-    if (f.type === 'range') {
-      if (v.none) return '无解';
-      const lo = v.lo ? `${v.lo} ${v.loOp || '<'} ` : '';
-      const hi = v.hi ? ` ${v.hiOp || '<'} ${v.hi}` : '';
-      return `${lo}${f.display || 'x'}${hi}`;
-    }
-    if (f.type === 'dms') return `${v.d || 0}°${v.m || 0}′${v.s ? `${v.s}″` : ''}`;
-    return String(v);
-  };
-  const lines = fields.map((f) => {
-    const name = [f.label, f.type ? '' : f.display || f.name].filter(Boolean).join(' ');
-    const mark = marks[f.name] === 'ok' ? '✓ 对' : marks[f.name] === 'bad' ? '✗ 错' : '';
-    return `- ${name}：${show(f, values[f.name])} ${mark}`.trim();
-  });
-  return [`（检查了 ${attempts} 次，最后一次是：）`, ...lines].join('\n');
-}
-
-/** ChatGPT logo as a CSS mask (same asset and trick as ScratchNotes). */
-function ChatGptIcon() {
-  const src = useBaseUrl('/img/chatgpt-icon.png');
-  return (
-    <Box
-      component="span"
-      aria-hidden="true"
-      sx={{
-        display: 'inline-block',
-        width: '1.1em',
-        height: '1.1em',
-        backgroundColor: 'currentColor',
-        verticalAlign: '-0.2em',
-        mr: 0.5,
-      }}
-      style={{
-        WebkitMaskImage: `url(${src})`,
-        maskImage: `url(${src})`,
-        WebkitMaskSize: 'contain',
-        maskSize: 'contain',
-        WebkitMaskRepeat: 'no-repeat',
-        maskRepeat: 'no-repeat',
-        WebkitMaskPosition: 'center',
-        maskPosition: 'center',
-      }}
-    />
-  );
-}
-
-function AnswerPanel({ fields, isLast, onReveal, onFinish, onError, getContext }) {
+function AnswerPanel({ fields, isLast, onReveal, onFinish, onError }) {
   const [values, setValues] = useState({});
   const [marks, setMarks] = useState({}); // name -> 'ok' | 'bad' | 'empty' | 'invalid'
   const [status, setStatus] = useState('answering'); // answering | correct | gaveup
@@ -620,15 +572,15 @@ function AnswerPanel({ fields, isLast, onReveal, onFinish, onError, getContext }
         </Stack>
       ) : (
         <Stack direction="row" spacing={1.5} alignItems="center" flexWrap="wrap" useFlexGap>
-          <Typography sx={{ fontWeight: 700, color: status === 'correct' ? GOOD : BAD }}>
-            {status === 'correct'
-              ? attempts === 1
-                ? '✓ 全对！'
-                : `✓ 做对了（第 ${attempts} 次）`
-              : attempts === 0
-                ? '✗ 看了讲解：本题算错，连对清零。读懂后可以在纸上再做一遍。'
+          {status === 'correct' || attempts > 0 ? (
+            <Typography sx={{ fontWeight: 700, color: status === 'correct' ? GOOD : BAD }}>
+              {status === 'correct'
+                ? attempts === 1
+                  ? '✓ 全对！'
+                  : `✓ 做对了（第 ${attempts} 次）`
                 : '✗ 本题算错，连对清零——对照下面的解答找出错在哪一步。'}
-          </Typography>
+            </Typography>
+          ) : null}
           <button
             ref={nextBtn}
             type="button"
@@ -637,22 +589,6 @@ function AnswerPanel({ fields, isLast, onReveal, onFinish, onError, getContext }
           >
             {isLast ? '看本组结果' : '下一题 →'}
           </button>
-          {getContext ? (
-            <Button
-              variant="outlined"
-              onClick={() => {
-                const ctx = getContext();
-                openChatGpt(
-                  buildExplainPrompt({ ...ctx, student: describeStudentAnswer(fields, values, marks, attempts) }),
-                );
-              }}
-              title="在 ChatGPT 里打开：带上题目、你的作答和参考解答，请它用简单的话再讲一遍"
-              sx={{ ml: 'auto' }}
-            >
-              <ChatGptIcon />
-              问 ChatGPT
-            </Button>
-          ) : null}
         </Stack>
       )}
     </Box>
@@ -812,7 +748,6 @@ function Summary({ categories, items, results, count, onCount, onRestart, bestCl
  */
 export default function MixedPractice({ categories, defaultCount = 10, anchorId = 'mixed-practice-top', children }) {
   const [showHelp, setShowHelp] = useState(false);
-  const bodyRef = useRef(null);
   const [count, setCount] = useState(defaultCount);
   const [items, setItems] = useState(() => buildRun(categories, defaultCount));
   const [index, setIndex] = useState(0);
@@ -1025,13 +960,11 @@ export default function MixedPractice({ categories, defaultCount = 10, anchorId 
         />
       ) : (
         <>
-          <div ref={bodyRef}>
-            {item.kind === 'eq' ? (
-              <EquationItem key={`${item.key}-body`} item={item} showAnswer={showAnswer} />
-            ) : (
-              <SimItem key={`${item.key}-body`} item={item} showAnswer={showAnswer} reportFields={reportFields} />
-            )}
-          </div>
+          {item.kind === 'eq' ? (
+            <EquationItem key={`${item.key}-body`} item={item} showAnswer={showAnswer} />
+          ) : (
+            <SimItem key={`${item.key}-body`} item={item} showAnswer={showAnswer} reportFields={reportFields} />
+          )}
 
           {fields && fields.length > 0 ? (
             <AnswerPanel
@@ -1041,15 +974,6 @@ export default function MixedPractice({ categories, defaultCount = 10, anchorId 
               onReveal={() => setShowAnswer(true)}
               onFinish={finish}
               onError={markError}
-              getContext={() => {
-                const root = bodyRef.current;
-                const pick = (sel) => (root ? readableText(root.querySelector(sel)) : '');
-                return {
-                  topic: `${item.catName} · ${item.label}`,
-                  problem: pick('[data-practice="prompt"]') || (root ? readableText(root) : ''),
-                  solution: pick('[data-practice="solution"]'),
-                };
-              }}
             />
           ) : (
             <Typography variant="body2" color="text.secondary">

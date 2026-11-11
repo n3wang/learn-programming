@@ -1,5 +1,6 @@
 import React, { useMemo, useState } from 'react';
 import ProblemShell from '@site/src/components/interactive/shell/ProblemShell';
+import { Solution, Step, EqBox, M, Answer, c, texDms, plainToTex, InequalityRules, ItemSteps, systemRule, BLUE, GREEN, RED, ORANGE } from '@site/src/components/interactive/shell/SolutionKit';
 import { usePracticeMode, usePracticeAnswer } from '@site/src/components/interactive/shell/PracticeModeContext';
 import { choiceField, ineqField } from '@site/src/components/interactive/shell/practiceFields';
 import { SolutionStep, stepStyles } from '@site/src/components/interactive/shell/SolutionStep';
@@ -76,17 +77,32 @@ function SolutionSetInquiry() {
   const holds = product > p.bound;
 
   const solution = (
-    <div className={stepStyles.solution}>
-      <SolutionStep badge="试" badgeClass={stepStyles.badgeSet}>
-        当 x = {cut - 15} 时，{p.coef}x = {p.coef * (cut - 15)}，不等式不成立。当 x = {cut + 5} 时，{p.coef}x = {p.coef * (cut + 5)}，不等式成立。
-      </SolutionStep>
-      <SolutionStep badge="集" badgeClass={stepStyles.badgeAnswer}>
-        <div className={stepStyles.answer}>
-          任意大于 {cut} 的数都是解，这样的解有无数个。解集是 x &gt; {cut}。数轴上在 {cut} 处画空心圆圈，向右画射线，表示不包含这个点。
-          <SolutionSetNumberLine label={String(cut)} dir="right" />
-        </div>
-      </SolutionStep>
-    </div>
+    <Solution legend={[[BLUE, '代入的数'], [GREEN, '是解'], [RED, '不是解']]}>
+      <Step b="知" kind="set">
+        能使不等式成立的未知数的值叫做不等式的<b>解</b>；所有的解合在一起叫做<b>解集</b>。判断一个数是不是解：代入，看不等式是否成立。
+      </Step>
+      <Step b="试" kind="list">
+        <EqBox
+          lines={[cut - 5, cut, cut + 5].map((n) => {
+            const v = p.coef * n;
+            const ok = v > p.bound;
+            return `x = ${c(BLUE, n)}:\\quad ${p.coef}\\times ${n} = ${v} ${ok ? '>' : '\\le'} ${p.bound} \\;\\Rightarrow\\; ${ok ? c(GREEN, '\\text{是解}') : c(RED, '\\text{不是解}')}`;
+          })}
+        />
+        注意 <M t={`x = ${cut}`} /> 时两边相等，「&gt;」不成立，所以 {cut} <b>不是</b>解。
+      </Step>
+      <Step b="集" kind="solve">
+        两边除以正数 {p.coef}，方向不变：
+        <EqBox lines={[`${p.coef}x > ${p.bound} \\;\\Rightarrow\\; ${c(GREEN, `x > ${cut}`)}`]} />
+        任何大于 {cut} 的数都是解，这样的解有无数个。数轴上在 {cut} 处画空心圆圈（不包含 {cut}），向右画。
+        <SolutionSetNumberLine label={String(cut)} dir="right" />
+      </Step>
+      <Step b="答" kind="answer">
+        <Answer>
+          {[cut - 5, cut, cut + 5].map((n) => `x = ${n} ${p.coef * n > p.bound ? '是' : '不是'}解`).join('；')}；解集是 x &gt; {cut}。
+        </Answer>
+      </Step>
+    </Solution>
   );
 
   if (practice) {

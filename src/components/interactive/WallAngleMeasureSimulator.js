@@ -1,5 +1,6 @@
 import React, { useMemo, useState } from 'react';
 import ProblemShell from '@site/src/components/interactive/shell/ProblemShell';
+import { Solution, Step, EqBox, M, Answer, c, texDms, BLUE, GREEN, RED, ORANGE } from '@site/src/components/interactive/shell/SolutionKit';
 import { usePracticeMode, usePracticeAnswer } from '@site/src/components/interactive/shell/PracticeModeContext';
 import { degField } from '@site/src/components/interactive/shell/practiceFields';
 import { SolutionStep, stepStyles } from '@site/src/components/interactive/shell/SolutionStep';
@@ -21,18 +22,28 @@ export default function WallAngleMeasureSimulator() {
   const inside = useMemo(() => (p.measured == null ? null : 180 - p.measured), [p]);
 
   const solution = (
-    <div className={stepStyles.solution}>
-      <SolutionStep badge="法" badgeClass={stepStyles.badgeSet}>
-        人不能进入围墙，就在墙外测量角 AOB 的邻补角。邻补角与角 AOB 拼成平角，和是 180°。
-      </SolutionStep>
-      <SolutionStep badge="答" badgeClass={stepStyles.badgeAnswer}>
-        <div className={stepStyles.answer}>
+    <Solution legend={[[BLUE, '测得的角'], [GREEN, '角 AOB']]}>
+      <Step b="知" kind="set">
+        进不去墙里面，就把边 BO 延长到墙外，量出角 AOB 的<b>邻补角</b>。邻补角与角 AOB 拼成一个平角：
+        <EqBox lines={['\\angle AOB + \\text{邻补角} = 180^\\circ']} />
+      </Step>
+      <Step b="解" kind="solve">
+        {p.measured == null ? (
+          <EqBox lines={['\\angle AOB = 180^\\circ - \\text{墙外测得的邻补角}']} />
+        ) : (
+          <EqBox
+            lines={[`\\angle AOB = 180^\\circ - ${c(BLUE, `${p.measured}^\\circ`)} = ${c(GREEN, `${inside}^\\circ`)}`]}
+          />
+        )}
+      </Step>
+      <Step b="答" kind="answer">
+        <Answer>
           {p.measured == null
-            ? '角 AOB = 180° − 墙外测得的邻补角。'
-            : `墙外测得邻补角是 ${p.measured}°，所以角 AOB = 180° − ${p.measured}° = ${inside}°。`}
-        </div>
-      </SolutionStep>
-    </div>
+            ? '在墙外量邻补角，角 AOB = 180° − 邻补角。'
+            : `角 AOB = ${inside}°。`}
+        </Answer>
+      </Step>
+    </Solution>
   );
 
   return (

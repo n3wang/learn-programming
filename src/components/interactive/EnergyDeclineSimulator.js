@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import ProblemShell from '@site/src/components/interactive/shell/ProblemShell';
+import { Solution, Step, EqBox, M, Answer, c, texDms, plainToTex, InequalityRules, ItemSteps, systemRule, BLUE, GREEN, RED, ORANGE } from '@site/src/components/interactive/shell/SolutionKit';
 import { usePracticeMode, usePracticeAnswer } from '@site/src/components/interactive/shell/PracticeModeContext';
 import { numberField } from '@site/src/components/interactive/shell/practiceFields';
 import { SolutionStep, stepStyles } from '@site/src/components/interactive/shell/SolutionStep';
@@ -39,17 +40,31 @@ export default function EnergyDeclineSimulator() {
   usePracticeAnswer([numberField("e", "今年能耗至多（t 标准煤）", cap / 1000, "x")]);
   const trials = [cap - 8, cap, cap + 8];
 
+  const lastT = (p.last / 1000).toFixed(3);
+  const capT = (cap / 1000).toFixed(3);
   const solution = (
-    <div className={stepStyles.solution}>
-      <SolutionStep badge="率" badgeClass={stepStyles.badgeSet}>
-        设今年能耗为 x t。下降率不小于 {p.percent}%：(去年 − x) / 去年 ≥ {p.percent}/100。
-      </SolutionStep>
-      <SolutionStep badge="至" badgeClass={stepStyles.badgeAnswer}>
-        <div className={stepStyles.answer}>
-          去年 {p.last / 1000} t，乘以 (1 − {p.percent}/100) 得上限 {(cap / 1000).toFixed(3)} t。所以今年至多为 {(cap / 1000).toFixed(3)} t 标准煤。
-        </div>
-      </SolutionStep>
-    </div>
+    <Solution legend={[[BLUE, '已知'], [GREEN, '所求']]}>
+      <Step b="设" kind="set">
+        设今年的能耗为 <M t="x" /> t 标准煤。下降率 = <M t="\dfrac{\text{去年} - \text{今年}}{\text{去年}}" />。
+      </Step>
+      <Step b="列" kind="list">
+        「下降率<b>不小于</b> {p.percent}%」写成 ≥：
+        <EqBox lines={[`\\dfrac{${c(BLUE, lastT)} - x}{${c(BLUE, lastT)}} \\ge ${c(BLUE, `${p.percent}\\%`)}`]} />
+      </Step>
+      <Step b="解" kind="solve">
+        两边乘正数 {lastT}（方向不变），再移项：
+        <EqBox
+          lines={[
+            `${lastT} - x \\ge ${lastT} \\times ${p.percent / 100}`,
+            `x \\le ${lastT} \\times (1 - ${p.percent / 100}) = ${c(GREEN, capT)}`,
+          ]}
+        />
+        移项时 <M t="-x" /> 变成 <M t="x" />，相当于两边乘 −1，所以 ≥ 变成 ≤。
+      </Step>
+      <Step b="答" kind="answer">
+        <Answer>今年的能耗至多为 {capT} t 标准煤。</Answer>
+      </Step>
+    </Solution>
   );
 
   return (

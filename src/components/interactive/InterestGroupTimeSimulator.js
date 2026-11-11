@@ -7,6 +7,7 @@ import TableCell from '@site/src/components/ui/TableCell';
 import TableHead from '@site/src/components/ui/TableHead';
 import TableRow from '@site/src/components/ui/TableRow';
 import ProblemShell from '@site/src/components/interactive/shell/ProblemShell';
+import { Solution, Step, EqBox, M, Answer, c, texDms, plainToTex, InequalityRules, ItemSteps, systemRule, BLUE, GREEN, RED, ORANGE } from '@site/src/components/interactive/shell/SolutionKit';
 import { usePracticeMode, usePracticeAnswer } from '@site/src/components/interactive/shell/PracticeModeContext';
 import { numberField } from '@site/src/components/interactive/shell/practiceFields';
 import AnimatedNumber from '@site/src/components/interactive/shell/AnimatedNumber';
@@ -60,6 +61,11 @@ function generate() {
   if (!Number.isInteger(total7 * 2) || !Number.isInteger(total8 * 2) || !Number.isInteger(total9 * 2)) {
     return generate();
   }
+  // 九年级 has one equation in two unknowns: keep only totals with exactly one
+  // positive-integer pair (m, n), so the answer is well defined.
+  if (positivePairs(artH, techH, total9).length !== 1) {
+    return generate();
+  }
 
   const rows = [
     { grade: '七年级', total: total7, art: g7Art, tech: g7Tech },
@@ -67,6 +73,16 @@ function generate() {
     { grade: '九年级', total: total9, art: null, tech: null },
   ];
   return { artH, techH, rows, g9Art, g9Tech };
+}
+
+/** All (m, n) with m, n ≥ 1 integers and a·m + b·n = total. */
+function positivePairs(a, b, total) {
+  const out = [];
+  for (let m = 1; m * a < total + 1e-9; m++) {
+    const n = (total - m * a) / b;
+    if (n >= 1 - 1e-9 && Math.abs(n - Math.round(n)) < 1e-9) out.push([m, Math.round(n)]);
+  }
+  return out;
 }
 
 function fmtH(n) {
@@ -100,92 +116,43 @@ export default function InterestGroupTimeSimulator() {
     setKey((k) => k + 1);
   };
 
+  const [r7, r8, r9] = p.rows;
+  const total9 = r9.total;
   const solution = (
-    <Box>
-      <Typography sx={{ mb: 1 }}>
-        设文艺小组每次活动 <b>x</b> 小时，科技小组每次 <b>y</b> 小时。同一兴趣小组各年级每次时长相同。
-      </Typography>
-      <Typography sx={{ mb: 1 }}>由七、八年级列方程组：</Typography>
-      <Typography sx={{ mb: 0.5, fontFamily: 'monospace' }}>
-        {p.rows[0].art}x + {p.rows[0].tech}y = {fmtH(p.rows[0].total)}
-      </Typography>
-      <Typography sx={{ mb: 1.5, fontFamily: 'monospace' }}>
-        {p.rows[1].art}x + {p.rows[1].tech}y = {fmtH(p.rows[1].total)}
-      </Typography>
-      <Typography sx={{ mb: 1.5 }}>
-        解得 x = <AnimatedNumber value={derived.artH} decimals={1} />（文艺），y ={' '}
-        <AnimatedNumber value={derived.techH} decimals={1} />（科技）。
-      </Typography>
-
-      <Table size="small" sx={{ mb: 2, maxWidth: 480 }}>
-        <TableHead>
-          <TableRow>
-            <TableCell>年级</TableCell>
-            <TableCell align="right">文艺（次×时）</TableCell>
-            <TableCell align="right">科技（次×时）</TableCell>
-            <TableCell align="right">合计 / h</TableCell>
-          </TableRow>
-        </TableHead>
-        <TableBody>
-          {p.rows.slice(0, 2).map((r) => (
-            <TableRow key={r.grade}>
-              <TableCell>{r.grade}</TableCell>
-              <TableCell align="right">
-                {r.art} × {fmtH(derived.artH)} = {fmtH(r.art * derived.artH)}
-              </TableCell>
-              <TableCell align="right">
-                {r.tech} × {fmtH(derived.techH)} = {fmtH(r.tech * derived.techH)}
-              </TableCell>
-              <TableCell align="right">{fmtH(r.total)}</TableCell>
-            </TableRow>
-          ))}
-        </TableBody>
-      </Table>
-
-      <Typography sx={{ mb: 1 }}>
-        九年级总时间 {fmtH(p.rows[2].total)} h，设文艺 <b>m</b> 次、科技 <b>n</b> 次（非负整数）：
-      </Typography>
-      <Typography sx={{ mb: 1, fontFamily: 'monospace' }}>
-        {fmtH(derived.artH)}m + {fmtH(derived.techH)}n = {fmtH(p.rows[2].total)}
-      </Typography>
-      <Typography sx={{ fontWeight: 700, mb: 1.5 }}>
-        检验非负整数解得：m = <AnimatedNumber value={p.g9Art} />，n ={' '}
-        <AnimatedNumber value={p.g9Tech} />。
-      </Typography>
-
-      <Table size="small" sx={{ maxWidth: 420 }}>
-        <TableHead>
-          <TableRow>
-            <TableCell>九年级</TableCell>
-            <TableCell align="right">次数</TableCell>
-            <TableCell align="right">每次 / h</TableCell>
-            <TableCell align="right">小计 / h</TableCell>
-          </TableRow>
-        </TableHead>
-        <TableBody>
-          <TableRow>
-            <TableCell>文艺</TableCell>
-            <TableCell align="right">{p.g9Art}</TableCell>
-            <TableCell align="right">{fmtH(derived.artH)}</TableCell>
-            <TableCell align="right">{fmtH(p.g9Art * derived.artH)}</TableCell>
-          </TableRow>
-          <TableRow>
-            <TableCell>科技</TableCell>
-            <TableCell align="right">{p.g9Tech}</TableCell>
-            <TableCell align="right">{fmtH(derived.techH)}</TableCell>
-            <TableCell align="right">{fmtH(p.g9Tech * derived.techH)}</TableCell>
-          </TableRow>
-          <TableRow>
-            <TableCell sx={{ fontWeight: 700 }}>合计</TableCell>
-            <TableCell />
-            <TableCell />
-            <TableCell align="right" sx={{ fontWeight: 700 }}>
-              {fmtH(p.rows[2].total)}
-            </TableCell>
-          </TableRow>
-        </TableBody>
-      </Table>
-    </Box>
+    <Solution legend={[[BLUE, '表中数据'], [ORANGE, '每次活动时间'], [GREEN, '九年级次数']]}>
+      <Step b="知" kind="set">
+        同一个小组，各年级<b>每次</b>活动的时间相同。每个年级：
+        <EqBox lines={['\\text{文艺次数} \\times \\text{文艺每次时间} + \\text{科技次数} \\times \\text{科技每次时间} = \\text{总时间}']} />
+      </Step>
+      <Step b="设" kind="set">
+        设文艺小组每次活动 <M t="x" /> h，科技小组每次 <M t="y" /> h。
+      </Step>
+      <Step b="列" kind="list">
+        由七、八年级两行列方程组：
+        <EqBox
+          lines={[
+            `\\begin{cases} ${c(BLUE, r7.art)}x + ${c(BLUE, r7.tech)}y = ${c(BLUE, fmtH(r7.total))} \\\\ ${c(BLUE, r8.art)}x + ${c(BLUE, r8.tech)}y = ${c(BLUE, fmtH(r8.total))} \\end{cases}`,
+          ]}
+        />
+      </Step>
+      <Step b="解" kind="solve">
+        用加减消元法解得：
+        <EqBox lines={[`x = ${c(ORANGE, fmtH(derived.artH))}, \\qquad y = ${c(ORANGE, fmtH(derived.techH))}`]} />
+        验算：七年级 <M t={`${r7.art}\\times ${fmtH(derived.artH)} + ${r7.tech}\\times ${fmtH(derived.techH)} = ${fmtH(r7.total)}`} /> ✓
+      </Step>
+      <Step b="九" kind="solve">
+        九年级总时间 {fmtH(total9)} h，设文艺 <M t="m" /> 次、科技 <M t="n" /> 次（都是正整数）：
+        <EqBox lines={[`${c(ORANGE, fmtH(derived.artH))}m + ${c(ORANGE, fmtH(derived.techH))}n = ${fmtH(total9)}`]} />
+        一个方程两个未知数，但次数只能是正整数。让 m 从 1 开始试，看 n 是不是正整数：只有{' '}
+        <M t={`m = ${c(GREEN, p.g9Art)},\\ n = ${c(GREEN, p.g9Tech)}`} /> 符合（
+        <M t={`${fmtH(derived.artH)}\\times ${p.g9Art} + ${fmtH(derived.techH)}\\times ${p.g9Tech} = ${fmtH(total9)}`} />）。
+      </Step>
+      <Step b="答" kind="answer">
+        <Answer>
+          九年级文艺小组活动 {p.g9Art} 次，科技小组活动 {p.g9Tech} 次。
+        </Answer>
+      </Step>
+    </Solution>
   );
 
   return (

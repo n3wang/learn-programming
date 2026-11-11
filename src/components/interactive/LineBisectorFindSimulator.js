@@ -1,5 +1,6 @@
 import React, { useMemo, useState } from 'react';
 import ProblemShell from '@site/src/components/interactive/shell/ProblemShell';
+import { Solution, Step, EqBox, M, Answer, c, texDms, BLUE, GREEN, RED, ORANGE } from '@site/src/components/interactive/shell/SolutionKit';
 import { usePracticeMode, usePracticeAnswer } from '@site/src/components/interactive/shell/PracticeModeContext';
 import { dmsField } from '@site/src/components/interactive/shell/practiceFields';
 import { SolutionStep, stepStyles } from '@site/src/components/interactive/shell/SolutionStep';
@@ -26,16 +27,28 @@ export default function LineBisectorFindSimulator() {
   const ans = useMemo(() => subtractFrom90(p.d, p.m), [p]);
 
   const solution = (
-    <div className={stepStyles.solution}>
-      <SolutionStep badge="平角" badgeClass={stepStyles.badgeSet}>
-        AB 是直线，角 AOB 是平角，等于 180°。OC 是它的平分线，所以角 AOC = 角 BOC = 90°。
-      </SolutionStep>
-      <SolutionStep badge="求" badgeClass={stepStyles.badgeAnswer}>
-        <div className={stepStyles.answer}>
-          角 AOD = 角 AOC − 角 COD = 90° − {p.d}°{p.m}′ = {ans.d}°{ans.m}′。
-        </div>
-      </SolutionStep>
-    </div>
+    <Solution legend={[[BLUE, '已知'], [GREEN, '所求']]}>
+      <Step b="知" kind="set">
+        O 在直线 AB 上，角 AOB 是平角，等于 180°。OC 平分角 AOB：
+        <EqBox lines={['\\angle AOC = \\angle BOC = 180^\\circ \\div 2 = 90^\\circ']} />
+      </Step>
+      <Step b="列" kind="list">
+        射线 OD 在角 AOC 的内部，所以 <M t="\angle AOD = \angle AOC - \angle COD" />。
+      </Step>
+      <Step b="解" kind="solve">
+        90° 写成 89°60′ 再减：
+        <EqBox
+          lines={[
+            `\\angle AOD = 90^\\circ - ${c(BLUE, `${p.d}^\\circ ${p.m}'`)} = 89^\\circ 60' - ${p.d}^\\circ ${p.m}' = ${c(GREEN, `${ans.d}^\\circ ${ans.m}'`)}`,
+          ]}
+        />
+      </Step>
+      <Step b="答" kind="answer">
+        <Answer>
+          角 AOD = {ans.d}°{ans.m}′。
+        </Answer>
+      </Step>
+    </Solution>
   );
 
   return (

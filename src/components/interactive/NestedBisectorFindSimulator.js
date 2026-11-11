@@ -1,5 +1,6 @@
 import React, { useMemo, useState } from 'react';
 import ProblemShell from '@site/src/components/interactive/shell/ProblemShell';
+import { Solution, Step, EqBox, M, Answer, c, texDms, BLUE, GREEN, RED, ORANGE } from '@site/src/components/interactive/shell/SolutionKit';
 import { usePracticeMode, usePracticeAnswer } from '@site/src/components/interactive/shell/PracticeModeContext';
 import { degField } from '@site/src/components/interactive/shell/practiceFields';
 import { SolutionStep, stepStyles } from '@site/src/components/interactive/shell/SolutionStep';
@@ -21,16 +22,22 @@ export default function NestedBisectorFindSimulator() {
   const ans = useMemo(() => ({ aoc: p.cod * 2, aob: p.cod * 4 }), [p]);
 
   const solution = (
-    <div className={stepStyles.solution}>
-      <SolutionStep badge="半" badgeClass={stepStyles.badgeSet}>
-        OD 平分角 AOC，所以角 AOC = 2 × 角 COD = 2 × {p.cod}° = {ans.aoc}°。
-      </SolutionStep>
-      <SolutionStep badge="答" badgeClass={stepStyles.badgeAnswer}>
-        <div className={stepStyles.answer}>
-          OC 平分角 AOB，所以角 AOB = 2 × 角 AOC = 2 × {ans.aoc}° = {ans.aob}°。
-        </div>
-      </SolutionStep>
-    </div>
+    <Solution legend={[[BLUE, '已知'], [ORANGE, '中间结果'], [GREEN, '所求']]}>
+      <Step b="知" kind="set">
+        角平分线把角分成两个相等的角，所以 <b>整个角 = 2 × 一半</b>。由里往外，一层一层翻倍。
+      </Step>
+      <Step b="1" kind="list">
+        OD 平分角 AOC：
+        <EqBox lines={[`\\angle AOC = 2\\angle COD = 2 \\times ${c(BLUE, `${p.cod}^\\circ`)} = ${c(ORANGE, `${ans.aoc}^\\circ`)}`]} />
+      </Step>
+      <Step b="2" kind="solve">
+        OC 平分角 AOB：
+        <EqBox lines={[`\\angle AOB = 2\\angle AOC = 2 \\times ${c(ORANGE, `${ans.aoc}^\\circ`)} = ${c(GREEN, `${ans.aob}^\\circ`)}`]} />
+      </Step>
+      <Step b="答" kind="answer">
+        <Answer>角 AOB = {ans.aob}°（是角 COD 的 4 倍）。</Answer>
+      </Step>
+    </Solution>
   );
 
   return (

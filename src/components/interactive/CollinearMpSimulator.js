@@ -1,5 +1,6 @@
 import React, { useMemo, useState } from 'react';
 import ProblemShell from '@site/src/components/interactive/shell/ProblemShell';
+import { Solution, Step, EqBox, M, Answer, c, texDms, BLUE, GREEN, RED, ORANGE } from '@site/src/components/interactive/shell/SolutionKit';
 import { usePracticeMode, usePracticeAnswer } from '@site/src/components/interactive/shell/PracticeModeContext';
 import { numberField } from '@site/src/components/interactive/shell/practiceFields';
 import AnimatedNumber from '@site/src/components/interactive/shell/AnimatedNumber';
@@ -48,17 +49,24 @@ export default function CollinearMpSimulator() {
   const scale = 22;
 
   const solution = (
-    <div className={stepStyles.solution}>
-      <SolutionStep badge="分类" badgeClass={stepStyles.badgeSet}>
-        三点在同一直线上，但顺序没有说明，要按 N 在 M、P 之间，或 P 在 M、N 之间分别求。
-      </SolutionStep>
-      <SolutionStep badge="解" badgeClass={stepStyles.badgeAnswer}>
-        <div className={stepStyles.answer}>
-          若顺序是 M-N-P，则 MP = MN + NP = <AnimatedNumber value={sums.long} /> cm。
-          若顺序是 M-P-N，则 MP = MN − NP = <AnimatedNumber value={sums.short} /> cm。
-        </div>
-      </SolutionStep>
-    </div>
+    <Solution legend={[[BLUE, '已知线段'], [GREEN, 'MP']]}>
+      <Step b="知" kind="set">
+        三点在同一条直线上，但题目没说顺序，所以<b>分两种情况</b>画图。
+      </Step>
+      <Step b="1" kind="list">
+        N 在 M、P 之间（M—N—P）：MP 是两段之和
+        <EqBox lines={[`MP = MN + NP = ${c(BLUE, p.mn)} + ${c(BLUE, p.np)} = ${c(GREEN, sums.long)}\\ \\text{cm}`]} />
+      </Step>
+      <Step b="2" kind="solve">
+        P 在 M、N 之间（M—P—N）：MP 是两段之差
+        <EqBox lines={[`MP = MN - NP = ${c(BLUE, p.mn)} - ${c(BLUE, p.np)} = ${c(GREEN, sums.short)}\\ \\text{cm}`]} />
+      </Step>
+      <Step b="答" kind="answer">
+        <Answer>
+          MP = {sums.long} cm 或 {sums.short} cm。
+        </Answer>
+      </Step>
+    </Solution>
   );
 
   return (

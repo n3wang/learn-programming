@@ -1,6 +1,7 @@
 import React, { useMemo, useState } from 'react';
 import Typography from '@site/src/components/ui/Typography';
 import ProblemShell from '@site/src/components/interactive/shell/ProblemShell';
+import { Solution, Step, EqBox, M, Answer, c, texDms, BLUE, GREEN, RED, ORANGE } from '@site/src/components/interactive/shell/SolutionKit';
 import { usePracticeMode, usePracticeAnswer } from '@site/src/components/interactive/shell/PracticeModeContext';
 import { numberField } from '@site/src/components/interactive/shell/practiceFields';
 import SolidFigureView from '@site/src/components/interactive/solidView/SolidFigureView';
@@ -65,20 +66,22 @@ export default function SolidElementCountSimulator() {
   usePracticeAnswer([numberField("f", "面", s.faces, "F"), numberField("e", "棱", s.edges, "E"), numberField("v", "顶点", s.vertices, "V")]);
 
   const solution = (
-    <div className={stepStyles.solution}>
-      <SolutionStep badge="面" badgeClass={stepStyles.badgeSet}>
-        包围着体的是面。{s.name}有 <b>{s.faces}</b> 个面。{s.note}
-      </SolutionStep>
-      <SolutionStep badge="棱" badgeClass={stepStyles.badgeList}>
-        面和面相交形成棱（线）。一共 <b>{s.edges}</b> 条棱。
-      </SolutionStep>
-      <SolutionStep badge="点" badgeClass={stepStyles.badgeAnswer}>
-        <div className={stepStyles.answer}>
-          棱和棱相交成顶点。{s.name}有 <AnimatedNumber value={s.faces} /> 个面、
-          <AnimatedNumber value={s.edges} /> 条棱、<AnimatedNumber value={s.vertices} /> 个顶点。
-        </div>
-      </SolutionStep>
-    </div>
+    <Solution legend={[[GREEN, '数出来的个数']]}>
+      <Step b="面" kind="set">
+        包围着体的是<b>面</b>。{s.name}有 <M t={c(GREEN, s.faces)} /> 个面。{s.note}
+      </Step>
+      <Step b="棱" kind="list">
+        面和面相交的地方形成<b>线</b>（棱）。一共 <M t={c(GREEN, s.edges)} /> 条。数的时候可以按「上、下、侧面」分组，避免重复。
+      </Step>
+      <Step b="点" kind="solve">
+        线和线相交的地方是<b>点</b>（顶点）。一共 <M t={c(GREEN, s.vertices)} /> 个。
+      </Step>
+      <Step b="答" kind="answer">
+        <Answer>
+          {s.name}有 {s.faces} 个面、{s.edges} 条棱（线）、{s.vertices} 个顶点。
+        </Answer>
+      </Step>
+    </Solution>
   );
 
   return (

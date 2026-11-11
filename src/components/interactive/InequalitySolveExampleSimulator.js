@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import ProblemShell from '@site/src/components/interactive/shell/ProblemShell';
+import { Solution, Step, EqBox, M, Answer, c, texDms, plainToTex, InequalityRules, ItemSteps, systemRule, BLUE, GREEN, RED, ORANGE } from '@site/src/components/interactive/shell/SolutionKit';
 import { usePracticeMode, usePracticeAnswer } from '@site/src/components/interactive/shell/PracticeModeContext';
 import { ineqField } from '@site/src/components/interactive/shell/practiceFields';
 import { SolutionStep, stepStyles } from '@site/src/components/interactive/shell/SolutionStep';
@@ -167,26 +168,33 @@ export default function InequalitySolveExampleSimulator() {
     setPicks((prev) => ({ ...prev, [id]: dir }));
   }
 
+  const shown = items.filter(Boolean);
   const solution = (
-    <div className={stepStyles.solution}>
-      {items.filter(Boolean).map((item) => (
-        <SolutionStep key={item.id} badge={item.id === 'r' ? '解' : item.id} badgeClass={stepStyles.badgeSet}>
-          {item.text}。根据{item.property}，{item.move}。
-          {item.steps.map((line) => (
-            <div key={line}>{line}</div>
-          ))}
-          <div>解集 {item.result}。数轴上在 {item.boundLabel} 处画空心圆圈，向{item.dir === 'right' ? '右' : '左'}画射线。</div>
-          <SolutionSetNumberLine label={item.boundLabel} dir={item.dir} />
-        </SolutionStep>
-      ))}
-      <SolutionStep badge="集" badgeClass={stepStyles.badgeAnswer}>
-        <div className={stepStyles.answer}>
-          {mode === 'book'
-            ? '（1）x > 33；（2）x < 1；（3）x > 75；（4）x < −3/4。空心圆圈表示不包含端点。'
-            : `${problem.result}。空心圆圈表示不包含 ${problem.boundLabel}。`}
-        </div>
-      </SolutionStep>
-    </div>
+    <Solution legend={[[BLUE, '原不等式'], [GREEN, '解集']]}>
+      <InequalityRules />
+      <ItemSteps
+        items={shown}
+        badge={(item) => (item.id === 'r' ? '解' : `(${item.id})`)}
+        lead={(item) => (
+          <>
+            <M t={c(BLUE, plainToTex(item.text))} />：用{item.property}，{item.move}。
+          </>
+        )}
+        after={(item) => (
+          <>
+            数轴上在 {item.boundLabel} 处画空心圆圈（不包含端点），向{item.dir === 'right' ? '右' : '左'}画。
+            <SolutionSetNumberLine label={item.boundLabel} dir={item.dir} />
+          </>
+        )}
+      />
+      <Step b="答" kind="answer">
+        <Answer>
+          {shown.length === 1
+            ? `解集是 ${shown[0].result}。`
+            : `${shown.map((it) => `（${it.id}）${it.result}`).join('；')}。`}
+        </Answer>
+      </Step>
+    </Solution>
   );
 
   return (

@@ -1,5 +1,6 @@
 import React, { useMemo, useState } from 'react';
 import ProblemShell from '@site/src/components/interactive/shell/ProblemShell';
+import { Solution, Step, EqBox, M, Answer, c, texDms, BLUE, GREEN, RED, ORANGE } from '@site/src/components/interactive/shell/SolutionKit';
 import { usePracticeMode, usePracticeAnswer } from '@site/src/components/interactive/shell/PracticeModeContext';
 import { dmsField } from '@site/src/components/interactive/shell/practiceFields';
 import { SolutionStep, stepStyles } from '@site/src/components/interactive/shell/SolutionStep';
@@ -34,18 +35,33 @@ export default function DegreeComplementFindSimulator() {
   }, [p]);
 
   const solution = (
-    <div className={stepStyles.solution}>
-      <SolutionStep badge="余" badgeClass={stepStyles.badgeSet}>
-        余角是 90° 减去这个角。先把 90° 写成 89°60′，再减：
-        90° − {p.d}°{p.m}′ = {ans.complement}。
-      </SolutionStep>
-      <SolutionStep badge="补" badgeClass={stepStyles.badgeAnswer}>
-        <div className={stepStyles.answer}>
-          补角是 180° 减去这个角。先把 180° 写成 179°60′，再减：
-          180° − {p.d}°{p.m}′ = {ans.supplement}。
-        </div>
-      </SolutionStep>
-    </div>
+    <Solution legend={[[BLUE, '已知的角'], [GREEN, '所求的角']]}>
+      <Step b="知" kind="set">
+        余角 = 90° − 这个角，补角 = 180° − 这个角。度、分分别相减；分不够减时，向度借 1° 当 60′：
+        <EqBox lines={["90^\\circ = 89^\\circ 60', \\qquad 180^\\circ = 179^\\circ 60'"]} />
+      </Step>
+      <Step b="余" kind="list">
+        <EqBox
+          lines={[
+            `90^\\circ - ${c(BLUE, `${p.d}^\\circ ${p.m}'`)} = 89^\\circ 60' - ${p.d}^\\circ ${p.m}' = ${c(GREEN, `${89 - p.d}^\\circ ${60 - p.m}'`)}`,
+          ]}
+        />
+        度减度：<M t={`89 - ${p.d} = ${89 - p.d}`} />；分减分：<M t={`60 - ${p.m} = ${60 - p.m}`} />。
+      </Step>
+      <Step b="补" kind="solve">
+        <EqBox
+          lines={[
+            `180^\\circ - ${c(BLUE, `${p.d}^\\circ ${p.m}'`)} = 179^\\circ 60' - ${p.d}^\\circ ${p.m}' = ${c(GREEN, `${179 - p.d}^\\circ ${60 - p.m}'`)}`,
+          ]}
+        />
+      </Step>
+      <Step b="验" kind="check">
+        <M t={`${p.d}^\\circ ${p.m}' + ${89 - p.d}^\\circ ${60 - p.m}' = 89^\\circ 60' = 90^\\circ`} /> ✓
+      </Step>
+      <Step b="答" kind="answer">
+        <Answer>余角是 {ans.complement}，补角是 {ans.supplement}。</Answer>
+      </Step>
+    </Solution>
   );
 
   return (

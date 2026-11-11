@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import ProblemShell from '@site/src/components/interactive/shell/ProblemShell';
+import { Solution, Step, EqBox, M, Answer, c, texDms, plainToTex, InequalityRules, ItemSteps, systemRule, BLUE, GREEN, RED, ORANGE } from '@site/src/components/interactive/shell/SolutionKit';
 import { usePracticeMode, usePracticeAnswer } from '@site/src/components/interactive/shell/PracticeModeContext';
 import { ineqField } from '@site/src/components/interactive/shell/practiceFields';
 import { SolutionStep, stepStyles } from '@site/src/components/interactive/shell/SolutionStep';
@@ -155,21 +156,27 @@ export default function InequalitySolvePracticeSimulator() {
   const [picks, setPicks] = useState({});
 
   const solution = (
-    <div className={stepStyles.solution}>
-      {items.map((item) => (
-        <SolutionStep key={item.id} badge={item.id} badgeClass={stepStyles.badgeSet}>
-          {item.text}。根据{item.property}，{item.move}。
-          {item.steps.map((line) => (
-            <div key={line}>{line}</div>
-          ))}
-          <div>
-            解集 {item.result}。{item.closed ? '实心圆圈，端点包含。' : '空心圆圈，端点不包含。'}
-            射线向{item.dir === 'right' ? '右' : '左'}。
+    <Solution legend={[[BLUE, '原不等式'], [GREEN, '解集']]}>
+      <InequalityRules />
+      <ItemSteps
+        items={items}
+        lead={(item) => (
+          <>
+            <M t={c(BLUE, plainToTex(item.text))} />：用{item.property}，{item.move}。
+          </>
+        )}
+        after={(item) => (
+          <>
+            数轴上在 {item.boundLabel} 处画{item.closed ? '实心圆点（包含端点）' : '空心圆圈（不包含端点）'}，向
+            {item.dir === 'right' ? '右' : '左'}画。
             <SolutionSetNumberLine label={item.boundLabel} dir={item.dir} closed={item.closed} />
-          </div>
-        </SolutionStep>
-      ))}
-    </div>
+          </>
+        )}
+      />
+      <Step b="答" kind="answer">
+        <Answer>{items.map((it) => `（${it.id}）${it.result}`).join('；')}。</Answer>
+      </Step>
+    </Solution>
   );
 
   return (

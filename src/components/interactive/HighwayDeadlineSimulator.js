@@ -1,5 +1,6 @@
 import React, { useMemo, useState } from 'react';
 import ProblemShell from '@site/src/components/interactive/shell/ProblemShell';
+import { Solution, Step, EqBox, M, Answer, c, texDms, plainToTex, InequalityRules, ItemSteps, systemRule, BLUE, GREEN, RED, ORANGE } from '@site/src/components/interactive/shell/SolutionKit';
 import { usePracticeMode, usePracticeAnswer } from '@site/src/components/interactive/shell/PracticeModeContext';
 import { ineqField } from '@site/src/components/interactive/shell/practiceFields';
 import { SolutionStep, stepStyles } from '@site/src/components/interactive/shell/SolutionStep';
@@ -23,19 +24,29 @@ export default function HighwayDeadlineSimulator() {
   const minSpeed = useMemo(() => p.distance / p.hours, [p]);
 
   const solution = (
-    <div className={stepStyles.solution}>
-      <SolutionStep badge="时" badgeClass={stepStyles.badgeSet}>
-        从时间看：行驶 {p.distance} km 所用时间不到 {p.hours} h，写成 {p.distance}/x &lt; {p.hours}。
-      </SolutionStep>
-      <SolutionStep badge="路" badgeClass={stepStyles.badgeSet}>
-        从路程看：{p.hours} h 驶过的路程要超过 {p.distance} km，写成 {p.hours}x &gt; {p.distance}。
-      </SolutionStep>
-      <SolutionStep badge="答" badgeClass={stepStyles.badgeAnswer}>
-        <div className={stepStyles.answer}>
-          两式都得到 x &gt; {minSpeed}。车速应大于 {minSpeed} km/h。
-        </div>
-      </SolutionStep>
-    </div>
+    <Solution legend={[[BLUE, '已知'], [GREEN, '车速的条件']]}>
+      <Step b="设" kind="set">
+        设车速为 <M t="x" /> km/h。要在 {p.end} 之前驶过 A 地，就是用的时间要<b>少于</b> {p.hours} h，或者说 {p.hours} h
+        走的路要<b>超过</b> {p.distance} km。
+      </Step>
+      <Step b="时" kind="list">
+        从时间看（时间 = 路程 ÷ 速度）：
+        <EqBox lines={[`\\dfrac{${c(BLUE, p.distance)}}{x} < ${c(BLUE, p.hours)}`]} />
+      </Step>
+      <Step b="路" kind="solve">
+        从路程看（路程 = 速度 × 时间）：
+        <EqBox
+          lines={[
+            `${c(BLUE, p.hours)}x > ${c(BLUE, p.distance)}`,
+            `x > ${p.distance} \\div ${p.hours} = ${c(GREEN, minSpeed)}`,
+          ]}
+        />
+        两种写法表示同一个不等关系，解出来一样。
+      </Step>
+      <Step b="答" kind="answer">
+        <Answer>车速 x 应满足 x &gt; {minSpeed}，即车速要大于 {minSpeed} km/h。</Answer>
+      </Step>
+    </Solution>
   );
 
   return (

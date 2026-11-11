@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import ProblemShell from '@site/src/components/interactive/shell/ProblemShell';
+import { Solution, Step, EqBox, M, Answer, c, texDms, BLUE, GREEN, RED, ORANGE } from '@site/src/components/interactive/shell/SolutionKit';
 import { usePracticeMode, usePracticeAnswer } from '@site/src/components/interactive/shell/PracticeModeContext';
 import { degField, numberField } from '@site/src/components/interactive/shell/practiceFields';
 import { SolutionStep, stepStyles } from '@site/src/components/interactive/shell/SolutionStep';
@@ -22,16 +23,23 @@ export default function CakeSliceAngleSimulator() {
   usePracticeAnswer([degField("each", "每份的角", 360 / p.parts), numberField("n", "每份 " + p.each + "° 时应分成几份", 360 / p.each, "n")]);
 
   const solution = (
-    <div className={stepStyles.solution}>
-      <SolutionStep badge="8 份" badgeClass={stepStyles.badgeSet}>
-        一周角是 360°。等分成 {p.parts} 份，每份是 360° ÷ {p.parts} = {360 / p.parts}°。
-      </SolutionStep>
-      <SolutionStep badge="15°" badgeClass={stepStyles.badgeAnswer}>
-        <div className={stepStyles.answer}>
-          每份是 {p.each}° 时，份数是 360° ÷ {p.each}° = {360 / p.each}。
-        </div>
-      </SolutionStep>
-    </div>
+    <Solution legend={[[BLUE, '已知'], [GREEN, '所求']]}>
+      <Step b="知" kind="set">
+        蛋糕的一圈是一个周角，<M t="360^\circ" />。等分后：
+        <EqBox lines={['\\text{每份的角} = 360^\\circ \\div \\text{份数}', '\\text{份数} = 360^\\circ \\div \\text{每份的角}']} />
+      </Step>
+      <Step b="(1)" kind="list">
+        <EqBox lines={[`360^\\circ \\div ${c(BLUE, p.parts)} = ${c(GREEN, `${360 / p.parts}^\\circ`)}`]} />
+      </Step>
+      <Step b="(2)" kind="solve">
+        <EqBox lines={[`360^\\circ \\div ${c(BLUE, `${p.each}^\\circ`)} = ${c(GREEN, 360 / p.each)}`]} />
+      </Step>
+      <Step b="答" kind="answer">
+        <Answer>
+          分成 {p.parts} 份，每份 {360 / p.parts}°；要每份 {p.each}°，应等分成 {360 / p.each} 份。
+        </Answer>
+      </Step>
+    </Solution>
   );
 
   return (

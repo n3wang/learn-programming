@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import ProblemShell from '@site/src/components/interactive/shell/ProblemShell';
+import { Solution, Step, EqBox, M, Answer, c, texDms, plainToTex, InequalityRules, ItemSteps, systemRule, BLUE, GREEN, RED, ORANGE } from '@site/src/components/interactive/shell/SolutionKit';
 import { usePracticeMode, usePracticeAnswer } from '@site/src/components/interactive/shell/PracticeModeContext';
 import { rangeField } from '@site/src/components/interactive/shell/practiceFields';
 import { SolutionStep, stepStyles } from '@site/src/components/interactive/shell/SolutionStep';
@@ -41,14 +42,26 @@ export default function TemperatureRangeSimulator() {
   const answer = `${p.low} ≤ t ≤ ${p.high}`;
 
   const solution = (
-    <div className={stepStyles.solution}>
-      <SolutionStep badge="范" badgeClass={stepStyles.badgeSet}>
-        最低 {p.low} °C 表示 t 不小于 {p.low}，最高 {p.high} °C 表示 t 不大于 {p.high}。最低、最高都取到，所以两端都包含。
-      </SolutionStep>
-      <SolutionStep badge="式" badgeClass={stepStyles.badgeAnswer}>
-        <div className={stepStyles.answer}>{answer}。也可以写成 {p.low} ≤ t 且 t ≤ {p.high}。</div>
-      </SolutionStep>
-    </div>
+    <Solution legend={[[BLUE, '最低 / 最高'], [GREEN, '范围']]}>
+      <Step b="知" kind="set">
+        气温在最低和最高之间变化，而且<b>最低、最高都取得到</b>，所以两端都用「≤」。
+      </Step>
+      <Step b="列" kind="list">
+        <EqBox
+          lines={[
+            `\\text{最低} ${c(BLUE, p.low)}^\\circ\\text{C}:\\quad t \\ge ${p.low}`,
+            `\\text{最高} ${c(BLUE, p.high)}^\\circ\\text{C}:\\quad t \\le ${p.high}`,
+          ]}
+        />
+      </Step>
+      <Step b="合" kind="solve">
+        两个条件同时成立，合起来写成连写的形式：
+        <EqBox lines={[c(GREEN, `${p.low} \\le t \\le ${p.high}`)]} />
+      </Step>
+      <Step b="答" kind="answer">
+        <Answer>{answer}。</Answer>
+      </Step>
+    </Solution>
   );
 
   return (

@@ -1,5 +1,6 @@
 import React, { useMemo, useState } from 'react';
 import ProblemShell from '@site/src/components/interactive/shell/ProblemShell';
+import { Solution, Step, EqBox, M, Answer, c, texDms, BLUE, GREEN, RED, ORANGE } from '@site/src/components/interactive/shell/SolutionKit';
 import { usePracticeMode, usePracticeAnswer } from '@site/src/components/interactive/shell/PracticeModeContext';
 import { numberField } from '@site/src/components/interactive/shell/practiceFields';
 import { SolutionStep, stepStyles } from '@site/src/components/interactive/shell/SolutionStep';
@@ -51,16 +52,21 @@ export default function OcSideCountSimulator() {
   usePracticeAnswer([numberField("n", `以 O${p.side} 为一边的角的个数`, names.length, "n")]);
 
   const solution = (
-    <div className={stepStyles.solution}>
-      <SolutionStep badge="边" badgeClass={stepStyles.badgeSet}>
-        以射线 O{p.side} 为边，就是这个角的一条边正好是 O{p.side}。另一条边可以是其余每一条射线。
-      </SolutionStep>
-      <SolutionStep badge="答" badgeClass={stepStyles.badgeAnswer}>
-        <div className={stepStyles.answer}>
-          一共 {names.length} 个：{names.join('、')}。夹在中间的射线只是角的内部，不是边。
-        </div>
-      </SolutionStep>
-    </div>
+    <Solution legend={[[BLUE, `边 O${p.side}`], [GREEN, '另一条边']]}>
+      <Step b="知" kind="set">
+        「以 O{p.side} 为边」：角的一条边是 <M t={c(BLUE, `O${p.side}`)} />，另一条边可以是其余任意一条射线。
+        图中共有 {p.rays.length} 条射线，去掉 O{p.side} 本身，还剩 <M t={`${p.rays.length} - 1 = ${p.rays.length - 1}`} /> 条。
+      </Step>
+      <Step b="列" kind="solve">
+        一条一条配对，不重不漏：
+        <EqBox lines={[names.map((n) => n.replace('∠', '\\angle ')).join(',\\quad ')]} />
+      </Step>
+      <Step b="答" kind="answer">
+        <Answer>
+          一共 {names.length} 个：{names.join('、')}。
+        </Answer>
+      </Step>
+    </Solution>
   );
 
   return (

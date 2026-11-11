@@ -2,6 +2,7 @@ import React, { useMemo, useState } from 'react';
 import Box from '@site/src/components/ui/Box';
 import Typography from '@site/src/components/ui/Typography';
 import ProblemShell from '@site/src/components/interactive/shell/ProblemShell';
+import { Solution, Step, EqBox, M, Answer, c, texDms, plainToTex, InequalityRules, ItemSteps, systemRule, BLUE, GREEN, RED, ORANGE } from '@site/src/components/interactive/shell/SolutionKit';
 import { usePracticeMode, usePracticeAnswer } from '@site/src/components/interactive/shell/PracticeModeContext';
 import { numberField } from '@site/src/components/interactive/shell/practiceFields';
 import AnimatedNumber from '@site/src/components/interactive/shell/AnimatedNumber';
@@ -40,31 +41,37 @@ export default function BoltNutMatchingSimulator() {
   };
 
   const solution = (
-    <Box>
-      <Typography sx={{ mb: 1 }}>
-        设应安排 <b>x</b> 名工人生产螺栓，则 (<b>{p.T}</b> − x) 名工人生产螺母。
-      </Typography>
-      <Typography sx={{ mb: 1 }}>
-        每天生产的螺母数量应是螺栓数量的 {p.r} 倍，列得方程：
-      </Typography>
-      <Typography sx={{ mb: 1, fontFamily: 'monospace' }}>
-        {p.N} × ({p.T} − x) = {p.r} × {p.B} × x
-      </Typography>
-      <Typography sx={{ mb: 1 }}>
-        解得 x = <AnimatedNumber value={solvedX} />，进而 {p.T} − x ={' '}
-        <AnimatedNumber value={solvedY} />。
-      </Typography>
-      <Typography sx={{ fontWeight: 700, mb: 1 }}>
-        答：应安排 <AnimatedNumber value={solvedX} /> 名工人生产螺栓，
-        <AnimatedNumber value={solvedY} /> 名工人生产螺母。
-      </Typography>
-      <Typography variant="caption" color="text.secondary">
-        验算：{p.B} × {solvedX} = <AnimatedNumber value={boltsMade} /> 个螺栓，需配{' '}
-        {p.r} × <AnimatedNumber value={boltsMade} /> ={' '}
-        <AnimatedNumber value={p.r * boltsMade} /> 个螺母；{p.N} × {solvedY} ={' '}
-        <AnimatedNumber value={nutsMade} /> 个螺母，两者相等 ✓
-      </Typography>
-    </Box>
+    <Solution legend={[[BLUE, '已知'], [GREEN, '螺栓工人'], [RED, '螺母工人']]}>
+      <Step b="知" kind="set">
+        配套问题：1 个螺栓配 {p.r} 个螺母，所以要刚好配套，
+        <EqBox lines={[`\\text{螺母个数} = ${p.r} \\times \\text{螺栓个数}`]} />
+      </Step>
+      <Step b="设" kind="set">
+        设安排 <M t={c(GREEN, 'x')} /> 名工人生产螺栓，则 <M t={c(RED, `${p.T} - x`)} /> 名工人生产螺母。
+      </Step>
+      <Step b="列" kind="list">
+        螺栓 <M t={`${c(BLUE, p.B)}x`} /> 个，螺母 <M t={`${c(BLUE, p.N)}(${p.T} - x)`} /> 个：
+        <EqBox lines={[`${p.N}(${p.T} - x) = ${p.r} \\times ${p.B}x`]} />
+      </Step>
+      <Step b="解" kind="solve">
+        <EqBox
+          lines={[
+            `${p.N * p.T} - ${p.N}x = ${p.r * p.B}x`,
+            `${p.N * p.T} = ${p.N + p.r * p.B}x`,
+            `x = ${c(GREEN, solvedX)}, \\qquad ${p.T} - x = ${c(RED, solvedY)}`,
+          ]}
+        />
+      </Step>
+      <Step b="验" kind="check">
+        螺栓 <M t={`${p.B}\\times ${solvedX} = ${boltsMade}`} /> 个，需要螺母 <M t={`${p.r}\\times ${boltsMade} = ${p.r * boltsMade}`} /> 个；
+        生产螺母 <M t={`${p.N}\\times ${solvedY} = ${nutsMade}`} /> 个，正好相等 ✓
+      </Step>
+      <Step b="答" kind="answer">
+        <Answer>
+          应安排 {solvedX} 名工人生产螺栓，{solvedY} 名工人生产螺母。
+        </Answer>
+      </Step>
+    </Solution>
   );
 
   return (

@@ -1,5 +1,6 @@
 import React, { useMemo, useState } from 'react';
 import ProblemShell from '@site/src/components/interactive/shell/ProblemShell';
+import { Solution, Step, EqBox, M, Answer, c, texDms, BLUE, GREEN, RED, ORANGE } from '@site/src/components/interactive/shell/SolutionKit';
 import { usePracticeMode, usePracticeAnswer } from '@site/src/components/interactive/shell/PracticeModeContext';
 import { degField } from '@site/src/components/interactive/shell/practiceFields';
 import { SolutionStep, stepStyles } from '@site/src/components/interactive/shell/SolutionStep';
@@ -41,17 +42,37 @@ export default function ClockThreePartSimulator() {
   usePracticeAnswer([degField("h", "(1) 时针 1 小时转", 30), degField("m", "(2) 分针 1 分钟转", 6), degField("ang", `(3) ${p.hour} 时 ${p.minute} 分的夹角`, ans.angle)]);
 
   const solution = (
-    <div className={stepStyles.solution}>
-      <SolutionStep badge="速" badgeClass={stepStyles.badgeSet}>
-        钟面一圈 360°。时针 12 小时转一圈，1 小时转 30°。分针 60 分钟转一圈，1 分钟转 6°。时针每分钟还要再转 0.5°。
-      </SolutionStep>
-      <SolutionStep badge="夹角" badgeClass={stepStyles.badgeAnswer}>
-        <div className={stepStyles.answer}>
-          {p.hour} 时 {p.minute} 分，时针在 {ans.hourDeg}°，分针在 {ans.minuteDeg}°。
-          夹角取较小的那个，是 {ans.angle}°。
-        </div>
-      </SolutionStep>
-    </div>
+    <Solution legend={[[BLUE, '每单位时间转的角'], [GREEN, '所求']]}>
+      <Step b="(1)" kind="set">
+        时针 12 小时转一圈（360°）：
+        <EqBox lines={[`360^\\circ \\div 12 = ${c(GREEN, '30^\\circ')}\\ \\text{（每小时）}`]} />
+      </Step>
+      <Step b="(2)" kind="list">
+        分针 60 分钟转一圈：
+        <EqBox lines={[`360^\\circ \\div 60 = ${c(GREEN, '6^\\circ')}\\ \\text{（每分钟）}`]} />
+        所以时针每分钟转 <M t="30^\circ \div 60 = 0.5^\circ" />。
+      </Step>
+      <Step b="(3)" kind="solve">
+        都从 12 点的方向开始量，按顺时针算：
+        <EqBox
+          lines={[
+            `\\text{时针} = ${p.hour % 12} \\times ${c(BLUE, '30^\\circ')} + ${p.minute} \\times ${c(BLUE, '0.5^\\circ')} = ${ans.hourDeg}^\\circ`,
+            `\\text{分针} = ${p.minute} \\times ${c(BLUE, '6^\\circ')} = ${ans.minuteDeg}^\\circ`,
+            `|${ans.hourDeg}^\\circ - ${ans.minuteDeg}^\\circ| = ${Math.abs(ans.hourDeg - ans.minuteDeg)}^\\circ${
+              Math.abs(ans.hourDeg - ans.minuteDeg) > 180
+                ? ` \\;\\Rightarrow\\; 360^\\circ - ${Math.abs(ans.hourDeg - ans.minuteDeg)}^\\circ = ${c(GREEN, `${ans.angle}^\\circ`)}`
+                : ` = ${c(GREEN, `${ans.angle}^\\circ`)}`
+            }`,
+          ]}
+        />
+        两针的夹角取不超过 180° 的那个。别忘了：分针走动时，时针也在走（每分钟 0.5°）。
+      </Step>
+      <Step b="答" kind="answer">
+        <Answer>
+          (1) 30°；(2) 6°；(3) {p.hour} 时 {p.minute} 分，两针夹角是 {ans.angle}°。
+        </Answer>
+      </Step>
+    </Solution>
   );
 
   return (

@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import ProblemShell from '@site/src/components/interactive/shell/ProblemShell';
+import { Solution, Step, EqBox, M, Answer, c, texDms, plainToTex, InequalityRules, ItemSteps, systemRule, BLUE, GREEN, RED, ORANGE } from '@site/src/components/interactive/shell/SolutionKit';
 import { usePracticeMode, usePracticeAnswer } from '@site/src/components/interactive/shell/PracticeModeContext';
 import { ineqField } from '@site/src/components/interactive/shell/practiceFields';
 import { SolutionStep, stepStyles } from '@site/src/components/interactive/shell/SolutionStep';
@@ -97,17 +98,22 @@ export default function LinearInequalityConditionSimulator() {
   const [picks, setPicks] = useState({});
 
   const solution = (
-    <div className={stepStyles.solution}>
-      {items.map((item) => (
-        <SolutionStep key={item.id} badge={item.id} badgeClass={stepStyles.badgeSet}>
-          {item.prompt}，先写成 {item.setup}。
-          {item.steps.map((line) => (
-            <div key={line}>{line}</div>
-          ))}
-          <div>条件是 {item.result}。</div>
-        </SolutionStep>
-      ))}
-    </div>
+    <Solution legend={[[BLUE, '列出的不等式'], [GREEN, '条件']]}>
+      <InequalityRules
+        extra={<>先把文字翻译成不等式：「不小于」写 ≥，「不大于」写 ≤，「大于 / 小于」不带等号。</>}
+      />
+      <ItemSteps
+        items={items.map((it) => ({ ...it, steps: [it.setup, ...it.steps] }))}
+        lead={(item) => (
+          <>
+            「{item.prompt}」写成 <M t={c(BLUE, plainToTex(item.setup))} />：
+          </>
+        )}
+      />
+      <Step b="答" kind="answer">
+        <Answer>{items.map((it) => `（${it.id}）${it.result}`).join('；')}。</Answer>
+      </Step>
+    </Solution>
   );
 
   return (

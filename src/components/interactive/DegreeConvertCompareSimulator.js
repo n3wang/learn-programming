@@ -1,5 +1,6 @@
 import React, { useMemo, useRef, useState } from 'react';
 import ProblemShell from '@site/src/components/interactive/shell/ProblemShell';
+import { Solution, Step, EqBox, M, Answer, c, texDms, BLUE, GREEN, RED, ORANGE } from '@site/src/components/interactive/shell/SolutionKit';
 import { usePracticeMode, usePracticeAnswer } from '@site/src/components/interactive/shell/PracticeModeContext';
 import { numberField, dmsField, choiceField } from '@site/src/components/interactive/shell/practiceFields';
 import { SolutionStep, stepStyles } from '@site/src/components/interactive/shell/SolutionStep';
@@ -233,17 +234,39 @@ export default function DegreeConvertCompareSimulator() {
     return { chip, ok, bad, selected: activeSlot === id && !chip };
   }
 
+  const fracDeg = Number((p.decimal - whole).toFixed(4));
+  const exactMin = Number((fracDeg * 60).toFixed(2));
   const solution = (
-    <div className={stepStyles.solution}>
-      <SolutionStep badge="1" badgeClass={stepStyles.badgeSet}>
-        1° = 60′，1′ = 60″。{p.deg}° = {formatMin(minutes)} = {formatSec(seconds)}。
-      </SolutionStep>
-      <SolutionStep badge="2" badgeClass={stepStyles.badgeAnswer}>
-        <div className={stepStyles.answer}>
-          不相等；{p.decimal}° = {decAsDms}（小数部分 × 60 才是分），所以 {cmpLabel}。
-        </div>
-      </SolutionStep>
-    </div>
+    <Solution legend={[[BLUE, '已知'], [GREEN, '结果'], [RED, '常见错误']]}>
+      <Step b="知" kind="set">
+        角的单位是六十进制：
+        <EqBox lines={["1^\\circ = 60', \\qquad 1' = 60''"]} />
+      </Step>
+      <Step b="(1)" kind="list">
+        <EqBox
+          lines={[
+            `${c(BLUE, `${p.deg}^\\circ`)} = ${p.deg} \\times 60' = ${c(GREEN, `${minutes}'`)}`,
+            `${minutes}' = ${minutes} \\times 60'' = ${c(GREEN, `${seconds}''`)}`,
+          ]}
+        />
+      </Step>
+      <Step b="(2)" kind="solve">
+        小数部分要乘 60 才是分：
+        <EqBox
+          lines={[
+            `${c(BLUE, `${p.decimal}^\\circ`)} = ${whole}^\\circ + ${fracDeg}^\\circ, \\qquad ${fracDeg} \\times 60' = ${exactMin}' \\approx ${mins}'`,
+            `${p.decimal}^\\circ \\approx ${c(GREEN, `${whole}^\\circ ${mins}'`)}`,
+          ]}
+        />
+        <M t={c(RED, `${p.decimal}^\\circ \\ne ${whole}^\\circ ${Math.round(fracDeg * 100)}'`)} />：不能把小数点后的数字直接当成分。
+        比较 <M t={`${p.d}^\\circ ${p.m}'`} /> 和 <M t={`${whole}^\\circ ${exactMin}'`} />：度相同，比分，所以 {cmpLabel}。
+      </Step>
+      <Step b="答" kind="answer">
+        <Answer>
+          (1) {p.deg}° = {minutes}′ = {seconds}″；(2) {p.decimal}° ≈ {decAsDms}，{cmpLabel}。
+        </Answer>
+      </Step>
+    </Solution>
   );
 
   const s1 = slotState('min');

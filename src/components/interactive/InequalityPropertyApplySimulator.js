@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import ProblemShell from '@site/src/components/interactive/shell/ProblemShell';
+import { Solution, Step, EqBox, M, Answer, c, texDms, plainToTex, InequalityRules, ItemSteps, systemRule, BLUE, GREEN, RED, ORANGE } from '@site/src/components/interactive/shell/SolutionKit';
 import { usePracticeMode, usePracticeAnswer } from '@site/src/components/interactive/shell/PracticeModeContext';
 import { SolutionStep, stepStyles } from '@site/src/components/interactive/shell/SolutionStep';
 import { randInt } from '@site/src/components/interactive/shell/mathRandom';
@@ -54,28 +55,46 @@ export default function InequalityPropertyApplySimulator() {
     { id: 'r4', text: `3m − 4 > ${3 * bound - 4}`, why: '先乘正数 3，再减 4，方向不变。' },
   ];
 
-  const solution = p.mode === 'compare' ? (
-    <div className={stepStyles.solution}>
-      <SolutionStep badge="例" badgeClass={stepStyles.badgeSet}>
-        已知 a &gt; b。a + 3 &gt; b + 3，依据性质 1。−2a &lt; −2b，依据性质 3。
-      </SolutionStep>
-      <SolutionStep badge="练" badgeClass={stepStyles.badgeAnswer}>
-        <div className={stepStyles.answer}>
-          {ROWS.map((row) => (
-            <div key={row.id}>{row.left} {row.sign} {row.right}。{row.why}</div>
-          ))}
-        </div>
-      </SolutionStep>
-    </div>
-  ) : (
-    <div className={stepStyles.solution}>
-      <SolutionStep badge="范围" badgeClass={stepStyles.badgeAnswer}>
-        <div className={stepStyles.answer}>
-          已知 m &gt; {bound}。{ranges.map((row) => row.text).join('；')}。
-        </div>
-      </SolutionStep>
-    </div>
-  );
+  const solution =
+    p.mode === 'compare' ? (
+      <Solution legend={[[GREEN, '方向不变'], [RED, '方向改变']]}>
+        <InequalityRules />
+        <Step b="例" kind="list">
+          已知 <M t="a > b" />：
+          <EqBox
+            lines={[
+              `a + 3 ${c(GREEN, '>')} b + 3\\quad(\\text{性质 1：两边加 3})`,
+              `-2a ${c(RED, '<')} -2b\\quad(\\text{性质 3：两边乘 } -2)`,
+            ]}
+          />
+        </Step>
+        <Step b="练" kind="solve">
+          已知 <M t="p > q" />：
+          <EqBox lines={ROWS.map((row) => `${plainToTex(row.left)} ${c(row.sign === '>' ? GREEN : RED, row.sign)} ${plainToTex(row.right)}\\quad(\\text{${row.why.replace(/[。]/g, '')}})`)} />
+        </Step>
+        <Step b="答" kind="answer">
+          <Answer>{ROWS.map((row) => `${row.left} ${row.sign} ${row.right}`).join('；')}。</Answer>
+        </Step>
+      </Solution>
+    ) : (
+      <Solution legend={[[BLUE, '已知'], [GREEN, '范围'], [RED, '方向改变']]}>
+        <InequalityRules />
+        <Step b="变" kind="list">
+          从 <M t={c(BLUE, `m > ${bound}`)} /> 出发，对两边做同样的运算：
+          <EqBox
+            lines={[
+              `m + 5 > ${bound} + 5 \\;\\Rightarrow\\; ${c(GREEN, `m + 5 > ${bound + 5}`)}\\quad(\\text{性质 1})`,
+              `\\dfrac{m}{6} > \\dfrac{${bound}}{6} \\;\\Rightarrow\\; ${c(GREEN, `\\dfrac{m}{6} > \\dfrac{${bound}}{6}`)}\\quad(\\text{性质 2：除以正数})`,
+              `-2m \\;${c(RED, '<')}\\; -2\\times ${bound} \\;\\Rightarrow\\; ${c(GREEN, `-2m < ${-2 * bound}`)}\\quad(\\text{性质 3：乘负数，变号})`,
+              `3m > ${3 * bound} \\;\\Rightarrow\\; 3m - 4 > ${3 * bound} - 4 \\;\\Rightarrow\\; ${c(GREEN, `3m - 4 > ${3 * bound - 4}`)}`,
+            ]}
+          />
+        </Step>
+        <Step b="答" kind="answer">
+          <Answer>{ranges.map((row) => row.text).join('；')}。</Answer>
+        </Step>
+      </Solution>
+    );
 
   return (
     <ProblemShell

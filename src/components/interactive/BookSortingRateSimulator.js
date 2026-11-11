@@ -2,6 +2,7 @@ import React, { useMemo, useState } from 'react';
 import Box from '@site/src/components/ui/Box';
 import Typography from '@site/src/components/ui/Typography';
 import ProblemShell from '@site/src/components/interactive/shell/ProblemShell';
+import { Solution, Step, EqBox, M, Answer, c, texDms, plainToTex, InequalityRules, ItemSteps, systemRule, BLUE, GREEN, RED, ORANGE } from '@site/src/components/interactive/shell/SolutionKit';
 import { usePracticeMode, usePracticeAnswer } from '@site/src/components/interactive/shell/PracticeModeContext';
 import { numberField } from '@site/src/components/interactive/shell/practiceFields';
 import AnimatedNumber from '@site/src/components/interactive/shell/AnimatedNumber';
@@ -36,22 +37,38 @@ export default function BookSortingRateSimulator() {
   };
 
   const solution = (
-    <Box>
-      <Typography sx={{ mb: 1 }}>
-        把总工作量看作 1，一人一小时能完成 1/{p.H}。设先安排 <b>x</b> 人整理 {p.t1} h。
-      </Typography>
-      <Typography sx={{ mb: 1 }}>
-        先安排 x 人整理 {p.t1} h 完成的工作量是 ({p.t1}x)/{p.H}；增加 {p.a} 人后再整理 {p.t2}{' '}
-        h 完成的工作量是 {p.t2}(x + {p.a})/{p.H}。两段工作量之和等于总工作量 1：
-      </Typography>
-      <Typography sx={{ mb: 1, fontFamily: 'monospace' }}>
-        {p.t1}x/{p.H} + {p.t2}(x + {p.a})/{p.H} = 1
-      </Typography>
-      <Typography sx={{ fontWeight: 700 }}>
-        解得 x = <AnimatedNumber value={solvedX} />。答：应先安排{' '}
-        <AnimatedNumber value={solvedX} /> 人进行整理。
-      </Typography>
-    </Box>
+    <Solution legend={[[BLUE, '已知'], [GREEN, '所求']]}>
+      <Step b="知" kind="set">
+        工程问题：把<b>总工作量看作 1</b>。1 人整理要 {p.H} h，所以 1 人 1 小时完成 <M t={`\\dfrac{1}{${p.H}}`} />。
+        <EqBox lines={['\\text{工作量} = \\text{人数} \\times \\text{时间} \\times \\text{每人每小时的效率}']} />
+      </Step>
+      <Step b="设" kind="set">
+        设先安排 <M t="x" /> 人整理 {p.t1} h，后来增加 {p.a} 人，变成 <M t={`x + ${p.a}`} /> 人再整理 {p.t2} h。
+      </Step>
+      <Step b="列" kind="list">
+        两段工作量加起来正好是 1：
+        <EqBox
+          lines={[`\\dfrac{${c(BLUE, p.t1)}x}{${c(BLUE, p.H)}} + \\dfrac{${c(BLUE, p.t2)}(x + ${c(BLUE, p.a)})}{${c(BLUE, p.H)}} = 1`]}
+        />
+      </Step>
+      <Step b="解" kind="solve">
+        两边乘 {p.H} 去分母：
+        <EqBox
+          lines={[
+            `${p.t1}x + ${p.t2}(x + ${p.a}) = ${p.H}`,
+            `${p.t1}x + ${p.t2}x + ${p.t2 * p.a} = ${p.H}`,
+            `${p.t1 + p.t2}x = ${p.H - p.t2 * p.a}`,
+            `x = ${c(GREEN, solvedX)}`,
+          ]}
+        />
+      </Step>
+      <Step b="验" kind="check">
+        <M t={`\\dfrac{${p.t1}\\times ${solvedX} + ${p.t2}\\times ${solvedX + p.a}}{${p.H}} = \\dfrac{${p.t1 * solvedX + p.t2 * (solvedX + p.a)}}{${p.H}} = 1`} /> ✓
+      </Step>
+      <Step b="答" kind="answer">
+        <Answer>应先安排 {solvedX} 人进行整理。</Answer>
+      </Step>
+    </Solution>
   );
 
   return (

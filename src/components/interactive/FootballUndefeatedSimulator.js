@@ -7,6 +7,7 @@ import TableCell from '@site/src/components/ui/TableCell';
 import TableHead from '@site/src/components/ui/TableHead';
 import TableRow from '@site/src/components/ui/TableRow';
 import ProblemShell from '@site/src/components/interactive/shell/ProblemShell';
+import { Solution, Step, EqBox, M, Answer, c, texDms, plainToTex, InequalityRules, ItemSteps, systemRule, BLUE, GREEN, RED, ORANGE } from '@site/src/components/interactive/shell/SolutionKit';
 import { usePracticeMode, usePracticeAnswer } from '@site/src/components/interactive/shell/PracticeModeContext';
 import { numberField, choiceField } from '@site/src/components/interactive/shell/practiceFields';
 import AnimatedNumber from '@site/src/components/interactive/shell/AnimatedNumber';
@@ -86,71 +87,43 @@ export default function FootballUndefeatedSimulator() {
   };
 
   const solution = (
-    <Box>
-      <Typography sx={{ mb: 1 }}>
-        不败 ⇒ 负场 = 0，设胜 <b>w</b> 场，则平 <b>{p.G} − w</b> 场。
-      </Typography>
-      <Typography sx={{ mb: 1, fontFamily: 'monospace' }}>
-        {p.winPts}w + {p.drawPts}({p.G} − w) = {p.points}
-      </Typography>
-      <Typography sx={{ mb: 1.5 }}>
-        解得 w = <AnimatedNumber value={derived.w} />，平场 ={' '}
-        <AnimatedNumber value={derived.d} />。
-      </Typography>
-
-      <Table size="small" sx={{ mb: 2, maxWidth: 420 }}>
-        <TableHead>
-          <TableRow>
-            <TableCell>结果</TableCell>
-            <TableCell align="right">场数</TableCell>
-            <TableCell align="right">每场得分</TableCell>
-            <TableCell align="right">小计</TableCell>
-          </TableRow>
-        </TableHead>
-        <TableBody>
-          <TableRow>
-            <TableCell>胜</TableCell>
-            <TableCell align="right">{derived.w}</TableCell>
-            <TableCell align="right">{p.winPts}</TableCell>
-            <TableCell align="right">{derived.w * p.winPts}</TableCell>
-          </TableRow>
-          <TableRow>
-            <TableCell>平</TableCell>
-            <TableCell align="right">{derived.d}</TableCell>
-            <TableCell align="right">{p.drawPts}</TableCell>
-            <TableCell align="right">{derived.d * p.drawPts}</TableCell>
-          </TableRow>
-          <TableRow>
-            <TableCell>负</TableCell>
-            <TableCell align="right">0</TableCell>
-            <TableCell align="right">0</TableCell>
-            <TableCell align="right">0</TableCell>
-          </TableRow>
-          <TableRow>
-            <TableCell sx={{ fontWeight: 700 }}>合计</TableCell>
-            <TableCell align="right" sx={{ fontWeight: 700 }}>
-              {p.G}
-            </TableCell>
-            <TableCell />
-            <TableCell align="right" sx={{ fontWeight: 700 }}>
-              {p.points}
-            </TableCell>
-          </TableRow>
-        </TableBody>
-      </Table>
-
-      <Typography sx={{ mb: 1 }}>
-        <b>（2）</b> 设胜场总积分等于平场总积分：
-      </Typography>
-      <Typography sx={{ mb: 1, fontFamily: 'monospace' }}>
-        {p.winPts}m = {p.drawPts}({p.G} − m) ⇒ m = {derived.mEqual.toFixed(2)}
-      </Typography>
-      <Typography sx={{ fontWeight: 700 }}>
+    <Solution legend={[[BLUE, '已知'], [GREEN, '所求']]}>
+      <Step b="知" kind="set">
+        胜一场得 {p.winPts} 分，平一场得 {p.drawPts} 分，负一场 0 分。<b>不败</b>：负 0 场，{p.G} 场全是胜或平。
+      </Step>
+      <Step b="设" kind="set">
+        设胜 <M t="w" /> 场，则平 <M t={`${p.G} - w`} /> 场。
+      </Step>
+      <Step b="(1)" kind="list">
+        胜场得分 + 平场得分 = 总积分：
+        <EqBox
+          lines={[
+            `${c(BLUE, p.winPts)}w + ${c(BLUE, p.drawPts)}(${p.G} - w) = ${c(BLUE, p.points)}`,
+            `${p.winPts - p.drawPts}w = ${p.points} - ${p.drawPts * p.G} = ${p.points - p.drawPts * p.G}`,
+            `w = ${c(GREEN, derived.w)}, \\qquad \\text{平} = ${p.G} - ${derived.w} = ${c(GREEN, derived.d)}`,
+          ]}
+        />
+      </Step>
+      <Step b="(2)" kind="solve">
+        假设胜 <M t="m" /> 场时，胜场总积分 = 平场总积分：
+        <EqBox
+          lines={[
+            `${p.winPts}m = ${p.drawPts}(${p.G} - m)`,
+            `${p.winPts + p.drawPts}m = ${p.drawPts * p.G}, \\qquad m = \\dfrac{${p.drawPts * p.G}}{${p.winPts + p.drawPts}}${
+              derived.equalPossible ? ` = ${c(GREEN, derived.mEqual)}` : ` \\approx ${Number(derived.mEqual.toFixed(2))}`
+            }`,
+          ]}
+        />
         {derived.equalPossible
-          ? `m = ${derived.mEqual} 是整数，可能：胜 ${derived.mEqual} 场、平 ${p.G - derived.mEqual} 场时，胜场总积分 = 平场总积分 = ${derived.mEqual * p.winPts}。`
-          : `m 必须是整数场次，但解出 m = ${derived.mEqual.toFixed(2)} 不是整数，所以不可能。`}
-      </Typography>
-    </Box>
+          ? `m 是整数，可能：胜 ${derived.mEqual} 场、平 ${p.G - derived.mEqual} 场时两者相等。`
+          : '场数必须是整数，m 不是整数，所以不可能。'}
+      </Step>
+      <Step b="答" kind="answer">
+        <Answer>
+          (1) 胜 {derived.w} 场，平 {derived.d} 场；(2) {derived.equalPossible ? '能' : '不能'}。
+        </Answer>
+      </Step>
+    </Solution>
   );
 
   return (

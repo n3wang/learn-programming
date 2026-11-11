@@ -75,7 +75,7 @@ export default function ProblemShell({
 
   return (
     <CEBlock title={title} subtitle={subtitle} headerAction={practice ? null : actions}>
-      <div ref={promptRef} data-practice="prompt">
+      <div ref={promptRef}>
         <TranslatableParagraph as="div" translateKey={`prompt:${problemKey}`}>
           {typeof children === 'function' ? children(showAnswer) : children}
         </TranslatableParagraph>
@@ -84,7 +84,6 @@ export default function ProblemShell({
       {/* Keep solution mounted (hidden) so draft mode can copy answers without opening 显示解答 */}
       <div
         ref={solutionRef}
-        data-practice="solution"
         style={{
           marginTop: showAnswer ? 16 : 0,
           paddingTop: showAnswer ? 16 : 0,

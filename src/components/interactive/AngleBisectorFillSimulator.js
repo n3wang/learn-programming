@@ -1,5 +1,6 @@
 import React, { useMemo, useState } from 'react';
 import ProblemShell from '@site/src/components/interactive/shell/ProblemShell';
+import { Solution, Step, EqBox, M, Answer, c, texDms, BLUE, GREEN, RED, ORANGE } from '@site/src/components/interactive/shell/SolutionKit';
 import { usePracticeMode, usePracticeAnswer } from '@site/src/components/interactive/shell/PracticeModeContext';
 import { dmsField } from '@site/src/components/interactive/shell/practiceFields';
 import { SolutionStep, stepStyles } from '@site/src/components/interactive/shell/SolutionStep';
@@ -25,18 +26,32 @@ export default function AngleBisectorFillSimulator() {
   }, [p]);
   usePracticeAnswer([dmsField("each", "每份约（精确到分）", { d: each.deg, m: each.minutes }, false, 30)]);
 
+  const rem = p.whole - each.deg * p.parts;
+  const exactMin = Number(((rem * 60) / p.parts).toFixed(2));
   const solution = (
-    <div className={stepStyles.solution}>
-      <SolutionStep badge="平分" badgeClass={stepStyles.badgeSet}>
-        若角 AOB = 角 BOC，射线 OB 是角 AOC 的平分线。角 AOC = 2 角 AOB，角 AOB = 角 BOC = 角 AOC 的一半。
-      </SolutionStep>
-      <SolutionStep badge="等分" badgeClass={stepStyles.badgeAnswer}>
-        <div className={stepStyles.answer}>
-          {p.whole}° ÷ {p.parts} = {each.deg}° + {p.whole - each.deg * p.parts}° ÷ {p.parts}。
-          剩下的度数化成分再除，每份约 {each.deg}°{each.minutes}′。
-        </div>
-      </SolutionStep>
-    </div>
+    <Solution legend={[[BLUE, '已知'], [ORANGE, '余下的度数'], [GREEN, '每份']]}>
+      <Step b="知" kind="set">
+        射线 OB 把角 AOC 分成两个相等的角，OB 就是角 AOC 的平分线：<M t="\angle AOB = \angle BOC = \tfrac12\angle AOC" />。
+        把角 n 等分，每份 = 这个角 ÷ n。度除不尽时，把余下的度化成分再除：<M t="1^\circ = 60'" />。
+      </Step>
+      <Step b="除" kind="list">
+        <EqBox
+          lines={[
+            `${c(BLUE, `${p.whole}^\\circ`)} \\div ${c(BLUE, p.parts)} = ${each.deg}^\\circ \\;\\text{余}\\; ${c(ORANGE, `${rem}^\\circ`)}`,
+            `${c(ORANGE, `${rem}^\\circ`)} = ${rem * 60}', \\qquad ${rem * 60}' \\div ${p.parts} \\approx ${exactMin}' \\approx ${each.minutes}'`,
+          ]}
+        />
+      </Step>
+      <Step b="合" kind="solve">
+        <EqBox lines={[`\\text{每份} \\approx ${c(GREEN, `${each.deg}^\\circ ${each.minutes}'`)}`]} />
+        精确到分，所以分要四舍五入。
+      </Step>
+      <Step b="答" kind="answer">
+        <Answer>
+          每份大约是 {each.deg}°{each.minutes}′。
+        </Answer>
+      </Step>
+    </Solution>
   );
 
   return (

@@ -1,5 +1,6 @@
 import React, { useMemo, useState } from 'react';
 import ProblemShell from '@site/src/components/interactive/shell/ProblemShell';
+import { Solution, Step, EqBox, M, Answer, c, texDms, BLUE, GREEN, RED, ORANGE } from '@site/src/components/interactive/shell/SolutionKit';
 import { usePracticeMode, usePracticeAnswer } from '@site/src/components/interactive/shell/PracticeModeContext';
 import { degField } from '@site/src/components/interactive/shell/practiceFields';
 import { SolutionStep, stepStyles } from '@site/src/components/interactive/shell/SolutionStep';
@@ -24,18 +25,30 @@ export default function SupplementMultipleSimulator() {
   }, [p]);
 
   const solution = (
-    <div className={stepStyles.solution}>
-      <SolutionStep badge="设" badgeClass={stepStyles.badgeSet}>
-        设这个角是 x°。它的{p.kind}角是 {ans.whole}° − x，又等于 {p.n}x。
-        所以 x + {p.n}x = {ans.whole}，({p.n + 1})x = {ans.whole}。
-      </SolutionStep>
-      <SolutionStep badge="答" badgeClass={stepStyles.badgeAnswer}>
-        <div className={stepStyles.answer}>
-          x = {ans.whole}° ÷ {p.n + 1} = {ans.deg}°。
-          检验：{p.kind}角是 {ans.whole - ans.deg}°，正好是 {ans.deg}° 的 {p.n} 倍。
-        </div>
-      </SolutionStep>
-    </div>
+    <Solution legend={[[BLUE, '倍数'], [GREEN, '这个角']]}>
+      <Step b="设" kind="set">
+        设这个角是 <M t={c(GREEN, 'x')} /> 度，则它的{p.kind}角是 <M t={`${ans.whole} - ${c(GREEN, 'x')}`} /> 度。
+      </Step>
+      <Step b="列" kind="list">
+        「{p.kind}角是它的 {p.n} 倍」：
+        <EqBox lines={[`${ans.whole} - ${c(GREEN, 'x')} = ${c(BLUE, p.n)}${c(GREEN, 'x')}`]} />
+      </Step>
+      <Step b="解" kind="solve">
+        <EqBox
+          lines={[
+            `${ans.whole} = ${c(GREEN, 'x')} + ${p.n}${c(GREEN, 'x')} = ${p.n + 1}${c(GREEN, 'x')}`,
+            `${c(GREEN, 'x')} = ${ans.whole} \\div ${p.n + 1} = ${c(GREEN, ans.deg)}`,
+          ]}
+        />
+      </Step>
+      <Step b="验" kind="check">
+        {p.kind}角是 <M t={`${ans.whole}^\\circ - ${ans.deg}^\\circ = ${ans.whole - ans.deg}^\\circ`} />，
+        正好是 <M t={`${ans.deg}^\\circ \\times ${p.n} = ${ans.deg * p.n}^\\circ`} /> ✓
+      </Step>
+      <Step b="答" kind="answer">
+        <Answer>这个角是 {ans.deg}°。</Answer>
+      </Step>
+    </Solution>
   );
 
   return (

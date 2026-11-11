@@ -1,5 +1,6 @@
 import React, { useMemo, useState } from 'react';
 import ProblemShell from '@site/src/components/interactive/shell/ProblemShell';
+import { Solution, Step, EqBox, M, Answer, c, texDms, BLUE, GREEN, RED, ORANGE } from '@site/src/components/interactive/shell/SolutionKit';
 import { usePracticeMode, usePracticeAnswer } from '@site/src/components/interactive/shell/PracticeModeContext';
 import { degField } from '@site/src/components/interactive/shell/practiceFields';
 import { SolutionStep, stepStyles } from '@site/src/components/interactive/shell/SolutionStep';
@@ -23,19 +24,37 @@ export default function EqualRemainderAnglesSimulator() {
   const rest = useMemo(() => (p.mid == null ? null : p.whole - p.mid), [p]);
 
   const solution = (
-    <div className={stepStyles.solution}>
-      <SolutionStep badge="拆" badgeClass={stepStyles.badgeSet}>
-        角 AOC = 角 AOB + 角 BOC = {p.whole}°。角 BOD = 角 BOC + 角 COD = {p.whole}°。
-        两个式子都含角 BOC，所以角 AOB 与角 COD 都等于 {p.whole}° 减去同一个角 BOC。
-      </SolutionStep>
-      <SolutionStep badge="答" badgeClass={stepStyles.badgeAnswer}>
-        <div className={stepStyles.answer}>
-          {p.mid == null
-            ? '角 AOB = 角 COD。这是同角的余角相等。'
-            : `若角 BOC = ${p.mid}°，则角 AOB = 角 COD = ${p.whole}° − ${p.mid}° = ${rest}°。`}
-        </div>
-      </SolutionStep>
-    </div>
+    <Solution legend={[[BLUE, '已知'], [GREEN, '结果']]}>
+      <Step b="知" kind="set">
+        把两个 {p.whole}° 的角都拆开，它们共用中间的角 BOC：
+        <EqBox
+          lines={[
+            `\\angle AOB + \\angle BOC = \\angle AOC = ${c(BLUE, `${p.whole}^\\circ`)}`,
+            `\\angle BOC + \\angle COD = \\angle BOD = ${c(BLUE, `${p.whole}^\\circ`)}`,
+          ]}
+        />
+      </Step>
+      <Step b="解" kind="solve">
+        <EqBox
+          lines={[
+            `\\angle AOB = ${p.whole}^\\circ - \\angle BOC, \\qquad \\angle COD = ${p.whole}^\\circ - \\angle BOC`,
+          ]}
+        />
+        都等于 {p.whole}° 减去<b>同一个</b>角 BOC，所以 <M t="\angle AOB = \angle COD" />（同角的余角相等）。
+        {p.mid == null ? null : (
+          <EqBox
+            lines={[
+              `\\angle BOC = ${c(BLUE, `${p.mid}^\\circ`)} \\;\\Rightarrow\\; \\angle AOB = \\angle COD = ${p.whole}^\\circ - ${p.mid}^\\circ = ${c(GREEN, `${rest}^\\circ`)}`,
+            ]}
+          />
+        )}
+      </Step>
+      <Step b="答" kind="answer">
+        <Answer>
+          {p.mid == null ? '角 AOB = 角 COD。' : `角 AOB = 角 COD = ${rest}°。`}
+        </Answer>
+      </Step>
+    </Solution>
   );
 
   return (

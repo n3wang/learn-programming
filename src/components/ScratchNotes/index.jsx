@@ -470,13 +470,14 @@ export default function ScratchNotes() {
     setWikiBatch(shuffleSample(wikiPool(value, wikiProgress), WIKI_PAGE));
   }
 
-  function openChatGptPrep() {
-    const pageUrl =
-      typeof window !== 'undefined' ? window.location.href : '';
-    const prompt = `I want to read ${pageUrl} and get prepared for a mini test that can be an oral test, or just simple discussion to get everything familiarized.`;
-    const url = `https://chatgpt.com/?prompt=${encodeURIComponent(prompt)}`;
-    window.open(url, '_blank', 'noopener,noreferrer');
-  }
+  // Ask AI (ChatGPT prep) is commented out — the shortcut looked bad to parents.
+  // function openChatGptPrep() {
+  //   const pageUrl =
+  //     typeof window !== 'undefined' ? window.location.href : '';
+  //   const prompt = `I want to read ${pageUrl} and get prepared for a mini test that can be an oral test, or just simple discussion to get everything familiarized.`;
+  //   const url = `https://chatgpt.com/?prompt=${encodeURIComponent(prompt)}`;
+  //   window.open(url, '_blank', 'noopener,noreferrer');
+  // }
 
   async function addNote() {
     const index = notes.length + 1;
@@ -594,14 +595,17 @@ export default function ScratchNotes() {
                 <button type="button" className={styles.addBtn} onClick={addNote} aria-label="Add note">
                   +
                 </button>
+                {/* Ask AI — hidden; parents found the ChatGPT shortcut off-putting.
                 <button
                   type="button"
                   className={styles.chatGptBtn}
                   onClick={openChatGptPrep}
-                  aria-label="Open ChatGPT prep for this page"
-                  title="ChatGPT prep">
+                  aria-label="Ask"
+                  title="Ask">
                   <span className={styles.chatGptIcon} aria-hidden="true" />
+                  ask
                 </button>
+                */}
               </div>
               {filteredNotes.length === 0 ? (
                 <p className={styles.empty}>No notes yet.</p>

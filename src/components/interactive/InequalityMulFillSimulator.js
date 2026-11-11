@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import ProblemShell from '@site/src/components/interactive/shell/ProblemShell';
+import { Solution, Step, EqBox, M, Answer, c, texDms, plainToTex, InequalityRules, ItemSteps, systemRule, BLUE, GREEN, RED, ORANGE } from '@site/src/components/interactive/shell/SolutionKit';
 import { usePracticeMode, usePracticeAnswer } from '@site/src/components/interactive/shell/PracticeModeContext';
 import { choiceField } from '@site/src/components/interactive/shell/practiceFields';
 import { SolutionStep, stepStyles } from '@site/src/components/interactive/shell/SolutionStep';
@@ -46,23 +47,29 @@ export default function InequalityMulFillSimulator() {
   }
 
   const solution = (
-    <div className={stepStyles.solution}>
-      <SolutionStep badge="填" badgeClass={stepStyles.badgeSet}>
-        {p.factors.map((n) => {
-          const next = n > 0 ? p.sign : flip(p.sign);
-          return (
-            <div key={n}>
-              {p.left} × ({n}) = {p.left * n}，{p.right} × ({n}) = {p.right * n}，应填 {next}。
-            </div>
-          );
-        })}
-      </SolutionStep>
-      <SolutionStep badge="规律" badgeClass={stepStyles.badgeAnswer}>
-        <div className={stepStyles.answer}>
-          两边乘同一个正数，不等号方向不变。两边乘同一个负数，不等号方向改变。除以一个不为 0 的数，相当于乘它的倒数，符号规则相同。两边都乘 0，结果都变成 0，不再保持原来的不等关系。
-        </div>
-      </SolutionStep>
-    </div>
+    <Solution legend={[[BLUE, '乘的数'], [GREEN, '方向不变'], [RED, '方向改变']]}>
+      <Step b="知" kind="set">
+        已知 <M t={`${p.left} ${p.sign} ${p.right}`} />。两边都乘同一个数，算出来再比大小。
+      </Step>
+      <Step b="算" kind="list">
+        <EqBox
+          lines={p.factors.map((n) => {
+            const next = n > 0 ? p.sign : flip(p.sign);
+            return `${p.left} \\times (${c(BLUE, n)}) = ${p.left * n},\\quad ${p.right} \\times (${c(BLUE, n)}) = ${p.right * n} \\;\\Rightarrow\\; ${p.left * n} ${c(n > 0 ? GREEN : RED, next)} ${p.right * n}`;
+          })}
+        />
+      </Step>
+      <Step b="规律" kind="solve">
+        <b>性质 2</b>：两边乘（或除以）同一个<b>正数</b>，方向<b>不变</b>。
+        <br />
+        <b>性质 3</b>：两边乘（或除以）同一个<b>负数</b>，方向<b style={{ color: RED }}>改变</b>——乘负数后，原来大的那边变成更小的负数。
+      </Step>
+      <Step b="答" kind="answer">
+        <Answer>
+          {p.factors.map((n) => `乘 ${n} 填「${n > 0 ? p.sign : flip(p.sign)}」`).join('；')}。
+        </Answer>
+      </Step>
+    </Solution>
   );
 
   return (

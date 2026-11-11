@@ -1,5 +1,6 @@
 import React, { useMemo, useRef, useState } from 'react';
 import ProblemShell from '@site/src/components/interactive/shell/ProblemShell';
+import { Solution, Step, EqBox, M, Answer, c, texDms, plainToTex, InequalityRules, ItemSteps, systemRule, BLUE, GREEN, RED, ORANGE } from '@site/src/components/interactive/shell/SolutionKit';
 import { usePracticeMode, usePracticeAnswer } from '@site/src/components/interactive/shell/PracticeModeContext';
 import { rangeField } from '@site/src/components/interactive/shell/practiceFields';
 import { SolutionStep, stepStyles } from '@site/src/components/interactive/shell/SolutionStep';
@@ -251,18 +252,32 @@ export default function InequalitySystemGenerateSimulator() {
   }
 
   const solution = (
-    <div className={stepStyles.solution}>
-      {items.map((it) => (
-        <SolutionStep key={it.id} badge={it.id} badgeClass={stepStyles.badgeSet}>
-          {it.steps.map((line) => (
-            <div key={line}>{line}</div>
-          ))}
-          <div>
-            分别得 {it.halves}，公共部分 {it.answer}。
-          </div>
-        </SolutionStep>
+    <Solution legend={[[BLUE, '两个不等式各自的解集'], [GREEN, '公共部分']]}>
+      <Step b="知" kind="set">
+        不等式组的解集是两个不等式解集的<b>公共部分</b>。先分别解成 <M t="x > a" /> 或 <M t="x < a" />，再画在同一条数轴上找重叠：
+        <ul style={{ margin: '0.35rem 0 0', paddingLeft: '1.2rem' }}>
+          <li>同大取大，同小取小；</li>
+          <li>大小小大中间找，大大小小找不到（无解）。</li>
+        </ul>
+      </Step>
+      {items.map((it, i) => (
+        <Step key={it.id} b={`(${it.id})`} kind={i % 2 ? 'solve' : 'list'}>
+          <EqBox
+            lines={[
+              `\\begin{cases} ${it.lines.map(plainToTex).join(' \\\\ ')} \\end{cases}`,
+              ...it.steps.map((s, k) => `\\text{第 ${k + 1} 个：}${plainToTex(s)}`),
+              `\\text{分别得 } ${it.halves.split(' 与 ').map((h) => c(BLUE, plainToTex(h))).join(',\\quad ')}`,
+              `\\text{公共部分：} ${c(GREEN, plainToTex(it.answer))}`,
+            ]}
+          />
+          {systemRule(it.a, it.b)}。
+          <InequalitySystemNumberLine a={it.a} b={it.b} extraMarks={[0]} showSources={false} />
+        </Step>
       ))}
-    </div>
+      <Step b="答" kind="answer">
+        <Answer>{items.map((it) => `（${it.id}）${it.answer}`).join('；')}。</Answer>
+      </Step>
+    </Solution>
   );
 
   if (practice) {

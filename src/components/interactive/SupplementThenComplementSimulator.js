@@ -1,5 +1,6 @@
 import React, { useMemo, useState } from 'react';
 import ProblemShell from '@site/src/components/interactive/shell/ProblemShell';
+import { Solution, Step, EqBox, M, Answer, c, texDms, BLUE, GREEN, RED, ORANGE } from '@site/src/components/interactive/shell/SolutionKit';
 import { usePracticeMode, usePracticeAnswer } from '@site/src/components/interactive/shell/PracticeModeContext';
 import { degField } from '@site/src/components/interactive/shell/practiceFields';
 import { SolutionStep, stepStyles } from '@site/src/components/interactive/shell/SolutionStep';
@@ -24,16 +25,22 @@ export default function SupplementThenComplementSimulator() {
   }, [p]);
 
   const solution = (
-    <div className={stepStyles.solution}>
-      <SolutionStep badge="角" badgeClass={stepStyles.badgeSet}>
-        这个角与它的补角互为补角，所以这个角是 180° − {p.supplement}° = {ans.self}°。
-      </SolutionStep>
-      <SolutionStep badge="余" badgeClass={stepStyles.badgeAnswer}>
-        <div className={stepStyles.answer}>
-          余角是 90° − {ans.self}° = {ans.complement}°。也可以直接用补角减 90°：{p.supplement}° − 90° = {ans.complement}°。
-        </div>
-      </SolutionStep>
-    </div>
+    <Solution legend={[[BLUE, '已知'], [ORANGE, '这个角'], [GREEN, '所求']]}>
+      <Step b="知" kind="set">
+        先由补角求出这个角，再求它的余角：
+        <EqBox lines={['\\text{这个角} = 180^\\circ - \\text{补角}, \\qquad \\text{余角} = 90^\\circ - \\text{这个角}']} />
+      </Step>
+      <Step b="1" kind="list">
+        <EqBox lines={[`\\text{这个角} = 180^\\circ - ${c(BLUE, `${p.supplement}^\\circ`)} = ${c(ORANGE, `${ans.self}^\\circ`)}`]} />
+      </Step>
+      <Step b="2" kind="solve">
+        <EqBox lines={[`\\text{余角} = 90^\\circ - ${c(ORANGE, `${ans.self}^\\circ`)} = ${c(GREEN, `${ans.complement}^\\circ`)}`]} />
+        捷径：同一个角的补角比余角大 90°，所以余角 = 补角 − 90° = <M t={`${p.supplement}^\\circ - 90^\\circ = ${ans.complement}^\\circ`} />。
+      </Step>
+      <Step b="答" kind="answer">
+        <Answer>这个角的余角是 {ans.complement}°。</Answer>
+      </Step>
+    </Solution>
   );
 
   return (

@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import ProblemShell from '@site/src/components/interactive/shell/ProblemShell';
+import { Solution, Step, EqBox, M, Answer, c, texDms, plainToTex, InequalityRules, ItemSteps, systemRule, BLUE, GREEN, RED, ORANGE } from '@site/src/components/interactive/shell/SolutionKit';
 import { usePracticeMode, usePracticeAnswer } from '@site/src/components/interactive/shell/PracticeModeContext';
 import { ineqField } from '@site/src/components/interactive/shell/practiceFields';
 import { SolutionStep, stepStyles } from '@site/src/components/interactive/shell/SolutionStep';
@@ -59,13 +60,16 @@ export default function InequalityDirectSetSimulator() {
   const [picks, setPicks] = useState({});
 
   const solution = (
-    <div className={stepStyles.solution}>
-      {items.map((item) => (
-        <SolutionStep key={item.id} badge={item.id} badgeClass={item.id === '4' ? stepStyles.badgeAnswer : stepStyles.badgeSet}>
-          {item.text}。{item.why}解集 {item.result}。
-        </SolutionStep>
-      ))}
-    </div>
+    <Solution legend={[[BLUE, '原不等式'], [GREEN, '解集']]}>
+      <InequalityRules />
+      <ItemSteps
+        items={items.map((it) => ({ ...it, steps: [it.text, it.result] }))}
+        lead={(item) => <>{item.why}</>}
+      />
+      <Step b="答" kind="answer">
+        <Answer>{items.map((it) => `（${it.id}）${it.result}`).join('；')}。</Answer>
+      </Step>
+    </Solution>
   );
 
   return (

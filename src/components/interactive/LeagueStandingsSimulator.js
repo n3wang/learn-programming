@@ -7,6 +7,7 @@ import TableCell from '@site/src/components/ui/TableCell';
 import TableHead from '@site/src/components/ui/TableHead';
 import TableRow from '@site/src/components/ui/TableRow';
 import ProblemShell from '@site/src/components/interactive/shell/ProblemShell';
+import { Solution, Step, EqBox, M, Answer, c, texDms, plainToTex, InequalityRules, ItemSteps, systemRule, BLUE, GREEN, RED, ORANGE } from '@site/src/components/interactive/shell/SolutionKit';
 import { usePracticeMode, usePracticeAnswer } from '@site/src/components/interactive/shell/PracticeModeContext';
 import { numberField, choiceField } from '@site/src/components/interactive/shell/practiceFields';
 import AnimatedNumber from '@site/src/components/interactive/shell/AnimatedNumber';
@@ -90,32 +91,45 @@ export default function LeagueStandingsSimulator() {
     return { zeroRow, otherRow, solvedL, solvedW, m, mIsValid };
   }, [p]);
 
+  const { zeroRow, otherRow, solvedL, solvedW } = derived;
   const solution = (
-    <Box>
-      <Typography sx={{ mb: 1 }}>
-        <b>(1)</b> {derived.zeroRow.name} 队 {derived.zeroRow.wins} 胜 {derived.zeroRow.losses} 负，
-        积 {derived.zeroRow.points} 分，说明负一场积{' '}
-        <AnimatedNumber value={derived.solvedL} /> 分。
-        再看 {derived.otherRow.name} 队：{derived.otherRow.wins} 胜{' '}
-        {derived.otherRow.losses} 负，积 {derived.otherRow.points} 分，列方程{' '}
-        {derived.otherRow.wins}x + {derived.otherRow.losses} × {derived.solvedL} ={' '}
-        {derived.otherRow.points}，解得胜一场积 <AnimatedNumber value={derived.solvedW} /> 分。
-      </Typography>
-      <Typography sx={{ mb: 1 }}>
-        <b>(2)</b> 若一支球队胜 <b>m</b> 场，则负 ({p.G} − m) 场，总积分 = m ×{' '}
-        <AnimatedNumber value={derived.solvedW} /> + ({p.G} − m) × <AnimatedNumber value={derived.solvedL} />{' '}
-        = m × <AnimatedNumber value={derived.solvedW - derived.solvedL} /> + <AnimatedNumber value={p.G * derived.solvedL} />。
-      </Typography>
-      <Typography sx={{ mb: 1 }}>
-        <b>(3)</b> 胜场总积分等于负场总积分，即 m × {derived.solvedW} = ({p.G} − m) ×{' '}
-        {derived.solvedL}，解得 m = <AnimatedNumber value={derived.m} decimals={2} />。
-      </Typography>
-      <Typography sx={{ fontWeight: 700 }}>
+    <Solution legend={[[BLUE, '表中数据'], [ORANGE, '先求出的量'], [GREEN, '所求']]}>
+      <Step b="(1)" kind="list">
+        先找<b>一场没胜</b>的队：{zeroRow.name} 队 0 胜 {zeroRow.losses} 负，积 {zeroRow.points} 分，所以
+        <EqBox lines={[`\\text{负一场积分} = ${c(BLUE, zeroRow.points)} \\div ${c(BLUE, zeroRow.losses)} = ${c(ORANGE, solvedL)}`]} />
+        再看 {otherRow.name} 队（{otherRow.wins} 胜 {otherRow.losses} 负，积 {otherRow.points} 分），设胜一场积 <M t="x" /> 分：
+        <EqBox
+          lines={[
+            `${otherRow.wins}x + ${otherRow.losses}\\times ${c(ORANGE, solvedL)} = ${otherRow.points}`,
+            `x = (${otherRow.points} - ${otherRow.losses * solvedL}) \\div ${otherRow.wins} = ${c(GREEN, solvedW)}`,
+          ]}
+        />
+      </Step>
+      <Step b="(2)" kind="list">
+        胜 <M t="m" /> 场，则负 <M t={`${p.G} - m`} /> 场：
+        <EqBox
+          lines={[`\\text{总积分} = ${solvedW}m + ${solvedL}(${p.G} - m) = ${solvedW - solvedL}m + ${p.G * solvedL}`]}
+        />
+      </Step>
+      <Step b="(3)" kind="solve">
+        胜场总积分 = 负场总积分：
+        <EqBox
+          lines={[
+            `${solvedW}m = ${solvedL}(${p.G} - m)`,
+            `m = \\dfrac{${solvedL * p.G}}{${solvedW + solvedL}}${derived.mIsValid ? ` = ${derived.m}` : ` \\approx ${derived.m.toFixed(2)}`}`,
+          ]}
+        />
         {derived.mIsValid
-          ? `m 是整数且在 0～${p.G} 之间 —— 存在这样的球队：胜 ${derived.m} 场、负 ${p.G - derived.m} 场时，胜场总积分正好等于负场总积分。`
-          : `m 必须是整数（场次不能是分数），但方程解出 m = ${derived.m.toFixed(2)} 不是整数，所以没有哪支球队的胜场总积分能等于它的负场总积分。`}
-      </Typography>
-    </Box>
+          ? `m 是 0～${p.G} 之间的整数，所以能：胜 ${derived.m} 场、负 ${p.G - derived.m} 场时正好相等。`
+          : '胜场数必须是整数，m 不是整数，所以不能。'}
+      </Step>
+      <Step b="答" kind="answer">
+        <Answer>
+          (1) 胜一场积 {solvedW} 分，负一场积 {solvedL} 分；(2) 总积分 = {solvedW - solvedL}m + {p.G * solvedL}；(3){' '}
+          {derived.mIsValid ? '能' : '不能'}。
+        </Answer>
+      </Step>
+    </Solution>
   );
 
   return (

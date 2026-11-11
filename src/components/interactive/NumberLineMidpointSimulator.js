@@ -1,5 +1,6 @@
 import React, { useMemo, useState } from 'react';
 import ProblemShell from '@site/src/components/interactive/shell/ProblemShell';
+import { Solution, Step, EqBox, M, Answer, c, texDms, BLUE, GREEN, RED, ORANGE } from '@site/src/components/interactive/shell/SolutionKit';
 import { usePracticeMode, usePracticeAnswer } from '@site/src/components/interactive/shell/PracticeModeContext';
 import { numberField } from '@site/src/components/interactive/shell/practiceFields';
 import { SolutionStep, stepStyles } from '@site/src/components/interactive/shell/SolutionStep';
@@ -29,18 +30,37 @@ export default function NumberLineMidpointSimulator() {
     };
   }, [p]);
 
+  const half = p.len / 2;
   const solution = (
-    <div className={stepStyles.solution}>
-      <SolutionStep badge="分类" badgeClass={stepStyles.badgeSet}>
-        点 A 表示 {p.a}，AB = {p.len}。点 B 可以在 A 的右边，也可以在 A 的左边。
-      </SolutionStep>
-      <SolutionStep badge="解" badgeClass={stepStyles.badgeAnswer}>
-        <div className={stepStyles.answer}>
-          若 B 表示 {answers.rightB}，则中点 C 表示 {answers.rightC}。
-          若 B 表示 {answers.leftB}，则中点 C 表示 {answers.leftC}。
-        </div>
-      </SolutionStep>
-    </div>
+    <Solution legend={[[BLUE, '点 A'], [ORANGE, '点 B'], [GREEN, '中点 C']]}>
+      <Step b="知" kind="set">
+        只知道 AB 的长，不知道 B 在 A 的哪一边，所以<b>分两种情况</b>。C 是 AB 的中点：
+        <EqBox lines={['AC = \\tfrac12 AB, \\qquad C = \\dfrac{A + B}{2}']} />
+      </Step>
+      <Step b="右" kind="list">
+        B 在 A 的右边：
+        <EqBox
+          lines={[
+            `B = ${c(BLUE, p.a)} + ${p.len} = ${c(ORANGE, answers.rightB)}`,
+            `C = \\dfrac{${p.a} + ${answers.rightB}}{2} = ${c(GREEN, answers.rightC)}\\quad(\\text{或 } ${p.a} + ${half})`,
+          ]}
+        />
+      </Step>
+      <Step b="左" kind="solve">
+        B 在 A 的左边：
+        <EqBox
+          lines={[
+            `B = ${c(BLUE, p.a)} - ${p.len} = ${c(ORANGE, answers.leftB)}`,
+            `C = \\dfrac{${p.a} + (${answers.leftB})}{2} = ${c(GREEN, answers.leftC)}\\quad(\\text{或 } ${p.a} - ${half})`,
+          ]}
+        />
+      </Step>
+      <Step b="答" kind="answer">
+        <Answer>
+          点 C 表示 {answers.rightC} 或 {answers.leftC}。
+        </Answer>
+      </Step>
+    </Solution>
   );
 
   return (

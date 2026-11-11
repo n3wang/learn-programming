@@ -7,6 +7,7 @@ import TableCell from '@site/src/components/ui/TableCell';
 import TableHead from '@site/src/components/ui/TableHead';
 import TableRow from '@site/src/components/ui/TableRow';
 import ProblemShell from '@site/src/components/interactive/shell/ProblemShell';
+import { Solution, Step, EqBox, M, Answer, c, texDms, plainToTex, InequalityRules, ItemSteps, systemRule, BLUE, GREEN, RED, ORANGE } from '@site/src/components/interactive/shell/SolutionKit';
 import { usePracticeMode, usePracticeAnswer } from '@site/src/components/interactive/shell/PracticeModeContext';
 import { numberField, choiceField } from '@site/src/components/interactive/shell/practiceFields';
 import AnimatedNumber from '@site/src/components/interactive/shell/AnimatedNumber';
@@ -94,54 +95,40 @@ export default function MarkupDiscountSimulator() {
     setKey((k) => k + 1);
   };
 
+  const k = ((100 + p.markup) * p.fold) / 1000;
   const solution = (
-    <Box>
-      <Typography sx={{ mb: 1 }}>
-        设成本价为 <b>x</b> 元。标价 = x · (1 + {p.markup}%) = {p.markup === 0 ? 'x' : `${(100 + p.markup) / 100}x`}；
-        打{p.foldName}后售价 = 标价 × {p.fold / 10} = {((100 + p.markup) * p.fold) / 1000}x。
-      </Typography>
-      <Typography sx={{ mb: 1, fontFamily: 'monospace' }}>
-        {((100 + p.markup) * p.fold) / 1000}x = {p.sell}
-      </Typography>
-      <Typography sx={{ mb: 1.5 }}>
-        解得 x = <AnimatedNumber value={p.cost} /> 元。
-      </Typography>
-
-      <Table size="small" sx={{ mb: 1.5, maxWidth: 360 }}>
-        <TableHead>
-          <TableRow>
-            <TableCell>环节</TableCell>
-            <TableCell align="right">金额 / 元</TableCell>
-          </TableRow>
-        </TableHead>
-        <TableBody>
-          <TableRow>
-            <TableCell>成本</TableCell>
-            <TableCell align="right">{p.cost}</TableCell>
-          </TableRow>
-          <TableRow>
-            <TableCell>标价（+{p.markup}%）</TableCell>
-            <TableCell align="right">{marked}</TableCell>
-          </TableRow>
-          <TableRow>
-            <TableCell>售价（{p.foldName}）</TableCell>
-            <TableCell align="right">{p.sell}</TableCell>
-          </TableRow>
-          <TableRow>
-            <TableCell sx={{ fontWeight: 700 }}>售价 − 成本</TableCell>
-            <TableCell align="right" sx={{ fontWeight: 700 }}>
-              {diff}
-            </TableCell>
-          </TableRow>
-        </TableBody>
-      </Table>
-
-      <Typography sx={{ fontWeight: 700 }}>
-        售价 {p.sell} 元与成本 {p.cost} 元相比，
-        {isLoss ? '亏损' : diff > 0 ? '盈利' : '不盈不亏'}{' '}
-        <AnimatedNumber value={Math.abs(diff)} /> 元。
-      </Typography>
-    </Box>
+    <Solution legend={[[BLUE, '已知'], [ORANGE, '成本'], [diff >= 0 ? GREEN : RED, diff >= 0 ? '盈利' : '亏损']]}>
+      <Step b="知" kind="set">
+        要判断盈亏，得先知道<b>成本</b>：
+        <EqBox
+          lines={[
+            '\\text{标价} = \\text{成本} \\times (1 + \\text{加价率})',
+            '\\text{售价} = \\text{标价} \\times \\text{折扣}\\quad(\\text{打八折就是} \\times 0.8)',
+          ]}
+        />
+      </Step>
+      <Step b="设" kind="set">
+        设成本为 <M t="x" /> 元，则标价 <M t={`x(1 + ${c(BLUE, `${p.markup}\\%`)}) = ${(100 + p.markup) / 100}x`} />，打{p.foldName}后售价{' '}
+        <M t={`${(100 + p.markup) / 100}x \\times ${c(BLUE, p.fold / 10)} = ${k}x`} />。
+      </Step>
+      <Step b="列" kind="list">
+        <EqBox lines={[`${k}x = ${c(BLUE, p.sell)}`]} />
+      </Step>
+      <Step b="解" kind="solve">
+        <EqBox
+          lines={[
+            `x = ${p.sell} \\div ${k} = ${c(ORANGE, p.cost)}`,
+            `\\text{售价} - \\text{成本} = ${p.sell} - ${p.cost} = ${c(diff >= 0 ? GREEN : RED, diff)}`,
+          ]}
+        />
+        {diff > 0 ? '差是正数，盈利。' : diff < 0 ? '差是负数，亏损——先加价再打折，不一定赚钱。' : '差为 0，不盈不亏。'}
+      </Step>
+      <Step b="答" kind="answer">
+        <Answer>
+          {diff > 0 ? `盈利 ${diff} 元。` : diff < 0 ? `亏损 ${-diff} 元。` : '不盈不亏。'}（成本 {p.cost} 元，标价 {marked} 元，售价 {p.sell} 元）
+        </Answer>
+      </Step>
+    </Solution>
   );
 
   return (
