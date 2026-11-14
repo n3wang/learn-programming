@@ -25,7 +25,7 @@ import InequalitySystemGenerateSimulator from './InequalitySystemGenerateSimulat
  * shell/MixedPractice.js. Each simulator reports its answers with
  * usePracticeAnswer (single inequalities, solution-set ranges, 是/不是 choices).
  */
-const CATEGORIES = [
+export const CATEGORIES = [
   {
     id: '11.1',
     name: '11.1 不等式',

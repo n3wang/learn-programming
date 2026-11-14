@@ -7,24 +7,31 @@ import styles from './party.module.css';
  * On-screen number pad for a question from mathQuestions.js. The typed
  * answer replaces the "?" in the question; fraction questions get a "/" key
  * and order-of-operations questions (answers may be negative) a "−" key.
+ * The inequalities pool also gets < > ≤ ≥ x and ∅.
  * onAnswer(typed) fires on OK; the pad then clears for the next question.
  * Physical keyboard digits / Backspace / Enter work the same as the pad.
  */
 export default function MathPad({question, lang, onAnswer, flash = null, okLabel}) {
   const [typed, setTyped] = useState('');
-  const fraction = question && question.pool === 'fractions';
-  const negative = question && question.pool === 'chain';
+  const ineq = question && question.pool === 'inequalities';
+  const fraction = question && (question.pool === 'fractions' || ineq);
+  const negative = question && (question.pool === 'chain' || ineq);
+  const maxLen = ineq ? 12 : 5;
   const press = (k) => {
     if (k === 'del') setTyped((x) => x.slice(0, -1));
     else if (k === 'ok') {
       setTyped((x) => {
-        if (!x || x === '-' || x.endsWith('/')) return x;
+        if (!x || x === '-' || x === '−' || x.endsWith('/')) return x;
+        if (ineq && /^[<>≤≥]+$/.test(x)) return x;
         onAnswer(x);
         return '';
       });
-    } else if (k === '/') setTyped((x) => (x && !x.includes('/') ? `${x}/` : x));
-    else if (k === '-') setTyped((x) => (x.startsWith('-') ? x.slice(1) : `-${x}`));
-    else setTyped((x) => (x.length < 5 ? x + k : x));
+    } else if (k === '∅') setTyped('∅');
+    else if (k === '/') setTyped((x) => (x && x !== '∅' && !x.includes('/') ? `${x}/` : x));
+    else if (k === '-') setTyped((x) => (x === '∅' ? '-' : x.startsWith('-') ? x.slice(1) : `-${x}`));
+    else if (k === '<' || k === '>' || k === '≤' || k === '≥' || k === 'x') {
+      setTyped((x) => (x === '∅' ? k : x.length < maxLen ? x + k : x));
+    } else setTyped((x) => (x === '∅' ? k : x.length < maxLen ? x + k : x));
   };
 
   useEffect(() => {
@@ -58,17 +65,45 @@ export default function MathPad({question, lang, onAnswer, flash = null, okLabel
       if (negative && (k === '-' || k === '−')) {
         e.preventDefault();
         press('-');
+        return;
+      }
+      if (ineq && (k === '<' || k === '>')) {
+        e.preventDefault();
+        press(k);
+        return;
+      }
+      if (ineq && (k === 'x' || k === 'X')) {
+        e.preventDefault();
+        press('x');
       }
     };
     window.addEventListener('keydown', onKeyDown);
     return () => window.removeEventListener('keydown', onKeyDown);
-  }, [question, fraction, negative, onAnswer]);
+  }, [question, fraction, negative, ineq, onAnswer]);
 
   if (!question) return null;
-  const keys = ['1', '2', '3', '4', '5', '6', '7', '8', '9', 'del', '0', 'ok', ...(fraction ? ['/'] : []), ...(negative ? ['-'] : [])];
+  // Inequalities: keep a 3-column digit pad, then relation / x / ∅ keys.
+  const keys = ineq
+    ? ['1', '2', '3', '4', '5', '6', '7', '8', '9', 'del', '0', 'ok', '<', '>', '≤', '≥', '-', '/', 'x', '∅']
+    : ['1', '2', '3', '4', '5', '6', '7', '8', '9', 'del', '0', 'ok', ...(fraction ? ['/'] : []), ...(negative ? ['-'] : [])];
+  const kindOf = (k) => {
+    if (k === '/') return 'frac';
+    if (k === '-') return 'neg';
+    if (k === '∅') return 'empty';
+    if (k === '<' || k === '>' || k === '≤' || k === '≥' || k === 'x') return 'ineq';
+    return k;
+  };
+  const labelOf = (k) => {
+    if (k === 'del') return '⌫';
+    if (k === 'ok') return okLabel || 'OK';
+    if (k === '/') return lang === 'zh' ? '分数 /' : 'fraction /';
+    if (k === '-') return lang === 'zh' ? '负号 −' : 'negative −';
+    if (k === '∅') return lang === 'zh' ? '无解 ∅' : 'none ∅';
+    return k;
+  };
   return (
     <div className={styles.mathPad}>
-      <div className={styles.mathQ} data-flash={flash}>
+      <div className={styles.mathQ} data-flash={flash} data-ineq={ineq ? '1' : undefined}>
         {question.lines.map((line, i) => {
           const [before, after] = line.split('?');
           return (
@@ -76,7 +111,7 @@ export default function MathPad({question, lang, onAnswer, flash = null, okLabel
               {before}
               {after !== undefined && (
                 <>
-                  <b>{typed ? typed.replace('-', '−') : '?'}</b>
+                  <b>{typed ? typed.replace(/-/g, '−') : '?'}</b>
                   {after}
                 </>
               )}
@@ -85,10 +120,10 @@ export default function MathPad({question, lang, onAnswer, flash = null, okLabel
         })}
       </div>
       {question.hint && <p className={styles.mathHint}>{L(HINTS[question.hint], lang)}</p>}
-      <div className={styles.numpad}>
+      <div className={styles.numpad} data-ineq={ineq ? '1' : undefined}>
         {keys.map((k) => (
-          <button key={k} type="button" className={styles.numKey} data-kind={k === '/' ? 'frac' : k === '-' ? 'neg' : k} onClick={() => press(k)}>
-            {k === 'del' ? '⌫' : k === 'ok' ? okLabel || 'OK' : k === '/' ? (lang === 'zh' ? '分数 /' : 'fraction /') : k === '-' ? (lang === 'zh' ? '负号 −' : 'negative −') : k}
+          <button key={k} type="button" className={styles.numKey} data-kind={kindOf(k)} onClick={() => press(k)}>
+            {labelOf(k)}
           </button>
         ))}
       </div>

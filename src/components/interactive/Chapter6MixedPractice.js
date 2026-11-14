@@ -26,7 +26,7 @@ import OcSideCountSimulator from './OcSideCountSimulator';
  * 初一第六章综合练习：几何图形初步。Question pool only — the runner is
  * shell/MixedPractice.js. Angle answers use the 度分秒 input (dmsField / degField).
  */
-const CATEGORIES = [
+export const CATEGORIES = [
   {
     id: '6.1',
     name: '6.1 几何图形',

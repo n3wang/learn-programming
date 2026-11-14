@@ -11,12 +11,15 @@ import MathText from '@site/src/components/ProblemSet/MathText';
 import CEBlock from './CEBlock';
 import PracticeModeContext from './PracticeModeContext';
 import styles from './EquationWorksheet.module.css';
+import printStyles from './MixedPracticePrint.module.css';
 import { Solution, Step, Answer } from './SolutionKit';
 
 
 /**
  * Generic 综合练习 runner: draws a weighted, balanced, interleaved set of
  * problems from several lessons and has the student type each answer.
+ * Optional `allowPrint` adds a「打印卷」mode that shows the whole set at once
+ * with blank answer lines (for paper / Ctrl+P).
  *
  * categories: [{ id, name, href, weight, pool: [eq(label, gen) | sim(label, Component)] }]
  *  - eq items: generator returning { prompt, steps, answer, fields? }. Without
@@ -36,7 +39,7 @@ import { Solution, Step, Answer } from './SolutionKit';
 export const eq = (label, gen) => ({ kind: 'eq', label, gen });
 export const sim = (label, Component) => ({ kind: 'sim', label, Component });
 
-const COUNT_OPTIONS = [5, 10, 15];
+const DEFAULT_COUNT_OPTIONS = [5, 10, 15];
 
 function shuffle(arr) {
   const a = arr.slice();
@@ -93,7 +96,7 @@ function buildRun(categories, count) {
   return interleave(items);
 }
 
-function CountPicker({ value, onChange }) {
+function CountPicker({ value, onChange, options = DEFAULT_COUNT_OPTIONS }) {
   return (
     <ToggleButtonGroup
       exclusive
@@ -101,7 +104,7 @@ function CountPicker({ value, onChange }) {
       value={value}
       onChange={(_, v) => v != null && onChange(v)}
     >
-      {COUNT_OPTIONS.map((n) => (
+      {options.map((n) => (
         <ToggleButton key={n} value={n}>
           {n} 题
         </ToggleButton>
@@ -245,13 +248,180 @@ function EquationItem({ item, showAnswer }) {
   );
 }
 
-function SimItem({ item, showAnswer, reportFields }) {
-  const ctx = useMemo(() => ({ showAnswer, reportFields }), [showAnswer, reportFields]);
+function SimItem({ item, showAnswer, reportFields, printMode = false }) {
+  const ctx = useMemo(
+    () => ({ showAnswer, reportFields, printMode }),
+    [showAnswer, reportFields, printMode],
+  );
   const { Component } = item;
   return (
     <PracticeModeContext.Provider value={ctx}>
       <Component />
     </PracticeModeContext.Provider>
+  );
+}
+
+/** Blank answer lines for a printed worksheet (mirrors field shapes). */
+function PrintBlanks({ fields }) {
+  if (!fields || fields.length === 0) {
+    return (
+      <div className={printStyles.blankRow}>
+        <span>答：</span>
+        <span className={`${printStyles.blankLine} ${printStyles.blankWide}`} />
+      </div>
+    );
+  }
+  return (
+    <div>
+      {fields.map((f) => {
+        if (f.type === 'dms') {
+          return (
+            <div key={f.name} className={printStyles.blankRow}>
+              {f.label ? (
+                <Typography component="span" variant="body2" color="text.secondary">
+                  <MathText text={f.label} />
+                </Typography>
+              ) : null}
+              <span className={printStyles.blankLine} />
+              <span>°</span>
+              <span className={printStyles.blankLine} />
+              <span>′</span>
+              {f.seconds ? (
+                <>
+                  <span className={printStyles.blankLine} />
+                  <span>″</span>
+                </>
+              ) : null}
+            </div>
+          );
+        }
+        if (f.type === 'ineq') {
+          return (
+            <div key={f.name} className={printStyles.blankRow}>
+              <MathText text={`$${f.display || f.name || 'x'}$`} />
+              <span className={printStyles.blankLine} />
+              <span className={printStyles.blankLine} />
+            </div>
+          );
+        }
+        if (f.type === 'range') {
+          return (
+            <div key={f.name} className={printStyles.blankRow}>
+              <span className={printStyles.blankLine} />
+              <span>≤</span>
+              <MathText text={`$${f.display || f.name || 'x'}$`} />
+              <span>≤</span>
+              <span className={printStyles.blankLine} />
+              <Typography component="span" variant="body2" color="text.secondary">
+                （无解请写「无解」）
+              </Typography>
+            </div>
+          );
+        }
+        if (f.type === 'choice') {
+          return (
+            <div key={f.name} className={printStyles.blankRow}>
+              {f.label ? (
+                <Typography component="span" variant="body2" color="text.secondary">
+                  <MathText text={f.label} />
+                </Typography>
+              ) : null}
+              <span className={printStyles.blankLine} />
+              {Array.isArray(f.options) ? (
+                <Typography component="span" variant="body2" color="text.secondary">
+                  （{f.options.map((o) => (typeof o === 'string' ? o : o.label)).filter(Boolean).join(' / ')}）
+                </Typography>
+              ) : null}
+            </div>
+          );
+        }
+        return (
+          <div key={f.name} className={printStyles.blankRow}>
+            {f.label ? (
+              <Typography component="span" variant="body2" color="text.secondary">
+                <MathText text={f.label} />
+              </Typography>
+            ) : null}
+            <MathText text={`$${f.display || f.name}$`} />
+            <span>=</span>
+            <span className={`${printStyles.blankLine} ${printStyles.blankWide}`} />
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+function PrintEqItem({ item, index }) {
+  const fields = item.problem.fields || parseTexAnswer(item.problem.answer);
+  return (
+    <div className={printStyles.item}>
+      <div className={printStyles.itemHead}>
+        <span className={printStyles.itemNum}>{index + 1}.</span>
+        <span className={printStyles.itemMeta}>
+          {item.catName} · {item.label}
+        </span>
+      </div>
+      <Box sx={{ fontSize: '1.05em' }}>
+        <MathText text={item.problem.prompt} />
+      </Box>
+      <PrintBlanks fields={fields} />
+    </div>
+  );
+}
+
+function PrintSimItem({ item, index }) {
+  const [fields, setFields] = useState(null);
+  const reportFields = useCallback((f) => setFields(f), []);
+  return (
+    <div className={printStyles.item}>
+      <div className={printStyles.itemHead}>
+        <span className={printStyles.itemNum}>{index + 1}.</span>
+        <span className={printStyles.itemMeta}>
+          {item.catName} · {item.label}
+        </span>
+      </div>
+      <SimItem item={item} showAnswer={false} reportFields={reportFields} printMode />
+      <PrintBlanks fields={fields} />
+    </div>
+  );
+}
+
+function PrintSheet({ items, count, onCount, countOptions, onRestart, onExitPrint, onPrint }) {
+  return (
+    <div className={`mixed-practice-print-root ${printStyles.sheet}`}>
+      <Stack
+        direction="row"
+        spacing={1}
+        alignItems="center"
+        flexWrap="wrap"
+        useFlexGap
+        className={`${printStyles.toolbarScreen} ${printStyles.noPrint}`}
+        sx={{ mb: 1.5 }}
+      >
+        <Typography sx={{ fontWeight: 700 }}>打印卷 · {items.length} 题</Typography>
+        <CountPicker value={count} onChange={onCount} options={countOptions} />
+        <Button variant="outlined" size="small" onClick={onRestart}>
+          换一组题
+        </Button>
+        <Button variant="contained" size="small" onClick={onPrint}>
+          打印…
+        </Button>
+        <Button variant="text" size="small" onClick={onExitPrint}>
+          回到练习
+        </Button>
+        <Typography variant="body2" color="text.secondary">
+          题目一次全显示，答案留空；浏览器打印时会隐藏导航栏。
+        </Typography>
+      </Stack>
+      {items.map((it, i) =>
+        it.kind === 'eq' ? (
+          <PrintEqItem key={it.key} item={it} index={i} />
+        ) : (
+          <PrintSimItem key={it.key} item={it} index={i} />
+        ),
+      )}
+    </div>
   );
 }
 
@@ -660,7 +830,7 @@ function bestStreak(results) {
   return best;
 }
 
-function Summary({ categories, items, results, count, onCount, onRestart, bestClean = 0 }) {
+function Summary({ categories, items, results, count, onCount, onRestart, bestClean = 0, countOptions = DEFAULT_COUNT_OPTIONS }) {
   const correct = results.filter((r) => r.ok).length;
   const firstTry = results.filter((r) => r.ok && r.attempts === 1).length;
   const explained = results.filter((r) => !r.ok && r.attempts === 0).length;
@@ -728,12 +898,16 @@ function Summary({ categories, items, results, count, onCount, onRestart, bestCl
         </Typography>
       ) : (
         <Typography variant="body2" sx={{ mb: 2 }}>
-          全部做对。可以换一组，或者把题量调到 15 题。
+          全部做对。可以换一组
+          {countOptions.some((n) => n > count)
+            ? `，或者把题量调到 ${countOptions.filter((n) => n > count).slice(-1)[0]} 题`
+            : ''}
+          。
         </Typography>
       )}
 
       <Stack direction="row" spacing={1.5} alignItems="center" flexWrap="wrap" useFlexGap>
-        <CountPicker value={count} onChange={onCount} />
+        <CountPicker value={count} onChange={onCount} options={countOptions} />
         <Button variant="contained" onClick={onRestart}>
           再来一组
         </Button>
@@ -746,8 +920,16 @@ function Summary({ categories, items, results, count, onCount, onRestart, bestCl
  * `children` (optional): the page's how-to / intro text. It is hidden behind a
  * round「?」button in the header so the practice itself stays front and centre.
  */
-export default function MixedPractice({ categories, defaultCount = 10, anchorId = 'mixed-practice-top', children }) {
+export default function MixedPractice({
+  categories,
+  defaultCount = 10,
+  countOptions = DEFAULT_COUNT_OPTIONS,
+  allowPrint = false,
+  anchorId = 'mixed-practice-top',
+  children,
+}) {
   const [showHelp, setShowHelp] = useState(false);
+  const [printMode, setPrintMode] = useState(false);
   const [count, setCount] = useState(defaultCount);
   const [items, setItems] = useState(() => buildRun(categories, defaultCount));
   const [index, setIndex] = useState(0);
@@ -764,6 +946,13 @@ export default function MixedPractice({ categories, defaultCount = 10, anchorId 
       return { ...c, since: now, best: Math.max(c.best, now - c.since), flashAt: now };
     });
   }, []);
+
+  useEffect(() => {
+    if (typeof document === 'undefined') return undefined;
+    if (!printMode) return undefined;
+    document.body.classList.add('mixed-practice-print-mode');
+    return () => document.body.classList.remove('mixed-practice-print-mode');
+  }, [printMode]);
 
   const done = index >= items.length;
   const item = items[index];
@@ -790,7 +979,7 @@ export default function MixedPractice({ categories, defaultCount = 10, anchorId 
 
   const changeCount = (n) => {
     if (n === count) return;
-    const midRun = results.length > 0 && results.length < items.length;
+    const midRun = !printMode && results.length > 0 && results.length < items.length;
     if (midRun && typeof window !== 'undefined' && !window.confirm(`换成 ${n} 题会重新开始，当前进度不保留。继续吗？`)) {
       return;
     }
@@ -815,8 +1004,38 @@ export default function MixedPractice({ categories, defaultCount = 10, anchorId 
     }
   };
 
+  const enterPrint = () => {
+    const midRun = results.length > 0 && results.length < items.length;
+    if (midRun && typeof window !== 'undefined' && !window.confirm('进入打印卷会离开当前练习进度。继续吗？')) {
+      return;
+    }
+    setPrintMode(true);
+  };
+
   const correct = results.filter((r) => r.ok).length;
   const streak = currentStreak(results);
+
+  if (printMode) {
+    return (
+      <Box id={anchorId} className="mixed-practice-print-root" sx={{ my: 2, scrollMarginTop: 80 }}>
+        <PrintSheet
+          items={items}
+          count={count}
+          onCount={changeCount}
+          countOptions={countOptions}
+          onRestart={() => restart(count)}
+          onExitPrint={() => {
+            setPrintMode(false);
+            setIndex(0);
+            setResults([]);
+            setShowAnswer(false);
+            setClock({ since: Date.now(), best: 0, flashAt: 0, stopAt: 0 });
+          }}
+          onPrint={() => typeof window !== 'undefined' && window.print()}
+        />
+      </Box>
+    );
+  }
 
   return (
     <Box id={anchorId} sx={{ my: 2, scrollMarginTop: 80 }}>
@@ -858,7 +1077,17 @@ export default function MixedPractice({ categories, defaultCount = 10, anchorId 
             连对 {streak}{streak >= 3 ? ' 🔥' : ''}
           </Box>
           <ErrorFreeTimer since={clock.since} stopAt={clock.stopAt} flashAt={clock.flashAt} />
-          <CountPicker value={count} onChange={changeCount} />
+          <CountPicker value={count} onChange={changeCount} options={countOptions} />
+          {allowPrint ? (
+            <Button
+              size="small"
+              variant="outlined"
+              onClick={enterPrint}
+              title="一次显示全部题目，方便打印成纸卷"
+            >
+              打印卷
+            </Button>
+          ) : null}
           {children ? (
             <Box
               component="button"
@@ -957,6 +1186,7 @@ export default function MixedPractice({ categories, defaultCount = 10, anchorId 
           count={count}
           onCount={changeCount}
           onRestart={() => restart(count)}
+          countOptions={countOptions}
         />
       ) : (
         <>

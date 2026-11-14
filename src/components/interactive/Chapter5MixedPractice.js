@@ -37,7 +37,7 @@ import TrapezoidFormulaSimulator from './TrapezoidFormulaSimulator';
  * shell/MixedPractice.js. Equation items parse `x = …` from the generator's answer;
  * simulators report their own answers with usePracticeAnswer.
  */
-const CATEGORIES = [
+export const CATEGORIES = [
   {
     id: '5.2',
     name: '5.2 解方程',

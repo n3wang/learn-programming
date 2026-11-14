@@ -6,9 +6,12 @@
  * (language-neutral maths), `hint` names a short instruction in HINTS
  * (or null), and `a` is the one accepted answer as typed on the pad:
  * a whole number ("12", "-7") or a fraction in simplest form ("3/4").
+ * The `degrees` pool is grade-7 chapter 6 angle measure (习题 6.3 style).
+ * The `inequalities` pool is grade-8 ch. 11: solve linear inequalities
+ * (negative ×/÷ flips the sign) and systems of inequalities.
  */
 
-export const POOLS = ['basic', 'chain', 'fractions', 'linear', 'systems'];
+export const POOLS = ['basic', 'chain', 'fractions', 'linear', 'systems', 'degrees', 'inequalities'];
 
 export const POOL_LABEL = {
   basic: {en: 'Whole numbers (+ − ×)', zh: '整数（+ − ×）'},
@@ -16,11 +19,14 @@ export const POOL_LABEL = {
   fractions: {en: 'Fractions (× and simplify)', zh: '分数（乘法与约分）'},
   linear: {en: 'Solve for x', zh: '解方程求 x'},
   systems: {en: 'Systems of equations', zh: '二元一次方程组'},
+  degrees: {en: 'Degrees (angles)', zh: '角度（度数）'},
+  inequalities: {en: 'Inequalities', zh: '不等式'},
 };
 
 export const HINTS = {
   simplest: {en: 'Answer in simplest form.', zh: '答案写成最简形式。'},
   simplify: {en: 'Simplify the fraction.', zh: '把分数约到最简。'},
+  ineq: {en: 'Type >3, ≤−2, 1<x≤4, or ∅.', zh: '输入 >3、≤−2、1<x≤4，或 ∅。'},
 };
 
 const gcd = (a, b) => (b ? gcd(b, a % b) : Math.abs(a));
@@ -57,6 +63,52 @@ function eq(a, b, c) {
   if (a < 0) return eq(-a, -b, -c);
   const term = (n, v) => `${Math.abs(n) === 1 ? '' : Math.abs(n)}${v}`;
   return `${term(a, 'x')} ${b < 0 ? '−' : '+'} ${term(b, 'y')} = ${c < 0 ? `−${-c}` : c}`;
+}
+
+const FLIP = {'<': '>', '>': '<', '≤': '≥', '≥': '≤'};
+const OPS = ['<', '>', '≤', '≥'];
+
+function dash(n) {
+  return n < 0 ? `−${-n}` : String(n);
+}
+
+function coefX(k) {
+  if (k === 1) return 'x';
+  if (k === -1) return '−x';
+  return `${dash(k)}x`;
+}
+
+/** "3x − 2" / "−x + 5" / "x" from ax + b. */
+function linearExpr(a, b) {
+  let out = a === 0 ? '' : coefX(a);
+  if (a === 0) return dash(b);
+  if (b > 0) out += ` + ${b}`;
+  else if (b < 0) out += ` − ${-b}`;
+  return out;
+}
+
+function pickOp(r) {
+  return OPS[r(0, 3)];
+}
+
+/** Canonical one-sided answer stored without a leading x: ">3", "≤−2". */
+function oneSided(op, bound) {
+  return `${op}${bound}`;
+}
+
+/** Normalize typed inequality answers for comparison. */
+export function normalizeIneqAnswer(s) {
+  let t = String(s == null ? '' : s)
+    .replace(/\s+/g, '')
+    .replace(/−/g, '-')
+    .replace(/<=/g, '≤')
+    .replace(/>=/g, '≥')
+    .replace(/无解/g, '∅')
+    .replace(/none/gi, '∅')
+    .replace(/empty/gi, '∅');
+  // Allow "x>3" for a one-sided answer stored as ">3".
+  if (/^x[<>≤≥]/.test(t)) t = t.slice(1);
+  return t;
 }
 
 const GEN = {
@@ -152,6 +204,98 @@ const GEN = {
     const [ax1, by1, ax2, by2] = r(0, 1) === 0 ? [k * p, s, p, q] : [s, k * p, q, p];
     return {lines: [eq(ax1, by1, ax1 * x + by1 * y), eq(ax2, by2, ax2 * x + by2 * y), `${ask} = ?`], a: String(ask === 'x' ? x : y)};
   },
+
+  // Grade-7 chapter 6 angle measure, core quick problems only: complement,
+  // supplement, bisector, sum / difference, equal slices of 360°, clock at
+  // a whole hour. Every answer is a short, round whole number.
+  degrees(r) {
+    const kind = r(0, 6);
+    if (kind === 0) {
+      // Complement of an acute angle.
+      const a = r(1, 8) * 10;
+      return {lines: [`∠A = ${a}°`, '90° − ∠A = ?°'], a: String(90 - a)};
+    }
+    if (kind === 1) {
+      // Supplement.
+      const a = r(1, 17) * 10;
+      return {lines: [`∠A = ${a}°`, '180° − ∠A = ?°'], a: String(180 - a)};
+    }
+    if (kind === 2) {
+      // Angle bisector: half of a round angle.
+      const half = r(1, 8) * 10;
+      return {lines: [`∠AOB = ${half * 2}°`, 'OC bisects ∠AOB', '∠AOC = ?°'], a: String(half)};
+    }
+    if (kind === 3) {
+      // Sum or difference of two angles sharing a ray.
+      const aoc = r(2, 6) * 10;
+      const aob = aoc + r(1, 6) * 10;
+      return r(0, 1) === 0
+        ? {lines: [`${aob}° − ${aoc}° = ?°`], a: String(aob - aoc)}
+        : {lines: [`${aob}° + ${aoc}° = ?°`], a: String(aob + aoc)};
+    }
+    if (kind === 4) {
+      // Equal central angles: 360 ÷ n with a round result.
+      const n = [3, 4, 6, 9, 12, 18, 36][r(0, 6)];
+      return {lines: [`360° ÷ ${n} = ?°`], a: String(360 / n)};
+    }
+    if (kind === 5) {
+      // Clock hands at a whole hour: 30° per hour.
+      const h = r(1, 6);
+      return {lines: [`${h}:00 → ?°`], a: String(h * 30)};
+    }
+    // One clock step: hour hand per hour, minute hand per minute.
+    return r(0, 1) === 0
+      ? {lines: ['360° ÷ 12 = ?°'], a: '30'}
+      : {lines: ['360° ÷ 60 = ?°'], a: '6'};
+  },
+
+  // Grade-8 ch. 11, core quick problems: one- or two-step linear inequalities
+  // (negative ×/÷ flips the sign) and simple systems. Bounds stay small
+  // whole numbers. Answer forms: ">3", "≤−2", "1<x≤4", "∅".
+  inequalities(r) {
+    // ~80% single inequalities, ~20% very simple systems.
+    const kind = r(0, 9);
+    const op = pickOp(r);
+    const bound = r(1, 6) * (r(0, 1) === 0 ? 1 : -1);
+    const k = r(2, 5);
+    if (kind <= 2) {
+      // −kx ∘ −k·bound → divide by −k and flip.
+      return {lines: [`${coefX(-k)} ${FLIP[op]} ${dash(-k * bound)}`, 'x ?'], hint: 'ineq', a: oneSided(op, bound)};
+    }
+    if (kind <= 4) {
+      // kx ∘ k·bound → no flip.
+      return {lines: [`${coefX(k)} ${op} ${dash(k * bound)}`, 'x ?'], hint: 'ineq', a: oneSided(op, bound)};
+    }
+    if (kind <= 7) {
+      // Two steps: ±kx + p ∘ c (flip when the coefficient is negative).
+      const neg = r(0, 1) === 0;
+      const p = r(1, 9) * (r(0, 1) === 0 ? 1 : -1);
+      const a = neg ? -k : k;
+      const shown = neg ? FLIP[op] : op;
+      return {lines: [`${linearExpr(a, p)} ${shown} ${dash(a * bound + p)}`, 'x ?'], hint: 'ineq', a: oneSided(op, bound)};
+    }
+    // —— simple systems: one half is already "x ∘ n", the other is x + p ∘ q ——
+    const half = (dir, at, closed, plain) => {
+      const rel = dir === 'right' ? (closed ? '≥' : '>') : closed ? '≤' : '<';
+      if (plain) return `x ${rel} ${dash(at)}`;
+      const p = r(1, 3);
+      return `x + ${p} ${rel} ${dash(at + p)}`;
+    };
+    const lo = r(-3, 2);
+    const hi = lo + r(2, 4);
+    const plainFirst = r(0, 1) === 0;
+    if (kind === 8 || r(0, 2) > 0) {
+      const loClosed = r(0, 1) === 1;
+      const hiClosed = r(0, 1) === 1;
+      return {
+        lines: [`{ ${half('right', lo, loClosed, plainFirst)}`, `{ ${half('left', hi, hiClosed, !plainFirst)}`, '?'],
+        hint: 'ineq',
+        a: `${lo}${loClosed ? '≤' : '<'}x${hiClosed ? '≤' : '<'}${hi}`,
+      };
+    }
+    // No overlap: x ≥ hi and x < lo.
+    return {lines: [`{ ${half('right', hi, true, plainFirst)}`, `{ ${half('left', lo, false, !plainFirst)}`, '?'], hint: 'ineq', a: '∅'};
+  },
 };
 
 export function makeQuestion(pools, rng) {
@@ -163,6 +307,10 @@ export function makeQuestion(pools, rng) {
 
 /** True when the typed answer is exactly the expected one (fractions must be in simplest form). */
 export function checkAnswer(question, input) {
+  if (!question) return false;
+  if (question.pool === 'inequalities') {
+    return normalizeIneqAnswer(input) === normalizeIneqAnswer(question.a);
+  }
   const typed = String(input == null ? '' : input).replace(/\s+/g, '').replace(/−/g, '-');
-  return Boolean(question) && /^-?\d+(\/\d+)?$/.test(typed) && typed === question.a;
+  return /^-?\d+(\/\d+)?$/.test(typed) && typed === question.a;
 }

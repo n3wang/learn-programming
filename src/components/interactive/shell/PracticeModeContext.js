@@ -7,6 +7,8 @@ import { createContext, useContext, useEffect } from 'react';
  *  - ProblemShell hides its own header buttons and shows the solution only when
  *    `showAnswer` is true (the runner owns the reveal / next flow);
  *  - simulators report what the student must type via usePracticeAnswer.
+ *  - `printMode`: ProblemShell renders prompt-only (no CEBlock / actions / solution)
+ *    so the runner can show a printable worksheet of many problems at once.
  */
 const PracticeModeContext = createContext(null);
 

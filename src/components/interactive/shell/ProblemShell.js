@@ -30,12 +30,26 @@ export default function ProblemShell({
   const practice = usePracticeMode();
   const [localShowAnswer, setShowAnswer] = useState(false);
   const showAnswer = practice ? Boolean(practice.showAnswer) : localShowAnswer;
+  const printMode = Boolean(practice?.printMode);
   const promptRef = useRef(null);
   const solutionRef = useRef(null);
 
   useEffect(() => {
     setShowAnswer(false);
   }, [problemKey]);
+
+  const prompt = (
+    <div ref={promptRef}>
+      <TranslatableParagraph as="div" translateKey={`prompt:${problemKey}`}>
+        {typeof children === 'function' ? children(showAnswer) : children}
+      </TranslatableParagraph>
+    </div>
+  );
+
+  // Print sheet: prompt only — no CEBlock chrome, no solution, no action buttons.
+  if (printMode) {
+    return prompt;
+  }
 
   const actions = (
     <Stack direction="row" spacing={0.25} sx={{ flexWrap: 'wrap', justifyContent: 'flex-end' }} useFlexGap>
@@ -54,7 +68,7 @@ export default function ProblemShell({
         getPayload={() => {
           // Prefer explicit draft strings when provided; else scrape rendered text.
           // Temporarily reveal solution DOM for capture if needed.
-          const prompt =
+          const promptText =
             (typeof draftPrompt === 'string' && draftPrompt.trim()) ||
             textFromNode(promptRef.current);
           let answer =
@@ -65,7 +79,7 @@ export default function ProblemShell({
           }
           return {
             title: title || 'Problem',
-            prompt,
+            prompt: promptText,
             answer,
           };
         }}
@@ -75,11 +89,7 @@ export default function ProblemShell({
 
   return (
     <CEBlock title={title} subtitle={subtitle} headerAction={practice ? null : actions}>
-      <div ref={promptRef}>
-        <TranslatableParagraph as="div" translateKey={`prompt:${problemKey}`}>
-          {typeof children === 'function' ? children(showAnswer) : children}
-        </TranslatableParagraph>
-      </div>
+      {prompt}
 
       {/* Keep solution mounted (hidden) so draft mode can copy answers without opening 显示解答 */}
       <div

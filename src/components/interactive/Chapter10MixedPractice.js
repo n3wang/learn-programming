@@ -47,7 +47,7 @@ import ThreeSegmentRoadSimulator from './ThreeSegmentRoadSimulator';
  * Question pool only — the runner lives in shell/MixedPractice.js.
  */
 
-const CATEGORIES = [
+export const CATEGORIES = [
   {
     id: '10.1',
     name: '10.1 概念',
