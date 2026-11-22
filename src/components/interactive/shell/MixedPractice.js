@@ -75,7 +75,8 @@ function interleave(items) {
 }
 
 let seq = 0;
-function buildRun(categories, count) {
+/** `ordered`: keep category order (an exam paper's question order) instead of interleaving. */
+function buildRun(categories, count, ordered = false) {
   const alloc = allocate(categories, count);
   const items = [];
   categories.forEach((cat, ci) => {
@@ -93,7 +94,7 @@ function buildRun(categories, count) {
       });
     });
   });
-  return interleave(items);
+  return ordered ? items : interleave(items);
 }
 
 function CountPicker({ value, onChange, options = DEFAULT_COUNT_OPTIONS }) {
@@ -223,6 +224,7 @@ function EquationItem({ item, showAnswer }) {
       <Box sx={{ fontSize: '1.05em' }}>
         <MathText text={problem.prompt} />
       </Box>
+      {problem.figure || null}
       {showAnswer ? (
         <Box
           className={styles.solution}
@@ -365,6 +367,7 @@ function PrintEqItem({ item, index }) {
       <Box sx={{ fontSize: '1.05em' }}>
         <MathText text={item.problem.prompt} />
       </Box>
+      {item.problem.figure || null}
       <PrintBlanks fields={fields} />
     </div>
   );
@@ -926,12 +929,13 @@ export default function MixedPractice({
   countOptions = DEFAULT_COUNT_OPTIONS,
   allowPrint = false,
   anchorId = 'mixed-practice-top',
+  ordered = false,
   children,
 }) {
   const [showHelp, setShowHelp] = useState(false);
   const [printMode, setPrintMode] = useState(false);
   const [count, setCount] = useState(defaultCount);
-  const [items, setItems] = useState(() => buildRun(categories, defaultCount));
+  const [items, setItems] = useState(() => buildRun(categories, defaultCount, ordered));
   const [index, setIndex] = useState(0);
   const [results, setResults] = useState([]);
   const [showAnswer, setShowAnswer] = useState(false);
@@ -970,7 +974,7 @@ export default function MixedPractice({
   }, [item, simFields]);
 
   const restart = (n = count) => {
-    setItems(buildRun(categories, n));
+    setItems(buildRun(categories, n, ordered));
     setIndex(0);
     setResults([]);
     setShowAnswer(false);
