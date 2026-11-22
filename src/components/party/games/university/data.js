@@ -29,10 +29,19 @@ export function roomsFor(n) {
   return Object.keys(ROOMS).slice(0, k);
 }
 
-/** Default Knowledge cost to draw 2 skills and keep one (host can set 3 / 6 / 8). */
-export const SPELL_COST = 6;
+/** Default flat Knowledge cost to draw skills and keep one (host can set 3 / 6 / 8 / progressive). */
+export const SPELL_COST = 3;
+/** Flat cost choices the host can pick (not progressive). */
+export const SPELL_COST_FLAT = [3, 6, 8];
+/**
+ * Progressive learn costs by how many skills already learned:
+ * 1st → 3, 2nd–6th → 6, 7th+ → 9.
+ */
+export const SPELL_COST_PROGRESSIVE = [3, 6, 6, 6, 6, 6, 9];
 /** How many unknown skills the draw shows (pick 1). */
-export const SPELL_DRAW = 2;
+export const SPELL_DRAW = 3;
+/** Knowledge to shuffle an open offer and draw again. */
+export const REROLL_COST = 1;
 
 /** Pull weights by rarity tier (higher = more common). */
 export const RARITY_WEIGHT = {B: 4, A: 2, S: 1};

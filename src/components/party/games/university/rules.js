@@ -3,7 +3,8 @@
  * moves. See the "Clocktower University: Design Plan" doc.
  *
  * Day: players move between campus rooms, learn skills (pay flat Knowledge,
- * draw 2, keep 1), use day skills, set up tonight's skills (locked once set).
+ * draw 3, keep 1; reroll for 1 Knowledge), use day skills, set up tonight's
+ * skills (locked once set).
  * Then everyone marks a suspect; the top accused (scaled by table size — 3
  * for 12 players) defend, and the class picks one of them to expel.
  * Night: everyone does homework (the phone counts correct answers and reports
@@ -21,7 +22,21 @@
 import {randomAvatar} from '@site/src/components/BetsAndWagers/logic';
 import {cue, duration, isBotId, log, pick, shuffle} from '../../core/partyCore';
 import {normalizePools} from '../../core/mathQuestions';
-import {ACTORS, GIFT_AMOUNT, MAX_NIGHT_CASTS, MAX_SPELLS, RARITY_WEIGHT, ROLES, SPELL_COST, SPELL_DRAW, SPELLS, roomsFor} from './data';
+import {
+  ACTORS,
+  GIFT_AMOUNT,
+  MAX_NIGHT_CASTS,
+  MAX_SPELLS,
+  RARITY_WEIGHT,
+  REROLL_COST,
+  ROLES,
+  SPELL_COST,
+  SPELL_COST_FLAT,
+  SPELL_COST_PROGRESSIVE,
+  SPELL_DRAW,
+  SPELLS,
+  roomsFor,
+} from './data';
 
 const ROLES_S = 30;
 const DAWN_S = 8;
@@ -125,14 +140,12 @@ export function setupUniversity(seats, settings, ctx) {
     demonKillAt: Math.max(0, Math.floor(Number(settings.demonKillAt ?? DEMON_KILL_ALIVE_DEFAULT))),
     // Host big screen: list who is in each room during the day (night stays secret).
     showRooms: Boolean(settings.showRooms),
-    // Host: floating +1/−1 from a player's room when homework scores.
+    // Host: floating +1 / −0.5 from a player's room when homework scores.
     showHwPop: settings.showHwPop !== false,
     hwPops: [],
-    // Knowledge cost to draw skills (host: 3 / 6 / 8).
-    spellCost: [3, 6, 8].includes(Number(settings.spellCost))
-      ? Number(settings.spellCost)
-      : SPELL_COST,
-    // Kick living humans who skip homework this many nights in a row (0 = off).
+    // Knowledge cost to draw skills (host: 3 / 6 / 8 / progressive).
+    spellCost: normalizeSpellCostSetting(settings.spellCost),
+    // Kick living humans who stay fully idle this many nights in a row (0 = off).
     idleKickNights: [0, 1, 2, 3].includes(Number(settings.idleKickNights))
       ? Number(settings.idleKickNights)
       : 2,
@@ -303,10 +316,14 @@ export function mustPickRoleFirst(s, id) {
   return roleTargets(s, id).length > 0 && !s.roleTarget[id];
 }
 
+/** Grade lost per wrong homework answer (Knowledge is not reduced). */
+export const WRONG_GRADE_PENALTY = 0.5;
+
 /**
  * Homework / practice: the phone reports running totals of correct and wrong
- * answers for this session. Correct raises Grade (+ Knowledge if alive);
- * wrong lowers Grade by 1 each (floor 0). Dead may practice any phase, any time.
+ * answers for this session. Correct raises Grade and Knowledge; wrong lowers
+ * Grade by WRONG_GRADE_PENALTY each (floor 0) and does not touch Knowledge.
+ * Dead may practice any phase, any time.
  */
 export function homework(s, ctx, id, total, wrongs = 0) {
   if (s.over) return false;
@@ -338,10 +355,12 @@ export function homework(s, ctx, id, total, wrongs = 0) {
   if (delta > 0) bag[id] = n;
   if (wrongDelta > 0) wBag[id] = w;
   s.grade = s.grade || {};
-  s.grade[id] = Math.max(0, (s.grade[id] || 0) + delta - wrongDelta);
+  const gradeHit = wrongDelta * WRONG_GRADE_PENALTY;
+  // Keep halves exact (avoid 1.0000001 drift).
+  s.grade[id] = Math.max(0, Math.round(((s.grade[id] || 0) + delta - gradeHit) * 2) / 2);
   // Living homework and ghost practice both mint Knowledge (ghosts save up to graduate).
+  // Wrong answers do not spend Knowledge.
   if (delta > 0) s.knowledge[id] += delta * (s.role[id] === 'exchange' ? 2 : 1);
-  if (wrongDelta > 0) s.knowledge[id] = Math.max(0, s.knowledge[id] - wrongDelta);
   if (s.showHwPop) {
     const room = s.room[id] || null;
     const stamp = ctx.now;
@@ -350,7 +369,7 @@ export function homework(s, ctx, id, total, wrongs = 0) {
       pops.push({key: `${stamp}+${id}-${i}`, player: id, room, n: 1});
     }
     for (let i = 0; i < wrongDelta; i += 1) {
-      pops.push({key: `${stamp}-${id}-${i}`, player: id, room, n: -1});
+      pops.push({key: `${stamp}-${id}-${i}`, player: id, room, n: -WRONG_GRADE_PENALTY});
     }
     if (pops.length) s.hwPops = [...(s.hwPops || []), ...pops].slice(-48);
   }
@@ -508,18 +527,34 @@ function weightedDraw(pool, n, rng) {
   return out;
 }
 
-/**
- * Pay the flat spell cost and open a draw of {@link SPELL_DRAW} weighted
- * unowned spells. The player must then {@link pickSpell} one of them.
- */
-export function spellCostOf(s) {
-  const n = Number(s.spellCost);
-  return [3, 6, 8].includes(n) ? n : SPELL_COST;
+/** Host setting: a flat 3/6/8, or `'progressive'` (3 then 6×5 then 9+). */
+export function normalizeSpellCostSetting(raw) {
+  if (raw === 'progressive') return 'progressive';
+  const n = Number(raw);
+  return SPELL_COST_FLAT.includes(n) ? n : SPELL_COST;
 }
 
+/**
+ * Knowledge to open the next skill draw for this player.
+ * Progressive: 1st skill 3, skills 2–6 cost 6 each, then 9 thereafter.
+ */
+export function spellCostOf(s, id) {
+  if (s.spellCost === 'progressive') {
+    const learned = (s.learned && s.learned[id]) || 0;
+    if (learned < SPELL_COST_PROGRESSIVE.length) return SPELL_COST_PROGRESSIVE[learned];
+    return SPELL_COST_PROGRESSIVE[SPELL_COST_PROGRESSIVE.length - 1];
+  }
+  const n = Number(s.spellCost);
+  return SPELL_COST_FLAT.includes(n) ? n : SPELL_COST;
+}
+
+/**
+ * Pay the spell cost and open a draw of {@link SPELL_DRAW} weighted
+ * unowned spells. The player must then {@link pickSpell} one of them.
+ */
 export function drawSpell(s, ctx, id) {
   if (s.dead[id] || !dayPhase(s) || !canLearn(s, id) || (s.offer && s.offer[id])) return false;
-  const cost = spellCostOf(s);
+  const cost = spellCostOf(s, id);
   if (s.knowledge[id] < cost) return false;
   const pool = unownedSpells(s, id);
   if (!pool.length) return false;
@@ -527,6 +562,27 @@ export function drawSpell(s, ctx, id) {
   s.knowledge[id] -= cost;
   s.offer = {...(s.offer || {}), [id]: offer};
   log(s, {kind: 'draw', actor: id});
+  return true;
+}
+
+/**
+ * Spend {@link REROLL_COST} Knowledge to replace the open offer with a fresh
+ * draw of {@link SPELL_DRAW} (prefers skills not in the current offer).
+ */
+export function rerollSpell(s, ctx, id) {
+  const cur = (s.offer || {})[id];
+  if (s.dead[id] || !dayPhase(s) || !cur || !cur.length) return false;
+  if ((s.knowledge[id] || 0) < REROLL_COST) return false;
+  const pool = unownedSpells(s, id);
+  if (!pool.length) return false;
+  const avoid = new Set(cur);
+  let bag = pool.filter((k) => !avoid.has(k));
+  if (bag.length < Math.min(SPELL_DRAW, pool.length)) bag = pool;
+  const offer = weightedDraw(bag, Math.min(SPELL_DRAW, bag.length), ctx.rng);
+  if (!offer.length) return false;
+  s.knowledge[id] -= REROLL_COST;
+  s.offer = {...(s.offer || {}), [id]: offer};
+  log(s, {kind: 'reroll', actor: id});
   return true;
 }
 
@@ -848,7 +904,10 @@ function resolveNight(s, ctx) {
     log(s, {kind: 'cultTransfer', from: id, to: heir});
     cue(s, 'cultTransfer', {from: ctx.seatOf(id), to: ctx.seatOf(heir)});
   }
-  // Skip homework N nights in a row → out of the game (host setting; bots exempt).
+  // Completely idle N nights in a row → out of the game (host setting; bots exempt).
+  // Homework, a night role pick, or a queued skill all count as activity — so
+  // Demons/Professors who only vote/investigate are not mass-kicked (and listed).
+  // Night 1 never increments the streak (first-night grace).
   const needIdle = s.idleKickNights || 0;
   s.idleNights = s.idleNights || {};
   s.idleKicks = [];
@@ -856,10 +915,12 @@ function resolveNight(s, ctx) {
     for (const id of alive(s)) {
       if (isBotId(id)) continue;
       const didHw = (s.hw[id] || 0) + ((s.hwWrong && s.hwWrong[id]) || 0) > 0;
-      if (didHw) {
+      const didAct = Boolean(s.roleTarget[id]) || ((s.queued[id] || []).length > 0);
+      if (didHw || didAct) {
         s.idleNights[id] = 0;
         continue;
       }
+      if (s.night === 1) continue;
       s.idleNights[id] = (s.idleNights[id] || 0) + 1;
       if (s.idleNights[id] < needIdle) continue;
       s.dead[id] = true;

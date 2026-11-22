@@ -6,7 +6,7 @@ import MathPad, {PoolPicker} from '../../core/MathPad';
 import SettingHelp from '../../core/SettingHelp';
 import {checkAnswer, makeQuestion} from '../../core/mathQuestions';
 import {Avatar, Countdown} from '@site/src/components/BetsAndWagers/ui';
-import {MAX_NIGHT_CASTS, MAX_SPELLS, ROLES, ROOMS, SPELL_COST, SPELLS} from './data';
+import {MAX_NIGHT_CASTS, MAX_SPELLS, REROLL_COST, ROLES, ROOMS, SPELL_COST, SPELL_COST_FLAT, SPELL_DRAW, SPELLS} from './data';
 import {
   activeRooms,
   accuseTargets,
@@ -30,6 +30,7 @@ import {
   moveTo,
   mustPickRoleFirst,
   pickSpell,
+  rerollSpell,
   revive,
   reviveLimitOf,
   revivesLeft,
@@ -37,6 +38,7 @@ import {
   roleTargets,
   setLock,
   setupUniversity,
+  spellCostOf,
   spellTargets,
   suspectVote,
   timeout,
@@ -75,7 +77,7 @@ const tu = makeT({
     lockedTag: 'Locked',
     correct: '{n} correct',
     wrongReveal: 'Incorrect — you entered {got}; correct is {answer}',
-    practiceHelp: 'Correct raises Grade and Knowledge; wrong loses 1 of each. Reach the Knowledge cost to graduate as Jr.',
+    practiceHelp: 'Correct raises Grade and Knowledge; wrong loses 0.5 Grade (Knowledge stays).',
     ok: 'OK',
     panel: 'Skills & actions',
     closePanel: 'Back to homework',
@@ -119,8 +121,10 @@ const tu = makeT({
     shop: 'Skill shop',
     learnAdd: 'Learn a skill',
     drawSpell: 'Learn a skill',
-    drawCost: 'Costs {n} Knowledge · keep 1 of 2',
+    drawCost: 'Costs {n} Knowledge · keep 1 of {draw}',
     pickOne: 'Pick one to keep:',
+    rerollOffer: 'Shuffle · {n} Knowledge',
+    needReroll: 'Need {n} Knowledge to shuffle',
     owned: 'Owned',
     mySpells: 'Skills',
     usesLeft: '{n} left',
@@ -250,17 +254,18 @@ const tu = makeT({
     showRoomsOn: 'Show names',
     showRoomsOff: 'Hide names (icons still show)',
     showRoomsHint: 'Day only on the host screen. Night stays secret either way. Avatars always appear on room cards.',
-    showHwPop: 'Homework +1/−1 floats on rooms',
+    showHwPop: 'Homework +1/−0.5 floats on rooms',
     showHwPopOn: 'On',
     showHwPopOff: 'Off',
-    showHwPopHint: 'When someone scores homework, a +1 or −1 floats up from their room with their icon.',
+    showHwPopHint: 'When someone scores homework, a +1 or −0.5 floats up from their room with their icon.',
     spellCost: 'Knowledge to learn a skill',
-    spellCostHint: 'Cost to draw 2 skills and keep 1.',
-    idleKickNights: 'Kick if no homework',
+    spellCostHint: `Flat cost, or progressive: 1st skill 3, skills 2–6 cost 6, then 9. Draw ${SPELL_DRAW} keep 1 (shuffle ${REROLL_COST}).`,
+    spellCostProgressive: '3→6→9',
+    idleKickNights: 'Kick if idle',
     idleKickOff: 'Off',
-    idleKickHint: 'Living players who skip homework this many nights in a row are removed (any correct or wrong answer counts).',
-    idleKickedTonight: 'Removed (no homework):',
-    info_idleKick: 'Removed: no homework for {n} nights in a row.',
+    idleKickHint: 'Living players with no homework, night role pick, or queued skill for this many nights in a row are removed (night 1 never counts).',
+    idleKickedTonight: 'Removed (idle):',
+    info_idleKick: 'Removed: idle for {n} nights in a row (no homework and no night action).',
     tables: 'Homework questions',
     sec: '{n} s',
     min: '{n} min',
@@ -296,7 +301,7 @@ const tu = makeT({
     lockedTag: '已上锁',
     correct: '答对 {n} 题',
     wrongReveal: '答错 — 你的输入：{got}；正确答案：{answer}',
-    practiceHelp: '答对加成绩和知识，答错各扣 1 点。攒够知识可毕业变成 Jr。',
+    practiceHelp: '答对加成绩和知识，答错只扣 0.5 成绩（知识不动）。攒够知识可毕业变成 Jr。',
     ok: '确定',
     panel: '技能与行动',
     closePanel: '回到作业',
@@ -340,8 +345,10 @@ const tu = makeT({
     shop: '技能商店',
     learnAdd: '学习技能',
     drawSpell: '学习技能',
-    drawCost: '花费 {n} 知识 · 二选一',
+    drawCost: '花费 {n} 知识 · {draw} 选 1',
     pickOne: '选一个留下：',
+    rerollOffer: '换一批 · {n} 知识',
+    needReroll: '换一批需要 {n} 知识',
     owned: '已拥有',
     mySpells: '技能',
     usesLeft: '剩 {n} 次',
@@ -471,17 +478,18 @@ const tu = makeT({
     showRoomsOn: '显示名字',
     showRoomsOff: '隐藏名字（仍显示头像）',
     showRoomsHint: '仅白天大屏。夜晚无论怎样都保密。房间卡上始终显示头像。',
-    showHwPop: '作业 ±1 从房间飘出',
+    showHwPop: '作业 +1/−0.5 从房间飘出',
     showHwPopOn: '开',
     showHwPopOff: '关',
-    showHwPopHint: '有人答对/答错作业时，对应房间飘出带头像的 +1 或 −1。',
+    showHwPopHint: '有人答对/答错作业时，对应房间飘出带头像的 +1 或 −0.5。',
     spellCost: '学习技能所需知识',
-    spellCostHint: '花这些知识抽出 2 个技能并留下 1 个。',
-    idleKickNights: '不做功课则踢出',
+    spellCostHint: `固定花费，或递增：第 1 个 3、第 2–6 个各 6、之后 9。抽出 ${SPELL_DRAW} 留 1（换一批 ${REROLL_COST}）。`,
+    spellCostProgressive: '3→6→9',
+    idleKickNights: '挂机则踢出',
     idleKickOff: '关',
-    idleKickHint: '连续这么多个夜晚完全不做功课（对或错都算）的存活玩家会被移出本局。',
-    idleKickedTonight: '因不做功课移出：',
-    info_idleKick: '你被移出：连续 {n} 个夜晚没有做作业。',
+    idleKickHint: '连续这么多个夜晚既不做作业、也不做夜晚角色行动/技能的存活玩家会被移出（第一晚不计入）。',
+    idleKickedTonight: '因挂机移出：',
+    info_idleKick: '你被移出：连续 {n} 个夜晚挂机（没做作业也没夜晚行动）。',
     tables: '作业题型',
     sec: '{n} 秒',
     min: '{n} 分钟',
@@ -578,7 +586,7 @@ function RoomCard({
                 {pop.avatar != null || pop.color != null ? (
                   <Avatar avatar={pop.avatar} color={pop.color} size="xs" />
                 ) : null}
-                <b>{pop.n > 0 ? '+1' : '−1'}</b>
+                <b>{pop.n > 0 ? `+${pop.n}` : `−${Math.abs(pop.n)}`}</b>
               </span>
             ))}
           </span>
@@ -686,7 +694,7 @@ function botMove(s, g, id, ctx) {
     return null;
   }
   if (s.phase === 'day' || s.phase === 'dawn' || s.phase === 'suspect') {
-    if (rng() < 0.02 && canLearn(s, id) && s.knowledge[id] >= (s.spellCost || SPELL_COST)) {
+    if (rng() < 0.02 && canLearn(s, id) && s.knowledge[id] >= spellCostOf(s, id)) {
       if (s.offer && s.offer[id] && s.offer[id].length) return {action: 'pick', spell: pick(s.offer[id], rng)};
       return {action: 'draw'};
     }
@@ -724,18 +732,18 @@ function botMove(s, g, id, ctx) {
 const RULEBOOK = {
   en: [
     {title: 'The goal', items: ['Good (Students, Exchange Students, Professors) wins when every Demon King is expelled or slain. With no Demon King in the game, every Demon must go.', 'Evil wins when Demons and Demon Kings are at least half of the players still in the game.']},
-    {title: 'A night', items: ['Everyone does homework: correct answers earn 1 Knowledge and 1 Grade; wrong answers lose 1 of each. The host can auto-remove anyone who skips homework several nights in a row (default 2).', 'Use skills and role actions on your phone. Everyone has those screens, so nobody can tell who acts.', 'Professors learn if a player is good or evil. Demons learn if a roommate is a Professor. Demon Kings may slay any living player (not on night 1; locks can block).']},
-    {title: 'A day', items: ['Talk, move to another room, learn a skill (draw 2, keep 1), use day skills.', 'Then everyone marks one suspect (players with Grade 0 can’t be accused). The top accused defend (about 1 per 4 players — 3 for a table of 12; fewer if not enough people were named).', 'After the defense, everyone picks one accused to expel, or nobody. Most votes wins; a tie expels nobody.']},
+    {title: 'A night', items: ['Everyone does homework: correct answers earn 1 Knowledge and 1 Grade; wrong answers lose 0.5 Grade only (Knowledge stays). The host can auto-remove anyone who stays fully idle (no homework and no night action) several nights in a row (default 2; night 1 never counts).', 'Use skills and role actions on your phone. Everyone has those screens, so nobody can tell who acts.', 'Professors learn if a player is good or evil. Demons learn if a roommate is a Professor. Demon Kings may slay any living player (not on night 1; locks can block).']},
+    {title: 'A day', items: [`Talk, move to another room, learn a skill (draw ${SPELL_DRAW}, keep 1; shuffle for ${REROLL_COST} Knowledge), use day skills.`, 'Then everyone marks one suspect (players with Grade 0 can’t be accused). The top accused defend (about 1 per 4 players — 3 for a table of 12; fewer if not enough people were named).', 'After the defense, everyone picks one accused to expel, or nobody. Most votes wins; a tie expels nobody.']},
     {title: 'Rooms and locks', items: ['Campus opens about 1 room per 3 players (2 at 6, 3 at 9, max 5). Who sleeps where is hidden by day.', 'At night your phone shows only your room and who is with you. “In your room” skills use that secret layout.', 'Demons only investigate other players in their own room. Demons know the Demon King; the King does not know the Demons.', 'Each player has one key per game. A locked room keeps out a Demon King who sleeps somewhere else.']},
-    {title: 'Skills', items: [`Pay Knowledge (host sets 3, 6, or 8; default ${SPELL_COST}) to draw 2 skills (weighted B/A/S) and keep one — the card shows its rank. Hold at most ${MAX_SPELLS} (one passive). Some skills only appear for your role. Actives are 1 use; at most 2 night skills a night.`, 'Night skills can be set up by day or used at night; once set, they can’t change.', 'Exchange Students earn double Knowledge but look evil to Professors and skills.']},
+    {title: 'Skills', items: [`Pay Knowledge (host sets flat 3/6/8 or progressive 3→6→9; default ${SPELL_COST}) to draw ${SPELL_DRAW} skills (weighted B/A/S) and keep one — shuffle the offer for ${REROLL_COST} Knowledge. Hold at most ${MAX_SPELLS} (one passive). Some skills only appear for your role. Actives are 1 use; at most 2 night skills a night.`, 'Night skills can be set up by day or used at night; once set, they can’t change.', 'Exchange Students earn double Knowledge but look evil to Professors and skills.']},
     {title: 'Death and Jr', items: ['Dead players keep practicing math: correct answers still raise Grade and Knowledge.', 'Spend the host’s Knowledge cost to graduate: you return with a new face, your name gains another “Jr”, Knowledge resets to 0, and Grade stays.', 'Each graduation stacks another Jr (Edward → Edward Jr → Edward Jr Jr). The host can cap how many times this happens.']},
   ],
   zh: [
     {title: '目标', items: ['善良阵营（学生、交换生、教授）在所有魔王被开除或击倒时获胜。如果本局没有魔王，则需要所有魔出局。', '魔与魔王人数达到场上剩余玩家的一半或更多时，邪恶获胜。']},
-    {title: '夜晚', items: ['所有人做作业：答对获得 1 点知识和 1 点成绩；答错各扣 1 点。房主可设定连续若干晚不做功课则自动移出（默认 2 晚）。', '在手机上使用技能和角色行动。每个人都有这些界面，所以没人知道谁在行动。', '教授得知一名玩家是善良还是邪恶。魔得知同房一人是否是教授。魔王可击倒任意存活玩家（首夜除外；上锁可挡）。']},
-    {title: '白天', items: ['讨论、换到别的房间、学习技能（二选一）、使用白天技能。', '然后每人标出一名怀疑对象（成绩为 0 的不能被指控）。得票最高的若干人辩护（大约每 4 人 1 个席位——12 人时 3 席；若被点名的人不够则更少）。', '辩护结束后，每人从被告中选一人开除，或谁也不开除。得票最多者出局，平票则无人被开除。']},
+    {title: '夜晚', items: ['所有人做作业：答对获得 1 点知识和 1 点成绩；答错只扣 0.5 成绩（知识不动）。房主可设定连续若干晚完全挂机（不做作业也不做夜晚行动）则自动移出（默认 2 晚；第一晚不计入）。', '在手机上使用技能和角色行动。每个人都有这些界面，所以没人知道谁在行动。', '教授得知一名玩家是善良还是邪恶。魔得知同房一人是否是教授。魔王可击倒任意存活玩家（首夜除外；上锁可挡）。']},
+    {title: '白天', items: [`讨论、换到别的房间、学习技能（${SPELL_DRAW} 选 1，花 ${REROLL_COST} 知识可换一批）、使用白天技能。`, '然后每人标出一名怀疑对象（成绩为 0 的不能被指控）。得票最高的若干人辩护（大约每 4 人 1 个席位——12 人时 3 席；若被点名的人不够则更少）。', '辩护结束后，每人从被告中选一人开除，或谁也不开除。得票最多者出局，平票则无人被开除。']},
     {title: '房间与锁', items: ['校园大约每 3 人开 1 间房（6 人 2 间、9 人 3 间，最多 5 间）。白天不公开谁睡在哪。', '夜里手机只显示你自己的房间和同房的人。“你房间里”的技能按这套隐藏布局结算。', '魔只能调查自己房间里的其他人。魔知道魔王是谁；魔王不知道谁是魔。', '每名玩家每局有一把钥匙。上锁的房间能挡住睡在别处的魔王。']},
-    {title: '技能', items: [`花知识学习技能（房主可选 3、6 或 8，默认 ${SPELL_COST}）：按 B/A/S 权重抽出 2 个并留下 1 个（卡片显示稀有度）。最多持有 ${MAX_SPELLS} 个（被动最多 1 个）；部分技能仅本角色可抽。主动技均为 1 次；每晚最多排 2 个夜技。`, '夜晚技能可以在白天设定，也可以在夜里使用；设定后不能更改。', '交换生获得双倍知识，但在教授和技能眼中是邪恶的。']},
+    {title: '技能', items: [`花知识学习技能（房主可选固定 3/6/8 或递增 3→6→9，默认 ${SPELL_COST}）：按 B/A/S 权重抽出 ${SPELL_DRAW} 个并留下 1 个；花 ${REROLL_COST} 知识可换一批。最多持有 ${MAX_SPELLS} 个（被动最多 1 个）；部分技能仅本角色可抽。主动技均为 1 次；每晚最多排 2 个夜技。`, '夜晚技能可以在白天设定，也可以在夜里使用；设定后不能更改。', '交换生获得双倍知识，但在教授和技能眼中是邪恶的。']},
     {title: '出局与 Jr', items: ['出局后仍可练数学：答对继续加成绩和知识。', '花掉房主设定的知识即可毕业：换新头像、名字多一个 Jr、知识归零、成绩保留。', '每次毕业再叠一个 Jr（Edward → Edward Jr → Edward Jr Jr）。房主可限制每人毕业次数。']},
   ],
 };
@@ -875,8 +883,11 @@ function UniversityHostView({g, state: s, lang, hostAct}) {
       key = `exec-${s.day}-${s.expelled}`;
       next = [{id: s.expelled, kind: 'expel'}];
     } else if (s.phase === 'dawn' && s.deaths && s.deaths.length) {
+      const afk = new Set(s.idleKicks || []);
+      // Idle kicks are announced in the banner; don't play the slain spectacle for them.
+      const slain = s.deaths.filter((id) => !afk.has(id));
       key = `dawn-${s.night}-${s.deaths.join(',')}`;
-      next = s.deaths.map((id) => ({id, kind: 'slain'}));
+      next = slain.map((id) => ({id, kind: 'slain'}));
     }
     if (!key || playedRef.current.has(key)) return;
     playedRef.current.add(key);
@@ -1063,7 +1074,7 @@ function UniversityHostView({g, state: s, lang, hostAct}) {
               {tu(lang, 'demonKillAt')}: {s.demonKillAt ?? 10}
             </span>
             <span className={styles.gradeMeta}>
-              {tu(lang, 'spellCost')}: {s.spellCost || SPELL_COST}
+              {tu(lang, 'spellCost')}: {s.spellCost === 'progressive' ? tu(lang, 'spellCostProgressive') : s.spellCost || SPELL_COST}
             </span>
             {(s.idleKickNights || 0) > 0 && (
               <span className={styles.gradeMeta}>
@@ -1173,14 +1184,14 @@ const university = {
   howTo: {
     en: [
       'Tap your name tile to see your role. Demons see the Demon King (the King does not see Demons). Good must expel the Demon Kings.',
-      'Night: everyone does math homework. Correct answers earn Knowledge and Grade; wrong answers lose 1 of each. Use skills and role actions in secret.',
+      'Night: everyone does math homework. Correct answers earn Knowledge and Grade; wrong answers lose 0.5 Grade only. Use skills and role actions in secret.',
       'Day: move, learn skills, talk. Then mark a suspect; the top accused defend and the class picks one to expel.',
       'About 1 defense seat per 4 living players (3 for a table of 12). A tie on the final ballot expels nobody.',
       'Dead players keep earning Knowledge. Spend the set cost to graduate as Jr (new face, Knowledge resets, Grade stays).',
     ],
     zh: [
       '点名字条查看你的角色。魔会看到魔王（魔王看不到魔）。善良阵营要开除魔王。',
-      '夜晚：所有人做数学作业。答对获得知识和成绩，答错各扣 1 点。秘密使用技能和角色行动。',
+      '夜晚：所有人做数学作业。答对获得知识和成绩，答错只扣 0.5 成绩。秘密使用技能和角色行动。',
       '白天：移动、学习技能、讨论；然后标出怀疑对象，最高票者辩护，全班再选出一人开除。',
       '大约每 4 名存活玩家 1 个辩护席位（12 人时 3 席）。最终投票平票则无人被开除。',
       '出局后仍可攒知识；花够设定费用就毕业变成 Jr（换头像、知识归零、成绩保留）。',
@@ -1208,7 +1219,7 @@ const university = {
     demonKillAt: 10,
     showRooms: false,
     showHwPop: true,
-    spellCost: 6,
+    spellCost: 3,
     idleKickNights: 2,
     pools: ['basic'],
   },
@@ -1228,6 +1239,8 @@ const university = {
         return roleAct(s, ctx, id, msg.target);
       case 'draw':
         return drawSpell(s, ctx, id);
+      case 'reroll':
+        return rerollSpell(s, ctx, id);
       case 'pick':
       case 'buy':
         return pickSpell(s, ctx, id, msg.spell);
@@ -1288,7 +1301,8 @@ const university = {
       revivesLeft: revivesLeft(s, id),
       reviveMax: reviveLimitOf(s),
       reviveUnlimited: reviveLimitOf(s) === 0,
-      spellCost: s.spellCost || SPELL_COST,
+      spellCost: spellCostOf(s, id),
+      spellCostMode: s.spellCost === 'progressive' ? 'progressive' : 'flat',
       canRevive: Boolean(
         s.dead[id] &&
           (s.reviveAt || 0) > 0 &&
@@ -1432,7 +1446,8 @@ const university = {
         </div>
         <div className={shell.buttonRow}>
           {label('spellCost', 'spellCostHint')}
-          {[3, 6, 8].map((m) => radio('spellCost', m, String(m)))}
+          {SPELL_COST_FLAT.map((m) => radio('spellCost', m, String(m)))}
+          {radio('spellCost', 'progressive', tu(lang, 'spellCostProgressive'))}
         </div>
         <div className={shell.buttonRow}>
           {label('idleKickNights', 'idleKickHint')}
@@ -1539,7 +1554,7 @@ function Homework({view, lang, send}) {
   const knowledgeNow = view.dead
     ? view.knowledge
     : Math.max(0, view.knowledge + pendingOk * (view.role === 'exchange' ? 2 : 1) - pendingBad);
-  const gradeNow = Math.max(0, (view.grade || 0) + pendingOk - pendingBad);
+  const gradeNow = Math.max(0, Math.round(((view.grade || 0) + pendingOk - pendingBad * 0.5) * 2) / 2);
   return (
     <div className={styles.homework}>
       <p className={styles.hwHead}>
@@ -1595,7 +1610,7 @@ function SpellList({view, lang, send, night, showLearn = false}) {
       ? tu(lang, 'learnedAllPool')
       : view.knowledge < spellCost
         ? tu(lang, 'needKnowledge', {n: spellCost})
-        : tu(lang, 'drawCost', {n: spellCost});
+        : tu(lang, 'drawCost', {n: spellCost, draw: SPELL_DRAW});
   const queuedFor = (k) => (view.queued || []).find((q) => q.k === k);
   const usable = (h) => {
     const sp = SPELLS[h.k];
@@ -1798,6 +1813,7 @@ function UniYouBar({env, view, lang, msLeft}) {
 
 function LearnModal({view, lang, send}) {
   if (!view.offer) return null;
+  const canReroll = (view.knowledge || 0) >= REROLL_COST;
   return (
     <div className={styles.modalScrim} role="dialog" aria-modal="true" aria-label={tu(lang, 'pickOne')}>
       <div className={styles.modalCard}>
@@ -1820,6 +1836,14 @@ function LearnModal({view, lang, send}) {
             );
           })}
         </div>
+        <button
+          type="button"
+          className={`button button--sm button--secondary ${styles.rerollBtn}`}
+          disabled={!canReroll}
+          title={canReroll ? undefined : tu(lang, 'needReroll', {n: REROLL_COST})}
+          onClick={() => send({action: 'reroll'})}>
+          {tu(lang, 'rerollOffer', {n: REROLL_COST})}
+        </button>
       </div>
     </div>
   );
