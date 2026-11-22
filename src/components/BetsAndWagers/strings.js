@@ -78,6 +78,7 @@ const STRINGS = {
     replacedBody: 'Only one screen can run the game. Keep playing there, or take the room back here.',
     useThisWindow: 'Use this window',
     imageCredit: 'Image: {credit}',
+    dragToTurn: 'Drag to turn the stack. Drag down to look from above.',
     smallerThanAll: 'Smaller than all',
     seconds: '{n}s',
     // phone
@@ -212,6 +213,7 @@ const STRINGS = {
     replacedBody: '只能有一个屏幕主持游戏。你可以在那边继续，或在这里接管房间。',
     useThisWindow: '使用此窗口',
     imageCredit: '图片：{credit}',
+    dragToTurn: '拖动可以旋转，向下拖可以从上面看。',
     smallerThanAll: '比所有猜测都小',
     seconds: '{n}秒',
     roomCode: '房间码',

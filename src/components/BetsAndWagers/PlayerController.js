@@ -20,6 +20,7 @@ import {LangSwitch, t, useLang} from './strings';
 import {generateName, isGeneratedName} from './names';
 import {playSfx, usePartySfx} from '@site/src/components/party/core/sfx';
 import Sprite from '@site/src/components/party/core/Sprite';
+import CubeStack from './CubeStack';
 import styles from './styles.module.css';
 
 /**
@@ -574,6 +575,12 @@ export default function PlayerController() {
                   {t(lang, 'roundOf', {topic: shown.topic, n: view.round, total: view.rounds})}
                   {view.endsIn > 0 && <Countdown msLeft={msLeft} lang={lang} />}
                 </p>
+                {view.question.cubes && (view.phase === 'guess' || view.phase === 'bet') && (
+                  <>
+                    <CubeStack cubes={view.question.cubes} height={260} spin={false} />
+                    <p className={styles.cubeHint}>{t(lang, 'dragToTurn')}</p>
+                  </>
+                )}
               </div>
             )}
 

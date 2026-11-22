@@ -11,9 +11,10 @@ import grade8Pack from '@site/src/data/party/grade8.json';
 import classicPack from '@site/src/data/party/classic.json';
 import electronicsPack from '@site/src/data/party/electronics.json';
 import {PLACE_ODDS, placePack} from './placePack';
+import {cubesPack} from './cubesPack';
 import {noteFor} from '@site/src/data/party/notes';
 
-export const PACKS = [grade7Pack, grade8Pack, classicPack, electronicsPack, placePack];
+export const PACKS = [grade7Pack, grade8Pack, classicPack, electronicsPack, cubesPack, placePack];
 /** Deck ids from older saved games → the deck that now holds their questions. */
 const RENAMED_PACKS = {math: 'classic', physics: 'classic', robotics: 'electronics'};
 

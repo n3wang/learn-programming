@@ -44,6 +44,7 @@ import {LangSwitch, t, useLang} from './strings';
 import {generateUnblockedName, isBlockedName, isGeneratedName, rememberBlockedName} from './names';
 import {playSfx, playSfxBurst, usePartySfx} from '@site/src/components/party/core/sfx';
 import GamePicker from '@site/src/components/party/core/GamePicker';
+import CubeStack from './CubeStack';
 import styles from './styles.module.css';
 
 /**
@@ -265,9 +266,11 @@ function viewFor(g, playerId, now) {
         : null,
     // The question itself (text, picture) is only on the big screen, so it
     // can't be copied from a phone into a search. Phones get what they need:
-    // the kind of round, the topic, and the unit for the read-back.
+    // the kind of round, the topic, and the unit for the read-back. A cube
+    // stack can't be searched, so phones get it to turn for themselves.
     question: q && {
       type: q.type || 'number',
+      cubes: q.cubes || null,
       unit: q.unit,
       unitZh: q.unitZh,
       topic: q.topic,
@@ -923,6 +926,11 @@ export default function HostScreen() {
             <div className={styles.questionRow}>
               <h1 className={styles.question}>{shown.text}</h1>
               <QuestionImage image={question.image} alt={shown.alt} lang={lang} />
+              {question.cubes && (
+                <div className={styles.cubeHost}>
+                  <CubeStack cubes={question.cubes} height={420} />
+                </div>
+              )}
             </div>
 
             {g.phase === 'guess' && (
