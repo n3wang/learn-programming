@@ -47,12 +47,16 @@ export const CLASS_ROSTERS = {
       '周梓鹏',
       '施璟辰',
       '薛昊呈',
+      '翁艾米',
+      '张薇薇',
+      '吴恩泽',
     ],
   },
   chuer: {
     id: 'chuer',
     label: '初二',
     names: [
+      '叶子龙',
       '严丽莎',
       '何昊喆',
       '何豆豆',
@@ -73,6 +77,7 @@ export const CLASS_ROSTERS = {
       '王梓琪',
       '吴启',
       '何晨希',
+      '郑颍妍',
     ],
   },
   biancheng: {
