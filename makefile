@@ -27,6 +27,7 @@ sync-all:
 	git push origin HEAD
 
 deploy-main:
+	-$(MAKE) -C /root/docker lifesim-deploy
 	$(MAKE) -C /root/docker learn-deploy
 	@echo "Deployed: https://learn.l.l0l.in"
 
