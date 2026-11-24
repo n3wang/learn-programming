@@ -25,7 +25,7 @@ const lessons = [
   {subject: 'iOS', title: 'Lesson Notes', to: '/ios/lesson-notes/lesson-notes'},
   {subject: 'Game Dev', title: 'Welcome', to: '/game-dev/intro'},
   {subject: 'Math', title: 'Lesson Notes', to: '/math/lesson-notes/lesson-notes'},
-  {subject: 'Misc', title: 'Miscellaneous', to: '/misc/intro'},
+  {subject: 'Misc', title: 'Student reports', to: '/misc/student-reports'},
   {
     subject: 'Algorithms',
     title: 'Manhattan Distance',

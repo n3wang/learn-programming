@@ -10,6 +10,7 @@ import ExerciseSet, {Exercise} from '@site/src/components/ExerciseSet';
 import TranslatableParagraph from '@site/src/components/Translate/TranslatableParagraph';
 import BlockArrowScroll from '@site/src/components/BlockArrowScroll';
 import LessonFigure from '@site/src/components/LessonFigure';
+import PageTitle from '@site/src/components/ui/PageTitle';
 import {lazyMdxComponent} from '@site/src/components/lazyMdxComponent';
 import {lazySimulators} from '@site/src/components/interactive/lazySimulators';
 
@@ -37,6 +38,12 @@ const NodeLab = lazyMdxComponent(() => import('@site/src/components/NodeLab'));
 const SheetExercise = lazyMdxComponent(() => import('@site/src/components/SheetExercise'));
 const StudentReportsPanel = lazyMdxComponent(() =>
   import('@site/src/components/class/StudentReportsPanel'),
+);
+const GradebookEditor = lazyMdxComponent(() =>
+  import('@site/src/components/class/GradebookEditor'),
+);
+const ParentReportPanel = lazyMdxComponent(() =>
+  import('@site/src/components/class/ParentReportPanel'),
 );
 const AdminSubmissionsPanel = lazyMdxComponent(() =>
   import('@site/src/components/class/AdminSubmissionsPanel'),
@@ -92,6 +99,9 @@ export default {
     NodeLab,
     SheetExercise,
     StudentReportsPanel,
+    PageTitle,
+    GradebookEditor,
+    ParentReportPanel,
     AdminSubmissionsPanel,
     AdminNotesPanel,
     AdminRosterEditorPanel,

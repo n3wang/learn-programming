@@ -53,10 +53,10 @@ export function countByStudentDay(docs) {
 }
 
 export const INTENSITY_LEVELS = [
-  {label: 'none', min: 0},
-  {label: 'light', min: 1},
-  {label: 'medium', min: 4},
-  {label: 'heavy', min: 10},
+  {label: 'none', zh: '无', min: 0},
+  {label: 'light', zh: '少', min: 1},
+  {label: 'medium', zh: '中', min: 4},
+  {label: 'heavy', zh: '多', min: 10},
 ];
 
 /** 0 = none, 1 = light, 2 = medium, 3 = heavy. */
@@ -94,13 +94,13 @@ export function HeatCell({count = 0, size = 16, title, onClick, selected = false
   return <span style={{...style, display: 'inline-block'}} title={title} />;
 }
 
-export function HeatLegend({size = 12}) {
+export function HeatLegend({size = 12, zh = false}) {
   return (
     <span style={{display: 'inline-flex', alignItems: 'center', gap: 4, fontSize: '0.75rem'}}>
       {INTENSITY_LEVELS.map((entry) => (
         <span key={entry.label} style={{display: 'inline-flex', alignItems: 'center', gap: 3}}>
-          <HeatCell count={entry.min} size={size} title={entry.label} />
-          <span style={{color: 'var(--ifm-color-emphasis-700)'}}>{entry.label}</span>
+          <HeatCell count={entry.min} size={size} title={zh ? entry.zh : entry.label} />
+          <span style={{color: 'var(--ifm-color-emphasis-700)'}}>{zh ? entry.zh : entry.label}</span>
         </span>
       ))}
     </span>

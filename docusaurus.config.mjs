@@ -146,7 +146,7 @@ export default async function createConfig() {
       return [];
     }
     return [
-      {to: '/misc/intro', label: 'Misc'},
+      {to: '/misc/student-reports', label: 'Misc'},
       {to: '/blog', label: 'Blog'},
       {type: 'doc', docId: 'intro', label: 'About'},
     ];
@@ -384,10 +384,6 @@ export default async function createConfig() {
         }, {
           title: 'Games',
           items: [{
-            label: 'Fighting Game',
-            to: '/misc/fighting-game',
-          },
-          {
             label: 'Party games',
             to: '/party',
           },],
