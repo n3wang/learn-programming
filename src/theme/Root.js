@@ -3,6 +3,7 @@ import useDocusaurusContext from '@docusaurus/useDocusaurusContext';
 import ScratchNotes from '@site/src/components/ScratchNotes';
 import TermPeek from '@site/src/components/TermPeek';
 import StudentPickDock from '@site/src/components/navbar/StudentPickDock';
+import StudentActivityReporter from '@site/src/components/activity/useStudentActivityReporter';
 import {
   isLocalApiBase,
   readStoredApiBaseUrl,
@@ -34,6 +35,7 @@ export default function Root({children}) {
   return (
     <>
       <ApiBaseUrlBridge />
+      <StudentActivityReporter />
       {children}
       <ScratchNotes />
       <TermPeek />

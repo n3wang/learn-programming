@@ -1,6 +1,8 @@
 import React, {useMemo, useState} from 'react';
+import Link from '@docusaurus/Link';
 import {filterLoginDirectory} from '@site/src/data/siteAuthSession';
 import {useSiteAuth} from '@site/src/components/navbar/useSiteAuth';
+import AccountActivityStrip from '@site/src/components/activity/AccountActivityStrip';
 
 const HOMEWORK_SUBMIT_URL =
   'https://drive.google.com/drive/folders/1cUjkXudoElFuF98pQVmk9fsggHnhcpdm?usp=sharing';
@@ -32,6 +34,7 @@ export default function SiteLoginPanel() {
 
   if (isLoggedIn) {
     return (
+      <div>
       <div
         style={{
           display: 'flex',
@@ -76,6 +79,15 @@ export default function SiteLoginPanel() {
             Log out
           </button>
         </div>
+      </div>
+      {isStudent && auth?.rosterId && auth?.name ? (
+        <AccountActivityStrip roster={auth.rosterId} student={auth.name} />
+      ) : null}
+      {isAdmin ? (
+        <div style={{marginTop: '0.5rem', fontSize: '0.8rem'}}>
+          <Link to="/class-activity">Class activity heatmap →</Link>
+        </div>
+      ) : null}
       </div>
     );
   }
