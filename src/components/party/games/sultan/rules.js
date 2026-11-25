@@ -23,7 +23,10 @@ const DRAFT_S = 25;
 const AUCTION_S = 120;
 export const QUIZ_N = 3;
 export const NO_MATH_CAP = 3;
-export const quizCount = (s) => QUIZ_N * s.st.picks;
+/** Round 1: 1 problem per pick (+ gift below); later rounds: QUIZ_N per pick. */
+export const quizCount = (s) => (s.round === 1 ? 1 : QUIZ_N) * s.st.picks;
+/** Free bid-purse coins on round 1 so players still get a full purse after one solve. */
+const quizGift = (s) => (s.round === 1 && s.st.math !== 'off' ? 2 * s.st.picks : 0);
 const TURN_S = 50;
 const CALL_PAUSE_S = 2;
 const PROMPT_S = 15;
@@ -45,13 +48,25 @@ export const settingsOf = (n, raw = {}) => {
     events: events ? (kinds.length || mode !== 'madness' ? kinds : Object.keys(EVENTS)) : [],
     goal: [6, 7, 8, 9].includes(raw.goal) ? raw.goal : n <= 3 ? 8 : 7,
     wave: n <= 7 ? 1 : 4,
-    decks: n <= 8 ? 1 : 2,
-    turnS: [30, 45, 60].includes(raw.turnSeconds) ? raw.turnSeconds : TURN_S,
+    // One district set per 8 players (ceil): 20 → 3, 64 → 8.
+    decks: Math.max(1, Math.ceil(n / 8)),
+    turnS: [30, 45, 60, 90, 120].includes(raw.turnSeconds) ? raw.turnSeconds : TURN_S,
     select: raw.select === 'auction' ? 'auction' : 'pick',
     math: raw.math === 'off' ? 'off' : 'on',
     mathPools: normalizePools(raw.mathPools),
+    // Default on: dates / marriage only between male and female characters.
+    heteroDates: raw.heteroDates !== false,
   };
 };
+
+/** True when these two characters may date under the table’s marriage rule. */
+export function canDatePair(s, a, b) {
+  if (!a || !b || a === b) return false;
+  if (!s.st || s.st.heteroDates === false) return true;
+  const ga = charOf(a) && charOf(a).gender;
+  const gb = charOf(b) && charOf(b).gender;
+  return Boolean(ga && gb && ga !== gb);
+}
 
 export const ownerOf = (s, card) => s.owner[card] || null;
 export const numberOf = (card) => charOf(card).n;
@@ -380,23 +395,25 @@ function startRound(s, ctx) {
 //
 // Instead of picking in turn, everyone gets one shared window (AUCTION_S per
 // pick: 2 min, or 4 min when each player takes two characters): first
-// QUIZ_N problems per pick (+1 bid-coin each in a round purse), then secret
-// bids. Finishing the math early leaves more time to bid. You may bid only
-// the purse (math off: up to NO_MATH_CAP per pick of your own gold). Highest
-// bid wins; ties → crown first, then seat order. Only winners pay from the
-// purse; coins you do not spend on a win are added to your treasure.
-// Citizens are not auctioned: they are what you get when you win nothing.
+// QUIZ_N problems per pick (+1 bid-coin each in a round purse; round 1 is
+// one problem + two gifted coins per pick), then secret bids. Finishing the
+// math early leaves more time to bid. You may bid only the purse (math off:
+// up to NO_MATH_CAP per pick of your own gold). Highest bid wins; ties →
+// crown first, then seat order. Only winners pay from the purse; coins you
+// do not spend on a win are added to your treasure. Citizens are not
+// auctioned: they are what you get when you win nothing.
 
 const isCitizen = (k) => /^citizen/.test(k);
 const newQuiz = (s, ctx) => (s.st.math === 'off' ? [] : Array.from({length: quizCount(s)}, () => ({...makeQuestion(s.st.mathPools, ctx.rng), state: null})));
 
 function startQuiz(s, ctx, pool) {
   s.phase = 'auction';
+  const gift = quizGift(s);
   s.auction = {
     lots: shuffle(pool.filter((k) => !isCitizen(k)), ctx.rng),
     citizens: pool.filter(isCitizen),
     quiz: Object.fromEntries(activeSeats(s).map((id) => [id, newQuiz(s, ctx)])),
-    earned: Object.fromEntries(activeSeats(s).map((id) => [id, 0])),
+    earned: Object.fromEntries(activeSeats(s).map((id) => [id, gift])),
     bids: {},
     won: {},
   };
@@ -464,7 +481,7 @@ export function joinLate(s, ctx, id) {
   s.hold[id] = [];
   if (s.phase === 'auction' && s.auction) {
     s.auction.quiz[id] = newQuiz(s, ctx);
-    s.auction.earned[id] = 0;
+    s.auction.earned[id] = quizGift(s);
   }
   log(s, {kind: 'joined', actor: id});
   return true;
@@ -520,9 +537,13 @@ function resolveAuction(s, ctx) {
   // (there are always more Citizens).
   for (const id of order) {
     while (left[id] > 0 && lots.length) {
-      const key = lots[Math.floor(ctx.rng() * lots.length)];
+      const open = lots.filter((key) => {
+        const partner = s.married[key] && lots.includes(s.married[key]) ? s.married[key] : null;
+        return !(partner && s.st.picks >= 2 && left[id] < 2);
+      });
+      if (!open.length) break;
+      const key = open[Math.floor(ctx.rng() * open.length)];
       const partner = s.married[key] && lots.includes(s.married[key]) ? s.married[key] : null;
-      if (partner && s.st.picks >= 2 && left[id] < 2) break;
       const take = [key, partner].filter(Boolean);
       lots = lots.filter((k) => !take.includes(k));
       for (const k of take) giveCard(s, id, k);
@@ -842,7 +863,8 @@ function ask(s, ctx, prompt) {
 }
 
 /** Is this player waiting on a question they caused? */
-const waitingOn = (s, id) => Boolean(s.prompt) && (s.prompt.from === id || (s.prompt.eff && s.prompt.eff.actor === id));
+/** True when this player started a prompt and must wait for the reply (others may keep acting). */
+export const waitingOn = (s, id) => Boolean(s.prompt) && (s.prompt.from === id || (s.prompt.eff && s.prompt.eff.actor === id));
 
 /**
  * Soft actions (princess reserve, commands) stay open after your characters
@@ -887,7 +909,7 @@ export function softAction(s, ctx, id, msg) {
       if (!canSoftCommand(s, id, 'marriage')) return false;
       const {mine, other} = msg;
       const free = (k) => s.owner[k] && s.revealed[k] && !s.married[k];
-      if (mine === other || !s.hold[id].includes(mine) || !free(mine) || !free(other)) return false;
+      if (mine === other || !s.hold[id].includes(mine) || !free(mine) || !free(other) || !canDatePair(s, mine, other)) return false;
       payEvent(s, id, ev);
       const otherOwner = ownerOf(s, other);
       if (otherOwner !== id) {
@@ -1080,6 +1102,11 @@ function startCalling(s, ctx) {
 
 const cardsWithNumber = (s, num) => crownOrder(s).flatMap((id) => s.hold[id].filter((k) => numberOf(k) === num));
 
+/**
+ * Call the next number. Every character with that number acts in parallel on
+ * one shared `turnS` clock; `callNext` runs again only when all are done
+ * (or the shared deadline force-ends the rest).
+ */
 function callNext(s, ctx) {
   let num = s.calling + 1;
   while (num <= MAX_NUMBER && !cardsWithNumber(s, num).length) num += 1;
@@ -1112,6 +1139,7 @@ function callNext(s, ctx) {
     s.deadline = ctx.now + duration(ctx, CALL_PAUSE_S);
     return undefined;
   }
+  // One shared window for every seat holding this number.
   s.deadline = ctx.now + duration(ctx, s.st.turnS);
   return undefined;
 }
@@ -1235,6 +1263,8 @@ export function turnAction(s, ctx, id, msg) {
   const onTurn = key && acting(s, id, key);
   // Soft command after your characters finish (no card / wrong card).
   if (!onTurn) return softAction(s, ctx, id, msg);
+  // Dice rollers resolve the roll first; other same-number seats keep acting.
+  if (s.dice && diceHasPlayer(s.dice, id)) return false;
   // End turn even while waiting on a date / ally / shield you started.
   // Soft actions wait until softReady (after end); other abilities stay blocked.
   if (msg.action !== 'end' && waitingOn(s, id)) return false;
@@ -1383,7 +1413,7 @@ export function turnAction(s, ctx, id, msg) {
       if (step !== 'main' || t.dated[key] || !canUseEvent(s, id, ev) || s.prompt) return false;
       const {mine, other} = msg;
       const free = (k) => s.owner[k] && s.revealed[k] && !s.married[k];
-      if (mine === other || !s.hold[id].includes(mine) || !free(mine) || !free(other)) return false;
+      if (mine === other || !s.hold[id].includes(mine) || !free(mine) || !free(other) || !canDatePair(s, mine, other)) return false;
       payEvent(s, id, ev);
       t.dated[key] = true;
       const otherOwner = ownerOf(s, other);
@@ -1611,6 +1641,7 @@ export function timeout(s, ctx) {
     nextConquest(s, ctx);
     return true;
   }
+  // Shared number window expired: auto-finish every seat still acting, then advance.
   if (s.phase === 'call' && s.turn) {
     if (s.turn.pause) {
       callNext(s, ctx);
@@ -1627,6 +1658,7 @@ export function timeout(s, ctx) {
           s.deck.push(...drawn.slice(1));
         }
       }
+      // Twins mid-double-turn: don't grant a free second pass on timeout.
       s.turn.done[key] = true;
     }
     callNext(s, ctx);

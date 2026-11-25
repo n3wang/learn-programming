@@ -1,7 +1,75 @@
 import React, {useEffect, useState} from 'react';
 import {L} from './strings';
-import {HINTS, POOLS, POOL_LABEL, normalizePools} from './mathQuestions';
+import {HINTS, POOLS, POOL_LABEL, lineText, normalizePools} from './mathQuestions';
 import styles from './party.module.css';
+
+/**
+ * Compact angle chart for bisector questions: rays OA, OB and bisector OC.
+ * `deg` is ∠AOB; drawn opening right, symmetric about the horizontal.
+ */
+function AngleBisectFigure({deg = 80, lang = 'en'}) {
+  const total = Math.max(40, Math.min(160, Number(deg) || 80));
+  const half = total / 2;
+  const toRad = (d) => (d * Math.PI) / 180;
+  // O on the left with room for both rays (up to ±80°) and labels.
+  const cx = 40;
+  const cy = 78;
+  const R = 70;
+  const pt = (ang, r = R) => ({
+    x: cx + r * Math.cos(toRad(ang)),
+    y: cy - r * Math.sin(toRad(ang)),
+  });
+  const a = pt(half);
+  const b = pt(-half);
+  const c = pt(0);
+  // Short arc from upper ray → lower ray (clockwise in SVG = through +x).
+  const arc = (r, from, to) => {
+    const p0 = pt(from, r);
+    const p1 = pt(to, r);
+    const large = Math.abs(to - from) > 180 ? 1 : 0;
+    return `M ${p0.x.toFixed(1)} ${p0.y.toFixed(1)} A ${r} ${r} 0 ${large} 1 ${p1.x.toFixed(1)} ${p1.y.toFixed(1)}`;
+  };
+  const mid = pt(half / 2, 34);
+  const label = lang === 'zh' ? '平分' : 'bisects';
+  const la = pt(half, R + 14);
+  const lb = pt(-half, R + 14);
+  const lc = pt(0, R + 14);
+  return (
+    <svg className={styles.mathFigure} viewBox="0 0 200 156" width="200" height="156" aria-hidden="true">
+      <path d={arc(26, half, -half)} className={styles.mathFigureArc} />
+      <path d={arc(18, half, 0)} className={styles.mathFigureArcHalf} />
+      <path d={arc(18, 0, -half)} className={styles.mathFigureArcHalf} />
+      <line x1={cx} y1={cy} x2={a.x} y2={a.y} className={styles.mathFigureRay} />
+      <line x1={cx} y1={cy} x2={b.x} y2={b.y} className={styles.mathFigureRay} />
+      <line x1={cx} y1={cy} x2={c.x} y2={c.y} className={styles.mathFigureBisect} />
+      <circle cx={cx} cy={cy} r={3} className={styles.mathFigureDot} />
+      <text x={la.x} y={la.y} textAnchor="middle" dominantBaseline="middle" className={styles.mathFigureLabel}>
+        A
+      </text>
+      <text x={lb.x} y={lb.y} textAnchor="middle" dominantBaseline="middle" className={styles.mathFigureLabel}>
+        B
+      </text>
+      <text x={lc.x} y={lc.y} textAnchor="middle" dominantBaseline="middle" className={styles.mathFigureLabel}>
+        C
+      </text>
+      <text x={cx - 12} y={cy + 5} textAnchor="middle" className={styles.mathFigureLabel}>
+        O
+      </text>
+      <text x={mid.x} y={mid.y} textAnchor="middle" dominantBaseline="middle" className={styles.mathFigureDeg}>
+        {total}°
+      </text>
+      <text x={c.x * 0.55 + cx * 0.45} y={cy - 10} textAnchor="middle" className={styles.mathFigureCaption}>
+        {label}
+      </text>
+    </svg>
+  );
+}
+
+function MathFigure({figure, lang}) {
+  if (!figure) return null;
+  if (figure.kind === 'bisect') return <AngleBisectFigure deg={figure.deg} lang={lang} />;
+  return null;
+}
 
 /**
  * Turn plain math text into stacked fractions: "2/6 × 5/6" shows real
@@ -153,14 +221,16 @@ export default function MathPad({question, lang, onAnswer, flash = null, okLabel
     if (k === 'del') return '⌫';
     if (k === 'ok') return okLabel || 'OK';
     if (k === '/') return lang === 'zh' ? '分数 /' : 'fraction /';
-    if (k === '-') return lang === 'zh' ? '负号 −' : 'negative −';
-    if (k === '∅') return lang === 'zh' ? '无解 ∅' : 'none ∅';
+    if (k === '-') return '−';
+    if (k === '∅') return '∅';
     return k;
   };
   return (
     <div className={styles.mathPad}>
+      {question.figure && <MathFigure figure={question.figure} lang={lang} />}
       <div className={styles.mathQ} data-flash={flash} data-ineq={ineq ? '1' : undefined} data-frac={fraction ? '1' : undefined}>
-        {question.lines.map((line, i) => {
+        {(question.lines || []).map((raw, i) => {
+          const line = lineText(raw, lang);
           const qi = line.indexOf('?');
           if (qi < 0) {
             return (

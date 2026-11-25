@@ -5,6 +5,7 @@ import SeatRing from '../../core/SeatRing';
 import Sprite from '../../core/Sprite';
 import {Avatar} from '@site/src/components/BetsAndWagers/ui';
 import MathPad, {MathRich, PoolPicker} from '../../core/MathPad';
+import {lineText} from '../../core/mathQuestions';
 import {CHARS, DISTRICT, EVENTS, EVENT_ART, FRAMES, TYPES, basePool, charOf, isoDistrict} from './data';
 import {ArenaFloor, CityPlot, IsoGrid} from './IsoCity';
 import Dice3D from './Dice3D';
@@ -16,6 +17,7 @@ import {
   canBid,
   canSoftCommand,
   canSoftReserve,
+  canDatePair,
   hasBid,
   joinLate,
   isOut,
@@ -173,6 +175,8 @@ const tg = makeT({
     scoreEffects: 'Special effects',
     scoreTotal: 'Total',
     scoreSkip: 'Skip',
+    scoreRank: '#{n}',
+    scoreDetail: 'Score details',
     waiting: 'Waiting…',
     nobodyCalled: 'Waiting for your character to be called.',
     turnDone: 'Your turns are done. Watch the others.',
@@ -226,6 +230,9 @@ const tg = makeT({
     s_events: 'Stat events (Combat & Charisma)',
     s_off: 'Off',
     s_on: 'On',
+    s_heteroDates: 'Dates / marriage',
+    s_heteroOnly: 'Male ↔ female only',
+    s_anyPair: 'Any pair',
     s_goal: 'City size',
     s_timer: 'Turn timer',
     sec: '{n} sec',
@@ -395,6 +402,8 @@ const tg = makeT({
     scoreEffects: '特殊效果',
     scoreTotal: '合计',
     scoreSkip: '跳过',
+    scoreRank: '第{n}',
+    scoreDetail: '得分详情',
     waiting: '等待中……',
     nobodyCalled: '等待你的角色被传召。',
     turnDone: '你的回合结束了，看看其他人。',
@@ -448,6 +457,9 @@ const tg = makeT({
     s_events: '属性事件（战斗力与魅力）',
     s_off: '关闭',
     s_on: '开启',
+    s_heteroDates: '约会 / 联姻',
+    s_heteroOnly: '仅男女配对',
+    s_anyPair: '任意配对',
     s_goal: '城市规模',
     s_timer: '回合时间',
     sec: '{n} 秒',
@@ -603,6 +615,45 @@ function DistrictCard({k, lang, size = 60, invest = 0}) {
       <Sprite path={d.art} emoji="🏛️" label={`${L(d, lang)} · ${d.cost}`} tint={TYPES[d.type].tint} size={`${size}px`} />
       {invest > 0 && <span className={styles.statBadge}>+{invest}</span>}
     </span>
+  );
+}
+
+/** Tiny iso building art for pick lists (buy / destroy / invest / conquest…). */
+function DistrictMini({k, size = 40}) {
+  const src = useBaseUrl(`/img/party/${isoDistrict(k)}`);
+  const d = DISTRICT[k];
+  return <img src={src} alt="" className={styles.districtMini} style={{width: size, height: size}} data-type={d && d.type} draggable={false} decoding="async" />;
+}
+
+/**
+ * Shared building-pick rows: iso mini + owner/name + type-tinted value.
+ * `items`: [{uid|key, key, owner?, value?|price?|badge?}]. `badge` overrides the right chip.
+ */
+function DistrictTargetList({items, lang, onPick, badgeOf}) {
+  return (
+    <div className={styles.targetGrid}>
+      {(items || []).map((x) => {
+        const d = DISTRICT[x.key];
+        if (!d) return null;
+        const tint = (TYPES[d.type] && TYPES[d.type].tint) || '#ffe566';
+        const chip = badgeOf ? badgeOf(x) : x.badge != null ? x.badge : x.price != null ? x.price : x.value;
+        const id = x.uid != null ? x.uid : x.key;
+        return (
+          <button key={id} type="button" className={styles.targetPick} onClick={() => onPick(x)}>
+            <DistrictMini k={x.key} size={44} />
+            <span className={styles.targetPickText}>
+              {x.owner && <span className={styles.targetPickOwner}>{x.owner}</span>}
+              <span className={styles.targetPickName}>{L(d, lang)}</span>
+            </span>
+            {chip != null && chip !== '' && (
+              <span className={styles.targetPickValue} style={{'--value-tint': tint}}>
+                {chip}
+              </span>
+            )}
+          </button>
+        );
+      })}
+    </div>
   );
 }
 
@@ -815,12 +866,12 @@ const sultan = {
     return [...chars, ...(commandsOn ? events : []), ...uniques];
   },
   inspiredBy: 'Citadels',
-  players: {min: 2, max: 24},
+  players: {min: 2, max: 64},
   minutes: 40,
   coverTint: '#f4a62a',
   themeClass: shell.themeSultan,
   voiceLines: VOICE,
-  defaultSettings: {pool: 'auto', picks: 'auto', events: 'off', marriage: true, conquest: true, pyrrhic: true, extravagance: true, goal: 'auto', turnSeconds: 45, select: 'pick', math: 'on', mathPools: ['basic'], mode: 'classic'},
+  defaultSettings: {pool: 'auto', picks: 'auto', events: 'off', marriage: true, conquest: true, pyrrhic: true, extravagance: true, heteroDates: true, goal: 'auto', turnSeconds: 45, select: 'pick', math: 'on', mathPools: ['basic'], mode: 'classic'},
 
   setup(g, seats, ctx) {
     return setupSultan(seats, ctx, g.settings || {});
@@ -886,6 +937,13 @@ const sultan = {
           </div>
         )}
         {(settings.events === 'on' || current('mode') === 'madness' || current('mode') === 'says') && <div className={shell.buttonRow}>{Object.keys(EVENTS).map(toggle)}</div>}
+        {(settings.events === 'on' || current('mode') === 'madness' || current('mode') === 'says') && (settings.marriage !== false) && (
+          <div className={shell.buttonRow}>
+            <span>{tg(lang, 's_heteroDates')}</span>
+            {radio('heteroDates', true, tg(lang, 's_heteroOnly'))}
+            {radio('heteroDates', false, tg(lang, 's_anyPair'))}
+          </div>
+        )}
         <div className={shell.buttonRow}>
           <span>{tg(lang, 's_goal')}</span>
           {radio('goal', 'auto', tg(lang, 's_auto'))}
@@ -893,7 +951,7 @@ const sultan = {
         </div>
         <div className={shell.buttonRow}>
           <span>{tg(lang, 's_timer')}</span>
-          {[30, 45, 60].map((v) => radio('turnSeconds', v, tg(lang, 'sec', {n: v})))}
+          {[30, 45, 60, 90, 120].map((v) => radio('turnSeconds', v, tg(lang, 'sec', {n: v})))}
         </div>
         {st && <p className={shell.muted}>{tg(lang, 'poolLine', {n, chars: Math.max(basePool(n, st.pool, st.picks).length, n * st.picks + 2), picks: st.picks})}</p>}
       </>
@@ -982,7 +1040,9 @@ const sultan = {
     else if (s.phase === 'auction' && quizLeft(s, id) > 0) kind = 'quiz';
     else if (canBid(s, id)) kind = 'bid';
     else if (s.phase === 'pyrrhic' && !s.prompt && !s.dice && canUseEvent(s, id, commandFor(s, id, 'pyrrhic'))) kind = 'pyrrhic';
-    else if (myTurnCard && !s.dice) kind = 'turn';
+    // Same-number seats act in parallel: keep the turn UI even if another
+    // seat's dice/prompt is up (rollers / prompt targets matched above).
+    else if (myTurnCard) kind = 'turn';
     const v = {
       task: `${kind}-${s.round}-${s.phase}-${s.calling}-${myTurnCard || ''}-${myTurnCard ? t.step[myTurnCard] : ''}-${s.prompt ? s.prompt.kind : ''}-${s.dice ? `${s.dice.kind}-${s.dice.revealed}` : ''}-${softReady(s, id) ? 'soft' : ''}`,
       kind,
@@ -1051,11 +1111,16 @@ const sultan = {
         marry: canSoftCommand(s, id, 'marriage'),
         conquer: canSoftCommand(s, id, 'conquest'),
         extravagance: canSoftCommand(s, id, 'extravagance'),
-        suitors: s.hold[id].filter((k) => s.revealed[k] && !s.married[k]),
+        heteroDates: s.st.heteroDates !== false,
+        suitors: s.hold[id].filter(
+          (k) =>
+            s.revealed[k] &&
+            !s.married[k] &&
+            Object.keys(s.owner).some((o) => o !== k && s.revealed[o] && !s.married[o] && canDatePair(s, k, o)),
+        ),
         dates: Object.keys(s.owner)
           .filter((k) => s.revealed[k] && !s.married[k])
           .map((k) => ({key: k, owner: name(ownerOf(s, k)), mine: s.hold[id].includes(k)})),
-        foes,
         targets: foes.flatMap((p) => p.city.filter((c) => c.ok).map((c) => ({...c, ownerId: p.id, owner: `${p.letter} · ${p.name}`}))),
         charisma: s.hold[id].reduce((n, k) => n + charOf(k).charisma, 0),
       };
@@ -1105,6 +1170,7 @@ const sultan = {
           pool: q.pool,
           lines: q.lines,
           hint: q.hint,
+          figure: q.figure || null,
           state: q.state,
           given: q.given,
           a: q.a,
@@ -1183,22 +1249,13 @@ const sultan = {
         destroys: key === 'general' ? generalTargets(s, id).map((x) => ({...x, key: s.cards[x.uid], owner: `${letterOf(s, x.owner)} · ${name(x.owner)}`})) : [],
         smithy: s.city[id].some((u) => s.cards[u] === 'smithy') && !t.smithy[key] && s.gold[id] >= 2,
         lab: s.city[id].some((u) => s.cards[u] === 'laboratory') && !t.lab[key],
-        dates: !t.dated[key] && !s.married[key] ? Object.keys(s.owner).filter((k) => k !== key && s.revealed[k] && !s.married[k]).map((k) => ({key: k, owner: name(ownerOf(s, k))})) : [],
+        dates:
+          !t.dated[key] && !s.married[key]
+            ? Object.keys(s.owner)
+                .filter((k) => k !== key && s.revealed[k] && !s.married[k] && canDatePair(s, key, k))
+                .map((k) => ({key: k, owner: name(ownerOf(s, k))}))
+            : [],
         targets: s.seats.filter((p) => p !== id).flatMap((p) => s.city[p].filter((u) => !s.city[id].some((m) => s.cards[m] === s.cards[u])).map((u) => ({uid: u, key: s.cards[u], ownerId: p, owner: `${letterOf(s, p)} · ${name(p)}`, value: valueOf(s, u)}))),
-        foes: s.seats
-          .filter((p) => p !== id)
-          .map((p) => ({
-            id: p,
-            name: name(p),
-            letter: letterOf(s, p),
-            color: (g.players[p] && g.players[p].color) || '#2a1630',
-            city: s.city[p].map((u) => ({
-              uid: u,
-              key: s.cards[u],
-              value: valueOf(s, u),
-              ok: !s.city[id].some((m) => s.cards[m] === s.cards[u]),
-            })),
-          })),
         charisma: s.hold[id].reduce((n, k) => n + charOf(k).charisma, 0),
       };
     }
@@ -1209,173 +1266,7 @@ const sultan = {
     if (!s.st) return <div className={shell.bigText}>{tg(lang, 'legacy')}</div>;
     // While playing: the slim bar + the players' cities. The SeatRing below is the final screen.
     if (!s.over) return <SultanBoard s={s} g={g} lang={lang} />;
-    const name = (id) => (g.players[id] ? g.players[id].name : '?');
-    const t = s.turn;
-    const statsOn = s.st.events.length > 0;
-    const recent = (s.log || []).slice(-6).reverse();
-    const roll = s.rolls && s.rolls[0];
-    // Whose city is in play right now: the owners of the called characters.
-    const active = (id) => (s.phase === 'call' && t ? t.cards.some((k) => ownerOf(s, k) === id && !t.done[k]) : false);
-    const conquest = s.phase === 'conquest' && s.conquests && s.conquests[s.conquestAt];
-    const n = s.seats.length;
-    const cityScale = n > 24 ? 0.4 : n > 12 ? 0.62 : n > 6 ? 0.9 : 1.05;
-    return (
-      <>
-      <SeatRing
-        g={g}
-        ids={s.seats}
-        focus="seats"
-        mark={(id) => letterOf(s, id)}
-        highlight={(id) => (s.phase === 'draft' ? picksLeft(s, id) > 0 : s.phase === 'call' && t ? active(id) : s.prompt && s.prompt.to === id)}
-        feature={(id) => (
-          <CityPlot
-            city={s.city[id].map((u) => ({uid: u, key: s.cards[u], value: valueOf(s, u)}))}
-            goal={s.st.goal}
-            color={g.players[id]?.color}
-            scale={cityScale}
-            lang={lang}
-            hot={conquest && conquest.defender === id ? [conquest.uid] : []}
-          />
-        )}
-        badge={(id) => (
-          <>
-            {s.crown === id && crown}
-            <span className={styles.stat}>
-              {coin}
-              {s.gold[id]}
-            </span>
-            <span className={styles.stat}>🃏{s.hand[id].length}</span>
-            <span className={styles.shownRow}>
-              {s.hold[id]
-                .filter((k) => s.revealed[k])
-                .sort(byCharNum)
-                .map((k) => (
-                  <CharCard key={k} k={k} lang={lang} size={20} />
-                ))}
-            </span>
-            {s.over && <b className={styles.stat}>{tg(lang, 'points', {n: s.scores[id]})}</b>}
-          </>
-        )}>
-        {s.over ? (
-          <div className={styles.final}>
-            {s.says ? (
-              <>
-                <div className={styles.saysResult} data-result={s.says.result}>
-                  {s.says.result === 'win' ? `🏰 ${tg(lang, 'saysWin')}` : `💀 ${tg(lang, 'saysLose', {x: s.says.missed ? L(EVENTS[s.says.missed.kind], lang) : ''})}`}
-                </div>
-                <p className={shell.kicker}>{tg(lang, 'mvp', {name: `${letterOf(s, s.winner)} · ${name(s.winner)}`})}</p>
-              </>
-            ) : (
-              <div className={shell.bigText}>
-                {letterOf(s, s.winner)} · {name(s.winner)}
-              </div>
-            )}
-            {(() => {
-              const ranked = [...s.seats].sort((a, b) => s.scores[b] - s.scores[a]);
-              const winCard = (s.scoreCards && s.scoreCards[s.winner]) || {total: s.scores[s.winner], lines: [], effects: [], buildings: []};
-              return (
-                <>
-                  <ScoreReveal card={winCard} lang={lang} />
-                  <table className={shell.scoreTable}>
-                    <tbody>
-                      {ranked.slice(0, 10).map((id) => (
-                        <tr key={id}>
-                          <td>
-                            <b>{letterOf(s, id)}</b>
-                          </td>
-                          <td>
-                            <Avatar avatar={g.players[id]?.avatar} color={g.players[id]?.color} size="xs" /> {name(id)}
-                          </td>
-                          <td>
-                            <b>{s.scores[id]}</b>
-                          </td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </>
-              );
-            })()}
-          </div>
-        ) : (
-          <>
-            <p className={shell.kicker}>
-              {tg(lang, 'round', {n: s.round})}
-              {!s.says && ` · ${tg(lang, 'goal', {n: s.st.goal})}`}
-            </p>
-            {s.lastRound && !s.says && <p className={styles.last}>{tg(lang, 'lastRound')}</p>}
-            {s.says && (
-              <>
-                <p className={styles.saysTitle}>{tg(lang, 'saysTitle')}</p>
-                <p className={shell.muted}>{tg(lang, 'saysLeft', {done: s.says.broken.length, total: s.says.total, left: s.says.deck.length})}</p>
-              </>
-            )}
-            {s.phase === 'draft' && (
-              <>
-                <div className={shell.bigText}>{tg(lang, 'drafting')}</div>
-                <div className={shell.chipRow}>
-                  {s.draft.wave.map((id) => (
-                    <span key={id} className={shell.chip}>
-                      {name(id)} {picksLeft(s, id) > 0 ? '…' : '✓'}
-                    </span>
-                  ))}
-                </div>
-              </>
-            )}
-            {s.phase === 'auction' && (
-              <>
-                <div className={shell.bigText}>{tg(lang, 'auctionHost')}</div>
-                <p className={shell.muted}>{tg(lang, 'auctionHostLine')}</p>
-                <div className={styles.cards}>
-                  {[...s.auction.lots].sort(byCharNum).map((k) => (
-                    <CharCard key={k} k={k} lang={lang} size={44} />
-                  ))}
-                </div>
-                <div className={shell.chipRow}>
-                  {s.seats.map((id) => (
-                    <span key={id} className={shell.chip}>
-                      {name(id)} {quizLeft(s, id) > 0 ? `${quizCount(s) - quizLeft(s, id)}/${quizCount(s)}` : hasBid(s, id) ? '✓' : '🪙…'}
-                    </span>
-                  ))}
-                </div>
-              </>
-            )}
-            {s.phase === 'pyrrhic' && <div className={shell.bigText}>{tg(lang, 'pyrrhicOpen')}</div>}
-            {s.phase === 'call' && t && (
-              <div className={styles.calling}>
-                <div className={shell.bigText}>{tg(lang, 'calling', {n: t.num})}</div>
-                <div className={styles.cards}>
-                  {t.cards.map((k) => (
-                    <span key={k} className={styles.callCard} data-done={Boolean(t.done[k])} data-silenced={s.silenced.includes(t.num)}>
-                      <CharCard k={k} lang={lang} size={70} stats={statsOn} />
-                      <small>{name(ownerOf(s, k))}</small>
-                    </span>
-                  ))}
-                </div>
-                {t.pause && <p>{tg(lang, 'silencedAll')}</p>}
-              </div>
-            )}
-            {s.phase === 'conquest' && <div className={shell.bigText}>{tg(lang, 'conquests')}</div>}
-            {s.prompt && <p className={shell.muted}>{tg(lang, 'waitFor', {name: name(s.prompt.to)})}</p>}
-            {roll && roll.a.dice && (
-              <div className={styles.dice}>
-                {name(roll.a.who)}: <b>{roll.a.total}</b>
-                <small> ({roll.a.dice.join(' + ')} − 1)</small>
-              </div>
-            )}
-            <ul className={`${shell.logList} ${styles.log}`}>
-              {recent.map((e, i) => (
-                <li key={i}>
-                  <LogLine e={e} lang={lang} name={name} />
-                </li>
-              ))}
-            </ul>
-          </>
-        )}
-      </SeatRing>
-      <EventModal s={s} g={g} lang={lang} name={name} />
-      </>
-    );
+    return <SultanFinal g={g} s={s} lang={lang} />;
   },
 
   PhoneView({view, lang, send}) {
@@ -1712,16 +1603,17 @@ function SultanBoard({s, g, lang}) {
         <div className={styles.callStrip} ref={stripRef} key={`${s.round}-${s.phase}`}>
           {strip.map((k) => {
             const unpicked = Boolean(s.unpicked && s.unpicked.includes(k) && !s.owner[k]);
-            const isCurrent = current != null && callOrder(k) === current && !unpicked && !(t && t.done[k]);
+            const owner = ownerOf(s, k);
+            const dead = Boolean(owner && isOut(s, owner));
+            const isCurrent = current != null && callOrder(k) === current && !unpicked && !(t && t.done[k]) && !dead;
             return (
               <button
                 key={k}
                 type="button"
                 className={styles.stripCard}
                 data-current={isCurrent || undefined}
-                data-done={stripDone(k) || undefined}
-                data-unpicked={unpicked || undefined}
-                data-silenced={isCurrent && s.silenced.includes(current) ? true : undefined}
+                data-done={(!dead && stripDone(k)) || undefined}
+                data-dead={dead || undefined}
                 aria-label={charName(k, lang)}
                 onClick={() => openChar(k)}>
                 <CharCard k={k} lang={lang} size={72} />
@@ -1757,19 +1649,26 @@ function SeatBadge({s, g, id}) {
   );
 }
 
+/** Remembers last coin counts across remounts (phone view swaps remount the purse). */
+const coinPrevByKey = new Map();
+
 /**
  * Coins as stacks of the game's coin token: up to 5 in a column, then a new
  * column to the right. With `animateJoin`, gains fall in and losses fly out,
- * with a floating +N / −N on the purse.
+ * with a floating +N / −N on the purse. Pass `persistKey` on the phone so
+ * animations still play when the status card remounts after a gold change.
  */
-function CoinStack({n, animateJoin = false, size = 'md'}) {
+function CoinStack({n, animateJoin = false, size = 'md', persistKey = null}) {
   const src = useBaseUrl('/img/party/sultan/token-coin.webp');
-  const prev = useRef(n);
+  const initial = persistKey != null && coinPrevByKey.has(persistKey) ? coinPrevByKey.get(persistKey) : n;
+  const prev = useRef(initial);
   const [burst, setBurst] = useState(null); // {dir, count, delta, key}
   const [bounce, setBounce] = useState(''); // 'in' | 'out' | ''
-  useEffect(() => {
-    const d = n - prev.current;
+  useLayoutEffect(() => {
+    const from = prev.current;
+    const d = n - from;
     prev.current = n;
+    if (persistKey != null) coinPrevByKey.set(persistKey, n);
     if (!animateJoin || d === 0) return undefined;
     const dir = d > 0 ? 'in' : 'out';
     setBurst({dir, count: Math.min(Math.abs(d), 8), delta: d, key: `${Date.now()}-${d}`});
@@ -1780,7 +1679,7 @@ function CoinStack({n, animateJoin = false, size = 'md'}) {
       window.clearTimeout(clearBurst);
       window.clearTimeout(clearBounce);
     };
-  }, [n, animateJoin]);
+  }, [n, animateJoin, persistKey]);
   const shown = Math.min(Math.max(0, n), 30);
   const cols = shown ? Array.from({length: Math.ceil(shown / 5)}, (_, c) => Math.min(5, shown - c * 5)) : [];
   const bounceClass = bounce === 'in' ? styles.coinStackBounce : bounce === 'out' ? styles.coinStackSettle : '';
@@ -1841,7 +1740,7 @@ function PlayerCard({s, g, id, lang, active, hot, onInspect}) {
         {box && <CityPlot bare city={s.city[id].map((u) => ({uid: u, key: s.cards[u], value: valueOf(s, u)}))} goal={s.st.goal} fit={{width: box.width, height: box.height}} lang={lang} hot={hot} onTap={(c) => onInspect({kind: 'district', key: c.key, invest: s.invest[c.uid] || 0, letter: letterOf(s, id)})} />}
       </div>
       <span className={styles.pCoins}>
-        <CoinStack n={s.gold[id]} animateJoin size="sm" />
+        <CoinStack n={s.gold[id]} animateJoin size="sm" persistKey={`host-${id}`} />
       </span>
       <span className={styles.pCornerRight}>
         <span className={styles.pHand}>🃏{s.hand[id].length}</span>
@@ -2106,7 +2005,7 @@ function SultanPhone({view, lang, send}) {
           {tg(lang, 'round', {n: view.round})} · {tg(lang, 'gold', {n: view.gold})} {view.crown && crown}
         </p>
         <div className={styles.myTreasure}>
-          <CoinStack n={view.gold} animateJoin size="sm" />
+          <CoinStack n={view.gold} animateJoin size="sm" persistKey={view.me ? `treasure-${view.me}` : null} />
         </div>
       </div>
       {view.out && <p className={styles.last}>{tg(lang, 'youAreOut')}</p>}
@@ -2166,8 +2065,13 @@ function SultanPhone({view, lang, send}) {
       <>
         {view.says && <div className={`${shell.card} ${styles.saysResult}`} data-result={view.says}>{view.says === 'win' ? `🏰 ${tg(lang, 'saysWin')}` : `💀 ${tg(lang, 'saysLose', {x: ''})}`}</div>}
         <div className={shell.card}>
-          <p className={shell.kicker}>{tg(lang, 'scoreParts')}</p>
-          <ScoreReveal card={card} lang={lang} compact />
+          <ScoreReveal
+            card={card}
+            lang={lang}
+            compact
+            title={tg(lang, 'scoreParts')}
+            onBuilding={(b) => openDistrict(b.key, {invest: b.invest || 0})}
+          />
         </div>
         {status}
         {modal}
@@ -2265,7 +2169,8 @@ function SultanPhone({view, lang, send}) {
   if (view.kind === 'turn') {
     return (
       <>
-        <TurnView view={view} lang={lang} send={send} status={status} openChar={openChar} openDistrict={openDistrict} openEvent={openEvent} />
+        <TurnView view={view} lang={lang} send={send} openChar={openChar} openEvent={openEvent} />
+        {status}
         {revealModal}
         {modal}
       </>
@@ -2298,10 +2203,10 @@ function SultanPhone({view, lang, send}) {
 }
 
 /**
- * End-game tally: district cards slide in one by one, each adding its points,
- * then bonus lines, while the running total ticks up.
+ * End-game tally: district cards slide in (4-up), total top-right; bonuses under.
+ * `title` is the player label; `onBuilding` opens a district inspect modal.
  */
-function ScoreReveal({card, lang, compact = false}) {
+function ScoreReveal({card, lang, compact = false, title = null, onBuilding = null}) {
   const buildings = card.buildings || [];
   const bonuses = (card.lines || []).filter((row) => row.id !== 'districts');
   const steps = [
@@ -2316,7 +2221,7 @@ function ScoreReveal({card, lang, compact = false}) {
   }, [card]);
   useEffect(() => {
     if (skip || step >= steps.length) return undefined;
-    const ms = steps[step]?.type === 'building' ? 700 : 550;
+    const ms = steps[step]?.type === 'building' ? 280 : 220;
     const t = window.setTimeout(() => setStep((n) => n + 1), ms);
     return () => window.clearTimeout(t);
   }, [step, skip, steps.length]);
@@ -2325,40 +2230,49 @@ function ScoreReveal({card, lang, compact = false}) {
   const total = visible.reduce((n, row) => n + (row.pts || 0), 0);
   const done = shown >= steps.length;
   const latest = visible[visible.length - 1];
+  const shownBuildings = visible.filter((row) => row.type === 'building');
+  const shownBonuses = visible.filter((row) => row.type === 'bonus');
   return (
     <div className={`${styles.scoreReveal} ${compact ? styles.scoreRevealCompact : ''}`}>
-      <div className={styles.scoreRevealStage}>
-        <div className={styles.scoreRevealCards} aria-live="polite">
-          {visible
-            .filter((row) => row.type === 'building')
-            .map((b) => (
-              <span key={b.uid || b.key} className={styles.scoreRevealCard} data-fresh={latest && latest.uid === b.uid ? '1' : undefined}>
-                <DistrictCard k={b.key} lang={lang} size={compact ? 56 : 72} />
-                <span className={styles.scoreRevealAdd}>+{b.pts}</span>
-              </span>
-            ))}
-        </div>
-        <div className={styles.scoreRevealSide}>
-          <p className={styles.scoreRevealTotal} data-bump={latest ? `${shown}-${latest.pts}` : undefined}>
-            <span>{tg(lang, 'scoreTotal')}</span>
-            <b key={total}>{total}</b>
-          </p>
-          <ul className={styles.scoreRevealLog}>
-            {visible.map((row, i) => (
-              <li key={`${row.type}-${row.id || row.uid || i}`} data-fresh={i === visible.length - 1 ? '1' : undefined}>
-                <span>{row.type === 'building' ? (lang === 'zh' ? row.zh : row.en) : lang === 'zh' ? row.zh : row.en}</span>
-                <b>+{row.pts}</b>
-              </li>
-            ))}
-          </ul>
-          {!done && (
-            <button type="button" className="button button--sm button--secondary" onClick={() => setSkip(true)}>
-              {tg(lang, 'scoreSkip')}
-            </button>
-          )}
-        </div>
+      <div className={styles.scoreRevealHead}>
+        <p className={styles.scoreRevealTitle}>{title || tg(lang, 'scoreParts')}</p>
+        <p className={styles.scoreRevealTotal} data-bump={latest ? `${shown}-${latest.pts}` : undefined}>
+          <span>{tg(lang, 'scoreTotal')}</span>
+          <b key={total}>{total}</b>
+        </p>
       </div>
-      {done && card.effects.length > 0 && (
+      <div className={styles.scoreRevealCards} aria-live="polite">
+        {shownBuildings.map((b) => {
+          const Tag = onBuilding ? 'button' : 'span';
+          return (
+            <Tag
+              key={b.uid || b.key}
+              type={onBuilding ? 'button' : undefined}
+              className={styles.scoreRevealCard}
+              data-fresh={latest && latest.uid === b.uid ? '1' : undefined}
+              onClick={onBuilding ? () => onBuilding(b) : undefined}>
+              <DistrictCard k={b.key} lang={lang} size={compact ? 56 : 72} />
+              <span className={styles.scoreRevealAdd}>+{b.pts}</span>
+            </Tag>
+          );
+        })}
+      </div>
+      {shownBonuses.length > 0 && (
+        <ul className={styles.scoreRevealLog}>
+          {shownBonuses.map((row, i) => (
+            <li key={`${row.id || i}`} data-fresh={latest && latest.type === 'bonus' && latest.id === row.id ? '1' : undefined}>
+              <span>{lang === 'zh' ? row.zh : row.en}</span>
+              <b>+{row.pts}</b>
+            </li>
+          ))}
+        </ul>
+      )}
+      {!done && (
+        <button type="button" className={`button button--sm button--secondary ${styles.scoreRevealSkip}`} onClick={() => setSkip(true)}>
+          {tg(lang, 'scoreSkip')}
+        </button>
+      )}
+      {done && card.effects && card.effects.length > 0 && (
         <div className={styles.scoreRevealEffects}>
           <b>{tg(lang, 'scoreEffects')}</b>
           <ul className={styles.scoreEffects}>
@@ -2369,6 +2283,82 @@ function ScoreReveal({card, lang, compact = false}) {
         </div>
       )}
     </div>
+  );
+}
+
+/** Final host screen: pick a city for the left breakdown (default 1st); rank + points on each tile. */
+function SultanFinal({g, s, lang}) {
+  const name = (id) => (g.players[id] ? g.players[id].name : '?');
+  const ranked = React.useMemo(() => [...s.seats].sort((a, b) => (s.scores[b] || 0) - (s.scores[a] || 0) || letterOf(s, a).localeCompare(letterOf(s, b))), [s]);
+  const rankOf = (id) => ranked.indexOf(id) + 1;
+  const [focus, setFocus] = useState(ranked[0] || s.winner || s.seats[0]);
+  const [inspect, setInspect] = useState(null);
+  useEffect(() => {
+    if (!focus || !s.seats.includes(focus)) setFocus(ranked[0] || s.seats[0]);
+  }, [focus, ranked, s.seats]);
+  const n = s.seats.length;
+  const cityScale = n > 24 ? 0.4 : n > 12 ? 0.62 : n > 6 ? 0.9 : 1.05;
+  const focusCard = (s.scoreCards && s.scoreCards[focus]) || {total: s.scores[focus] || 0, lines: [], effects: [], buildings: []};
+  const onSeat = (id) => setFocus(id);
+  return (
+    <>
+      <SeatRing
+        g={g}
+        ids={ranked}
+        focus="seats"
+        mark={(id) => letterOf(s, id)}
+        highlight={(id) => id === focus}
+        onSeat={onSeat}
+        feature={(id) => (
+          <span className={styles.finalCity} data-selected={id === focus || undefined} data-rank={rankOf(id)}>
+            <span className={styles.finalRank}>{tg(lang, 'scoreRank', {n: rankOf(id)})}</span>
+            <span className={styles.finalPts}>{tg(lang, 'points', {n: s.scores[id] || 0})}</span>
+            <CityPlot
+              city={s.city[id].map((u) => ({uid: u, key: s.cards[u], value: valueOf(s, u)}))}
+              goal={s.st.goal}
+              color={g.players[id]?.color}
+              scale={cityScale}
+              lang={lang}
+              onTap={(c) => {
+                setFocus(id);
+                setInspect({kind: 'district', key: c.key, invest: s.invest[c.uid] || 0, letter: letterOf(s, id)});
+              }}
+            />
+          </span>
+        )}
+        badge={(id) => (
+          <>
+            {s.crown === id && crown}
+            <span className={styles.stat}>
+              {coin}
+              {s.gold[id]}
+            </span>
+            <span className={styles.stat}>🃏{s.hand[id].length}</span>
+          </>
+        )}>
+        <div className={styles.final}>
+          {s.says ? (
+            <>
+              <div className={styles.saysResult} data-result={s.says.result}>
+                {s.says.result === 'win' ? `🏰 ${tg(lang, 'saysWin')}` : `💀 ${tg(lang, 'saysLose', {x: s.says.missed ? L(EVENTS[s.says.missed.kind], lang) : ''})}`}
+              </div>
+              <p className={shell.kicker}>{tg(lang, 'mvp', {name: `${letterOf(s, s.winner)} · ${name(s.winner)}`})}</p>
+            </>
+          ) : (
+            <p className={shell.kicker}>{tg(lang, 'final')}</p>
+          )}
+          <ScoreReveal
+            key={focus}
+            card={focusCard}
+            lang={lang}
+            title={`${letterOf(s, focus)} · ${name(focus)}`}
+            onBuilding={(b) => setInspect({kind: 'district', key: b.key, invest: b.invest || 0, letter: letterOf(s, focus)})}
+          />
+        </div>
+      </SeatRing>
+      <CardInspect item={inspect} lang={lang} onClose={() => setInspect(null)} />
+      <EventModal s={s} g={g} lang={lang} name={name} />
+    </>
   );
 }
 
@@ -2431,10 +2421,11 @@ function DiceDuelView({view, lang, send}) {
 }
 
 /** Fill "?" slots in question lines with a typed/correct answer for the review list. */
-function fillQuizLines(lines, ans) {
+function fillQuizLines(lines, ans, lang = 'en') {
   const nodes = [];
-  (lines || []).forEach((line, i) => {
+  (lines || []).forEach((raw, i) => {
     if (i) nodes.push('  ');
+    const line = lineText(raw, lang);
     const qi = line.indexOf('?');
     if (qi < 0) {
       nodes.push(<MathRich key={`l${i}`} text={line} />);
@@ -2460,7 +2451,7 @@ function QuizView({view, lang, send, pausing = false}) {
     <div className={shell.card}>
       <p className={shell.bigText}>{tg(lang, 'quizTitle')}</p>
       <div className={styles.quizPurse}>
-        <CoinStack n={view.earned || 0} animateJoin size="sm" />
+        <CoinStack n={view.earned || 0} animateJoin size="sm" persistKey={view.me ? `quiz-${view.me}-${view.round}` : null} />
       </div>
       <ol className={styles.quizList}>
         {quiz.map((x, n) => {
@@ -2472,13 +2463,13 @@ function QuizView({view, lang, send, pausing = false}) {
               </li>
             );
           }
-          const promptLines = (x.lines || []).filter((line) => !/^\s*\?\s*$/.test(line));
+          const promptLines = (x.lines || []).filter((line) => !/^\s*\?\s*$/.test(lineText(line, lang)));
           if (x.state === 'ok') {
             return (
               <li key={n} className={styles.quizItem} data-state="ok">
                 <span className={styles.quizMark}>{mark}</span>
                 <span className={styles.quizReview}>
-                  <span className={styles.quizPrompt}>{fillQuizLines(x.lines, x.a)}</span>
+                  <span className={styles.quizPrompt}>{fillQuizLines(x.lines, x.a, lang)}</span>
                 </span>
               </li>
             );
@@ -2488,7 +2479,7 @@ function QuizView({view, lang, send, pausing = false}) {
               <span className={styles.quizMark}>{mark}</span>
               <span className={styles.quizReview}>
                 {promptLines.length > 0 && (
-                  <span className={styles.quizPrompt}>{fillQuizLines(promptLines, null)}</span>
+                  <span className={styles.quizPrompt}>{fillQuizLines(promptLines, null, lang)}</span>
                 )}
                 <span className={styles.quizYours}>
                   {tg(lang, 'quizYours')}: <s>{x.given ? <MathRich text={x.given} /> : '—'}</s>
@@ -2742,43 +2733,27 @@ function FoldCard({open, onToggle, card, title, openLabel, closeLabel, children}
   );
 }
 
-/** Compact 2–3-up foe cities for conquest target pick. */
-function ConquerCityPick({foes, goal, lang, onPick}) {
-  return (
-    <div className={styles.conquerCities}>
-      {(foes || []).map((foe) => (
-        <div key={foe.id} className={styles.conquerCity} style={{'--owner': foe.color || '#2a1630'}}>
-          <p className={styles.conquerCityHead}>
-            {foe.letter} · {foe.name}
-          </p>
-          <div className={styles.conquerCityPlot}>
-            <CityPlot
-              city={foe.city}
-              goal={goal}
-              color={foe.color}
-              lang={lang}
-              fit={{width: 132, height: 96}}
-              hot={foe.city.filter((c) => c.ok).map((c) => c.uid)}
-              onTap={(c) => {
-                if (!c.ok) return;
-                onPick(c.uid);
-              }}
-            />
-          </div>
-        </div>
-      ))}
-    </div>
-  );
-}
-
 /** Ally + confirm steps after a conquest building is chosen. */
 function ConquerAllyStep({pick, targets, players, me, lang, onChange, onBack, onConfirm}) {
-  const district = (targets.find((x) => x.uid === pick.uid) || {}).key;
+  const target = targets.find((x) => x.uid === pick.uid) || {};
+  const district = target.key;
+  const d = district && DISTRICT[district];
+  const tint = d && TYPES[d.type] ? TYPES[d.type].tint : '#ffe566';
   return (
     <>
-      <p>
-        {L(DISTRICT[district], lang)} · {tg(lang, 'ally')}
-      </p>
+      <div className={styles.targetPick} data-static="true">
+        {district && <DistrictMini k={district} size={44} />}
+        <span className={styles.targetPickText}>
+          {target.owner && <span className={styles.targetPickOwner}>{target.owner}</span>}
+          <span className={styles.targetPickName}>{d ? L(d, lang) : ''}</span>
+        </span>
+        {target.value != null && (
+          <span className={styles.targetPickValue} style={{'--value-tint': tint}}>
+            {target.value}
+          </span>
+        )}
+      </div>
+      <p className={shell.muted}>{tg(lang, 'ally')}</p>
       <div className={shell.choiceGrid}>
         <button type="button" className="button button--sm" aria-pressed={!pick.ally} onClick={() => onChange({...pick, ally: null})}>
           {tg(lang, 'noAlly')}
@@ -2912,7 +2887,7 @@ function SoftPanel({view, lang, send, openChar}) {
             )}
             <div className={styles.cards}>
               {soft.dates
-                .filter((d) => d.key !== suitor)
+                .filter((d) => d.key !== suitor && (!suitor || canDatePair({st: {heteroDates: soft.heteroDates}}, suitor, d.key)))
                 .map((d) => (
                   <button
                     key={d.key}
@@ -2951,13 +2926,12 @@ function SoftPanel({view, lang, send, openChar}) {
             closeLabel={closeL}>
             <p className={shell.muted}>{tg(lang, 'conquerPick')}</p>
             {!conquest ? (
-              <ConquerCityPick
-                foes={soft.foes}
-                goal={view.goal}
+              <DistrictTargetList
+                items={soft.targets}
                 lang={lang}
-                onPick={(uid) => {
+                onPick={(x) => {
                   setFold((f) => ({...f, conquer: true}));
-                  setConquest({uid, ally: null, offer: 1});
+                  setConquest({uid: x.uid, ally: null, offer: 1});
                 }}
               />
             ) : (
@@ -2998,7 +2972,7 @@ function SoftPanel({view, lang, send, openChar}) {
   );
 }
 
-function TurnView({view, lang, send, status, openChar, openDistrict, openEvent}) {
+function TurnView({view, lang, send, openChar, openEvent}) {
   const tv = view.turn;
   const c = charOf(tv.card);
   const act = (msg) => send({...msg, card: tv.card});
@@ -3036,7 +3010,6 @@ function TurnView({view, lang, send, status, openChar, openDistrict, openEvent})
             <span className={styles.incomePickText}>{tg(lang, 'takeCards')}</span>
           </button>
         </div>
-        {status}
       </>
     );
   }
@@ -3050,19 +3023,11 @@ function TurnView({view, lang, send, status, openChar, openDistrict, openEvent})
               key={d.uid}
               type="button"
               className={`${styles.cardButton} ${styles.keepPickCard}`}
-              onClick={() =>
-                openDistrict(d.key, {
-                  action: {
-                    label: tg(lang, 'keepThis'),
-                    onClick: () => act({action: 'keep', uid: d.uid}),
-                  },
-                })
-              }>
+              onClick={() => act({action: 'keep', uid: d.uid})}>
               <DistrictCard k={d.key} lang={lang} size={180} />
             </button>
           ))}
         </div>
-        {status}
       </>
     );
   }
@@ -3171,31 +3136,22 @@ function TurnView({view, lang, send, status, openChar, openDistrict, openEvent})
           ))}
         </div>,
       );
-    const targetList = (list, action) => (
-      <div className={shell.choiceGrid}>
-        {list.map((x) => (
-          <button key={x.uid} type="button" className="button button--sm" onClick={() => act({action, uid: x.uid})}>
-            {x.owner}: {L(DISTRICT[x.key], lang)} · {x.price}
-          </button>
-        ))}
-      </div>
-    );
-    if (k === 'official' && tv.buys.length) return panel(tg(lang, 'buy'), targetList(tv.buys, 'buy'));
-    if (k === 'general' && tv.destroys.length) return panel(tg(lang, 'destroy'), targetList(tv.destroys, 'destroy'));
+    if (k === 'official' && tv.buys.length)
+      return panel(tg(lang, 'buy'), <DistrictTargetList items={tv.buys} lang={lang} onPick={(x) => act({action: 'buy', uid: x.uid})} />);
+    if (k === 'general' && tv.destroys.length)
+      return panel(tg(lang, 'destroy'), <DistrictTargetList items={tv.destroys} lang={lang} onPick={(x) => act({action: 'destroy', uid: x.uid})} />);
     if (k === 'scholar' && view.city.length && view.gold >= 1)
       return panel(
         tg(lang, 'invest'),
-        <div className={shell.choiceGrid}>
-          {view.city.map((d) =>
+        <DistrictTargetList
+          items={view.city.flatMap((d) =>
             [1, 2]
               .filter((n) => n <= view.gold)
-              .map((n) => (
-                <button key={`${d.uid}-${n}`} type="button" className="button button--sm" onClick={() => act({action: 'invest', uid: d.uid, n})}>
-                  {L(DISTRICT[d.key], lang)} +{n}
-                </button>
-              )),
+              .map((n) => ({key: d.key, uid: `${d.uid}:${n}`, investUid: d.uid, n, badge: `+${n}`})),
           )}
-        </div>,
+          lang={lang}
+          onPick={(x) => act({action: 'invest', uid: x.investUid, n: x.n})}
+        />,
       );
     if (k === 'lucky' && view.gold >= 1)
       return panel(
@@ -3213,42 +3169,22 @@ function TurnView({view, lang, send, status, openChar, openDistrict, openEvent})
       {tv.stealFrom &&
         panel(
           tg(lang, 'stealPick'),
-          <div className={styles.cards}>
-            {tv.stealFrom.map((d) => (
-              <button
-                key={d.uid}
-                type="button"
-                className={styles.cardButton}
-                onClick={() =>
-                  openDistrict(d.key, {
-                    action: {
-                      label: tg(lang, 'stealPick'),
-                      onClick: () => act({action: 'steal', uid: d.uid}),
-                    },
-                  })
-                }>
-                <DistrictCard k={d.key} lang={lang} size={48} />
-              </button>
-            ))}
-          </div>,
+          <DistrictTargetList items={tv.stealFrom} lang={lang} onPick={(x) => act({action: 'steal', uid: x.uid})} />,
         )}
       {tv.buildLeft > 0 && view.hand.some((h) => h.ok) && <p className={shell.muted}>{tg(lang, 'tapBuild')}</p>}
       {tv.usesLeft > 1 && <p className={shell.kicker}>{tg(lang, 'abilityLeft', {n: tv.usesLeft})}</p>}
       {ability()}
-      {(tv.smithy || tv.lab) && (
-        <div className={shell.choiceGrid}>
-          {tv.smithy && (
-            <button type="button" className="button button--sm" onClick={() => act({action: 'smithy'})}>
-              {tg(lang, 'smithy')}
-            </button>
-          )}
-          {tv.lab &&
-            (view.handAll || view.hand).map((h) => (
-              <button key={h.uid} type="button" className="button button--sm" onClick={() => act({action: 'lab', uid: h.uid})}>
-                {tg(lang, 'lab')}: {L(DISTRICT[h.key], lang)}
-              </button>
-            ))}
-        </div>
+      {tv.smithy && (
+        <button type="button" className="button button--sm" onClick={() => act({action: 'smithy'})}>
+          {tg(lang, 'smithy')}
+        </button>
+      )}
+      {tv.lab && (
+        <DistrictTargetList
+          items={(view.handAll || view.hand).map((h) => ({...h, badge: tg(lang, 'lab')}))}
+          lang={lang}
+          onPick={(x) => act({action: 'lab', uid: x.uid})}
+        />
       )}
       {(ev('marriage') || ev('conquest') || ev('extravagance')) && (
         <div className={styles.foldRow}>
@@ -3298,13 +3234,12 @@ function TurnView({view, lang, send, status, openChar, openDistrict, openEvent})
               closeLabel={closeL}>
               <p className={shell.muted}>{tg(lang, 'conquerPick')}</p>
               {!conquest ? (
-                <ConquerCityPick
-                  foes={tv.foes || []}
-                  goal={view.goal}
+                <DistrictTargetList
+                  items={tv.targets}
                   lang={lang}
-                  onPick={(uid) => {
+                  onPick={(x) => {
                     setFold((f) => ({...f, conquer: true}));
-                    setConquest({uid, ally: null, offer: 1});
+                    setConquest({uid: x.uid, ally: null, offer: 1});
                   }}
                 />
               ) : (
@@ -3346,7 +3281,6 @@ function TurnView({view, lang, send, status, openChar, openDistrict, openEvent})
       <button type="button" className="button button--lg button--block" onClick={() => act({action: 'end'})}>
         {tv.twinsFirst ? tg(lang, 'endFirst') : tg(lang, 'endTurn')}
       </button>
-      {status}
     </>
   );
 }

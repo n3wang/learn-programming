@@ -16,46 +16,50 @@ export const FRAMES = {
 };
 
 /**
- * How many copies of each frame go into the command pool per event kind,
- * scaled by table size (Stone → Bronze → Silver → Gold).
- *   ≤3: 2× Stone
- *   ≤5: 3× Stone
- *   ≤7: 3× Stone + 2× Bronze
- *   ≤10: + 2× Silver
- *   11+: + 2× Gold
+ * How many copies of each frame go into the command pool per event kind.
+ * One "pack" per 8 players (ceil): a pyramid heavy on Stone —
+ *   4× Stone, 3× Bronze, 2× Silver, 1× Gold
+ * e.g. 20 players → 3 packs → 12 / 9 / 6 / 3; 64 → 8 packs → 32 / 24 / 16 / 8.
  */
 export function commandTierCounts(n) {
-  const players = Math.max(2, n | 0);
-  if (players <= 3) return {brown: 2};
-  if (players <= 5) return {brown: 3};
-  if (players <= 7) return {brown: 3, green: 2};
-  if (players <= 10) return {brown: 3, green: 2, blue: 2};
-  return {brown: 3, green: 2, blue: 2, gold: 2};
+  const packs = Math.max(1, Math.ceil(Math.max(2, n | 0) / 8));
+  return {brown: 4 * packs, green: 3 * packs, blue: 2 * packs, gold: 1 * packs};
 }
 
-const C = (n, frame, combat, charisma, art, en, zh, ab) => ({n, frame, combat, charisma, art: `sultan/char-${art}.webp`, en, zh, ab});
+/** `gender` is 'm' | 'f' — used when host keeps dates to male↔female only. */
+const C = (n, frame, combat, charisma, art, en, zh, ab, gender = 'm') => ({
+  n,
+  frame,
+  combat,
+  charisma,
+  art: `sultan/char-${art}.webp`,
+  en,
+  zh,
+  ab,
+  gender,
+});
 
 export const CHARS = {
-  citizenA: C(0, 'brown', 2, 0, '00-citizen-a', 'Citizen', '民', {en: 'Gain 1 coin.', zh: '获得 1 金币。'}),
-  citizenB: C(0, 'brown', 0, 1, '00-citizen-b', 'Citizen', '民', {en: 'Gain 1 coin.', zh: '获得 1 金币。'}),
-  citizenC: C(0, 'brown', 0, 1, '00-citizen-c', 'Citizen', '民', {en: 'Gain 1 coin.', zh: '获得 1 金币。'}),
-  citizenD: C(0, 'brown', 0, 1, '00-citizen-d', 'Citizen', '民', {en: 'Gain 1 coin.', zh: '获得 1 金币。'}),
-  banditA: C(1, 'brown', 3, 1, '01-bandit-a', 'Bandit', '匪', {en: 'Name a number: those characters skip their turn.', zh: '叫出一个号码：这些角色跳过回合。'}),
-  banditB: C(1, 'brown', 4, 0, '01-bandit-b', 'Bandit', '匪', {en: 'Name a number to silence. With both Bandits, take 1 coin from each character that skips.', zh: '叫出一个号码静音。同时控制两个匪时，每个跳过回合的角色给你 1 金币。'}),
-  fighter: C(2, 'blue', 5, 1, '02-fighter', 'Fighter', '斗', {en: 'Name a character a player still hides; if right, take 1 of their districts.', zh: '指定仍有隐藏角色的玩家并宣言角色；猜中则夺取其一个区域。'}),
-  thief: C(3, 'brown', 2, 3, '03-thief', 'Thief', '盗', {en: 'Name a number: on its turn, take all the coins its owner has.', zh: '叫出一个号码：轮到它时拿走其所有金币。'}),
-  king: C(4, 'gold', 4, 5, '04-king', 'King', '王', {en: 'Take the crown. +1 coin per Noble district.', zh: '夺取王冠。每个贵族区 +1 金币。'}),
-  mage: C(5, 'green', 2, 4, '05-mage', 'Mage', '法', {en: 'Swap non-agent cards with a player, or discard cards and draw that many +1.', zh: '与玩家交换非角色牌，或弃任意张牌并抽相同数量 +1。'}),
-  princess: C(6, 'gold', 1, 6, '06-duchess', 'Princess', '公', {en: '+1 coin per character you control. Reserve an unpicked character for next round, free.', zh: '每控制 1 个角色 +1 金币。指定 1 个未选角色，下轮免费加入手牌。'}),
-  official: C(7, 'gold', 2, 5, '07-official', 'Official', '官', {en: 'You and neighbours with a Noble character gain 1 coin. Buy a district for its value +1.', zh: '你与拥有贵族角色的相邻玩家各 +1 金币。可付价值 +1 购买他人区域。'}),
-  merchant: C(8, 'green', 0, 5, '08-merchant', 'Merchant', '商', {en: '+1 coin, +1 per Noble character you or neighbours have, +1 per Trade district.', zh: '+1 金币；你与相邻玩家每个贵族角色 +1；每个贸易区 +1。'}),
-  priest: C(9, 'blue', 2, 4, '09-priest', 'Priest', '教', {en: 'Once per round, cancel an effect that targets you. +1 coin per Religious district.', zh: '每轮一次，取消针对你的效果。每个宗教区 +1 金币。'}),
-  general: C(10, 'blue', 4, 2, '10-general', 'General', '将', {en: 'Destroy a district for its value −1. +1 coin per Military district.', zh: '付价值 −1 摧毁一个区域。每个军事区 +1 金币。'}),
-  scholar: C(11, 'green', 2, 1, '11-scholar', 'Scholar', '研', {en: 'Invest up to 2 coins in a district (+value). Earn your total investment each turn.', zh: '向一个区域投入最多 2 金币（增加价值）。每回合获得投资总额的金币。'}),
-  builder: C(12, 'green', 2, 3, '12-builder', 'Builder', '建', {en: 'Draw 2 extra cards. Build up to 2 districts.', zh: '额外抽 2 张牌。最多建造 2 个区域。'}),
-  twins: C(12, 'blue', 3, 3, '12-twins', 'Twins', '双', {en: 'Takes two turns in a row.', zh: '连续进行两次回合。'}),
-  lucky: C(13, 'green', 2, 3, '13-lucky', 'Lucky', '幸', {en: 'Pay 1 coin: roll a die, gain the result −1. With the Twins, roll twice.', zh: '付 1 金币掷骰，获得点数 −1。同时控制双则掷两次。'}),
-  weaver: C(null, 'green', 1, 4, 'weaver', 'Weaver', '织', {en: 'Revealed with your other character: your abilities work twice this round.', zh: '与你的其他角色一同揭示：本轮你的能力生效两次。'}),
+  citizenA: C(0, 'brown', 2, 0, '00-citizen-a', 'Citizen', '民', {en: 'Gain 1 coin.', zh: '获得 1 金币。'}, 'f'),
+  citizenB: C(0, 'brown', 0, 1, '00-citizen-b', 'Citizen', '民', {en: 'Gain 1 coin.', zh: '获得 1 金币。'}, 'f'),
+  citizenC: C(0, 'brown', 0, 1, '00-citizen-c', 'Citizen', '民', {en: 'Gain 1 coin.', zh: '获得 1 金币。'}, 'm'),
+  citizenD: C(0, 'brown', 0, 1, '00-citizen-d', 'Citizen', '民', {en: 'Gain 1 coin.', zh: '获得 1 金币。'}, 'f'),
+  banditA: C(1, 'brown', 3, 1, '01-bandit-a', 'Bandit', '匪', {en: 'Name a number: those characters skip their turn.', zh: '叫出一个号码：这些角色跳过回合。'}, 'm'),
+  banditB: C(1, 'brown', 4, 0, '01-bandit-b', 'Bandit', '匪', {en: 'Name a number to silence. With both Bandits, take 1 coin from each character that skips.', zh: '叫出一个号码静音。同时控制两个匪时，每个跳过回合的角色给你 1 金币。'}, 'm'),
+  fighter: C(2, 'blue', 5, 1, '02-fighter', 'Fighter', '斗', {en: 'Name a character a player still hides; if right, take 1 of their districts.', zh: '指定仍有隐藏角色的玩家并宣言角色；猜中则夺取其一个区域。'}, 'f'),
+  thief: C(3, 'brown', 2, 3, '03-thief', 'Thief', '盗', {en: 'Name a number: on its turn, take all the coins its owner has.', zh: '叫出一个号码：轮到它时拿走其所有金币。'}, 'm'),
+  king: C(4, 'gold', 4, 5, '04-king', 'King', '王', {en: 'Take the crown. +1 coin per Noble district.', zh: '夺取王冠。每个贵族区 +1 金币。'}, 'm'),
+  mage: C(5, 'green', 2, 4, '05-mage', 'Mage', '法', {en: 'Swap non-agent cards with a player, or discard cards and draw that many +1.', zh: '与玩家交换非角色牌，或弃任意张牌并抽相同数量 +1。'}, 'f'),
+  princess: C(6, 'gold', 1, 6, '06-duchess', 'Princess', '公', {en: '+1 coin per character you control. Reserve an unpicked character for next round, free.', zh: '每控制 1 个角色 +1 金币。指定 1 个未选角色，下轮免费加入手牌。'}, 'f'),
+  official: C(7, 'gold', 2, 5, '07-official', 'Official', '官', {en: 'You and neighbours with a Noble character gain 1 coin. Buy a district for its value +1.', zh: '你与拥有贵族角色的相邻玩家各 +1 金币。可付价值 +1 购买他人区域。'}, 'm'),
+  merchant: C(8, 'green', 0, 5, '08-merchant', 'Merchant', '商', {en: '+1 coin, +1 per Noble character you or neighbours have, +1 per Trade district.', zh: '+1 金币；你与相邻玩家每个贵族角色 +1；每个贸易区 +1。'}, 'f'),
+  priest: C(9, 'blue', 2, 4, '09-priest', 'Priest', '教', {en: 'Once per round, cancel an effect that targets you. +1 coin per Religious district.', zh: '每轮一次，取消针对你的效果。每个宗教区 +1 金币。'}, 'm'),
+  general: C(10, 'blue', 4, 2, '10-general', 'General', '将', {en: 'Destroy a district for its value −1. +1 coin per Military district.', zh: '付价值 −1 摧毁一个区域。每个军事区 +1 金币。'}, 'm'),
+  scholar: C(11, 'green', 2, 1, '11-scholar', 'Scholar', '研', {en: 'Invest up to 2 coins in a district (+value). Earn your total investment each turn.', zh: '向一个区域投入最多 2 金币（增加价值）。每回合获得投资总额的金币。'}, 'f'),
+  builder: C(12, 'green', 2, 3, '12-builder', 'Builder', '建', {en: 'Draw 2 extra cards. Build up to 2 districts.', zh: '额外抽 2 张牌。最多建造 2 个区域。'}, 'f'),
+  twins: C(12, 'blue', 3, 3, '12-twins', 'Twins', '双', {en: 'Takes two turns in a row within allotted turn time.', zh: '在限定回合时间内连续进行两次回合。'}, 'm'),
+  lucky: C(13, 'green', 2, 3, '13-lucky', 'Lucky', '幸', {en: 'Pay 1 coin: roll a die, gain the result −1. With the Twins, roll twice.', zh: '付 1 金币掷骰，获得点数 −1。同时控制双则掷两次。'}, 'm'),
+  weaver: C(null, 'green', 1, 4, 'weaver', 'Weaver', '织', {en: 'Revealed with your other character: your abilities work twice this round.', zh: '与你的其他角色一同揭示：本轮你的能力生效两次。'}, 'f'),
 };
 
 /** Extra Citizens for very big tables reuse the four Citizen cards' art and stats. */
@@ -149,6 +153,8 @@ export const isoTile = (name) => `iso/tile/${name}.png`;
 /** Every built plot is paved; an empty one is bare earth (the type shows on the card, not the floor). */
 export const BUILT_TILE = 'cobblestone';
 export const EMPTY_TILE = 'bare-earth';
+/** Decorative non-buildable fillers on the 3×3 city grid (parks / green). */
+export const ROAD_TILE = 'leafy-grass';
 
 /** Each stat event has its own arena floor (none of these is a district type's floor). */
 export const ARENA_TILE = {pyrrhic: 'red-brick', marriage: 'leafy-grass', conquest: 'cobblestone-dark', extravagance: 'sandstone'};

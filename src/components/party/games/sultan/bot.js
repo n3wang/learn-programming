@@ -6,7 +6,7 @@
  */
 
 import {DISTRICT, EVENTS, charOf} from './data';
-import {acting, bidCap, canBuild, canPick, canSoftCommand, canSoftReserve, canUseEvent, diceHasPlayer, generalTargets, hasBid, hiddenPlayers, meetsTier, commandFor, nameableNumbers, officialTargets, picksLeft, softReady, statOf} from './rules';
+import {acting, bidCap, canBuild, canDatePair, canPick, canSoftCommand, canSoftReserve, canUseEvent, diceHasPlayer, generalTargets, hasBid, hiddenPlayers, meetsTier, commandFor, nameableNumbers, officialTargets, picksLeft, softReady, statOf, waitingOn} from './rules';
 
 const pick = (list, rng) => list[Math.floor(rng() * list.length)];
 const costOf = (s, uid) => DISTRICT[s.cards[uid]].cost;
@@ -30,15 +30,20 @@ function answerPrompt(s, id, rng) {
 
 export function botMove(s, id, rng) {
   if (s.over) return null;
-  if (s.dice && !s.dice.revealed && diceHasPlayer(s.dice, id) && Object.values(s.dice.sides).some((side) => side.who === id && !side.launched)) {
-    return {action: 'launchDice'};
+  if (s.dice && diceHasPlayer(s.dice, id)) {
+    if (!s.dice.revealed && Object.values(s.dice.sides).some((side) => side.who === id && !side.launched)) {
+      return {action: 'launchDice'};
+    }
+    return null;
   }
   if (s.prompt) {
     if (s.prompt.to === id) return answerPrompt(s, id, rng);
-    // Waiting on a reply: end the turn so calling can move; soft command after.
-    const stuck = s.phase === 'call' && s.turn && s.turn.cards.find((k) => acting(s, id, k));
-    if (stuck) return {action: 'end', card: stuck};
-    return null;
+    // Only the seat that opened the prompt ends early; other same-number bots keep playing.
+    if (waitingOn(s, id)) {
+      const stuck = s.phase === 'call' && s.turn && s.turn.cards.find((k) => acting(s, id, k));
+      if (stuck) return {action: 'end', card: stuck};
+      return null;
+    }
   }
   // A command none of my characters can start, with time running out: use the one redraw.
   const mine = commandFor(s, id);
@@ -78,10 +83,15 @@ export function botMove(s, id, rng) {
     const free = (s.unpicked || []).filter((k) => !Object.values(s.reserved).includes(k));
     if (canSoftReserve(s, id) && free.length) return {action: 'reserve', pick: pick(free, rng)};
     if (canSoftCommand(s, id, 'marriage') && rng() < 0.85) {
-      const suitors = s.hold[id].filter((k) => s.revealed[k] && !s.married[k]);
+      const suitors = s.hold[id].filter(
+        (k) =>
+          s.revealed[k] &&
+          !s.married[k] &&
+          Object.keys(s.owner).some((o) => o !== k && s.revealed[o] && !s.married[o] && canDatePair(s, k, o)),
+      );
       if (suitors.length) {
         const mine = pick(suitors, rng);
-        const others = Object.keys(s.owner).filter((k) => k !== mine && s.revealed[k] && !s.married[k]);
+        const others = Object.keys(s.owner).filter((k) => k !== mine && s.revealed[k] && !s.married[k] && canDatePair(s, mine, k));
         if (others.length) return {action: 'marry', mine, other: pick(others, rng)};
       }
     }
@@ -148,7 +158,7 @@ export function botMove(s, id, rng) {
   const eager = 0.85;
   const ev = (kind) => commandFor(s, id, kind);
   if (canUseEvent(s, id, ev('marriage')) && !t.dated[key] && rng() < eager) {
-    const others = Object.keys(s.owner).filter((k) => k !== key && s.revealed[k] && !s.married[k]);
+    const others = Object.keys(s.owner).filter((k) => k !== key && s.revealed[k] && !s.married[k] && canDatePair(s, key, k));
     if (!s.married[key] && others.length) return act({action: 'marry', mine: key, other: pick(others, rng)});
   }
   if (canUseEvent(s, id, ev('conquest')) && rng() < eager) {

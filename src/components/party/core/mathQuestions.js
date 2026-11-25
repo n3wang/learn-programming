@@ -2,14 +2,24 @@
  * Math questions shared by the party games (Clocktower University homework,
  * the Secret Math Teacher's vote check). Pure: pass an rng, get a question.
  *
- * A question is {pool, lines, hint, a}: `lines` are shown one per row
- * (language-neutral maths), `hint` names a short instruction in HINTS
- * (or null), and `a` is the one accepted answer as typed on the pad:
- * a whole number ("12", "-7") or a fraction in simplest form ("3/4").
- * The `degrees` pool is grade-7 chapter 6 angle measure (习题 6.3 style).
- * The `inequalities` pool is grade-8 ch. 11: solve linear inequalities
- * (negative ×/÷ flips the sign) and systems of inequalities.
+ * A question is {pool, lines, hint, a, figure?}: `lines` are shown one per
+ * row (language-neutral maths, or `{en, zh}` for a bilingual phrase),
+ * `hint` names a short instruction in HINTS (or null), `a` is the one
+ * accepted answer as typed on the pad: a whole number ("12", "-7") or a
+ * fraction in simplest form ("3/4"). Optional `figure` draws a small chart
+ * (e.g. `{kind:'bisect', deg:140}`). The `degrees` pool is grade-7 chapter
+ * 6 angle measure (习题 6.3 style). The `inequalities` pool is grade-8
+ * ch. 11: solve linear inequalities (negative ×/÷ flips the sign) and
+ * systems of inequalities.
  */
+
+/** Resolve a quiz line for display: string, or `{en, zh}` bilingual phrase. */
+export function lineText(line, lang = 'en') {
+  if (line == null) return '';
+  if (typeof line === 'string') return line;
+  if (typeof line === 'object') return lang === 'zh' ? line.zh || line.en || '' : line.en || line.zh || '';
+  return String(line);
+}
 
 export const POOLS = ['basic', 'chain', 'fractions', 'linear', 'systems', 'degrees', 'inequalities'];
 
@@ -188,6 +198,35 @@ const GEN = {
       const k = r(2, 6);
       return {lines: [`${n * k}/${d * k} = ?`], hint: 'simplify', a: frac(n, d)};
     }
+    // Multiply: prefer a cross-cancel (e.g. 4/5 × 1/8 — 4 and 8 share a factor).
+    for (let tries = 0; tries < 50; tries++) {
+      const k = r(2, 6);
+      let a;
+      let b;
+      let c;
+      let d;
+      if (r(0, 1) === 0) {
+        // Cancel along a ↔ d: a = k·m, d = k·n.
+        const m = r(1, 3);
+        const n = r(1, 3);
+        a = k * m;
+        d = k * n;
+        b = r(Math.max(a + 1, 3), 12);
+        c = r(1, Math.max(d - 1, 1));
+      } else {
+        // Cancel along c ↔ b: c = k·m, b = k·n.
+        const m = r(1, 3);
+        const n = r(1, 3);
+        c = k * m;
+        b = k * n;
+        a = r(1, Math.max(b - 1, 1));
+        d = r(Math.max(c + 1, 3), 12);
+      }
+      if (a > 12 || b > 12 || c > 12 || d > 12) continue;
+      if (gcd(a, d) === 1 && gcd(c, b) === 1) continue;
+      return {lines: [`${a}/${b} × ${c}/${d} = ?`], hint: 'simplest', a: frac(a * c, b * d)};
+    }
+    // Rare fallback with no forced cancel.
     const b = r(2, 9);
     const d = r(2, 9);
     const a = r(1, b - 1);
@@ -243,7 +282,12 @@ const GEN = {
     if (kind === 2) {
       // Angle bisector: half of a round angle.
       const half = r(1, 8) * 10;
-      return {lines: [`∠AOB = ${half * 2}°`, 'OC bisects ∠AOB', '∠AOC = ?°'], a: String(half)};
+      const deg = half * 2;
+      return {
+        lines: [`∠AOB = ${deg}°`, {en: 'OC bisects ∠AOB', zh: 'OC 平分 ∠AOB'}, '∠AOC = ?°'],
+        figure: {kind: 'bisect', deg},
+        a: String(half),
+      };
     }
     if (kind === 3) {
       // Sum or difference of two angles sharing a ray.

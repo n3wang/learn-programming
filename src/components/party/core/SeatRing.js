@@ -35,6 +35,7 @@ export default function SeatRing({g, ids, children, badge, dim, highlight, onSea
               data-hot={highlight ? Boolean(highlight(id)) : false}
               data-offline={!p.connected && !p.bot}
               data-feature={Boolean(feature)}
+              data-clickable={onSeat ? 'true' : undefined}
               onClick={onSeat ? () => onSeat(id) : undefined}>
               {feature && <span className={styles.seatFeature}>{feature(id)}</span>}
               <span className={styles.ringAvatar}>
