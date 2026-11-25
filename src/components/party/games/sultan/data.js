@@ -4,15 +4,34 @@
  * doc; card art comes from static/img/party/sultan/ (see assets/party/art.csv).
  *
  * Character: n = call number (null = never called: the Weaver), frame colour
- * (brown | green | blue | gold; gold = Noble), combat and charisma stats.
+ * (brown=Stone | green=Bronze | blue=Silver | gold=Gold; gold = Noble),
+ * combat and charisma stats. Keys stay brown/green/blue/gold for art paths.
  */
 
 export const FRAMES = {
-  brown: {tint: '#a47a52', en: 'Brown', zh: '棕', price: 1},
-  green: {tint: '#5fa055', en: 'Green', zh: '绿', price: 2},
-  blue: {tint: '#5a86b8', en: 'Blue', zh: '蓝', price: 3},
+  brown: {tint: '#a47a52', en: 'Stone', zh: '石', price: 1},
+  green: {tint: '#5fa055', en: 'Bronze', zh: '铜', price: 2},
+  blue: {tint: '#5a86b8', en: 'Silver', zh: '银', price: 3},
   gold: {tint: '#d9a520', en: 'Gold', zh: '金', price: 4},
 };
+
+/**
+ * How many copies of each frame go into the command pool per event kind,
+ * scaled by table size (Stone → Bronze → Silver → Gold).
+ *   ≤3: 2× Stone
+ *   ≤5: 3× Stone
+ *   ≤7: 3× Stone + 2× Bronze
+ *   ≤10: + 2× Silver
+ *   11+: + 2× Gold
+ */
+export function commandTierCounts(n) {
+  const players = Math.max(2, n | 0);
+  if (players <= 3) return {brown: 2};
+  if (players <= 5) return {brown: 3};
+  if (players <= 7) return {brown: 3, green: 2};
+  if (players <= 10) return {brown: 3, green: 2, blue: 2};
+  return {brown: 3, green: 2, blue: 2, gold: 2};
+}
 
 const C = (n, frame, combat, charisma, art, en, zh, ab) => ({n, frame, combat, charisma, art: `sultan/char-${art}.webp`, en, zh, ab});
 
@@ -26,11 +45,11 @@ export const CHARS = {
   fighter: C(2, 'blue', 5, 1, '02-fighter', 'Fighter', '斗', {en: 'Name a character a player still hides; if right, take 1 of their districts.', zh: '指定仍有隐藏角色的玩家并宣言角色；猜中则夺取其一个区域。'}),
   thief: C(3, 'brown', 2, 3, '03-thief', 'Thief', '盗', {en: 'Name a number: on its turn, take all the coins its owner has.', zh: '叫出一个号码：轮到它时拿走其所有金币。'}),
   king: C(4, 'gold', 4, 5, '04-king', 'King', '王', {en: 'Take the crown. +1 coin per Noble district.', zh: '夺取王冠。每个贵族区 +1 金币。'}),
-  mage: C(5, 'green', 2, 4, '05-mage', 'Mage', '法', {en: 'Swap hands with a player, or discard cards and draw that many +1.', zh: '与玩家交换手牌，或弃任意张牌并抽相同数量 +1。'}),
+  mage: C(5, 'green', 2, 4, '05-mage', 'Mage', '法', {en: 'Swap non-agent cards with a player, or discard cards and draw that many +1.', zh: '与玩家交换非角色牌，或弃任意张牌并抽相同数量 +1。'}),
   princess: C(6, 'gold', 1, 6, '06-duchess', 'Princess', '公', {en: '+1 coin per character you control. Reserve an unpicked character for next round, free.', zh: '每控制 1 个角色 +1 金币。指定 1 个未选角色，下轮免费加入手牌。'}),
   official: C(7, 'gold', 2, 5, '07-official', 'Official', '官', {en: 'You and neighbours with a Noble character gain 1 coin. Buy a district for its value +1.', zh: '你与拥有贵族角色的相邻玩家各 +1 金币。可付价值 +1 购买他人区域。'}),
   merchant: C(8, 'green', 0, 5, '08-merchant', 'Merchant', '商', {en: '+1 coin, +1 per Noble character you or neighbours have, +1 per Trade district.', zh: '+1 金币；你与相邻玩家每个贵族角色 +1；每个贸易区 +1。'}),
-  priest: C(9, 'blue', 2, 4, '09-priest', 'Priest', '教', {en: 'Once per game, cancel an effect that targets you. +1 coin per Religious district.', zh: '每局一次，取消针对你的效果。每个宗教区 +1 金币。'}),
+  priest: C(9, 'blue', 2, 4, '09-priest', 'Priest', '教', {en: 'Once per round, cancel an effect that targets you. +1 coin per Religious district.', zh: '每轮一次，取消针对你的效果。每个宗教区 +1 金币。'}),
   general: C(10, 'blue', 4, 2, '10-general', 'General', '将', {en: 'Destroy a district for its value −1. +1 coin per Military district.', zh: '付价值 −1 摧毁一个区域。每个军事区 +1 金币。'}),
   scholar: C(11, 'green', 2, 1, '11-scholar', 'Scholar', '研', {en: 'Invest up to 2 coins in a district (+value). Earn your total investment each turn.', zh: '向一个区域投入最多 2 金币（增加价值）。每回合获得投资总额的金币。'}),
   builder: C(12, 'green', 2, 3, '12-builder', 'Builder', '建', {en: 'Draw 2 extra cards. Build up to 2 districts.', zh: '额外抽 2 张牌。最多建造 2 个区域。'}),
@@ -110,9 +129,9 @@ export const DISTRICTS = DISTRICT_LIST;
 export const DISTRICT = Object.fromEntries(DISTRICT_LIST.map(([key, type, cost, , en, zh, note]) => [key, {key, type, cost, en, zh, note: note || null, art: `sultan/district-${key}.webp`}]));
 
 export const EVENTS = {
-  marriage: {en: 'Marriage', zh: '婚姻', stat: 'charisma', ab: {en: 'Your turn: two revealed characters (one yours) roll die + Charisma. If yours is higher, they marry and are always picked together.', zh: '你的回合：两个已揭示角色（至少一个是你的）各掷骰 + 魅力。你更高则结为伴侣，之后必须一起被选。'}},
-  conquest: {en: 'Conquest', zh: '征服', stat: 'combat', ab: {en: 'Your turn: attack a district (resolved at round end). Die + your Combat (+ an ally’s) vs their Combat + the district’s value.', zh: '你的回合：进攻一个区域（回合结束时结算）。骰子 + 你的战斗力（+ 盟友）对比对方战斗力 + 区域价值。'}},
-  pyrrhic: {en: 'Pyrrhic', zh: '惨烈', stat: 'combat', ab: {en: 'Before the turns: challenge a player. Bet 1–5 coins, pick champions, roll die + Combat. The loser’s character leaves the game.', zh: '回合开始前：挑战一名玩家。下注 1–5 金币，各选冠军，掷骰 + 战斗力。输方角色永久移出游戏。'}},
+  marriage: {en: 'Marriage', zh: '婚姻', stat: 'charisma', ab: {en: 'Your turn: two revealed characters (one yours) each roll die + Charisma (tap for +1). If yours is higher, they marry and are always picked together.', zh: '你的回合：两个已揭示角色（至少一个是你的）各掷骰 + 魅力（点骰 +1）。你更高则结为伴侣，之后必须一起被选。'}},
+  conquest: {en: 'Conquest', zh: '征服', stat: 'combat', ab: {en: 'Your turn: attack a district (resolved at round end). Both sides roll: die + Combat (+ ally) vs die + Combat + the district’s value. Tap your die for +1.', zh: '你的回合：进攻一个区域（回合结束时结算）。双方掷骰：骰子 + 战斗力（+ 盟友）对比 骰子 + 战斗力 + 区域价值。点骰 +1。'}},
+  pyrrhic: {en: 'Pyrrhic', zh: '惨烈', stat: 'combat', ab: {en: 'Before the turns: challenge a player. Bet 1–5 coins, pick champions, both roll die + Combat (tap for +1). The loser’s character leaves the game.', zh: '回合开始前：挑战一名玩家。下注 1–5 金币，各选冠军，双方掷骰 + 战斗力（点骰 +1）。输方角色永久移出游戏。'}},
   extravagance: {en: 'Extravagance', zh: '丰裕', stat: 'charisma', ab: {en: 'Your turn: take coins equal to your characters’ Charisma from the bank and hand them to other players.', zh: '你的回合：从银行拿等同于你角色魅力总和的金币，分给其他玩家。'}},
 };
 

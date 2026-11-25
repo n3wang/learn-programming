@@ -1,4 +1,4 @@
-import React, {useState} from 'react';
+import React, {useCallback, useEffect, useRef, useState} from 'react';
 import useBaseUrl from '@docusaurus/useBaseUrl';
 import {L, makeT} from '../../core/strings';
 import SeatRing from '../../core/SeatRing';
@@ -7,17 +7,21 @@ import {Avatar} from '@site/src/components/BetsAndWagers/ui';
 import MathPad, {PoolPicker} from '../../core/MathPad';
 import {CHARS, DISTRICT, EVENTS, EVENT_ART, FRAMES, TYPES, basePool, charOf, isoDistrict} from './data';
 import {ArenaFloor, CityPlot, IsoGrid} from './IsoCity';
+import Dice3D from './Dice3D';
 import {
   acting,
   answer,
   answerQuiz,
   bidCap,
   canBid,
+  canSoftCommand,
+  canSoftReserve,
   hasBid,
   joinLate,
   isOut,
-  missionFor,
-  redrawMission,
+  launchDice,
+  commandFor,
+  redrawCommand,
   placeBids,
   quizCount,
   quizLeft,
@@ -26,6 +30,7 @@ import {
   canUseEvent,
   challenge,
   draftPick,
+  diceHasPlayer,
   generalTargets,
   hiddenPlayers,
   nameableNumbers,
@@ -34,30 +39,20 @@ import {
   picksLeft,
   setupSultan,
   settingsOf,
+  softReady,
+  commandSnap,
+  letterOf,
   timeout,
   turnAction,
   valueOf,
 } from './rules';
+
+export {districtLetter} from './rules';
 import {botMove} from './bot';
 import shell from '../../core/party.module.css';
 import styles from './sultan.module.css';
 
-/**
- * Each player's district is named by a letter in seat order: A–Z, then AA,
- * AB… for very big tables. Letters, not numbers, so they never mix up with
- * character numbers or district values during conquests.
- */
-export function districtLetter(i) {
-  let n = i + 1;
-  let out = '';
-  while (n > 0) {
-    const r = (n - 1) % 26;
-    out = String.fromCharCode(65 + r) + out;
-    n = Math.floor((n - 1) / 26);
-  }
-  return out;
-}
-/** Rules text with coloured keywords: "[coin|2 coins]" → a span coloured by kind (coin, char, district, mission, crown, good, bad). */
+/** Rules text with coloured keywords: "[coin|2 coins]" → a span coloured by kind (coin, char, district, command, crown, good, bad). */
 function richText(text) {
   const parts = String(text).split(/\[(\w+)\|([^\]]+)\]/);
   const out = [];
@@ -73,8 +68,6 @@ function richText(text) {
   }
   return <>{out}</>;
 }
-
-const letterOf = (s, id) => (s.seats.includes(id) ? districtLetter(s.seats.indexOf(id)) : '?');
 
 const tg = makeT({
   en: {
@@ -97,6 +90,10 @@ const tg = makeT({
     keepOne: 'Keep one card',
     build: 'Build ({n} left)',
     endTurn: 'End turn',
+    softLater: 'Still open until calling ends',
+    softReserve: 'Reserve a character (still open)',
+    softCommand: 'Command still open',
+    endWhileWait: 'End turn — finish the command while you wait',
     endFirst: 'End first turn (the Twins go again)',
     hand: 'Your hand',
     city: 'Your city',
@@ -106,10 +103,11 @@ const tg = makeT({
     pickThis: 'Pick this character',
     keepThis: 'Keep this card',
     buildThis: 'Build this district',
+    tapBuild: 'Tap a building card in your hand, then choose Build',
     type: 'Type',
     cost: 'Cost',
     number: 'Number',
-    frame: 'Colour',
+    frame: 'Tier',
     gold: '{n} coins',
     ability: 'Ability',
     abilityLeft: 'Ability ({n} left)',
@@ -117,7 +115,7 @@ const tg = makeT({
     guessWho: 'Which player?',
     guessWhat: 'Which character do they hide?',
     stealPick: 'Right! Take one of their districts:',
-    swapWith: 'Swap hands with…',
+    swapWith: 'Swap non-agent cards with…',
     redraw: 'Discard and redraw (+1)',
     reserve: 'Reserve for next round',
     buy: 'Buy a district (value +1)',
@@ -130,40 +128,63 @@ const tg = makeT({
     eventNeeds: 'Needs {frame}+ · reward {reward}',
     s_mode: 'Game mode',
     s_classicMode: 'Classic',
-    s_says: 'Sultan Says (co-op)',
-    saysNote: 'Co-op: the Sultan deals missions; each must succeed within 2 rounds or everyone loses. Break the whole deck to win. Stat events are always on.',
-    saysTitle: 'The Sultan says…',
-    saysLeft: '{done} of {total} missions done · {left} still in the deck',
+    s_says: "Sultan's Madness (co-op)",
+    saysNote: "Co-op: the Sultan deals commands; each must succeed within 4 rounds or everyone loses. Broken commands never return to the pool — empty it to win. Deck size scales with the table (Stone → Bronze → Silver → Gold). Stat events are always on.",
+    saysTitle: "Sultan's Madness…",
+    saysLeft: '{done} of {total} commands broken · {left} still in the deck',
     dueNow: 'due this round!',
     dueNext: 'due next round',
-    saysWin: 'The city stands! Every mission is done.',
+    saysWin: 'The city stands! Every command is broken.',
     saysLose: 'The Sultan is displeased: {x} was not done in time. Everyone loses.',
     mvp: 'MVP: {name}',
-    log_mission: 'completed {x} (+{n} coins)',
+    log_command: 'completed {x} (+{n} coins)',
     inspNeeds: 'Who can start it',
-    inspNeedsValue: '{frame} character or higher',
+    inspNeedsValue: '{frame} tier or higher',
     inspReward: 'Reward on success',
     inspDeadline: 'Deadline',
     inspDone: 'Done ✓',
+    commandDeadlineWarn: '{n} days to accomplish, or you will be executed',
     inspOwner: 'District',
+    commandOwner: 'Owner',
     yourDistrict: 'Your district: {x}',
-    yourMission: 'Your secret mission',
+    yourCommand: "Your Sultan's command",
     roundsLeft: '{n} round(s) left',
     redraw: 'Redraw (once)',
-    outBadge: 'Out',
-    youAreOut: 'Your mission ran out of time: you are out of this game.',
-    log_out: 'missed their mission and is out.',
+    outBadge: 'Executed',
+    youAreOut: 'Your command ran out of time: you have been executed.',
+    log_out: 'missed their command and was executed.',
     marry: 'Marriage: date with…',
-    conquer: 'Conquest: attack a district',
+    conquer: 'Conquest: tap a building to attack',
+    conquerPick: 'Tap a building in their city',
     ally: 'Ask an ally (optional)',
     noAlly: 'No ally',
     offer: 'Offer the ally {n} coins',
     extravagance: 'Extravagance: give away {n} coins',
+    splitEven: 'Split evenly',
     give: 'Give',
     toGive: '{n} left to give',
+    rollDice: 'Tap to roll (+1)',
+    rollAuto: 'Auto in {n}s',
+    rollWait: 'Waiting for dice…',
+    rollSettling: 'Dice are in…',
+    scoreParts: 'Score breakdown',
+    scoreEffects: 'Special effects',
+    scoreTotal: 'Total',
+    scoreSkip: 'Skip',
     waiting: 'Waiting…',
     nobodyCalled: 'Waiting for your character to be called.',
     turnDone: 'Your turns are done. Watch the others.',
+    waitWhenCalled: 'When #{n} · {name} is called, you can:',
+    waitIncome: 'Take 2 coins, or draw 2 and keep 1',
+    waitSkill: 'Use their skill',
+    waitBuild: 'Build up to {n} district{s}',
+    waitTurnsLeft: 'Still waiting for your number…',
+    revealBids: 'Bids on this character',
+    revealWon: 'Won!',
+    revealLost: 'Outbid',
+    revealJoins: 'Joins your hand',
+    revealSkip: 'Continue',
+    revealTitle: 'Auction results',
     final: 'Final scores',
     points: '{n} pts',
     value: 'value {n}',
@@ -171,7 +192,7 @@ const tg = makeT({
     charisma: 'Charisma',
     married: 'married to {name}',
     waitFor: 'Waiting for {name}…',
-    p_shield: '{name} targets you ({what}). Use the Priest’s shield? (once per game)',
+    p_shield: '{name} targets you ({what}). Use the Priest’s shield? (once per round)',
     p_raise: '{name} challenges you to a duel! Raise the bet (up to {max})',
     p_champion: 'Choose your champion',
     p_date: '{name}’s {mine} asks your {other} on a date. Agree (free), or refuse (they pay you 1 coin)?',
@@ -184,12 +205,14 @@ const tg = makeT({
     useShield: 'Use the shield',
     noShield: 'Let it happen',
     eff_steal: 'take a district',
-    eff_swap: 'swap hands',
+    eff_swap: 'swap non-agent cards',
     eff_destroy: 'destroy a district',
     eff_buy: 'buy a district',
     eff_conquest: 'conquer a district',
     eff_pyrrhic: 'a Pyrrhic duel',
     bet: 'Bet {n}',
+    lockBet: 'Lock bet',
+    raiseHint: 'Tap + to raise. Coins stack on the wager.',
     poolLine: '{n} players: {chars} characters, {picks} pick(s) each',
     s_pool: 'Character pool',
     s_auto: 'Auto',
@@ -207,12 +230,12 @@ const tg = makeT({
     s_mathPools: 'Math problems',
     s_math: 'Math round',
     quizTitle: 'Solve for coins',
-    quizRule: 'Each right answer earns 1 coin you can bid. One try per problem. Finish fast: the time left is for bidding.',
+    quizRule: 'Each right answer earns 1 coin for this round’s bid purse. One try per problem. Finish fast: the time left is for bidding.',
     auctionHost: 'Math + secret auction',
-    auctionHostLine: 'Solve, then bid. Highest bid wins each character.',
+    auctionHostLine: 'Solve, then bid. Highest wins; unspent bid coins → treasure.',
     bidTitle: 'Bid for characters',
-    bidRule: 'Tap + to put a coin on a character. Highest bid wins; ties go to the crown holder first. Only winners pay. Win nothing and you are a Citizen.',
-    bidRuleNoMath: 'Bid up to {cap} of your coins. Tap + to put a coin on a character. Highest bid wins; ties go to the crown holder first. Only winners pay.',
+    bidRule: 'Highest bid wins; crown breaks ties. Only winners pay; unspent coins → treasure. No win → Citizen.',
+    bidRuleNoMath: 'Bid up to {cap}. Highest wins; crown breaks ties. Only winners pay.',
     purse: '{n} of {cap} coins left to bid',
     noCoins: 'No coins earned this round: you will get a Citizen unless you won a coin.',
     placeBids: 'Place bids',
@@ -281,6 +304,10 @@ const tg = makeT({
     keepOne: '留下一张',
     build: '建造（还能建 {n} 个）',
     endTurn: '结束回合',
+    softLater: '回合调用结束前仍可完成',
+    softReserve: '仍可预留角色',
+    softCommand: '敕令仍可完成',
+    endWhileWait: '结束回合 — 等待时可再完成敕令',
     endFirst: '结束第一回合（双再来一次）',
     hand: '你的手牌',
     city: '你的城市',
@@ -290,10 +317,11 @@ const tg = makeT({
     pickThis: '选择这个角色',
     keepThis: '留下这张牌',
     buildThis: '建造这个区域',
+    tapBuild: '点选手牌里的建筑牌，再选择建造',
     type: '类型',
     cost: '费用',
     number: '号码',
-    frame: '颜色',
+    frame: '品阶',
     gold: '{n} 金币',
     ability: '能力',
     abilityLeft: '能力（还可用 {n} 次）',
@@ -301,7 +329,7 @@ const tg = makeT({
     guessWho: '指定哪位玩家？',
     guessWhat: '他藏着哪个角色？',
     stealPick: '猜中了！拿走他的一个区域：',
-    swapWith: '和谁交换手牌……',
+    swapWith: '和谁交换非角色牌……',
     redraw: '弃牌重抽（+1）',
     reserve: '预留到下一轮',
     buy: '购买区域（价值 +1）',
@@ -311,43 +339,66 @@ const tg = makeT({
     smithy: '铁匠铺：付 2 抽 3',
     lab: '实验室：弃 1 张得 2 金币',
     events: '事件牌',
-    eventNeeds: '需要{frame}色或更高 · 奖励 {reward}',
+    eventNeeds: '需要{frame}阶或更高 · 奖励 {reward}',
     s_mode: '游戏模式',
     s_classicMode: '经典',
-    s_says: '苏丹有令（合作）',
-    saysNote: '合作模式：苏丹发布任务，每个任务必须在 2 轮内成功，否则全员失败。完成整副任务牌即获胜。属性事件始终开启。',
-    saysTitle: '苏丹有令…',
-    saysLeft: '已完成 {done} / {total} 个任务 · 牌堆还剩 {left} 张',
+    s_says: '苏丹狂令（合作）',
+    saysNote: '合作模式：苏丹发布敕令，每个敕令必须在 4 轮内成功，否则全员失败。已打破的敕令永不回池——清空牌池即胜。牌池随人数扩展（石 → 铜 → 银 → 金）。属性事件始终开启。',
+    saysTitle: '苏丹狂令…',
+    saysLeft: '已打破 {done} / {total} 个敕令 · 牌堆还剩 {left} 张',
     dueNow: '本轮截止！',
     dueNext: '下轮截止',
-    saysWin: '城市屹立不倒！所有任务都已完成。',
+    saysWin: '城市屹立不倒！所有敕令都已打破。',
     saysLose: '苏丹不悦：{x}没有按时完成。全员失败。',
     mvp: '最佳玩家：{name}',
-    log_mission: '完成了{x}（+{n} 金币）',
+    log_command: '完成了{x}（+{n} 金币）',
     inspNeeds: '谁能发起',
-    inspNeedsValue: '{frame}色或更高的角色',
+    inspNeedsValue: '{frame}阶或更高的角色',
     inspReward: '成功奖励',
     inspDeadline: '截止',
     inspDone: '已完成 ✓',
+    commandDeadlineWarn: '还剩 {n} 天完成，否则你将被处决',
     inspOwner: '区域',
+    commandOwner: '持有者',
     yourDistrict: '你的区域：{x}',
-    yourMission: '你的秘密任务',
+    yourCommand: '你的苏丹敕令',
     roundsLeft: '还剩 {n} 轮',
     redraw: '换一张（限一次）',
-    outBadge: '出局',
-    youAreOut: '任务超时：你已出局。',
-    log_out: '没有完成任务，出局。',
+    outBadge: '已处决',
+    youAreOut: '敕令超时：你已被处决。',
+    log_out: '没有完成敕令，被处决。',
     marry: '婚姻：和谁约会……',
-    conquer: '征服：进攻一个区域',
+    conquer: '征服：点建筑进攻',
+    conquerPick: '点对方城里的一座建筑',
     ally: '请求盟友（可选）',
     noAlly: '不要盟友',
     offer: '给盟友 {n} 金币',
     extravagance: '丰裕：送出 {n} 金币',
+    splitEven: '平均分配',
     give: '送',
     toGive: '还剩 {n} 金币要送',
+    rollDice: '点骰掷出（+1）',
+    rollAuto: '{n} 秒后自动',
+    rollWait: '等待掷骰……',
+    rollSettling: '骰子已出……',
+    scoreParts: '得分明细',
+    scoreEffects: '特殊效果',
+    scoreTotal: '合计',
+    scoreSkip: '跳过',
     waiting: '等待中……',
     nobodyCalled: '等待你的角色被传召。',
     turnDone: '你的回合结束了，看看其他人。',
+    waitWhenCalled: '当传召 #{n} · {name} 时，你可以：',
+    waitIncome: '拿 2 金币，或抽 2 留 1',
+    waitSkill: '使用角色能力',
+    waitBuild: '最多建造 {n} 个区域',
+    waitTurnsLeft: '还在等你的号码……',
+    revealBids: '此角色的出价',
+    revealWon: '拍得！',
+    revealLost: '被超过',
+    revealJoins: '加入你的手牌',
+    revealSkip: '继续',
+    revealTitle: '拍卖结果',
     final: '最终得分',
     points: '{n} 分',
     value: '价值 {n}',
@@ -355,7 +406,7 @@ const tg = makeT({
     charisma: '魅力',
     married: '与{name}结为伴侣',
     waitFor: '等待{name}……',
-    p_shield: '{name}针对你（{what}）。使用教的护盾吗？（每局一次）',
+    p_shield: '{name}针对你（{what}）。使用教的护盾吗？（每轮一次）',
     p_raise: '{name}向你发起决斗！加注（最多 {max}）',
     p_champion: '选择你的冠军',
     p_date: '{name}的{mine}邀请你的{other}约会。同意（免费），还是拒绝（对方付你 1 金币）？',
@@ -368,12 +419,14 @@ const tg = makeT({
     useShield: '使用护盾',
     noShield: '不用',
     eff_steal: '夺取区域',
-    eff_swap: '交换手牌',
+    eff_swap: '交换非角色牌',
     eff_destroy: '摧毁区域',
     eff_buy: '购买区域',
     eff_conquest: '征服区域',
     eff_pyrrhic: '惨烈决斗',
     bet: '下注 {n}',
+    lockBet: '锁定赌注',
+    raiseHint: '点 + 加注。金币会叠到赌注上。',
     poolLine: '{n} 人：{chars} 个角色，每人选 {picks} 个',
     s_pool: '角色池',
     s_auto: '自动',
@@ -391,12 +444,12 @@ const tg = makeT({
     s_mathPools: '数学题',
     s_math: '数学回合',
     quizTitle: '答题赚金币',
-    quizRule: '每答对一题得 1 枚可用于出价的金币。每题只能答一次。答得快，出价时间就多。',
+    quizRule: '每答对一题得 1 枚本轮出价金币（先入出价袋）。每题只能答一次。答得快，出价时间就多。',
     auctionHost: '算题 + 秘密拍卖',
-    auctionHostLine: '先答题，再出价。每个角色出价最高者得。',
+    auctionHostLine: '先答题再出价。最高得；没用完的出价金币进宝库。',
     bidTitle: '竞拍角色',
-    bidRule: '点 + 把 1 枚金币押在角色上。出价最高者得；平局时王冠持有者优先。只有赢家付钱。什么都没拍到就成为平民。',
-    bidRuleNoMath: '最多用 {cap} 枚自己的金币出价。点 + 把 1 枚金币押在角色上。出价最高者得；平局时王冠持有者优先。只有赢家付钱。',
+    bidRule: '出价最高者得；平局王冠优先。只有赢家付钱；没用完的进宝库。没拍到 → 平民。',
+    bidRuleNoMath: '最多用 {cap} 枚。最高者得；平局王冠优先。只有赢家付钱。',
     purse: '还可出价 {n} / {cap} 金币',
     noCoins: '本轮没有赚到金币：你将成为平民。',
     placeBids: '提交出价',
@@ -475,9 +528,9 @@ const VOICE = {
   destroyed: {en: 'The general’s army tears a district down.', zh: '将军的军队推倒了一个区域。'},
   crown_moves: {en: 'The crown changes hands.', zh: '王冠易主。'},
   last_round: {en: 'The first city is complete! This is the final round.', zh: '第一座城已经建成！这是最后一轮。'},
-  winner: {en: 'The legend of the Sultan’s city belongs to {seat}.', zh: '苏丹之城的传奇，属于{seat}。'},
-  says_win: {en: 'The Sultan is pleased. Every task is done, and the city stands!', zh: '苏丹很满意。所有任务都已完成，城市屹立不倒！'},
-  says_lose: {en: 'The Sultan is displeased. A task was left undone, and the city falls.', zh: '苏丹不悦。有任务没有完成，城市陷落了。'},
+  winner: {en: 'The legend of the Sultan’s city belongs to {letter}.', zh: '苏丹之城的传奇，属于{letter}。'},
+  says_win: {en: "Sultan's Madness ends: every command is broken, and the city stands!", zh: '苏丹狂令结束：所有敕令都已打破，城市屹立不倒！'},
+  says_lose: {en: "Sultan's Madness: a command was left undone, and the city falls.", zh: '苏丹狂令：有敕令没有完成，城市陷落了。'},
   pyrrhic_open: {en: 'Is there a challenger? Speak now.', zh: '有人要发起挑战吗？现在说。'},
   pyrrhic: {en: 'A duel! Place your bets.', zh: '决斗！下注吧。'},
   duel_end: {en: 'The duel is over. One leaves the city forever.', zh: '决斗结束。有人永远离开了这座城。'},
@@ -498,14 +551,23 @@ const charName = (k, lang) => {
 /** "ATK 4 · CHA 5" (Combat, Charisma). */
 const statLine = (c, lang) => (lang === 'zh' ? `战 ${c.combat} · 魅 ${c.charisma}` : `ATK ${c.combat} · CHA ${c.charisma}`);
 
-function CharCard({k, lang, size = 64, stats = false}) {
+function CharCard({k, lang, size = 64, stats = false, married = null}) {
   const c = charOf(k);
   if (!c) return null;
+  const spouse = married ? charOf(married) : null;
   return (
     <span className={styles.charWrap}>
       <Sprite path={c.art} emoji={c.zh} label={charName(k, lang)} tint={FRAMES[c.frame].tint} shape="tall" size={`${size}px`} />
       {stats && (
-        <span className={styles.statBadge}>{statLine(c, lang)}</span>
+        <span className={styles.statBadge}>
+          {statLine(c, lang)}
+          {spouse && spouse.n != null && (
+            <span className={styles.marriedPip} title={charName(married, lang)}>
+              {' '}
+              · 💍{spouse.n}
+            </span>
+          )}
+        </span>
       )}
     </span>
   );
@@ -521,8 +583,17 @@ function DistrictCard({k, lang, size = 60, invest = 0}) {
   );
 }
 
-function EventCard({ev, lang, size = 56}) {
-  return <Sprite path={`sultan/${EVENT_ART[ev.kind]}-${ev.frame}.webp`} emoji="📜" label={L(EVENTS[ev.kind], lang)} tint={FRAMES[ev.frame].tint} shape="tall" size={`${size}px`} />;
+function EventCard({ev, lang, size = 56, dueBadge = null}) {
+  return (
+    <span className={styles.charWrap}>
+      <Sprite path={`sultan/${EVENT_ART[ev.kind]}-${ev.frame}.webp`} emoji="📜" label={L(EVENTS[ev.kind], lang)} tint={FRAMES[ev.frame].tint} shape="tall" size={`${size}px`} />
+      {dueBadge != null && (
+        <span className={styles.commandDueBadge} data-urgent={dueBadge <= 1 || undefined} data-failed={ev.failed || undefined}>
+          {ev.failed ? 0 : dueBadge}
+        </span>
+      )}
+    </span>
+  );
 }
 
 /** Full-card peek: large art + side text. Optional `action` runs a pick/build/keep. */
@@ -535,7 +606,7 @@ function CardInspect({item, lang, onClose}) {
   if (item.kind === 'char') {
     const c = charOf(item.key);
     if (!c) return null;
-    art = <CharCard k={item.key} lang={lang} size={168} stats />;
+    art = <CharCard k={item.key} lang={lang} size={168} stats married={item.married || null} />;
     title = charName(item.key, lang);
     rows = [
       [tg(lang, 'number'), c.n == null ? '–' : String(c.n)],
@@ -544,7 +615,6 @@ function CardInspect({item, lang, onClose}) {
       [tg(lang, 'charisma'), String(c.charisma)],
     ];
     ability = L(c.ab, lang);
-    if (item.married) ability = `${ability}\n${tg(lang, 'married', {name: charName(item.married, lang)})}`;
   } else if (item.kind === 'district') {
     const d = DISTRICT[item.key];
     if (!d) return null;
@@ -560,20 +630,33 @@ function CardInspect({item, lang, onClose}) {
   } else if (item.kind === 'event') {
     const ev = EVENTS[item.key];
     if (!ev) return null;
-    art = <EventCard ev={{kind: item.key, frame: item.frame}} lang={lang} size={150} />;
+    const dueBadge = item.roundsLeft != null ? item.roundsLeft : item.due != null && item.round != null ? Math.max(0, item.due - item.round + 1) : null;
+    art = <EventCard ev={{kind: item.key, frame: item.frame, failed: item.failed}} lang={lang} size={150} dueBadge={dueBadge} />;
     title = L(ev, lang);
     rows = [
       [tg(lang, 'inspNeeds'), tg(lang, 'inspNeedsValue', {frame: L(FRAMES[item.frame], lang)})],
       [tg(lang, 'ability'), tg(lang, ev.stat === 'combat' ? 'combat' : 'charisma')],
     ];
+    if (item.letter) rows.push([tg(lang, 'commandOwner'), item.letter]);
     if (item.reward != null) rows.push([tg(lang, 'inspReward'), `+${item.reward}`]);
-    if (item.done) rows.push([tg(lang, 'inspDone'), '']);
-    else if (item.due != null) rows.push([tg(lang, 'inspDeadline'), tg(lang, item.due <= item.round ? 'dueNow' : 'dueNext')]);
+    if (item.done || item.failed) rows.push([tg(lang, 'inspDone'), '']);
     ability = L(ev.ab, lang);
   }
+  const commandWarn =
+    item.kind === 'event' && !item.failed && !item.done && item.roundsLeft != null
+      ? tg(lang, 'commandDeadlineWarn', {n: item.roundsLeft})
+      : item.kind === 'event' && !item.failed && !item.done && item.due != null && item.round != null
+        ? tg(lang, 'commandDeadlineWarn', {n: Math.max(0, item.due - item.round + 1)})
+        : null;
   return (
     <div className={styles.inspectScrim} role="dialog" aria-modal="true" aria-label={title} onClick={onClose}>
       <div className={styles.inspectPanel} onClick={(e) => e.stopPropagation()}>
+        {item.gold != null && (
+          <div className={styles.inspectGold} aria-label={tg(lang, 'gold', {n: item.gold})}>
+            <CoinStack n={item.gold} size="sm" />
+            <span className={styles.inspectGoldCount}>{item.gold}</span>
+          </div>
+        )}
         <div className={styles.inspectArt}>{art}</div>
         <div className={styles.inspectText}>
           <h3 className={styles.inspectTitle}>{title}</h3>
@@ -588,6 +671,7 @@ function CardInspect({item, lang, onClose}) {
             )}
           </dl>
           {ability && <p className={styles.inspectAbility}>{ability}</p>}
+          {commandWarn && <p className={styles.inspectCommandWarn}>{commandWarn}</p>}
           <div className={styles.inspectActions}>
             {item.action && (
               <button
@@ -630,54 +714,79 @@ const sultan = {
   /** Short, colour-coded steps for the mode being played (from the room's settings). */
   howTo(lang, st = {}) {
     const zh = lang === 'zh';
-    const says = st.mode === 'says';
-    const missions = says || st.events === 'on';
+    const madness = st.mode === 'madness' || st.mode === 'says';
+    const commands = madness || st.events === 'on';
     const goal = [6, 7, 8].includes(st.goal) ? String(st.goal) : zh ? '7（2–3 人时 8）' : '7 (8 at 2–3 players)';
     const steps = [];
-    if (says) steps.push(zh ? '合作：一起完成所有[mission|任务牌]。任何一张超时 → [bad|全员失败]。' : 'Co-op: finish every [mission|mission card] together. Miss one → [bad|everyone loses].');
+    if (madness) steps.push(zh ? '合作「[command|苏丹狂令]」：一起打破所有[command|敕令]。任何一张超时 → [bad|全员失败]。' : "Co-op [command|Sultan's Madness]: break every [command|command] together. Miss one → [bad|everyone loses].");
     else steps.push(zh ? `目标：最好的[district|城市]。有人建满 [district|${goal} 个区域]，该轮结束后游戏结束。` : `Goal: the best [district|city]. When one reaches [district|${goal} districts], that round ends the game.`);
     if (st.select === 'auction' && st.math !== 'off') {
-      steps.push(zh ? '每轮：答对 [good|3 道题] = [coin|3 金币]（选 2 个角色时为 6），再用它们竞拍[char|角色]。出价最高者得，平局 [crown|王冠]优先。没拍到 → 随机一个剩余角色，没有了就是[char|平民]。' : 'Each round: [good|3 right answers] = [coin|3 coins] (6 with 2 characters each). Bid them on [char|characters]: top bid wins, ties → [crown|crown] first. No win → a random leftover, else a [char|Citizen].');
+      steps.push(zh ? '每轮答题赚 [coin|出价金币]，再暗拍[char|角色]。最高得，平局 [crown|王冠]优先。只有赢家付钱；没用完的进宝库。没拍到 → 剩余角色或[char|平民]。' : 'Each round: math earns [coin|bid coins], then secret bids on [char|characters]. Highest wins; [crown|crown] breaks ties. Only winners pay; unspent coins go to your treasure. No win → leftover or [char|Citizen].');
     } else if (st.select === 'auction') {
-      steps.push(zh ? '每轮：最多用 [coin|3 金币]（选 2 个角色时为 6）竞拍[char|角色]。出价最高者得，平局 [crown|王冠]优先。没拍到 → 随机一个剩余角色，没有了就是[char|平民]。' : 'Each round: bid up to [coin|3 coins] (6 with 2 characters each) on [char|characters]: top bid wins, ties → [crown|crown] first. No win → a random leftover, else a [char|Citizen].');
+      steps.push(zh ? '每轮用最多 [coin|3 金币]（2 角时 6）暗拍[char|角色]。最高得，平局 [crown|王冠]优先。没拍到 → 剩余角色或[char|平民]。' : 'Each round: bid up to [coin|3 coins] (6 with 2 picks) on [char|characters]. Highest wins; [crown|crown] breaks ties. No win → leftover or [char|Citizen].');
     } else {
       steps.push(zh ? '每轮秘密挑选 [char|1 个角色]（2–3 人时 2 个）。[crown|王冠]先选。' : 'Each round, secretly pick [char|1 character] (2 at 2–3 players). [crown|Crown] picks first.');
     }
     steps.push(zh ? '按号码 [char|0 → 13] 传召角色。你的回合：拿 [coin|2 金币]或抽 2 留 1 → 用能力 → [district|建造]。' : '[char|Characters] are called [char|0 → 13]. Your turn: take [coin|2 coins] or draw 2 keep 1 → use the ability → [district|build].');
     steps.push(zh ? '同一城市不能有两个相同的[district|区域]。' : 'No two identical [district|districts] in one city.');
-    if (missions) {
-      steps.push(zh ? '你有一张秘密[mission|任务]：用同色或更高的[char|角色]发起（棕 < 绿 < 蓝 < 金）。成功 → [coin|4 / 8 / 12 / 16 金币]。' : 'Your secret [mission|mission]: start it with a [char|character] of its colour or higher (brown < green < blue < gold). Success → [coin|4 / 8 / 12 / 16 coins].');
+    if (commands) {
+      steps.push(zh ? '你有一张秘密[command|苏丹敕令]：用同阶或更高的[char|角色]发起（石 < 铜 < 银 < 金）。成功 → [coin|4 / 8 / 12 / 16 金币]。已打破的敕令永不回池。' : 'Your secret [command|Sultan’s command]: start it with a [char|character] of its tier or higher (Stone < Bronze < Silver < Gold). Success → [coin|4 / 8 / 12 / 16 coins]. Broken commands never return to the pool.');
       steps.push(
-        says
+        zh
+          ? '被拉进别人的[command|决斗]或[command|约会]时：若场上任一[char|角色]达到你的色阶，你的同种敕令也算完成。'
+          : 'Pulled into someone else’s [command|duel] or [command|date]: if any [char|character] in play meets your colour tier, your matching command succeeds too.',
+      );
+      steps.push(
+        madness
           ? zh
-            ? '每张[mission|4 轮]内完成；每局可[mission|换牌]一次。任务牌用完 → [good|胜利]。'
-            : '[mission|4 rounds] for each card; one [mission|redraw] per game. Empty the deck → [good|you win].'
+            ? '每张[command|4 轮]内完成；每局可[command|换牌]一次。敕令池清空 → [good|胜利]。'
+            : '[command|4 rounds] for each card; one [command|redraw] per game. Empty the pool → [good|you win].'
           : zh
-            ? '[mission|4 轮]内完成；每局可[mission|换牌]一次。超时 → [bad|你出局]。'
-            : '[mission|4 rounds] to finish it; one [mission|redraw] per game. Miss it → [bad|you are out].',
+            ? '[command|4 轮]内完成；每局可[command|换牌]一次。超时 → [bad|你被处决]。'
+            : '[command|4 rounds] to finish it; one [command|redraw] per game. Miss it → [bad|you are executed].',
       );
     }
-    if (says) steps.push(zh ? '得分最高者为 [crown|最佳玩家]。' : 'Top scorer is [crown|MVP].');
+    if (madness) steps.push(zh ? '得分最高者为 [crown|最佳玩家]。' : 'Top scorer is [crown|MVP].');
     else steps.push(zh ? '得分：[district|区域价值]，五种类型齐全 +3，最先完成 +4（其他完成者 +2），加独特区域奖励。' : 'Score: [district|district values], +3 for all 5 types, +4 first to finish (+2 others), plus Unique bonuses.');
     return steps.map(richText);
   },
 
+  /** Phone help grid reuses in-game card inspect when a reference row has `detail`. */
+  CardDetail: CardInspect,
   reference(lang, st = {}) {
     const group = (en, zh) => (lang === 'zh' ? zh : en);
     const chars = Object.keys(CHARS).map((k) => ({
+      key: k,
       group: group('Characters', '角色'),
       emoji: <CharCard k={k} lang={lang} size={18} />,
       tint: FRAMES[CHARS[k].frame].tint,
       title: charName(k, lang),
       tag: statLine(CHARS[k], lang),
       text: CHARS[k].ab,
+      detail: {kind: 'char', key: k},
     }));
-    const events = Object.keys(EVENTS).map((k) => ({group: group('Stat events', '属性事件'), emoji: <EventCard ev={{kind: k, frame: 'gold'}} lang={lang} size={18} />, tint: '#e9cfa3', title: L(EVENTS[k], lang), text: EVENTS[k].ab}));
+    const events = Object.keys(EVENTS).map((k) => ({
+      key: `event-${k}`,
+      group: group('Stat events', '属性事件'),
+      emoji: <EventCard ev={{kind: k, frame: 'gold'}} lang={lang} size={18} />,
+      tint: '#e9cfa3',
+      title: L(EVENTS[k], lang),
+      text: EVENTS[k].ab,
+      detail: {kind: 'event', key: k, frame: 'gold'},
+    }));
     const uniques = Object.values(DISTRICT)
       .filter((d) => d.note)
-      .map((d) => ({group: group('Unique districts', '独特区域'), emoji: <DistrictCard k={d.key} lang={lang} size={22} />, tint: TYPES.unique.tint, title: `${L(d, lang)} · ${d.cost}`, text: d.note}));
-    const missionsOn = !st || st.mode === 'says' || st.events === 'on' || st.events === undefined;
-    return [...chars, ...(missionsOn ? events : []), ...uniques];
+      .map((d) => ({
+        key: `district-${d.key}`,
+        group: group('Unique districts', '独特区域'),
+        emoji: <DistrictCard k={d.key} lang={lang} size={22} />,
+        tint: TYPES.unique.tint,
+        title: `${L(d, lang)} · ${d.cost}`,
+        text: d.note,
+        detail: {kind: 'district', key: d.key},
+      }));
+    const commandsOn = !st || st.mode === 'madness' || st.mode === 'says' || st.events === 'on' || st.events === undefined;
+    return [...chars, ...(commandsOn ? events : []), ...uniques];
   },
   inspiredBy: 'Citadels',
   players: {min: 2, max: 24},
@@ -740,17 +849,17 @@ const sultan = {
         <div className={shell.buttonRow}>
           <span>{tg(lang, 's_mode')}</span>
           {radio('mode', 'classic', tg(lang, 's_classicMode'))}
-          {radio('mode', 'says', tg(lang, 's_says'))}
+          {radio('mode', 'madness', tg(lang, 's_says'))}
         </div>
-        {current('mode') === 'says' && <p className={shell.muted}>{tg(lang, 'saysNote')}</p>}
-        {current('mode') !== 'says' && (
+        {(current('mode') === 'madness' || current('mode') === 'says') && <p className={shell.muted}>{tg(lang, 'saysNote')}</p>}
+        {current('mode') !== 'madness' && current('mode') !== 'says' && (
           <div className={shell.buttonRow}>
             <span>{tg(lang, 's_events')}</span>
             {radio('events', 'off', tg(lang, 's_off'))}
             {radio('events', 'on', tg(lang, 's_on'))}
           </div>
         )}
-        {(settings.events === 'on' || current('mode') === 'says') && <div className={shell.buttonRow}>{Object.keys(EVENTS).map(toggle)}</div>}
+        {(settings.events === 'on' || current('mode') === 'madness' || current('mode') === 'says') && <div className={shell.buttonRow}>{Object.keys(EVENTS).map(toggle)}</div>}
         <div className={shell.buttonRow}>
           <span>{tg(lang, 's_goal')}</span>
           {radio('goal', 'auto', tg(lang, 's_auto'))}
@@ -774,11 +883,13 @@ const sultan = {
       case 'bid':
         return placeBids(s, ctx, id, msg.bids);
       case 'redraw':
-        return redrawMission(s, ctx, id);
+        return redrawCommand(s, ctx, id);
       case 'challenge':
         return challenge(s, ctx, id, msg.target);
       case 'answer':
         return answer(s, ctx, id, msg);
+      case 'launchDice':
+        return launchDice(s, ctx, id);
       default:
         return turnAction(s, ctx, id, msg);
     }
@@ -818,7 +929,7 @@ const sultan = {
   /** The phone view plus `urgent` (this phone must act now), which drives the banner and buzz. */
   view(s, g, id, ctx) {
     const v = this.baseView(s, g, id, ctx);
-    return {...v, urgent: ['draft', 'quiz', 'turn', 'prompt'].includes(v.kind) || (v.kind === 'bid' && !v.bid.placed)};
+    return {...v, urgent: ['draft', 'quiz', 'turn', 'prompt', 'pyrrhic', 'dice'].includes(v.kind) || (v.kind === 'bid' && !v.bid.placed)};
   },
 
   baseView(s, g, id) {
@@ -839,14 +950,15 @@ const sultan = {
     const myTurnCard = s.phase === 'call' && t ? t.cards.find((k) => acting(s, id, k)) : null;
     let kind = 'wait';
     if (s.over) kind = 'over';
+    else if (diceHasPlayer(s.dice, id)) kind = 'dice';
     else if (s.prompt && s.prompt.to === id) kind = 'prompt';
     else if (s.phase === 'draft' && picksLeft(s, id) > 0) kind = 'draft';
     else if (s.phase === 'auction' && quizLeft(s, id) > 0) kind = 'quiz';
     else if (canBid(s, id)) kind = 'bid';
-    else if (s.phase === 'pyrrhic' && !s.prompt && canUseEvent(s, id, missionFor(s, id, 'pyrrhic'))) kind = 'pyrrhic';
-    else if (myTurnCard) kind = 'turn';
+    else if (s.phase === 'pyrrhic' && !s.prompt && !s.dice && canUseEvent(s, id, commandFor(s, id, 'pyrrhic'))) kind = 'pyrrhic';
+    else if (myTurnCard && !s.dice) kind = 'turn';
     const v = {
-      task: `${kind}-${s.round}-${s.phase}-${s.calling}-${myTurnCard || ''}-${myTurnCard ? t.step[myTurnCard] : ''}-${s.prompt ? s.prompt.kind : ''}`,
+      task: `${kind}-${s.round}-${s.phase}-${s.calling}-${myTurnCard || ''}-${myTurnCard ? t.step[myTurnCard] : ''}-${s.prompt ? s.prompt.kind : ''}-${s.dice ? `${s.dice.kind}-${s.dice.revealed}` : ''}-${softReady(s, id) ? 'soft' : ''}`,
       kind,
       phase: s.phase,
       round: s.round,
@@ -859,22 +971,101 @@ const sultan = {
       mine: s.hold[id].map((k) => ({key: k, married: s.married[k] || null})),
       hand: s.hand[id].map((u) => ({uid: u, key: s.cards[u], ok: Boolean(myTurnCard) && canBuild(s, id, myTurnCard, u)})),
       city: s.city[id].map((u) => ({uid: u, key: s.cards[u], invest: s.invest[u] || 0})),
-      // Missions are secret: a phone only ever sees its own card.
-      events: missionFor(s, id) ? [{...missionFor(s, id), can: canUseEvent(s, id, missionFor(s, id)), roundsLeft: missionFor(s, id).due - s.round + 1}] : [],
-      canRedraw: Boolean(missionFor(s, id)) && !(s.redraws && s.redraws[id]) && !isOut(s, id),
+      // Commands are secret: a phone only ever sees its own card (including a failed one after timeout).
+      events: (() => {
+        const raw = s.commands && s.commands[id];
+        if (!raw || (raw.done && !raw.failed)) return [];
+        const live = commandFor(s, id);
+        const onCommand = Boolean(live) && canUseEvent(s, id, live);
+        // Pulse "can" on your turn, or after your turns while soft window is open.
+        const can = onCommand && (Boolean(myTurnCard) || softReady(s, id)) && !s.prompt;
+        return [{...raw, can, roundsLeft: Math.max(0, raw.due - s.round + 1)}];
+      })(),
+      canRedraw: Boolean(commandFor(s, id)) && !(s.redraws && s.redraws[id]) && !isOut(s, id),
       out: isOut(s, id),
       players,
       me: id,
       letter: letterOf(s, id),
       turnDone: s.phase === 'call' && s.hold[id].length > 0 && s.hold[id].every((k) => charOf(k).n == null || charOf(k).n < (s.calling || 0) || (t && t.done[k])),
       score: s.scores ? s.scores[id] : null,
+      scoreCard: s.scoreCards ? s.scoreCards[id] : null,
       winner: s.winner || null,
       says: s.says && s.says.result ? s.says.result : null,
       waitFor: s.prompt ? name(s.prompt.to) : null,
     };
+    // Soft panel: princess reserve + commands after your characters finish.
+    if (softReady(s, id)) {
+      const foes = s.seats
+        .filter((p) => p !== id)
+        .map((p) => ({
+          id: p,
+          name: name(p),
+          letter: letterOf(s, p),
+          color: (g.players[p] && g.players[p].color) || '#2a1630',
+          city: s.city[p].map((u) => ({
+            uid: u,
+            key: s.cards[u],
+            value: valueOf(s, u),
+            ok: !s.city[id].some((m) => s.cards[m] === s.cards[u]),
+          })),
+        }));
+      v.soft = {
+        reserve: canSoftReserve(s, id) ? (s.unpicked || []).filter((k) => !Object.values(s.reserved).includes(k)) : [],
+        marry: canSoftCommand(s, id, 'marriage'),
+        conquer: canSoftCommand(s, id, 'conquest'),
+        extravagance: canSoftCommand(s, id, 'extravagance'),
+        suitors: s.hold[id].filter((k) => s.revealed[k] && !s.married[k]),
+        dates: Object.keys(s.owner)
+          .filter((k) => s.revealed[k] && !s.married[k])
+          .map((k) => ({key: k, owner: name(ownerOf(s, k)), mine: s.hold[id].includes(k)})),
+        foes,
+        targets: foes.flatMap((p) => p.city.filter((c) => c.ok).map((c) => ({...c, ownerId: p.id, owner: `${p.letter} · ${p.name}`}))),
+        charisma: s.hold[id].reduce((n, k) => n + charOf(k).charisma, 0),
+      };
+    }
+    if (s.dice) {
+      const meta = s.dice.meta || {};
+      const cardFor = (key) => {
+        if (s.dice.after === 'duel' && s.duel) return key === 'a' ? s.duel.champA : key === 'b' ? s.duel.champB : null;
+        if (s.dice.after === 'marriage') return key === 'a' ? meta.mine : key === 'b' ? meta.other : null;
+        return null;
+      };
+      const cardsFor = (key) => {
+        if (s.dice.after !== 'conquest') return null;
+        const c = s.conquests && s.conquests[meta.index];
+        if (!c) return null;
+        if (key === 'a') return [...armyOf(s, c.attacker), ...armyOf(s, c.ally)];
+        if (key === 'b') return armyOf(s, c.defender);
+        return null;
+      };
+      const conquest = s.dice.after === 'conquest' && s.conquests ? s.conquests[meta.index] : null;
+      v.dice = {
+        kind: s.dice.kind,
+        revealed: s.dice.revealed,
+        deadline: s.dice.deadline,
+        districtValue: conquest ? valueOf(s, conquest.uid) : 0,
+        sides: Object.fromEntries(
+          Object.entries(s.dice.sides).map(([key, side]) => [
+            key,
+            {
+              ...side,
+              key,
+              name: name(side.who),
+              letter: letterOf(s, side.who),
+              card: cardFor(key),
+              cards: cardsFor(key),
+              mine: side.who === id,
+            },
+          ]),
+        ),
+      };
+    }
     // Auction selection: my problems (never the answers), my bid options, and what I won.
-    if (s.auction && s.phase === 'auction' && s.auction.quiz[id]) {
-      v.quiz = s.auction.quiz[id].map((q) => ({pool: q.pool, lines: q.lines, hint: q.hint, state: q.state}));
+    if (s.auction && s.phase === 'auction') {
+      v.earned = s.auction.earned[id] || 0;
+      if (s.auction.quiz[id]) {
+        v.quiz = s.auction.quiz[id].map((q) => ({pool: q.pool, lines: q.lines, hint: q.hint, state: q.state}));
+      }
     }
     if (kind === 'bid') {
       v.bid = {
@@ -884,7 +1075,29 @@ const sultan = {
         lots: s.auction.lots.map((k) => ({key: k, married: s.married[k] || null})),
       };
     }
-    if (s.auction && s.auction.won && s.auction.won[id] && s.phase !== 'auction') v.won = s.auction.won[id];
+    if (s.auction && s.auction.won && s.phase !== 'auction') {
+      v.won = s.auction.won[id] || [];
+      const myBids = s.auction.bids[id] || {};
+      const who = (pid) => {
+        const p = g.players[pid] || {};
+        return {id: pid, name: name(pid), avatar: p.avatar, color: p.color};
+      };
+      const lots = (s.auction.reveal && s.auction.reveal.lots) || [];
+      v.auctionReveal = {
+        round: (s.auction.reveal && s.auction.reveal.round) || s.round,
+        lots: lots
+          .filter((lot) => myBids[lot.key] || (s.auction.won[id] || []).some((w) => w.key === lot.key || (lot.take || []).includes(w.key)))
+          .map((lot) => ({
+            key: lot.key,
+            myBid: myBids[lot.key] || 0,
+            bids: (lot.bids || []).map((b) => ({...who(b.id), n: b.n})),
+            winner: lot.winner ? who(lot.winner) : null,
+            paid: lot.paid || 0,
+            take: lot.take || [lot.key],
+          })),
+        got: (s.auction.won[id] || []).map((w) => ({...w})),
+      };
+    }
     if (kind === 'draft') {
       v.picksLeft = picksLeft(s, id);
       v.available = s.draft.available.map((k) => ({key: k, ok: canPick(s, id, k), married: s.married[k] || null}));
@@ -892,7 +1105,15 @@ const sultan = {
     if (kind === 'pyrrhic') v.targets = s.seats.filter((p) => p !== id && s.hold[p].length).map((p) => ({id: p, name: name(p)}));
     if (kind === 'prompt') {
       const p = s.prompt;
-      v.prompt = {kind: p.kind, from: name(p.from || (p.eff && p.eff.actor) || (s.duel && s.duel.a)), max: p.max, mine: p.mine, other: p.other, what: p.eff ? p.eff.kind : null};
+      v.prompt = {
+        kind: p.kind,
+        from: name(p.from || (p.eff && p.eff.actor) || (s.duel && s.duel.a)),
+        max: p.max,
+        min: p.kind === 'raise' && s.duel ? Math.max(1, s.duel.bet || 1) : 1,
+        mine: p.mine,
+        other: p.other,
+        what: p.eff ? p.eff.kind : null,
+      };
       if (p.kind === 'champion') v.prompt.cards = s.hold[id];
       if (p.kind === 'ally') v.prompt.offer = s.conquests[p.index].offer;
     }
@@ -917,7 +1138,21 @@ const sultan = {
         smithy: s.city[id].some((u) => s.cards[u] === 'smithy') && !t.smithy[key] && s.gold[id] >= 2,
         lab: s.city[id].some((u) => s.cards[u] === 'laboratory') && !t.lab[key],
         dates: !t.dated[key] && !s.married[key] ? Object.keys(s.owner).filter((k) => k !== key && s.revealed[k] && !s.married[k]).map((k) => ({key: k, owner: name(ownerOf(s, k))})) : [],
-        targets: s.seats.filter((p) => p !== id).flatMap((p) => s.city[p].filter((u) => !s.city[id].some((m) => s.cards[m] === s.cards[u])).map((u) => ({uid: u, key: s.cards[u], owner: `${letterOf(s, p)} · ${name(p)}`, value: valueOf(s, u)}))),
+        targets: s.seats.filter((p) => p !== id).flatMap((p) => s.city[p].filter((u) => !s.city[id].some((m) => s.cards[m] === s.cards[u])).map((u) => ({uid: u, key: s.cards[u], ownerId: p, owner: `${letterOf(s, p)} · ${name(p)}`, value: valueOf(s, u)}))),
+        foes: s.seats
+          .filter((p) => p !== id)
+          .map((p) => ({
+            id: p,
+            name: name(p),
+            letter: letterOf(s, p),
+            color: (g.players[p] && g.players[p].color) || '#2a1630',
+            city: s.city[p].map((u) => ({
+              uid: u,
+              key: s.cards[u],
+              value: valueOf(s, u),
+              ok: !s.city[id].some((m) => s.cards[m] === s.cards[u]),
+            })),
+          })),
         charisma: s.hold[id].reduce((n, k) => n + charOf(k).charisma, 0),
       };
     }
@@ -944,6 +1179,7 @@ const sultan = {
         g={g}
         ids={s.seats}
         focus="seats"
+        mark={(id) => letterOf(s, id)}
         highlight={(id) => (s.phase === 'draft' ? picksLeft(s, id) > 0 : s.phase === 'call' && t ? active(id) : s.prompt && s.prompt.to === id)}
         feature={(id) => (
           <CityPlot
@@ -980,29 +1216,39 @@ const sultan = {
                 <div className={styles.saysResult} data-result={s.says.result}>
                   {s.says.result === 'win' ? `🏰 ${tg(lang, 'saysWin')}` : `💀 ${tg(lang, 'saysLose', {x: s.says.missed ? L(EVENTS[s.says.missed.kind], lang) : ''})}`}
                 </div>
-                <p className={shell.kicker}>{tg(lang, 'mvp', {name: name(s.winner)})}</p>
+                <p className={shell.kicker}>{tg(lang, 'mvp', {name: `${letterOf(s, s.winner)} · ${name(s.winner)}`})}</p>
               </>
             ) : (
-              <div className={shell.bigText}>{name(s.winner)}</div>
+              <div className={shell.bigText}>
+                {letterOf(s, s.winner)} · {name(s.winner)}
+              </div>
             )}
-            <table className={shell.scoreTable}>
-              <tbody>
-                {[...s.seats]
-                  .sort((a, b) => s.scores[b] - s.scores[a])
-                  .slice(0, 10)
-                  .map((id, i) => (
-                    <tr key={id}>
-                      <td>{i + 1}</td>
-                      <td>
-                        <Avatar avatar={g.players[id]?.avatar} color={g.players[id]?.color} size="xs" /> {name(id)}
-                      </td>
-                      <td>
-                        <b>{s.scores[id]}</b>
-                      </td>
-                    </tr>
-                  ))}
-              </tbody>
-            </table>
+            {(() => {
+              const ranked = [...s.seats].sort((a, b) => s.scores[b] - s.scores[a]);
+              const winCard = (s.scoreCards && s.scoreCards[s.winner]) || {total: s.scores[s.winner], lines: [], effects: [], buildings: []};
+              return (
+                <>
+                  <ScoreReveal card={winCard} lang={lang} />
+                  <table className={shell.scoreTable}>
+                    <tbody>
+                      {ranked.slice(0, 10).map((id) => (
+                        <tr key={id}>
+                          <td>
+                            <b>{letterOf(s, id)}</b>
+                          </td>
+                          <td>
+                            <Avatar avatar={g.players[id]?.avatar} color={g.players[id]?.color} size="xs" /> {name(id)}
+                          </td>
+                          <td>
+                            <b>{s.scores[id]}</b>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </>
+              );
+            })()}
           </div>
         ) : (
           <>
@@ -1102,26 +1348,68 @@ function LogLine({e, lang, name}) {
 }
 
 /**
- * Stat events as a modal over the players' cities, each on its own arena
- * floor and with its own little show:
- * - Conquest: soldiers march on the targeted building; if it falls it is
- *   carried off to the attacker's side, if not a shield bounces them back.
- * - Pyrrhic: the two champions clash; the loser fades out of the city.
- * - Marriage: the two characters walk together under floating hearts; a
- *   ring, or a broken heart.
- * - Extravagance: a fountain of coins, then who received how many.
- * Shown while a duel or conquest is being settled, then for a few seconds
- * with the result. Only public facts: revealed (or removed) characters,
- * totals and districts.
+ * Stat events as a modal: character cards stand on each side (no sliding),
+ * the issuing command sits bottom-left, light FX for the result only.
  */
 const EVENT_SHOW_MS = 6500;
+
+const armyOf = (s, id) => (id && s.hold[id] ? s.hold[id].filter((k) => s.revealed[k]) : []);
 
 function currentEvent(s) {
   const roll = s.rolls && s.rolls[0];
   const conquest = s.phase === 'conquest' && s.conquests && s.conquests[s.conquestAt];
-  if (s.duel) return {kind: 'pyrrhic', pending: true, a: {who: s.duel.a, card: s.duel.champA}, b: {who: s.duel.b, card: s.duel.champB}};
+  if (s.dice) {
+    if (s.dice.after === 'duel' && s.duel) {
+      return {
+        kind: 'pyrrhic',
+        pending: true,
+        dice: s.dice,
+        command: commandSnap(s, s.duel.a, 'pyrrhic'),
+        a: {who: s.duel.a, card: s.duel.champA},
+        b: {who: s.duel.b, card: s.duel.champB},
+      };
+    }
+    if (s.dice.after === 'conquest' && conquest) {
+      return {
+        kind: 'conquest',
+        pending: true,
+        dice: s.dice,
+        command: commandSnap(s, conquest.attacker, 'conquest'),
+        a: {who: conquest.attacker, ally: conquest.ally, cards: armyOf(s, conquest.attacker), allyCards: armyOf(s, conquest.ally)},
+        b: {who: conquest.defender, cards: armyOf(s, conquest.defender)},
+        card: s.cards[conquest.uid],
+      };
+    }
+    if (s.dice.after === 'marriage') {
+      const {suitor, mine, other} = s.dice.meta || {};
+      return {
+        kind: 'marriage',
+        pending: true,
+        dice: s.dice,
+        command: commandSnap(s, suitor, 'marriage'),
+        a: {who: suitor, card: mine},
+        b: {who: ownerOf(s, other), card: other},
+      };
+    }
+  }
+  if (s.duel) {
+    return {
+      kind: 'pyrrhic',
+      pending: true,
+      command: commandSnap(s, s.duel.a, 'pyrrhic'),
+      a: {who: s.duel.a, card: s.duel.champA},
+      b: {who: s.duel.b, card: s.duel.champB},
+    };
+  }
   if (conquest && (!roll || roll.kind !== 'conquest' || roll.a.who !== conquest.attacker || Date.now() - (roll.at || 0) > EVENT_SHOW_MS)) {
-    return {kind: 'conquest', pending: true, a: {who: conquest.attacker}, b: {who: conquest.defender}, card: s.cards[conquest.uid]};
+    return {
+      kind: 'conquest',
+      pending: true,
+      command: commandSnap(s, conquest.attacker, 'conquest'),
+      a: {who: conquest.attacker, ally: conquest.ally, cards: armyOf(s, conquest.attacker), allyCards: armyOf(s, conquest.ally)},
+      b: {who: conquest.defender, cards: armyOf(s, conquest.defender)},
+      card: s.cards[conquest.uid],
+    };
   }
   if (roll && ['pyrrhic', 'marriage', 'conquest', 'extravagance'].includes(roll.kind) && roll.at && Date.now() - roll.at < EVENT_SHOW_MS) {
     return {...roll, pending: false};
@@ -1132,62 +1420,94 @@ function currentEvent(s) {
 function EventModal({s, g, lang, name}) {
   const ev = currentEvent(s);
   const [, setTick] = useState(0);
+  const [dismissed, setDismissed] = useState(null);
   // Close the modal on time even if no new state arrives.
   const at = ev && !ev.pending ? ev.at : null;
+  const evKey = ev ? `${ev.kind}-${ev.at || 'pending'}-${ev.a?.who || ''}-${ev.b?.who || ''}-${ev.card || ''}` : null;
   React.useEffect(() => {
     if (!at) return undefined;
     const id = setTimeout(() => setTick((n) => n + 1), Math.max(0, at + EVENT_SHOW_MS - Date.now()) + 50);
     return () => clearTimeout(id);
   }, [at]);
-  if (!ev) return null;
+  if (!ev || dismissed === evKey) return null;
   const {kind, pending} = ev;
-  const shown = (k) => k && (s.revealed[k] || s.removed.includes(k));
   const aWins = !pending && ev.b && ev.a.total > ev.b.total;
+  const cardStack = (keys, size = 48) =>
+    (keys || []).length > 0 ? (
+      <span className={styles.modalCards}>
+        {keys.map((k) => (
+          <CharCard key={k} k={k} lang={lang} size={size} stats={s.st.events.length > 0} />
+        ))}
+      </span>
+    ) : null;
   const side = (x, which) => {
     if (!x) return null;
-    const p = g.players[x.who];
     const lost = kind === 'pyrrhic' && !pending && x.card && ev.lost === x.card;
+    const cards = x.card ? [x.card] : [...(x.cards || []), ...(x.allyCards || [])];
     return (
       <span className={styles.modalSide} data-side={which} data-lost={lost} data-win={!pending && (which === 'a' ? aWins : !aWins)}>
-        {shown(x.card) && <CharCard k={x.card} lang={lang} size={72} />}
-        <PlayerTag s={s} g={g} id={x.who} name={name} />
+        {cardStack(cards, x.card ? 84 : 52)}
+        <span className={styles.modalSideMeta}>
+          <SeatBadge s={s} g={g} id={x.who} />
+          <b>{name(x.who)}</b>
+          {x.ally && (
+            <small>
+              + <SeatBadge s={s} g={g} id={x.ally} />
+            </small>
+          )}
+        </span>
         {!pending && x.total != null && kind !== 'extravagance' && <span className={styles.modalTotal}>{x.total}</span>}
       </span>
     );
   };
   let result = null;
   if (!pending) {
-    if (kind === 'conquest') result = ev.won ? `🏴 ${tg(lang, 'm_won', {x: L(DISTRICT[ev.card], lang), who: `${name(ev.a.who)} (${letterOf(s, ev.a.who)})`})}` : `🛡️ ${tg(lang, 'm_held', {x: L(DISTRICT[ev.card], lang)})}`;
+    if (kind === 'conquest') result = ev.won ? `🏴 ${tg(lang, 'm_won', {x: L(DISTRICT[ev.card], lang), who: `${letterOf(s, ev.a.who)} · ${name(ev.a.who)}`})}` : `🛡️ ${tg(lang, 'm_held', {x: L(DISTRICT[ev.card], lang)})}`;
     if (kind === 'marriage') result = ev.ok ? `💍 ${tg(lang, 'm_married')}` : `💔 ${tg(lang, 'm_jilted')}`;
     if (kind === 'pyrrhic' && ev.lost) result = `☠️ ${tg(lang, 'm_lost', {x: charName(ev.lost, lang)})}`;
   }
   const gifts = kind === 'extravagance' && ev.gifts ? Object.entries(ev.gifts) : [];
+  const command = ev.command;
+  const commandLeft = command && command.due != null ? Math.max(0, command.due - s.round + 1) : null;
   return (
-    <div className={styles.modalBackdrop} role="dialog" aria-label={tg(lang, `arena_${kind}`)}>
-      <div className={styles.modal} data-kind={kind} data-pending={pending} data-result={kind === 'conquest' && !pending ? (ev.won ? 'won' : 'held') : kind === 'marriage' && !pending ? (ev.ok ? 'yes' : 'no') : ''}>
+    <div className={styles.modalBackdrop} role="dialog" aria-label={tg(lang, `arena_${kind}`)} onClick={() => setDismissed(evKey)}>
+      <div
+        className={styles.modal}
+        data-kind={kind}
+        data-pending={pending}
+        data-result={kind === 'conquest' && !pending ? (ev.won ? 'won' : 'held') : kind === 'marriage' && !pending ? (ev.ok ? 'yes' : 'no') : ''}
+        onClick={(e) => e.stopPropagation()}>
         <p className={styles.modalTitle}>{tg(lang, `arena_${kind}`)}</p>
+        {ev.dice && (
+          <div className={styles.diceDuelRow} data-host="1">
+            {Object.entries(ev.dice.sides).map(([key, sideDie]) => {
+              const card = kind === 'pyrrhic' || kind === 'marriage' ? (key === 'a' ? ev.a?.card : ev.b?.card) : null;
+              const army = (keys) => (keys || []).reduce((n, k) => n + ((charOf(k) && charOf(k).combat) || 0), 0);
+              let base = null;
+              if ((kind === 'marriage' || kind === 'pyrrhic') && card && charOf(card)) {
+                base = kind === 'marriage' ? charOf(card).charisma : charOf(card).combat;
+              } else if (kind === 'conquest') {
+                const c = s.conquests && s.conquests[s.conquestAt];
+                const wall = c ? valueOf(s, c.uid) : ev.card && DISTRICT[ev.card] ? DISTRICT[ev.card].cost : 0;
+                base = key === 'a' ? army(ev.a?.cards) + army(ev.a?.allyCards) : army(ev.b?.cards) + wall;
+              }
+              return (
+                <div key={key} className={styles.diceDuelCol}>
+                  {card && <CharCard k={card} lang={lang} size={40} />}
+                  <Dice3D face={sideDie.face} launched={sideDie.launched} bonus={sideDie.bonus} base={base} label={letterOf(s, sideDie.who)} />
+                </div>
+              );
+            })}
+          </div>
+        )}
+        {pending && ev.dice && !ev.dice.revealed && <p className={shell.muted}>{tg(lang, 'rollWait')}</p>}
         <div className={styles.modalStage}>
           {side(ev.a, 'a')}
           <span className={styles.modalCenter}>
             <ArenaFloor kind={kind} centerArt={kind === 'conquest' && ev.card ? isoDistrict(ev.card) : undefined} scale={1.5} />
             <span className={styles.modalFx} aria-hidden="true">
-              {kind === 'conquest' && (
-                <>
-                  <span className={styles.fxMarch}>🗡️🛡️🗡️</span>
-                  {!pending && !ev.won && <span className={styles.fxShield}>🛡️</span>}
-                </>
-              )}
-              {kind === 'pyrrhic' && <span className={styles.fxClash}>⚔️</span>}
-              {kind === 'marriage' && (
-                <>
-                  <span className={styles.fxHearts}>
-                    <i>💕</i>
-                    <i>💗</i>
-                    <i>💞</i>
-                  </span>
-                  {!pending && <span className={styles.fxSeal}>{ev.ok ? '💍' : '💔'}</span>}
-                </>
-              )}
+              {kind === 'conquest' && !pending && !ev.won && <span className={styles.fxShield}>🛡️</span>}
+              {kind === 'marriage' && !pending && <span className={styles.fxSeal}>{ev.ok ? '💍' : '💔'}</span>}
               {kind === 'extravagance' && (
                 <span className={styles.fxFountain}>
                   {Array.from({length: Math.min(10, ev.a.total || 4)}, (_, i) => (
@@ -1200,10 +1520,11 @@ function EventModal({s, g, lang, name}) {
             </span>
           </span>
           {kind === 'extravagance' ? (
-            <span className={styles.modalSide}>
+            <span className={styles.modalSide} data-side="b">
               {gifts.map(([p, n]) => (
                 <span key={p} className={styles.giftRow}>
-                  <PlayerTag s={s} g={g} id={p} name={name} small /> +{n}
+                  <SeatBadge s={s} g={g} id={p} />
+                  <b>{name(p)}</b> +{n}
                 </span>
               ))}
             </span>
@@ -1211,11 +1532,22 @@ function EventModal({s, g, lang, name}) {
             side(ev.b, 'b')
           )}
         </div>
+        {command && (
+          <span className={styles.modalCommand} title={L(EVENTS[command.kind], lang)}>
+            <EventCard ev={command} lang={lang} size={52} dueBadge={command.failed ? 0 : commandLeft} />
+            {(command.who || ev.a?.who) && (
+              <span className={styles.modalCommandOwner}>
+                <SeatBadge s={s} g={g} id={command.who || ev.a.who} />
+                <b>{name(command.who || ev.a.who)}</b>
+              </span>
+            )}
+          </span>
+        )}
         {kind === 'extravagance' && <p className={styles.modalResult}>{tg(lang, 'arenaGave', {n: ev.a.total})}</p>}
         {result && <p className={styles.modalResult}>{result}</p>}
         {pending && s.prompt && (
           <p className={shell.muted}>
-            ⏳ <PlayerTag s={s} g={g} id={s.prompt.to} name={name} small />
+            ⏳ <SeatBadge s={s} g={g} id={s.prompt.to} /> {name(s.prompt.to)}
           </p>
         )}
       </div>
@@ -1234,7 +1566,7 @@ function EventModal({s, g, lang, name}) {
  * the one being called sits first, outlined in red; once its turn ends the
  * rest slide left. (Numbers nobody holds are skipped by the rules, so there
  * is no wait on them.) During the auction it shows the characters up for
- * bid. The open missions sit at its right end.
+ * bid. The open commands sit at its right end.
  */
 function SultanBoard({s, g, lang}) {
   const [inspect, setInspect] = useState(null);
@@ -1297,18 +1629,6 @@ function crownFirst(s) {
   return [...s.seats.slice(i), ...s.seats.slice(0, i)];
 }
 
-/** In event modals a player is shown in full: avatar, name and district letter. */
-function PlayerTag({s, g, id, name, small = false}) {
-  const p = g.players[id] || {};
-  return (
-    <span className={styles.playerTag} data-small={small}>
-      <Avatar avatar={p.avatar} color={p.color} size={small ? 'xs' : 'md'} />
-      <b>{name(id)}</b>
-      <SeatBadge s={s} g={g} id={id} />
-    </span>
-  );
-}
-
 /** A player on the big screen is their district letter in their colour. */
 function SeatBadge({s, g, id}) {
   const p = g.players[id] || {};
@@ -1319,13 +1639,32 @@ function SeatBadge({s, g, id}) {
   );
 }
 
-/** Coins as stacks of the game's coin token: up to 5 in a column, then a new column to the right. No number. */
-function CoinStack({n}) {
+/**
+ * Coins as stacks of the game's coin token: up to 5 in a column, then a new
+ * column to the right. With `animateJoin`, gains play a Bets-style fall-in burst.
+ */
+function CoinStack({n, animateJoin = false, size = 'md'}) {
   const src = useBaseUrl('/img/party/sultan/token-coin.webp');
-  const shown = Math.min(n, 30);
-  const cols = Array.from({length: Math.ceil(shown / 5)}, (_, c) => Math.min(5, shown - c * 5));
+  const prev = useRef(n);
+  const [flyIn, setFlyIn] = useState(0);
+  const [bounce, setBounce] = useState(false);
+  useEffect(() => {
+    const d = n - prev.current;
+    prev.current = n;
+    if (!animateJoin || d <= 0) return undefined;
+    setFlyIn(Math.min(d, 8));
+    setBounce(true);
+    const land = window.setTimeout(() => setFlyIn(0), 750);
+    const idle = window.setTimeout(() => setBounce(false), 450);
+    return () => {
+      window.clearTimeout(land);
+      window.clearTimeout(idle);
+    };
+  }, [n, animateJoin]);
+  const shown = Math.min(Math.max(0, n), 30);
+  const cols = shown ? Array.from({length: Math.ceil(shown / 5)}, (_, c) => Math.min(5, shown - c * 5)) : [];
   return (
-    <span className={styles.coinStack} aria-label={`${n}`}>
+    <span className={`${styles.coinStack} ${bounce ? styles.coinStackBounce : ''}`} data-size={size} aria-label={`${n}`}>
       {cols.map((h, c) => (
         <span key={c} className={styles.coinCol}>
           {Array.from({length: h}, (_, i) => (
@@ -1333,6 +1672,15 @@ function CoinStack({n}) {
           ))}
         </span>
       ))}
+      {flyIn > 0 && (
+        <span className={styles.coinJoin} aria-hidden="true">
+          {Array.from({length: flyIn}, (_, i) => (
+            <span key={i} className={styles.coinJoinPiece} style={{animationDelay: `${i * 40}ms`}}>
+              <img src={src} alt="" draggable={false} />
+            </span>
+          ))}
+        </span>
+      )}
     </span>
   );
 }
@@ -1369,12 +1717,35 @@ function PlayerCard({s, g, id, lang, active, hot, onInspect}) {
       <span className={styles.pCoins}>
         <CoinStack n={s.gold[id]} />
       </span>
-      <span className={styles.pHand}>🃏{s.hand[id].length}</span>
-      {missionFor(s, id) && (
-        <span className={styles.pMission} data-due={missionFor(s, id).due <= s.round} title={tg(lang, 'roundsLeft', {n: missionFor(s, id).due - s.round + 1})}>
-          {missionFor(s, id).due - s.round + 1}
-        </span>
-      )}
+      <span className={styles.pCornerRight}>
+        <span className={styles.pHand}>🃏{s.hand[id].length}</span>
+        {(() => {
+          const m = s.commands && s.commands[id];
+          if (!m || (m.done && !m.failed)) return null;
+          const left = Math.max(0, (m.due || s.round) - s.round + 1);
+          return (
+            <button
+              type="button"
+              className={`${styles.cardButton} ${styles.pCommand}`}
+              title={tg(lang, 'roundsLeft', {n: left})}
+              onClick={() =>
+                onInspect({
+                  kind: 'event',
+                  key: m.kind,
+                  frame: m.frame,
+                  reward: m.reward,
+                  due: m.due,
+                  round: s.round,
+                  roundsLeft: left,
+                  failed: m.failed,
+                  letter: letterOf(s, id),
+                })
+              }>
+              <EventCard ev={m} lang={lang} size={48} dueBadge={m.failed ? 0 : left} />
+            </button>
+          );
+        })()}
+      </span>
       {isOut(s, id) && <span className={styles.pOut}>{tg(lang, 'outBadge')}</span>}
     </div>
   );
@@ -1382,94 +1753,250 @@ function PlayerCard({s, g, id, lang, active, hot, onInspect}) {
 
 // ------------------------------------------------------------------ phone
 
-function SultanPhone({view, lang, send}) {
-  const [inspect, setInspect] = useState(null);
-  const closeInspect = () => setInspect(null);
-  const openChar = (key, extra = {}) => setInspect({kind: 'char', key, ...extra});
-  const openDistrict = (key, extra = {}) => setInspect({kind: 'district', key, ...extra});
-  const openEvent = (ev) => setInspect({kind: 'event', key: ev.kind, frame: ev.frame, reward: ev.reward, due: ev.due, round: view.round});
-
-  const modal = <CardInspect item={inspect} lang={lang} onClose={closeInspect} />;
-
-  const status = (
-    <div className={shell.card}>
-      <p className={shell.kicker}>
-        {view.letter && <span className={styles.myLetter}>{tg(lang, 'yourDistrict', {x: view.letter})}</span>} {tg(lang, 'round', {n: view.round})} · {coin} {tg(lang, 'gold', {n: view.gold})} {view.crown && crown}
-      </p>
-      {view.won && view.won.length > 0 && (
-        <div className={shell.chipRow}>
-          {view.won.map((w) => (
-            <span key={w.key} className={shell.chip}>
-              {w.citizen ? tg(lang, 'gotCitizen', {x: charName(w.key, lang)}) : w.leftover ? tg(lang, 'gotLeftover', {x: charName(w.key, lang)}) : tg(lang, 'wonChar', {x: charName(w.key, lang), n: w.paid})}
-            </span>
-          ))}
-        </div>
-      )}
-      {view.out && <p className={styles.last}>{tg(lang, 'youAreOut')}</p>}
-      {view.events.length > 0 && (
-        <div className={styles.myMission}>
-          {view.events.map((e) => (
-            <button key={e.kind} type="button" className={styles.cardButton} onClick={() => openEvent(e)}>
-              <EventCard ev={e} lang={lang} size={44} />
-            </button>
-          ))}
-          <span>
-            <b>{tg(lang, 'yourMission')}</b>
-            <br />
-            {tg(lang, 'eventNeeds', {frame: L(FRAMES[view.events[0].frame], lang), reward: view.events[0].reward})}
-            <br />
-            <span className={styles.due}>{tg(lang, 'roundsLeft', {n: view.events[0].roundsLeft})}</span>
-          </span>
-          {view.canRedraw && (
-            <button type="button" className="button button--sm button--secondary" onClick={() => send({action: 'redraw'})}>
-              {tg(lang, 'redraw')}
-            </button>
-          )}
-        </div>
-      )}
-      {view.mine.length > 0 && (
-        <>
-          <p className={shell.kicker}>{tg(lang, 'yourChars')}</p>
-          <p className={shell.muted}>{tg(lang, 'tapPreview')}</p>
-          <div className={styles.cards}>
-            {view.mine.map((c) => (
-              <button key={c.key} type="button" className={styles.cardButton} onClick={() => openChar(c.key, {married: c.married || null})}>
-                <span className={styles.charWrap}>
-                  <CharCard k={c.key} lang={lang} size={46} stats={view.statsOn} />
-                  {c.married && <small>{tg(lang, 'married', {name: charName(c.married, lang)})}</small>}
-                </span>
-              </button>
-            ))}
+/** While waiting: what you can do when each of your characters is called. */
+function WaitTurnPreview({mine, lang}) {
+  const upcoming = mine
+    .map((c) => ({...c, ch: charOf(c.key)}))
+    .filter((c) => c.ch && c.ch.n != null)
+    .sort((a, b) => a.ch.n - b.ch.n);
+  if (!upcoming.length) return null;
+  return (
+    <div className={styles.waitPreview}>
+      {upcoming.map((c) => {
+        const builds = c.key === 'builder' ? 2 : 1;
+        const plural = builds === 1 ? '' : 's';
+        return (
+          <div key={c.key} className={styles.waitChar}>
+            <CharCard k={c.key} lang={lang} size={52} />
+            <div>
+              <p className={styles.waitTitle}>{tg(lang, 'waitWhenCalled', {n: c.ch.n, name: lang === 'zh' ? c.ch.zh : c.ch.en})}</p>
+              <ul className={styles.waitList}>
+                <li>{tg(lang, 'waitIncome')}</li>
+                <li>
+                  {tg(lang, 'waitSkill')}: {L(c.ch.ab, lang)}
+                </li>
+                <li>{tg(lang, 'waitBuild', {n: builds, s: plural})}</li>
+              </ul>
+            </div>
           </div>
-        </>
-      )}
-      <p className={shell.kicker}>
-        {tg(lang, 'city')} ({view.city.length}/{view.goal})
-      </p>
-      <div className={styles.phoneCity}>
-        <CityPlot city={view.city} goal={view.goal} color={(view.players.find((p) => p.id === view.me) || {}).color} scale={1.3} lang={lang} onTap={(c) => openDistrict(c.key, {invest: c.invest})} />
+        );
+      })}
+    </div>
+  );
+}
+
+/**
+ * After the auction closes: briefly show who bid on cards you cared about,
+ * then leftover / citizen joins if you won nothing.
+ */
+function AuctionReveal({reveal, me, lang, onDone}) {
+  const steps = React.useMemo(() => {
+    const list = [];
+    for (const lot of reveal.lots || []) {
+      if (lot.myBid > 0) list.push({type: 'lot', lot});
+    }
+    const joins = (reveal.got || []).filter((w) => w.leftover || w.citizen || w.paid === 0);
+    // Prefer showing joins that weren't already a paid win on a lot step.
+    const paidKeys = new Set((reveal.lots || []).filter((l) => l.winner && l.winner.id === me && l.paid > 0).flatMap((l) => l.take || [l.key]));
+    for (const w of joins) {
+      if (!paidKeys.has(w.key)) list.push({type: 'join', got: w});
+    }
+    if (!list.length && (reveal.got || []).length) {
+      for (const w of reveal.got) list.push({type: 'join', got: w});
+    }
+    return list;
+  }, [reveal, me]);
+  const [i, setI] = useState(0);
+  const step = steps[i];
+  useEffect(() => {
+    if (!steps.length) {
+      onDone();
+      return undefined;
+    }
+    const ms = step && step.type === 'lot' ? 2200 : 1600;
+    const t = window.setTimeout(() => {
+      if (i + 1 >= steps.length) onDone();
+      else setI((n) => n + 1);
+    }, ms);
+    return () => window.clearTimeout(t);
+  }, [i, steps, step, onDone]);
+  if (!step) return null;
+  return (
+    <div className={styles.revealScrim} role="dialog" aria-label={tg(lang, 'revealTitle')} onClick={onDone}>
+      <div className={styles.revealCard} onClick={(e) => e.stopPropagation()}>
+        <p className={styles.revealHead}>{tg(lang, 'revealTitle')}</p>
+        {step.type === 'lot' && (
+          <div key={step.lot.key} className={styles.revealLot} data-anim="lot">
+            <CharCard k={step.lot.key} lang={lang} size={88} />
+            <p className={shell.muted}>{tg(lang, 'revealBids')}</p>
+            <div className={styles.revealBids}>
+              {step.lot.bids.map((b, bi) => (
+                <span key={b.id} className={styles.revealBid} style={{animationDelay: `${bi * 120}ms`}} data-me={b.id === me} data-win={step.lot.winner && step.lot.winner.id === b.id}>
+                  <Avatar avatar={b.avatar} color={b.color} size="sm" />
+                  <span className={styles.revealBidAmt}>
+                    {coin}
+                    {b.n}
+                  </span>
+                </span>
+              ))}
+            </div>
+            <p className={styles.revealResult} data-win={Boolean(step.lot.winner && step.lot.winner.id === me)}>
+              {step.lot.winner && step.lot.winner.id === me ? tg(lang, 'revealWon') : tg(lang, 'revealLost')}
+            </p>
+          </div>
+        )}
+        {step.type === 'join' && (
+          <div key={step.got.key} className={styles.revealLot} data-anim="join">
+            <CharCard k={step.got.key} lang={lang} size={100} />
+            <p className={styles.revealResult} data-win="true">
+              {tg(lang, 'revealJoins')}
+            </p>
+          </div>
+        )}
+        <button type="button" className="button button--sm button--secondary" onClick={onDone}>
+          {tg(lang, 'revealSkip')}
+        </button>
       </div>
     </div>
   );
-  const handView = (
+}
+
+/** Phone city: fill the card width and scale the iso grid to match. */
+function PhoneCity({city, goal, color, letter, lang, onTap}) {
+  const ref = useRef(null);
+  const [box, setBox] = useState(null);
+  useEffect(() => {
+    const el = ref.current;
+    if (!el || typeof ResizeObserver === 'undefined') return undefined;
+    const measure = () => {
+      const w = el.clientWidth;
+      if (w < 40) return;
+      // Height budget follows width so width usually drives the fit scale.
+      setBox({width: w - 16, height: Math.max(140, w * 0.7)});
+    };
+    measure();
+    const ro = new ResizeObserver(measure);
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, []);
+  return (
+    <div className={styles.phoneCity} ref={ref}>
+      <CityPlot city={city} goal={goal} color={color} label={letter || null} lang={lang} fit={box || undefined} scale={1.6} onTap={onTap} />
+    </div>
+  );
+}
+
+function SultanPhone({view, lang, send}) {
+  const [inspect, setInspect] = useState(null);
+  const revealKey = view.auctionReveal ? `${view.auctionReveal.round}` : '';
+  const [revealDoneFor, setRevealDoneFor] = useState('');
+  const showReveal = Boolean(view.auctionReveal && revealKey && revealDoneFor !== revealKey);
+  const finishReveal = useCallback(() => setRevealDoneFor(revealKey), [revealKey]);
+  const closeInspect = () => setInspect(null);
+  const openChar = (key, extra = {}) => setInspect({kind: 'char', key, ...extra});
+  const openDistrict = (key, extra = {}) => setInspect({kind: 'district', key, ...extra});
+  const openEvent = (ev) =>
+    setInspect({
+      kind: 'event',
+      key: ev.kind,
+      frame: ev.frame,
+      reward: ev.reward,
+      due: ev.due,
+      round: view.round,
+      roundsLeft: ev.roundsLeft,
+      failed: ev.failed,
+      letter: view.letter || null,
+      action:
+        view.canRedraw && !ev.failed
+          ? {
+              label: tg(lang, 'redraw'),
+              onClick: () => send({action: 'redraw'}),
+            }
+          : undefined,
+    });
+
+  const modal = <CardInspect item={inspect} lang={lang} onClose={closeInspect} />;
+  const revealModal = showReveal && view.auctionReveal ? <AuctionReveal reveal={view.auctionReveal} me={view.me} lang={lang} onDone={finishReveal} /> : null;
+
+  const status = (
     <div className={shell.card}>
-      <p className={shell.kicker}>{tg(lang, 'hand')}</p>
-      <p className={shell.muted}>{tg(lang, 'tapPreview')}</p>
-      <div className={styles.cards}>
-        {view.hand.map((c) => (
-          <button key={c.uid} type="button" className={styles.cardButton} onClick={() => openDistrict(c.key)}>
-            <DistrictCard k={c.key} lang={lang} size={48} />
-          </button>
-        ))}
+      <div className={styles.roundRow}>
+        <p className={shell.kicker}>
+          {tg(lang, 'round', {n: view.round})} · {tg(lang, 'gold', {n: view.gold})} {view.crown && crown}
+        </p>
+        <div className={styles.myTreasure}>
+          <CoinStack n={view.gold} animateJoin size="sm" />
+        </div>
       </div>
+      {view.out && <p className={styles.last}>{tg(lang, 'youAreOut')}</p>}
+      {(view.mine.length > 0 || view.hand.length > 0 || view.events.length > 0) && (
+        <div className={styles.heldRow}>
+          {view.mine.map((c) => (
+            <button key={c.key} type="button" className={styles.cardButton} onClick={() => openChar(c.key, {married: c.married || null})}>
+              <CharCard k={c.key} lang={lang} size={52} stats={view.statsOn} married={c.married || null} />
+            </button>
+          ))}
+          {view.events.map((e) => (
+            <button
+              key={e.kind}
+              type="button"
+              className={`${styles.cardButton} ${e.failed ? styles.commandFailed : ''} ${e.can ? styles.commandReady : ''} ${e.can && e.roundsLeft <= 1 ? styles.commandUrgent : ''}`}
+              onClick={() => openEvent(e)}>
+              <EventCard ev={e} lang={lang} size={52} dueBadge={e.roundsLeft} />
+            </button>
+          ))}
+          {view.hand.map((c) => (
+            <button
+              key={c.uid}
+              type="button"
+              className={`${styles.cardButton} ${c.ok ? styles.buildable : ''}`}
+              aria-pressed={c.ok || undefined}
+              onClick={() =>
+                openDistrict(c.key, {
+                  gold: view.gold,
+                  action: c.ok
+                    ? {
+                        label: tg(lang, 'buildThis'),
+                        onClick: () => send({action: 'build', uid: c.uid, card: view.turn.card}),
+                      }
+                    : undefined,
+                })
+              }>
+              {/* Card shape is shorter than tall agent art; ~1.9/1.4 keeps heights matched. */}
+              <DistrictCard k={c.key} lang={lang} size={70} />
+            </button>
+          ))}
+        </div>
+      )}
+      <PhoneCity
+        city={view.city}
+        goal={view.goal}
+        color={(view.players.find((p) => p.id === view.me) || {}).color}
+        letter={view.letter}
+        lang={lang}
+        onTap={(c) => openDistrict(c.key, {invest: c.invest})}
+      />
     </div>
   );
 
   if (view.kind === 'over') {
+    const card = view.scoreCard || {total: view.score || 0, lines: [], effects: [], buildings: []};
     return (
       <>
         {view.says && <div className={`${shell.card} ${styles.saysResult}`} data-result={view.says}>{view.says === 'win' ? `🏰 ${tg(lang, 'saysWin')}` : `💀 ${tg(lang, 'saysLose', {x: ''})}`}</div>}
-        <div className={`${shell.card} ${shell.bigText}`}>{tg(lang, 'points', {n: view.score})}</div>
+        <div className={shell.card}>
+          <p className={shell.kicker}>{tg(lang, 'scoreParts')}</p>
+          <ScoreReveal card={card} lang={lang} compact />
+        </div>
+        {status}
+        {modal}
+      </>
+    );
+  }
+  if (view.kind === 'dice') {
+    return (
+      <>
+        <DiceDuelView view={view} lang={lang} send={send} />
         {status}
         {modal}
       </>
@@ -1479,6 +2006,7 @@ function SultanPhone({view, lang, send}) {
     return (
       <>
         <PromptCard view={view} lang={lang} send={send} openChar={openChar} />
+        {status}
         {modal}
       </>
     );
@@ -1487,7 +2015,6 @@ function SultanPhone({view, lang, send}) {
     return (
       <>
         <p className={shell.bigText}>{tg(lang, 'pickChar', {n: view.picksLeft})}</p>
-        <p className={shell.muted}>{tg(lang, 'tapPreview')}</p>
         <div className={styles.cards}>
           {view.available.map((c) => (
             <button
@@ -1505,9 +2032,8 @@ function SultanPhone({view, lang, send}) {
                     : {label: tg(lang, 'pickThis'), disabled: true},
                 })
               }>
-              <CharCard k={c.key} lang={lang} size={70} stats={view.statsOn} />
+              <CharCard k={c.key} lang={lang} size={70} stats={view.statsOn} married={c.married || null} />
               <span className={styles.abilityText}>{L(charOf(c.key).ab, lang)}</span>
-              {c.married && <small>{tg(lang, 'married', {name: charName(c.married, lang)})}</small>}
             </button>
           ))}
         </div>
@@ -1527,7 +2053,8 @@ function SultanPhone({view, lang, send}) {
   if (view.kind === 'bid') {
     return (
       <>
-        <BidView view={view} lang={lang} send={send} openChar={openChar} />
+        <BidView view={view} lang={lang} send={send} openChar={openChar} openEvent={openEvent} />
+        {status}
         {modal}
       </>
     );
@@ -1549,6 +2076,7 @@ function SultanPhone({view, lang, send}) {
         </div>
         <p className={shell.muted}>{tg(lang, 'skip')}: {tg(lang, 'waiting')}</p>
         {status}
+        {revealModal}
         {modal}
       </>
     );
@@ -1556,31 +2084,168 @@ function SultanPhone({view, lang, send}) {
   if (view.kind === 'turn') {
     return (
       <>
-        <TurnView view={view} lang={lang} send={send} status={status} handView={handView} openChar={openChar} openDistrict={openDistrict} openEvent={openEvent} />
+        <TurnView view={view} lang={lang} send={send} status={status} openChar={openChar} openDistrict={openDistrict} openEvent={openEvent} />
+        {revealModal}
         {modal}
       </>
     );
   }
+  const softOpen =
+    view.soft &&
+    (view.soft.reserve.length > 0 || view.soft.marry || view.soft.conquer || view.soft.extravagance);
   return (
     <>
-      <p className={shell.waiting}>
-        {view.legacy
-          ? tg(lang, 'legacy')
-          : view.waitFor
-                ? tg(lang, 'waitFor', {name: view.waitFor})
-                : view.turnDone
-                  ? tg(lang, 'turnDone')
-                  : view.mine.length
-                    ? tg(lang, 'nobodyCalled')
-                    : view.phase === 'draft'
-                      ? tg(lang, 'waitDraft')
-                      : tg(lang, 'nextRound')}
-      </p>
-      {view.calling != null && <div className={shell.card}>{tg(lang, 'calling', {n: view.calling})}</div>}
+      {view.legacy ? (
+        <p className={shell.waiting}>{tg(lang, 'legacy')}</p>
+      ) : view.waitFor ? (
+        <p className={shell.waiting}>{tg(lang, 'waitFor', {name: view.waitFor})}</p>
+      ) : view.phase === 'draft' && !view.mine.length ? (
+        <p className={shell.waiting}>{tg(lang, 'waitDraft')}</p>
+      ) : view.mine.length > 0 && !view.turnDone ? (
+        <WaitTurnPreview mine={view.mine} lang={lang} />
+      ) : view.mine.length === 0 && view.phase !== 'call' ? (
+        <p className={shell.waiting}>{tg(lang, 'nextRound')}</p>
+      ) : view.turnDone && !softOpen ? (
+        <p className={shell.muted}>{tg(lang, 'turnDone')}</p>
+      ) : null}
+      {softOpen && <SoftPanel view={view} lang={lang} send={send} openChar={openChar} />}
       {status}
-      {handView}
+      {revealModal}
       {modal}
     </>
+  );
+}
+
+/**
+ * End-game tally: district cards slide in one by one, each adding its points,
+ * then bonus lines, while the running total ticks up.
+ */
+function ScoreReveal({card, lang, compact = false}) {
+  const buildings = card.buildings || [];
+  const bonuses = (card.lines || []).filter((row) => row.id !== 'districts');
+  const steps = [
+    ...buildings.map((b) => ({type: 'building', ...b})),
+    ...bonuses.map((row) => ({type: 'bonus', ...row})),
+  ];
+  const [step, setStep] = useState(0);
+  const [skip, setSkip] = useState(false);
+  useEffect(() => {
+    setStep(0);
+    setSkip(false);
+  }, [card]);
+  useEffect(() => {
+    if (skip || step >= steps.length) return undefined;
+    const ms = steps[step]?.type === 'building' ? 700 : 550;
+    const t = window.setTimeout(() => setStep((n) => n + 1), ms);
+    return () => window.clearTimeout(t);
+  }, [step, skip, steps.length]);
+  const shown = skip ? steps.length : step;
+  const visible = steps.slice(0, shown);
+  const total = visible.reduce((n, row) => n + (row.pts || 0), 0);
+  const done = shown >= steps.length;
+  const latest = visible[visible.length - 1];
+  return (
+    <div className={`${styles.scoreReveal} ${compact ? styles.scoreRevealCompact : ''}`}>
+      <div className={styles.scoreRevealStage}>
+        <div className={styles.scoreRevealCards} aria-live="polite">
+          {visible
+            .filter((row) => row.type === 'building')
+            .map((b) => (
+              <span key={b.uid || b.key} className={styles.scoreRevealCard} data-fresh={latest && latest.uid === b.uid ? '1' : undefined}>
+                <DistrictCard k={b.key} lang={lang} size={compact ? 56 : 72} />
+                <span className={styles.scoreRevealAdd}>+{b.pts}</span>
+              </span>
+            ))}
+        </div>
+        <div className={styles.scoreRevealSide}>
+          <p className={styles.scoreRevealTotal} data-bump={latest ? `${shown}-${latest.pts}` : undefined}>
+            <span>{tg(lang, 'scoreTotal')}</span>
+            <b key={total}>{total}</b>
+          </p>
+          <ul className={styles.scoreRevealLog}>
+            {visible.map((row, i) => (
+              <li key={`${row.type}-${row.id || row.uid || i}`} data-fresh={i === visible.length - 1 ? '1' : undefined}>
+                <span>{row.type === 'building' ? (lang === 'zh' ? row.zh : row.en) : lang === 'zh' ? row.zh : row.en}</span>
+                <b>+{row.pts}</b>
+              </li>
+            ))}
+          </ul>
+          {!done && (
+            <button type="button" className="button button--sm button--secondary" onClick={() => setSkip(true)}>
+              {tg(lang, 'scoreSkip')}
+            </button>
+          )}
+        </div>
+      </div>
+      {done && card.effects.length > 0 && (
+        <div className={styles.scoreRevealEffects}>
+          <b>{tg(lang, 'scoreEffects')}</b>
+          <ul className={styles.scoreEffects}>
+            {card.effects.map((fx, n) => (
+              <li key={n}>{lang === 'zh' ? fx.zh : fx.en}</li>
+            ))}
+          </ul>
+        </div>
+      )}
+    </div>
+  );
+}
+
+/** Shared contested roll: each side sees a 3D die; tap before auto for +1. */
+function DiceDuelView({view, lang, send}) {
+  const d = view.dice;
+  const [, setTick] = useState(0);
+  useEffect(() => {
+    if (!d || d.revealed) return undefined;
+    const id = window.setInterval(() => setTick((n) => n + 1), 250);
+    return () => window.clearInterval(id);
+  }, [d, d && d.revealed, d && d.deadline]);
+  if (!d) return null;
+  const left = Math.max(0, Math.ceil(((d.deadline || 0) - Date.now()) / 1000));
+  const sides = Object.values(d.sides);
+  const army = (keys) => (keys || []).reduce((n, k) => n + ((charOf(k) && charOf(k).combat) || 0), 0);
+  const baseOf = (side) => {
+    if (d.kind === 'marriage' && side.card && charOf(side.card)) return charOf(side.card).charisma;
+    if (d.kind === 'pyrrhic' && side.card && charOf(side.card)) return charOf(side.card).combat;
+    if (d.kind === 'conquest' && side.cards) {
+      const combat = army(side.cards);
+      return side.key === 'b' ? combat + (d.districtValue || 0) : combat;
+    }
+    return null;
+  };
+  return (
+    <div className={`${shell.card} ${styles.diceDuelPhone}`}>
+      <p className={shell.bigText}>{tg(lang, d.revealed ? 'rollSettling' : 'rollDice')}</p>
+      {!d.revealed && <p className={shell.muted}>{tg(lang, 'rollAuto', {n: left})}</p>}
+      <div className={styles.diceDuelRow}>
+        {sides.map((side) => (
+          <div key={side.key || `${side.letter}-${side.card || ''}`} className={styles.diceDuelCol}>
+            <Dice3D
+              face={side.face}
+              launched={side.launched}
+              bonus={side.bonus}
+              base={baseOf(side)}
+              mine={side.mine}
+              label={side.letter || side.name}
+              hint={side.mine && !side.launched ? tg(lang, 'rollDice') : undefined}
+              onLaunch={side.mine && !side.launched && !d.revealed ? () => send({action: 'launchDice'}) : undefined}
+            />
+            {side.card ? (
+              <CharCard k={side.card} lang={lang} size={48} stats={view.statsOn} />
+            ) : (
+              side.cards &&
+              side.cards.length > 0 && (
+                <span className={styles.modalCards}>
+                  {side.cards.slice(0, 3).map((k) => (
+                    <CharCard key={k} k={k} lang={lang} size={36} />
+                  ))}
+                </span>
+              )
+            )}
+          </div>
+        ))}
+      </div>
+    </div>
   );
 }
 
@@ -1591,7 +2256,9 @@ function QuizView({view, lang, send}) {
   return (
     <div className={shell.card}>
       <p className={shell.bigText}>{tg(lang, 'quizTitle')}</p>
-      <p className={shell.muted}>{tg(lang, 'quizRule')}</p>
+      <div className={styles.quizPurse}>
+        <CoinStack n={view.earned || 0} animateJoin size="sm" />
+      </div>
       <ol className={styles.quizList}>
         {view.quiz.map((x, n) => (
           <li key={n} className={styles.quizItem} data-state={x.state || (n === i ? 'now' : 'todo')}>
@@ -1604,53 +2271,75 @@ function QuizView({view, lang, send}) {
   );
 }
 
-/**
- * Secret auction: the characters in a grid (three to a row on a phone), a
- * purse of the coins you may bid, and + / − under each card. Every + sends a
- * coin flying from the purse to that card. Bids can be changed until the
- * auction closes; any split, equal amounts allowed.
- */
-function BidView({view, lang, send, openChar}) {
-  const {cap, lots, placed, math} = view.bid;
-  const [bids, setBids] = useState(() => ({...(placed || {})}));
+/** Fly a coin from `fromEl` into `toEl` (fixed-position animation overlay). */
+function useCoinFlights() {
   const [flights, setFlights] = useState([]);
-  const purseRef = React.useRef(null);
-  const spent = Object.values(bids).reduce((a, b) => a + b, 0);
-  const left = cap - spent;
-  const fly = (el) => {
-    const from = purseRef.current && purseRef.current.getBoundingClientRect();
-    const to = el && el.getBoundingClientRect();
+  const fly = (fromEl, toEl) => {
+    const from = fromEl && fromEl.getBoundingClientRect();
+    const to = toEl && toEl.getBoundingClientRect();
     if (!from || !to) return;
     const id = `${Date.now()}-${Math.random()}`;
     const f = {id, x: from.left + from.width / 2, y: from.top + from.height / 2, dx: to.left + to.width / 2 - (from.left + from.width / 2), dy: to.top + to.height / 2 - (from.top + from.height / 2)};
     setFlights((list) => [...list, f]);
     setTimeout(() => setFlights((list) => list.filter((x) => x.id !== id)), 650);
   };
+  const layer = flights.map((f) => (
+    <span key={f.id} className={styles.flyingCoin} style={{left: f.x, top: f.y, '--dx': `${f.dx}px`, '--dy': `${f.dy}px`}}>
+      {coin}
+    </span>
+  ));
+  return {fly, layer};
+}
+
+/**
+ * Secret auction: purse of bid coins, + under each card (no −). Every + flies a
+ * coin from the purse onto that card. Confirm when ready; change until close.
+ */
+function BidView({view, lang, send, openChar, openEvent}) {
+  const {cap, lots, placed} = view.bid;
+  const [bids, setBids] = useState(() => ({...(placed || {})}));
+  const {fly, layer} = useCoinFlights();
+  const purseRef = useRef(null);
+  const [joining, setJoining] = useState(true);
+  const spent = Object.values(bids).reduce((a, b) => a + b, 0);
+  const left = cap - spent;
+  const command = view.events && view.events[0];
+  useEffect(() => {
+    setJoining(true);
+    const t = window.setTimeout(() => setJoining(false), Math.max(500, cap * 45 + 700));
+    return () => window.clearTimeout(t);
+  }, [cap]);
   const add = (key, e) => {
     if (left < 1) return;
-    fly(e.currentTarget.closest(`.${styles.bidTile}`)?.querySelector(`.${styles.bidCard}`));
+    const tile = e.currentTarget.closest(`.${styles.bidTile}`);
+    fly(purseRef.current, tile && tile.querySelector(`.${styles.bidCard}`));
     setBids((b) => ({...b, [key]: (b[key] || 0) + 1}));
   };
-  const remove = (key) =>
-    setBids((b) => {
-      const next = {...b};
-      if (next[key] > 1) next[key] -= 1;
-      else delete next[key];
-      return next;
-    });
   const same = JSON.stringify(Object.entries(bids).sort()) === JSON.stringify(Object.entries(placed || {}).sort());
   return (
     <>
       <div className={shell.card}>
-        <p className={shell.bigText}>{tg(lang, 'bidTitle')}</p>
-        <p className={shell.muted}>{math ? tg(lang, 'bidRule') : tg(lang, 'bidRuleNoMath', {cap})}</p>
-        <div className={styles.purse} ref={purseRef} aria-live="polite">
-          {Array.from({length: cap}, (_, i) => (
-            <span key={i} className={styles.purseCoin} data-spent={i >= left}>
-              {coin}
-            </span>
-          ))}
-          <span>{cap > 0 ? tg(lang, 'purse', {n: left, cap}) : tg(lang, 'noCoins')}</span>
+        <div className={styles.bidHead}>
+          <div className={styles.bidHeadMain}>
+            <p className={shell.bigText}>{tg(lang, 'bidTitle')}</p>
+            <div className={styles.purse} ref={purseRef} aria-live="polite" aria-label={`${left}`}>
+              {Array.from({length: cap}, (_, i) => (
+                <span
+                  key={i}
+                  className={styles.purseCoin}
+                  data-spent={i >= left}
+                  data-join={joining ? 'in' : undefined}
+                  style={{'--join-delay': `${i * 45}ms`}}>
+                  {coin}
+                </span>
+              ))}
+            </div>
+          </div>
+          {command && (
+            <button type="button" className={`${styles.cardButton} ${styles.bidCommand}`} onClick={() => openEvent(command)}>
+              <EventCard ev={command} lang={lang} size={64} dueBadge={command.roundsLeft} />
+            </button>
+          )}
         </div>
       </div>
       <div className={styles.bidGrid}>
@@ -1660,7 +2349,7 @@ function BidView({view, lang, send, openChar}) {
           return (
             <div key={c.key} className={styles.bidTile} data-bid={n > 0}>
               <button type="button" className={`${styles.cardButton} ${styles.bidCard}`} onClick={() => openChar(c.key, {married: c.married || null})}>
-                <CharCard k={c.key} lang={lang} size={64} />
+                <CharCard k={c.key} lang={lang} size={120} />
                 {n > 0 && (
                   <span key={n} className={styles.bidBadge}>
                     {coin}
@@ -1668,12 +2357,8 @@ function BidView({view, lang, send, openChar}) {
                   </span>
                 )}
               </button>
-              <span className={styles.bidName}>{label}</span>
               <span className={styles.bidButtons}>
-                <button type="button" className="button button--sm button--secondary" disabled={n < 1} aria-label={tg(lang, 'removeBid', {x: label})} onClick={() => remove(c.key)}>
-                  −
-                </button>
-                <button type="button" className="button button--sm button--primary" disabled={left < 1} aria-label={tg(lang, 'addBid', {x: label})} onClick={(e) => add(c.key, e)}>
+                <button type="button" className={`button button--sm button--primary ${styles.wagePlus}`} disabled={left < 1} aria-label={tg(lang, 'addBid', {x: label})} onClick={(e) => add(c.key, e)}>
                   +
                 </button>
               </span>
@@ -1687,12 +2372,44 @@ function BidView({view, lang, send, openChar}) {
           {placed ? tg(lang, 'updateBids') : spent > 0 ? tg(lang, 'placeBids') : tg(lang, 'passBid')}
         </button>
       </div>
-      {flights.map((f) => (
-        <span key={f.id} className={styles.flyingCoin} style={{left: f.x, top: f.y, '--dx': `${f.dx}px`, '--dy': `${f.dy}px`}}>
-          {coin}
-        </span>
-      ))}
+      {layer}
     </>
+  );
+}
+
+/** Duel raise: + stacks coins onto the wager with a fly-in; lock when ready. */
+function RaiseWage({min, max, lang, send}) {
+  const start = Math.max(1, Math.min(min || 1, max || 1));
+  const [bet, setBet] = useState(start);
+  const {fly, layer} = useCoinFlights();
+  const stackRef = useRef(null);
+  const plusRef = useRef(null);
+  const bump = () => {
+    if (bet >= max) return;
+    fly(plusRef.current, stackRef.current);
+    setBet((n) => Math.min(max, n + 1));
+  };
+  return (
+    <div className={styles.wageBox}>
+      <p className={shell.muted}>{tg(lang, 'raiseHint')}</p>
+      <div className={styles.wageRow}>
+        <div className={styles.wageStack} ref={stackRef} aria-live="polite" aria-label={tg(lang, 'bet', {n: bet})}>
+          {Array.from({length: bet}, (_, i) => (
+            <span key={i} className={styles.wageCoin}>
+              {coin}
+            </span>
+          ))}
+          <b>{tg(lang, 'bet', {n: bet})}</b>
+        </div>
+        <button ref={plusRef} type="button" className={`button button--lg button--primary ${styles.wagePlus}`} disabled={bet >= max} aria-label="+" onClick={bump}>
+          +
+        </button>
+      </div>
+      <button type="button" className="button button--primary button--block" onClick={() => send({action: 'answer', bet})}>
+        {tg(lang, 'lockBet')}
+      </button>
+      {layer}
+    </div>
   );
 }
 
@@ -1722,13 +2439,7 @@ function PromptCard({view, lang, send, openChar}) {
       {p.kind === 'raise' && (
         <>
           <p className={shell.bigText}>{tg(lang, 'p_raise', {name: p.from, max: p.max})}</p>
-          <div className={shell.choiceGrid}>
-            {Array.from({length: Math.max(1, p.max)}, (_, i) => i + 1).map((n) => (
-              <button key={n} type="button" className="button" onClick={() => send({action: 'answer', bet: n})}>
-                {tg(lang, 'bet', {n})}
-              </button>
-            ))}
-          </div>
+          <RaiseWage min={p.min || 1} max={Math.max(1, p.max || 1)} lang={lang} send={send} />
         </>
       )}
       {p.kind === 'champion' && (
@@ -1781,7 +2492,181 @@ function PromptCard({view, lang, send, openChar}) {
   );
 }
 
-function TurnView({view, lang, send, status, handView, openChar, openDistrict, openEvent}) {
+/** Command / princess reserve after your characters finish (until calling ends). */
+function SoftPanel({view, lang, send, openChar}) {
+  const soft = view.soft;
+  if (!soft) return null;
+  const [conquest, setConquest] = useState(null);
+  const [gifts, setGifts] = useState({});
+  const [suitor, setSuitor] = useState(soft.suitors[0] || null);
+  const total = Object.values(gifts).reduce((a, b) => a + b, 0);
+  const has =
+    soft.reserve.length > 0 || soft.marry || soft.conquer || soft.extravagance;
+  if (!has) return null;
+  return (
+    <div className={shell.card}>
+      <p className={shell.kicker}>{tg(lang, 'softLater')}</p>
+      {soft.reserve.length > 0 && (
+        <>
+          <p className={shell.kicker}>{tg(lang, 'softReserve')}</p>
+          <div className={styles.cards}>
+            {soft.reserve.map((u) => (
+              <button
+                key={u}
+                type="button"
+                className={styles.cardButton}
+                onClick={() =>
+                  openChar(u, {
+                    action: {
+                      label: tg(lang, 'reserve'),
+                      onClick: () => send({action: 'reserve', pick: u}),
+                    },
+                  })
+                }>
+                <CharCard k={u} lang={lang} size={40} />
+              </button>
+            ))}
+          </div>
+        </>
+      )}
+      {(soft.marry || soft.conquer || soft.extravagance) && <p className={shell.kicker}>{tg(lang, 'softCommand')}</p>}
+      {soft.marry && soft.suitors.length > 0 && soft.dates.length > 0 && (
+        <>
+          <p className={shell.muted}>{tg(lang, 'marry')}</p>
+          {soft.suitors.length > 1 && (
+            <div className={styles.cards}>
+              {soft.suitors.map((k) => (
+                <button key={k} type="button" className={styles.cardButton} aria-pressed={suitor === k} onClick={() => setSuitor(k)}>
+                  <CharCard k={k} lang={lang} size={36} stats />
+                </button>
+              ))}
+            </div>
+          )}
+          <div className={styles.cards}>
+            {soft.dates
+              .filter((d) => d.key !== suitor)
+              .map((d) => (
+                <button
+                  key={d.key}
+                  type="button"
+                  className={styles.cardButton}
+                  disabled={!suitor}
+                  onClick={() =>
+                    openChar(d.key, {
+                      action: {
+                        label: tg(lang, 'marry'),
+                        onClick: () => send({action: 'marry', mine: suitor, other: d.key}),
+                      },
+                    })
+                  }>
+                  <CharCard k={d.key} lang={lang} size={40} stats />
+                  <small>{d.owner}</small>
+                </button>
+              ))}
+          </div>
+        </>
+      )}
+      {soft.conquer && soft.targets.length > 0 && (
+        <>
+          <p className={shell.muted}>{tg(lang, 'conquer')}</p>
+          {!conquest ? (
+            <div className={styles.conquerCities}>
+              {soft.foes.map((foe) => (
+                <div key={foe.id} className={styles.conquerCity}>
+                  <p className={styles.conquerCityHead}>
+                    {foe.letter} · {foe.name}
+                  </p>
+                  <CityPlot
+                    city={foe.city}
+                    goal={view.goal}
+                    color={foe.color}
+                    lang={lang}
+                    scale={1.15}
+                    hot={foe.city.filter((c) => c.ok).map((c) => c.uid)}
+                    onTap={(c) => {
+                      if (!c.ok) return;
+                      setConquest({uid: c.uid, ally: null, offer: 1});
+                    }}
+                  />
+                </div>
+              ))}
+            </div>
+          ) : (
+            <>
+              <p>
+                {L(DISTRICT[(soft.targets.find((x) => x.uid === conquest.uid) || {}).key], lang)} · {tg(lang, 'ally')}
+              </p>
+              <div className={shell.choiceGrid}>
+                <button type="button" className="button button--sm" aria-pressed={!conquest.ally} onClick={() => setConquest({...conquest, ally: null})}>
+                  {tg(lang, 'noAlly')}
+                </button>
+                {view.players
+                  .filter((p) => p.id !== view.me)
+                  .map((p) => (
+                    <button key={p.id} type="button" className="button button--sm" aria-pressed={conquest.ally === p.id} onClick={() => setConquest({...conquest, ally: p.id})}>
+                      {p.name}
+                    </button>
+                  ))}
+              </div>
+              {conquest.ally && (
+                <div className={shell.choiceGrid}>
+                  {[0, 1, 2, 3].map((n) => (
+                    <button key={n} type="button" className="button button--sm" aria-pressed={conquest.offer === n} onClick={() => setConquest({...conquest, offer: n})}>
+                      {tg(lang, 'offer', {n})}
+                    </button>
+                  ))}
+                </div>
+              )}
+              <div className={shell.choiceGrid}>
+                <button type="button" className="button button--secondary" onClick={() => setConquest(null)}>
+                  {tg(lang, 'closePreview')}
+                </button>
+                <button type="button" className="button" onClick={() => send({action: 'conquer', ...conquest})}>
+                  {tg(lang, 'conquer')}
+                </button>
+              </div>
+            </>
+          )}
+        </>
+      )}
+      {soft.extravagance && (
+        <>
+          <p className={shell.muted}>{tg(lang, 'extravagance', {n: soft.charisma})}</p>
+          <button
+            type="button"
+            className="button button--secondary button--block"
+            onClick={() => {
+              const others = view.players.filter((p) => p.id !== view.me);
+              if (!others.length) return;
+              const base = Math.floor(soft.charisma / others.length);
+              const rem = soft.charisma - base * others.length;
+              const next = {};
+              others.forEach((p, i) => {
+                next[p.id] = base + (i < rem ? 1 : 0);
+              });
+              setGifts(next);
+            }}>
+            {tg(lang, 'splitEven')}
+          </button>
+          <div className={shell.choiceGrid}>
+            {view.players
+              .filter((p) => p.id !== view.me)
+              .map((p) => (
+                <button key={p.id} type="button" className="button button--sm" disabled={total >= soft.charisma} onClick={() => setGifts((g) => ({...g, [p.id]: (g[p.id] || 0) + 1}))}>
+                  {tg(lang, 'give')} → {p.name} ({gifts[p.id] || 0})
+                </button>
+              ))}
+          </div>
+          <button type="button" className="button" disabled={total !== soft.charisma} onClick={() => send({action: 'extravagance', gifts})}>
+            {soft.charisma - total > 0 ? tg(lang, 'toGive', {n: soft.charisma - total}) : tg(lang, 'extravagance', {n: soft.charisma})}
+          </button>
+        </>
+      )}
+    </div>
+  );
+}
+
+function TurnView({view, lang, send, status, openChar, openDistrict, openEvent}) {
   const tv = view.turn;
   const c = charOf(tv.card);
   const act = (msg) => send({...msg, card: tv.card});
@@ -1791,8 +2676,8 @@ function TurnView({view, lang, send, status, handView, openChar, openDistrict, o
   const [gifts, setGifts] = useState({});
   const header = (
     <div className={styles.turnHead}>
-      <button type="button" className={styles.cardButton} onClick={() => openChar(tv.card)}>
-        <CharCard k={tv.card} lang={lang} size={56} stats={view.statsOn} />
+      <button type="button" className={styles.cardButton} onClick={() => openChar(tv.card, {married: (view.mine.find((c) => c.key === tv.card) || {}).married || null})}>
+        <CharCard k={tv.card} lang={lang} size={56} stats={view.statsOn} married={(view.mine.find((c) => c.key === tv.card) || {}).married || null} />
       </button>
       <div>
         <p className={shell.bigText}>{tg(lang, 'yourTurn', {name: lang === 'zh' ? c.zh : c.en})}</p>
@@ -1804,16 +2689,17 @@ function TurnView({view, lang, send, status, handView, openChar, openDistrict, o
     return (
       <>
         {header}
-        <div className={shell.choiceGrid}>
-          <button type="button" className="button button--lg" onClick={() => act({action: 'gold'})}>
-            {coin} {tg(lang, 'takeGold')}
+        <div className={styles.incomePick}>
+          <button type="button" className={`button button--lg ${styles.incomePickBtn}`} onClick={() => act({action: 'gold'})}>
+            <span className={styles.incomePickIcon}>{coin}</span>
+            <span className={styles.incomePickText}>{tg(lang, 'takeGold')}</span>
           </button>
-          <button type="button" className="button button--lg" onClick={() => act({action: 'cards'})}>
-            🃏 {tg(lang, 'takeCards')}
+          <button type="button" className={`button button--lg ${styles.incomePickBtn}`} onClick={() => act({action: 'cards'})}>
+            <span className={styles.incomePickIcon}>🃏</span>
+            <span className={styles.incomePickText}>{tg(lang, 'takeCards')}</span>
           </button>
         </div>
         {status}
-        {handView}
       </>
     );
   }
@@ -1821,12 +2707,12 @@ function TurnView({view, lang, send, status, handView, openChar, openDistrict, o
     return (
       <>
         <p className={shell.bigText}>{tg(lang, 'keepOne')}</p>
-        <div className={styles.cards}>
+        <div className={styles.keepPick}>
           {tv.drawn.map((d) => (
             <button
               key={d.uid}
               type="button"
-              className={styles.cardButton}
+              className={`${styles.cardButton} ${styles.keepPickCard}`}
               onClick={() =>
                 openDistrict(d.key, {
                   action: {
@@ -1835,10 +2721,11 @@ function TurnView({view, lang, send, status, handView, openChar, openDistrict, o
                   },
                 })
               }>
-              <DistrictCard k={d.key} lang={lang} size={84} />
+              <DistrictCard k={d.key} lang={lang} size={180} />
             </button>
           ))}
         </div>
+        {status}
       </>
     );
   }
@@ -2004,6 +2891,7 @@ function TurnView({view, lang, send, status, handView, openChar, openDistrict, o
             ))}
           </div>,
         )}
+      {tv.buildLeft > 0 && view.hand.some((h) => h.ok) && <p className={shell.muted}>{tg(lang, 'tapBuild')}</p>}
       {tv.usesLeft > 1 && <p className={shell.kicker}>{tg(lang, 'abilityLeft', {n: tv.usesLeft})}</p>}
       {ability()}
       {(tv.smithy || tv.lab) && (
@@ -2021,18 +2909,9 @@ function TurnView({view, lang, send, status, handView, openChar, openDistrict, o
             ))}
         </div>
       )}
-      {view.events.length > 0 && (
+      {(ev('marriage') || ev('conquest') || ev('extravagance')) && (
         <div className={shell.card}>
-          <b>{tg(lang, 'yourMission')}</b>
-          <div className={styles.cards}>
-            {view.events.map((e) => (
-              <button key={e.kind} type="button" className={`${styles.cardButton} ${styles.eventSlot}`} data-used={!e.can} onClick={() => openEvent(e)}>
-                <EventCard ev={e} lang={lang} size={40} />
-                <small>{tg(lang, 'eventNeeds', {frame: L(FRAMES[e.frame], lang), reward: e.reward})}</small>
-                <small className={styles.due}>{tg(lang, 'roundsLeft', {n: e.roundsLeft})}</small>
-              </button>
-            ))}
-          </div>
+          <p className={shell.muted}>{tg(lang, 'softLater')}</p>
           {ev('marriage') && tv.dates.length > 0 && !tv.waiting && (
             <>
               <p className={shell.kicker}>{tg(lang, 'marry')}</p>
@@ -2061,16 +2940,35 @@ function TurnView({view, lang, send, status, handView, openChar, openDistrict, o
             <>
               <p className={shell.kicker}>{tg(lang, 'conquer')}</p>
               {!conquest ? (
-                <div className={shell.choiceGrid}>
-                  {tv.targets.map((x) => (
-                    <button key={x.uid} type="button" className="button button--sm" onClick={() => setConquest({uid: x.uid, ally: null, offer: 1})}>
-                      {x.owner}: {L(DISTRICT[x.key], lang)} ({tg(lang, 'value', {n: x.value})})
-                    </button>
-                  ))}
-                </div>
+                <>
+                  <p className={shell.muted}>{tg(lang, 'conquerPick')}</p>
+                  <div className={styles.conquerCities}>
+                    {(tv.foes || []).map((foe) => (
+                      <div key={foe.id} className={styles.conquerCity}>
+                        <p className={styles.conquerCityHead}>
+                          {foe.letter} · {foe.name}
+                        </p>
+                        <CityPlot
+                          city={foe.city}
+                          goal={view.goal}
+                          color={foe.color}
+                          lang={lang}
+                          scale={1.15}
+                          hot={foe.city.filter((c) => c.ok).map((c) => c.uid)}
+                          onTap={(c) => {
+                            if (!c.ok) return;
+                            setConquest({uid: c.uid, ally: null, offer: 1});
+                          }}
+                        />
+                      </div>
+                    ))}
+                  </div>
+                </>
               ) : (
                 <>
-                  <p>{tg(lang, 'ally')}</p>
+                  <p>
+                    {L(DISTRICT[(tv.targets.find((x) => x.uid === conquest.uid) || {}).key], lang)} · {tg(lang, 'ally')}
+                  </p>
                   <div className={shell.choiceGrid}>
                     <button type="button" className="button button--sm" aria-pressed={!conquest.ally} onClick={() => setConquest({...conquest, ally: null})}>
                       {tg(lang, 'noAlly')}
@@ -2092,9 +2990,14 @@ function TurnView({view, lang, send, status, handView, openChar, openDistrict, o
                       ))}
                     </div>
                   )}
-                  <button type="button" className="button" onClick={() => act({action: 'conquer', ...conquest})}>
-                    {tg(lang, 'conquer')}
-                  </button>
+                  <div className={shell.choiceGrid}>
+                    <button type="button" className="button button--secondary" onClick={() => setConquest(null)}>
+                      {tg(lang, 'closePreview')}
+                    </button>
+                    <button type="button" className="button" onClick={() => act({action: 'conquer', ...conquest})}>
+                      {tg(lang, 'conquer')}
+                    </button>
+                  </div>
                 </>
               )}
             </>
@@ -2102,6 +3005,22 @@ function TurnView({view, lang, send, status, handView, openChar, openDistrict, o
           {ev('extravagance') && (
             <>
               <p className={shell.kicker}>{tg(lang, 'extravagance', {n: tv.charisma})}</p>
+              <button
+                type="button"
+                className="button button--secondary button--block"
+                onClick={() => {
+                  const others = view.players.filter((p) => p.id !== view.me);
+                  if (!others.length) return;
+                  const base = Math.floor(tv.charisma / others.length);
+                  let rem = tv.charisma - base * others.length;
+                  const next = {};
+                  others.forEach((p, i) => {
+                    next[p.id] = base + (i < rem ? 1 : 0);
+                  });
+                  setGifts(next);
+                }}>
+                {tg(lang, 'splitEven')}
+              </button>
               <div className={shell.choiceGrid}>
                 {view.players
                   .filter((p) => p.id !== view.me)
@@ -2118,30 +3037,8 @@ function TurnView({view, lang, send, status, handView, openChar, openDistrict, o
           )}
         </div>
       )}
-      <p className={shell.kicker}>{tg(lang, 'build', {n: tv.buildLeft})}</p>
-      <div className={shell.card}>
-        <p className={shell.muted}>{tg(lang, 'tapPreview')}</p>
-        <div className={styles.cards}>
-          {view.hand.map((h) => (
-            <button
-              key={h.uid}
-              type="button"
-              className={styles.cardButton}
-              onClick={() =>
-                openDistrict(h.key, {
-                  action: {
-                    label: tg(lang, 'buildThis'),
-                    disabled: !h.ok,
-                    onClick: () => act({action: 'build', uid: h.uid}),
-                  },
-                })
-              }>
-              <DistrictCard k={h.key} lang={lang} size={60} />
-            </button>
-          ))}
-        </div>
-      </div>
-      <button type="button" className="button button--lg button--block" disabled={tv.waiting} onClick={() => act({action: 'end'})}>
+      {tv.waiting && <p className={shell.muted}>{tg(lang, 'endWhileWait')}</p>}
+      <button type="button" className="button button--lg button--block" onClick={() => act({action: 'end'})}>
         {tv.twinsFirst ? tg(lang, 'endFirst') : tg(lang, 'endTurn')}
       </button>
       {status}

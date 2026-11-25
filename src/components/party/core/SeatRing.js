@@ -12,7 +12,11 @@ import styles from './party.module.css';
  * of the tile above the name row, e.g. a player's city; with `focus="seats"`
  * the players get most of a wide screen and the centre becomes a side panel.
  */
-export default function SeatRing({g, ids, children, badge, dim, highlight, onSeat, feature, focus}) {
+/**
+ * Optional `mark(id)` replaces the numeric seat with a game-specific label
+ * (e.g. Sultan district letters A, B, C…).
+ */
+export default function SeatRing({g, ids, children, badge, dim, highlight, onSeat, feature, focus, mark}) {
   const n = ids.length;
   const density = n > 40 ? 'tiny' : n > 24 ? 'dense' : n > 12 ? 'small' : 'normal';
   return (
@@ -22,6 +26,7 @@ export default function SeatRing({g, ids, children, badge, dim, highlight, onSea
         {ids.map((id) => {
           const p = g.players[id];
           if (!p) return null;
+          const tag = mark ? mark(id) : p.seat;
           return (
             <div
               key={id}
@@ -37,7 +42,7 @@ export default function SeatRing({g, ids, children, badge, dim, highlight, onSea
               </span>
               <span className={styles.tableInfo}>
                 <span className={styles.ringName}>
-                  <span className={styles.seatNo}>{p.seat}</span> {p.name}
+                  <span className={styles.seatNo}>{tag}</span> {p.name}
                 </span>
                 {badge && <span className={styles.ringBadge}>{badge(id)}</span>}
               </span>

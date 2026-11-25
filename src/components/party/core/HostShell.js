@@ -136,14 +136,18 @@ export default function HostShell({mod}) {
    * Lobby always deletes the seat locally — offline phones never send
    * `player_left`, so waiting on the relay alone left ghost rows.
    */
-  function removePlayers(playerIds) {
+  /**
+   * Remove seats. `block` (a kick) also keeps that name and near copies out
+   * of the room; clearing the room or offline seats does not.
+   */
+  function removePlayers(playerIds, {block = true} = {}) {
     const midGame = gameRef.current.phase === 'play' || gameRef.current.phase === 'end';
     const humans = [];
     commit((draft) => {
       for (const playerId of playerIds) {
         const p = draft.players[playerId];
         if (!p) continue;
-        draft.blockedNames = rememberBlockedName(draft.blockedNames, p.name);
+        if (block) draft.blockedNames = rememberBlockedName(draft.blockedNames, p.name);
         if (isBotId(playerId) || !midGame) delete draft.players[playerId];
         else {
           p.connected = false;
@@ -152,7 +156,7 @@ export default function HostShell({mod}) {
         if (!isBotId(playerId)) humans.push(playerId);
       }
     });
-    for (const playerId of humans) socketRef.current?.send({type: 'kick', playerId});
+    for (const playerId of humans) socketRef.current?.send({type: 'kick', playerId, block});
   }
 
   function kickPlayer(playerId) {
@@ -429,12 +433,16 @@ export default function HostShell({mod}) {
 
   const clearOffline = () => {
     const offline = Object.keys(gameRef.current.players).filter((id) => !gameRef.current.players[id].connected);
-    if (offline.length) removePlayers(offline);
+    if (offline.length) removePlayers(offline, {block: false});
   };
 
+  /** A fresh start: everyone leaves and earlier kicks are forgotten, so every name is free again. */
   const clearRoom = () => {
     const all = Object.keys(gameRef.current.players);
-    if (all.length) removePlayers(all);
+    if (all.length) removePlayers(all, {block: false});
+    commit((draft) => {
+      draft.blockedNames = [];
+    });
   };
 
   const kick = (playerId) => kickPlayer(playerId);

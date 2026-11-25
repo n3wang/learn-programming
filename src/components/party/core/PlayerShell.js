@@ -393,7 +393,12 @@ export default function PlayerShell({mod}) {
   const canSaveLobbyName = Boolean(lobbyDraft.trim()) && lobbyDraft.trim() !== (env?.you?.name || '');
 
   return (
-    <div className={`${styles.shell} ${styles.phone} ${mod.themeClass || ''}`} data-night={Boolean(mod.night && env && env.phase !== 'lobby' && env.data && mod.night(env.data))} lang={lang === 'zh' ? 'zh-Hans' : 'en'}>
+    <div
+      className={`${styles.shell} ${styles.phone} ${mod.themeClass || ''}`}
+      data-night={Boolean(mod.night && env && env.phase !== 'lobby' && env.data && mod.night(env.data))}
+      data-urgent={Boolean(urgent && env && env.phase !== 'lobby')}
+      data-waiting={Boolean(seat && env && env.phase !== 'lobby' && !urgent)}
+      lang={lang === 'zh' ? 'zh-Hans' : 'en'}>
       <Head>
         <title>{L(mod.title, lang)}</title>
       </Head>
@@ -415,14 +420,21 @@ export default function PlayerShell({mod}) {
       </header>
 
       {showRules && (
-        <div className={styles.phoneRules}>
-          <div className={styles.overlayHead}>
-            <b>{st(lang, 'howToPlay')}</b>
-            <button type="button" className="button button--sm button--secondary" onClick={() => setShowRules(false)}>
-              ✕ {st(lang, 'close')}
-            </button>
+        <div className={styles.phoneRulesOverlay} onClick={() => setShowRules(false)} role="presentation">
+          <div
+            className={styles.phoneRulesCard}
+            onClick={(e) => e.stopPropagation()}
+            role="dialog"
+            aria-modal="true"
+            aria-label={st(lang, 'howToPlay')}>
+            <div className={styles.overlayHead}>
+              <b>{st(lang, 'howToPlay')}</b>
+              <button type="button" className="button button--sm button--secondary" onClick={() => setShowRules(false)}>
+                ✕ {st(lang, 'close')}
+              </button>
+            </div>
+            <RulesSheet mod={mod} lang={lang} settings={env?.settings} compact />
           </div>
-          <RulesSheet mod={mod} lang={lang} settings={env?.settings} compact />
         </div>
       )}
 
@@ -460,7 +472,6 @@ export default function PlayerShell({mod}) {
                     </option>
                   ))}
                 </select>
-                <span className={styles.hint}>{st(lang, 'classNamesNote')}</span>
               </>
             ) : (
               <span className={styles.nameRow}>
@@ -498,7 +509,9 @@ export default function PlayerShell({mod}) {
             <div className={styles.youBar} style={{borderLeftColor: env.you?.color}}>
               <Avatar avatar={env.you?.avatar} color={env.you?.color} size="md" />
               <span>{env.you?.name}</span>
-              {env.you?.seat > 0 && env.phase !== 'lobby' && <span className={styles.seatBadge}>{st(lang, 'seat', {n: env.you.seat})}</span>}
+              {env.you?.seat > 0 && env.phase !== 'lobby' && (
+                <span className={styles.seatBadge}>{env.data?.letter || st(lang, 'seat', {n: env.you.seat})}</span>
+              )}
               {msLeft > 0 && (
                 <span className={styles.youTimer}>
                   <Countdown msLeft={msLeft} lang={lang} />

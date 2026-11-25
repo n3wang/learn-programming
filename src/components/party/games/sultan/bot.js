@@ -1,12 +1,12 @@
 /**
  * City of the Sultan bots: one move at a time, pure (shared by the game and
  * the headless tests). They use every ability now and then, chase their own
- * mission, and are generous: they accept every date and alliance, never raise
+ * command, and are generous: they accept every date and alliance, never raise
  * a duel's bet, and share Extravagance coins as evenly as they can.
  */
 
 import {DISTRICT, EVENTS, charOf} from './data';
-import {acting, bidCap, canBuild, canPick, canUseEvent, generalTargets, hasBid, hiddenPlayers, meetsTier, missionFor, nameableNumbers, officialTargets, picksLeft, statOf} from './rules';
+import {acting, bidCap, canBuild, canPick, canSoftCommand, canSoftReserve, canUseEvent, diceHasPlayer, generalTargets, hasBid, hiddenPlayers, meetsTier, commandFor, nameableNumbers, officialTargets, picksLeft, softReady, statOf} from './rules';
 
 const pick = (list, rng) => list[Math.floor(rng() * list.length)];
 const costOf = (s, uid) => DISTRICT[s.cards[uid]].cost;
@@ -30,9 +30,18 @@ function answerPrompt(s, id, rng) {
 
 export function botMove(s, id, rng) {
   if (s.over) return null;
-  if (s.prompt) return s.prompt.to === id ? answerPrompt(s, id, rng) : null;
-  // A mission none of my characters can start, with time running out: use the one redraw.
-  const mine = missionFor(s, id);
+  if (s.dice && !s.dice.revealed && diceHasPlayer(s.dice, id) && Object.values(s.dice.sides).some((side) => side.who === id && !side.launched)) {
+    return {action: 'launchDice'};
+  }
+  if (s.prompt) {
+    if (s.prompt.to === id) return answerPrompt(s, id, rng);
+    // Waiting on a reply: end the turn so calling can move; soft command after.
+    const stuck = s.phase === 'call' && s.turn && s.turn.cards.find((k) => acting(s, id, k));
+    if (stuck) return {action: 'end', card: stuck};
+    return null;
+  }
+  // A command none of my characters can start, with time running out: use the one redraw.
+  const mine = commandFor(s, id);
   if (mine && !(s.redraws && s.redraws[id]) && s.round >= mine.due - 1 && s.hold[id].length && !s.hold[id].some((k) => meetsTier(k, mine.frame))) return {action: 'redraw'};
   if (s.phase === 'auction') {
     const qs = s.auction.quiz[id] || [];
@@ -56,14 +65,40 @@ export function botMove(s, id, rng) {
     return options.length ? {action: 'draft', card: pick(options, rng)} : null;
   }
   if (s.phase === 'pyrrhic') {
-    const ev = missionFor(s, id, 'pyrrhic');
+    const ev = commandFor(s, id, 'pyrrhic');
     const foes = s.seats.filter((p) => p !== id && s.hold[p].length);
     if (canUseEvent(s, id, ev) && foes.length && rng() < 0.85) return {action: 'challenge', target: pick(foes, rng)};
     return null;
   }
   if (s.phase !== 'call' || !s.turn) return null;
   const key = s.turn.cards.find((k) => acting(s, id, k));
-  if (!key) return null;
+  if (!key) {
+    // Soft window: princess reserve + commands after characters finish.
+    if (!softReady(s, id)) return null;
+    const free = (s.unpicked || []).filter((k) => !Object.values(s.reserved).includes(k));
+    if (canSoftReserve(s, id) && free.length) return {action: 'reserve', pick: pick(free, rng)};
+    if (canSoftCommand(s, id, 'marriage') && rng() < 0.85) {
+      const suitors = s.hold[id].filter((k) => s.revealed[k] && !s.married[k]);
+      if (suitors.length) {
+        const mine = pick(suitors, rng);
+        const others = Object.keys(s.owner).filter((k) => k !== mine && s.revealed[k] && !s.married[k]);
+        if (others.length) return {action: 'marry', mine, other: pick(others, rng)};
+      }
+    }
+    if (canSoftCommand(s, id, 'conquest') && rng() < 0.85) {
+      const targets = s.seats.filter((p) => p !== id).flatMap((p) => s.city[p]).filter((u) => !s.city[id].some((m) => s.cards[m] === s.cards[u]));
+      const allies = s.seats.filter((p) => p !== id);
+      if (targets.length) return {action: 'conquer', uid: pick(targets, rng), ally: rng() < 0.5 ? pick(allies, rng) : null, offer: 1};
+    }
+    if (canSoftCommand(s, id, 'extravagance') && rng() < 0.85) {
+      const total = s.hold[id].reduce((n, k) => n + charOf(k).charisma, 0);
+      const others = s.seats.filter((p) => p !== id).sort((a, b) => s.gold[a] - s.gold[b]);
+      const gifts = {};
+      for (let i = 0; i < total; i++) gifts[others[i % others.length]] = (gifts[others[i % others.length]] || 0) + 1;
+      return {action: 'extravagance', gifts};
+    }
+    return null;
+  }
   const t = s.turn;
   const step = t.step[key];
   const act = (msg) => ({...msg, card: key});
@@ -108,10 +143,10 @@ export function botMove(s, id, rng) {
     if (key === 'scholar' && s.city[id].length && s.gold[id] >= 1) return act({action: 'invest', uid: pick(s.city[id], rng), n: Math.min(2, s.gold[id])});
     if (key === 'lucky' && s.gold[id] >= 1) return act({action: 'gamble'});
   }
-  // Missions, now and then; in Sultan Says the table needs them done.
-  // Their mission is theirs alone and has a deadline: go for it.
+  // Commands, now and then; in Sultan's Madness the table needs them done.
+  // Their command is theirs alone and has a deadline: go for it.
   const eager = 0.85;
-  const ev = (kind) => missionFor(s, id, kind);
+  const ev = (kind) => commandFor(s, id, kind);
   if (canUseEvent(s, id, ev('marriage')) && !t.dated[key] && rng() < eager) {
     const others = Object.keys(s.owner).filter((k) => k !== key && s.revealed[k] && !s.married[k]);
     if (!s.married[key] && others.length) return act({action: 'marry', mine: key, other: pick(others, rng)});

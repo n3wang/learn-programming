@@ -97,7 +97,11 @@ export function CityPlot({city, goal, color = '#2a1630', scale = 1, lang = 'en',
   if (bare) return <IsoGrid cells={cells} cols={4} scale={scale} />;
   return (
     <span className={styles.cityPlot} style={{'--owner': color}}>
-      {label && <span className={styles.cityLabel}>{label}</span>}
+      {label && (
+        <span className={styles.cityLetter} aria-label={String(label)}>
+          {label}
+        </span>
+      )}
       <IsoGrid cells={cells} cols={4} scale={scale} />
     </span>
   );
