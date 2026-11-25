@@ -26,7 +26,7 @@ export const POOL_LABEL = {
 export const HINTS = {
   simplest: {en: 'Answer in simplest form.', zh: '答案写成最简形式。'},
   simplify: {en: 'Simplify the fraction.', zh: '把分数约到最简。'},
-  ineq: {en: 'Type >3, ≤−2, 1<x≤4, or ∅.', zh: '输入 >3、≤−2、1<x≤4，或 ∅。'},
+  ineq: {en: 'Type >3, ≤−2, 1<x≤4, or ∅. 3>x>1 is the same as 1<x<3.', zh: '输入 >3、≤−2、1<x≤4，或 ∅。3>x>1 与 1<x<3 相同。'},
 };
 
 const gcd = (a, b) => (b ? gcd(b, a % b) : Math.abs(a));
@@ -96,7 +96,13 @@ function oneSided(op, bound) {
   return `${op}${bound}`;
 }
 
-/** Normalize typed inequality answers for comparison. */
+/**
+ * Normalize typed inequality answers for comparison.
+ * Reverse-written forms count as the same:
+ *   3>x>1  ≡  1<x<3
+ *   5≥x>2  ≡  2<x≤5
+ *   3>x    ≡  <3
+ */
 export function normalizeIneqAnswer(s) {
   let t = String(s == null ? '' : s)
     .replace(/\s+/g, '')
@@ -108,6 +114,20 @@ export function normalizeIneqAnswer(s) {
     .replace(/empty/gi, '∅');
   // Allow "x>3" for a one-sided answer stored as ">3".
   if (/^x[<>≤≥]/.test(t)) t = t.slice(1);
+  if (t === '∅') return '∅';
+
+  // Compound: a∘x∘b — if written descending (3>x>1), flip to ascending (1<x<3).
+  const compound = /^(-?\d+)([<>≤≥])x([<>≤≥])(-?\d+)$/.exec(t);
+  if (compound) {
+    const [, a, opL, opR, b] = compound;
+    if (opL === '>' || opL === '≥') return `${b}${FLIP[opR]}x${FLIP[opL]}${a}`;
+    return `${a}${opL}x${opR}${b}`;
+  }
+
+  // Bound on the left: 3>x → <3, 3≤x → ≥3.
+  const leftBound = /^(-?\d+)([<>≤≥])x$/.exec(t);
+  if (leftBound) return `${FLIP[leftBound[2]]}${leftBound[1]}`;
+
   return t;
 }
 

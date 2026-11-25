@@ -1,10 +1,10 @@
-import React, {useCallback, useEffect, useRef, useState} from 'react';
+import React, {useCallback, useEffect, useLayoutEffect, useRef, useState} from 'react';
 import useBaseUrl from '@docusaurus/useBaseUrl';
 import {L, makeT} from '../../core/strings';
 import SeatRing from '../../core/SeatRing';
 import Sprite from '../../core/Sprite';
 import {Avatar} from '@site/src/components/BetsAndWagers/ui';
-import MathPad, {PoolPicker} from '../../core/MathPad';
+import MathPad, {MathRich, PoolPicker} from '../../core/MathPad';
 import {CHARS, DISTRICT, EVENTS, EVENT_ART, FRAMES, TYPES, basePool, charOf, isoDistrict} from './data';
 import {ArenaFloor, CityPlot, IsoGrid} from './IsoCity';
 import Dice3D from './Dice3D';
@@ -154,8 +154,10 @@ const tg = makeT({
     youAreOut: 'Your command ran out of time: you have been executed.',
     log_out: 'missed their command and was executed.',
     marry: 'Marriage: date with…',
-    conquer: 'Conquest: tap a building to attack',
+    conquer: 'Conquest',
     conquerPick: 'Tap a building in their city',
+    foldOpen: 'Tap to open',
+    foldClose: 'Tap to close',
     ally: 'Ask an ally (optional)',
     noAlly: 'No ally',
     offer: 'Offer the ally {n} coins',
@@ -182,7 +184,9 @@ const tg = makeT({
     revealBids: 'Bids on this character',
     revealWon: 'Won!',
     revealLost: 'Outbid',
+    revealLostLong: 'You were outbid',
     revealJoins: 'Joins your hand',
+    revealJoinsAfter: 'These join your hand instead',
     revealSkip: 'Continue',
     revealTitle: 'Auction results',
     final: 'Final scores',
@@ -224,6 +228,7 @@ const tg = makeT({
     s_on: 'On',
     s_goal: 'City size',
     s_timer: 'Turn timer',
+    sec: '{n} sec',
     s_select: 'Choosing characters',
     s_pickTurns: 'Pick in turn',
     s_auction: 'Math + auction',
@@ -231,6 +236,9 @@ const tg = makeT({
     s_math: 'Math round',
     quizTitle: 'Solve for coins',
     quizRule: 'Each right answer earns 1 coin for this round’s bid purse. One try per problem. Finish fast: the time left is for bidding.',
+    quizYours: 'you',
+    quizAnswer: 'answer',
+    quizDone: 'Moving to bids…',
     auctionHost: 'Math + secret auction',
     auctionHostLine: 'Solve, then bid. Highest wins; unspent bid coins → treasure.',
     bidTitle: 'Bid for characters',
@@ -368,8 +376,10 @@ const tg = makeT({
     youAreOut: '敕令超时：你已被处决。',
     log_out: '没有完成敕令，被处决。',
     marry: '婚姻：和谁约会……',
-    conquer: '征服：点建筑进攻',
+    conquer: '征服',
     conquerPick: '点对方城里的一座建筑',
+    foldOpen: '点开',
+    foldClose: '收起',
     ally: '请求盟友（可选）',
     noAlly: '不要盟友',
     offer: '给盟友 {n} 金币',
@@ -396,7 +406,9 @@ const tg = makeT({
     revealBids: '此角色的出价',
     revealWon: '拍得！',
     revealLost: '被超过',
+    revealLostLong: '你被超过了',
     revealJoins: '加入你的手牌',
+    revealJoinsAfter: '这些改为加入你的手牌',
     revealSkip: '继续',
     revealTitle: '拍卖结果',
     final: '最终得分',
@@ -438,6 +450,7 @@ const tg = makeT({
     s_on: '开启',
     s_goal: '城市规模',
     s_timer: '回合时间',
+    sec: '{n} 秒',
     s_select: '选角方式',
     s_pickTurns: '轮流挑选',
     s_auction: '算题 + 拍卖',
@@ -445,6 +458,9 @@ const tg = makeT({
     s_math: '数学回合',
     quizTitle: '答题赚金币',
     quizRule: '每答对一题得 1 枚本轮出价金币（先入出价袋）。每题只能答一次。答得快，出价时间就多。',
+    quizYours: '你的',
+    quizAnswer: '正解',
+    quizDone: '即将开始出价…',
     auctionHost: '算题 + 秘密拍卖',
     auctionHostLine: '先答题再出价。最高得；没用完的出价金币进宝库。',
     bidTitle: '竞拍角色',
@@ -547,6 +563,13 @@ const charName = (k, lang) => {
   const c = charOf(k);
   return c ? `${c.n == null ? '–' : c.n} · ${lang === 'zh' ? c.zh : c.en}` : '?';
 };
+
+/** Sort key so agents always show as 1, 2, 3… (null / weaver last). */
+const charNum = (k) => {
+  const c = charOf(k);
+  return c && c.n != null ? c.n : 99;
+};
+const byCharNum = (a, b) => charNum(a) - charNum(b) || String(a).localeCompare(String(b));
 
 /** "ATK 4 · CHA 5" (Combat, Charisma). */
 const statLine = (c, lang) => (lang === 'zh' ? `战 ${c.combat} · 魅 ${c.charisma}` : `ATK ${c.combat} · CHA ${c.charisma}`);
@@ -716,7 +739,7 @@ const sultan = {
     const zh = lang === 'zh';
     const madness = st.mode === 'madness' || st.mode === 'says';
     const commands = madness || st.events === 'on';
-    const goal = [6, 7, 8].includes(st.goal) ? String(st.goal) : zh ? '7（2–3 人时 8）' : '7 (8 at 2–3 players)';
+    const goal = [6, 7, 8, 9].includes(st.goal) ? String(st.goal) : zh ? '7（2–3 人时 8）' : '7 (8 at 2–3 players)';
     const steps = [];
     if (madness) steps.push(zh ? '合作「[command|苏丹狂令]」：一起打破所有[command|敕令]。任何一张超时 → [bad|全员失败]。' : "Co-op [command|Sultan's Madness]: break every [command|command] together. Miss one → [bad|everyone loses].");
     else steps.push(zh ? `目标：最好的[district|城市]。有人建满 [district|${goal} 个区域]，该轮结束后游戏结束。` : `Goal: the best [district|city]. When one reaches [district|${goal} districts], that round ends the game.`);
@@ -755,16 +778,19 @@ const sultan = {
   CardDetail: CardInspect,
   reference(lang, st = {}) {
     const group = (en, zh) => (lang === 'zh' ? zh : en);
-    const chars = Object.keys(CHARS).map((k) => ({
-      key: k,
-      group: group('Characters', '角色'),
-      emoji: <CharCard k={k} lang={lang} size={18} />,
-      tint: FRAMES[CHARS[k].frame].tint,
-      title: charName(k, lang),
-      tag: statLine(CHARS[k], lang),
-      text: CHARS[k].ab,
-      detail: {kind: 'char', key: k},
-    }));
+    const chars = Object.keys(CHARS)
+      .slice()
+      .sort(byCharNum)
+      .map((k) => ({
+        key: k,
+        group: group('Characters', '角色'),
+        emoji: <CharCard k={k} lang={lang} size={18} />,
+        tint: FRAMES[CHARS[k].frame].tint,
+        title: charName(k, lang),
+        tag: statLine(CHARS[k], lang),
+        text: CHARS[k].ab,
+        detail: {kind: 'char', key: k},
+      }));
     const events = Object.keys(EVENTS).map((k) => ({
       key: `event-${k}`,
       group: group('Stat events', '属性事件'),
@@ -863,7 +889,7 @@ const sultan = {
         <div className={shell.buttonRow}>
           <span>{tg(lang, 's_goal')}</span>
           {radio('goal', 'auto', tg(lang, 's_auto'))}
-          {[6, 7, 8].map((v) => radio('goal', v, String(v)))}
+          {[6, 7, 8, 9].map((v) => radio('goal', v, String(v)))}
         </div>
         <div className={shell.buttonRow}>
           <span>{tg(lang, 's_timer')}</span>
@@ -968,8 +994,19 @@ const sultan = {
       crown: s.crown === id,
       lastRound: s.lastRound,
       calling: s.phase === 'call' && t ? t.num : null,
-      mine: s.hold[id].map((k) => ({key: k, married: s.married[k] || null})),
-      hand: s.hand[id].map((u) => ({uid: u, key: s.cards[u], ok: Boolean(myTurnCard) && canBuild(s, id, myTurnCard, u)})),
+      mine: [...s.hold[id]].sort(byCharNum).map((k) => ({key: k, married: s.married[k] || null})),
+      // Hand strip hides districts you already built (same name) so city vs hand is clear.
+      // handAll keeps every card for Laboratory / Mage discard.
+      ...(() => {
+        const cityKeys = new Set(s.city[id].map((u) => s.cards[u]));
+        const handAll = s.hand[id].map((u) => ({
+          uid: u,
+          key: s.cards[u],
+          ok: Boolean(myTurnCard) && canBuild(s, id, myTurnCard, u),
+          inCity: cityKeys.has(s.cards[u]),
+        }));
+        return {hand: handAll.filter((c) => !c.inCity), handAll};
+      })(),
       city: s.city[id].map((u) => ({uid: u, key: s.cards[u], invest: s.invest[u] || 0})),
       // Commands are secret: a phone only ever sees its own card (including a failed one after timeout).
       events: (() => {
@@ -1064,7 +1101,14 @@ const sultan = {
     if (s.auction && s.phase === 'auction') {
       v.earned = s.auction.earned[id] || 0;
       if (s.auction.quiz[id]) {
-        v.quiz = s.auction.quiz[id].map((q) => ({pool: q.pool, lines: q.lines, hint: q.hint, state: q.state}));
+        v.quiz = s.auction.quiz[id].map((q) => ({
+          pool: q.pool,
+          lines: q.lines,
+          hint: q.hint,
+          state: q.state,
+          given: q.given,
+          a: q.a,
+        }));
       }
     }
     if (kind === 'bid') {
@@ -1072,7 +1116,7 @@ const sultan = {
         cap: bidCap(s, id),
         math: s.st.math !== 'off',
         placed: s.auction.bids[id] || null,
-        lots: s.auction.lots.map((k) => ({key: k, married: s.married[k] || null})),
+        lots: [...s.auction.lots].sort(byCharNum).map((k) => ({key: k, married: s.married[k] || null})),
       };
     }
     if (s.auction && s.auction.won && s.phase !== 'auction') {
@@ -1100,7 +1144,9 @@ const sultan = {
     }
     if (kind === 'draft') {
       v.picksLeft = picksLeft(s, id);
-      v.available = s.draft.available.map((k) => ({key: k, ok: canPick(s, id, k), married: s.married[k] || null}));
+      v.available = [...s.draft.available]
+        .sort(byCharNum)
+        .map((k) => ({key: k, ok: canPick(s, id, k), married: s.married[k] || null}));
     }
     if (kind === 'pyrrhic') v.targets = s.seats.filter((p) => p !== id && s.hold[p].length).map((p) => ({id: p, name: name(p)}));
     if (kind === 'prompt') {
@@ -1202,6 +1248,7 @@ const sultan = {
             <span className={styles.shownRow}>
               {s.hold[id]
                 .filter((k) => s.revealed[k])
+                .sort(byCharNum)
                 .map((k) => (
                   <CharCard key={k} k={k} lang={lang} size={20} />
                 ))}
@@ -1280,7 +1327,7 @@ const sultan = {
                 <div className={shell.bigText}>{tg(lang, 'auctionHost')}</div>
                 <p className={shell.muted}>{tg(lang, 'auctionHostLine')}</p>
                 <div className={styles.cards}>
-                  {s.auction.lots.map((k) => (
+                  {[...s.auction.lots].sort(byCharNum).map((k) => (
                     <CharCard key={k} k={k} lang={lang} size={44} />
                   ))}
                 </div>
@@ -1560,32 +1607,40 @@ function EventModal({s, g, lang, name}) {
 /**
  * The host's big screen while a game runs: a slim bar on top and every
  * player's city as a large card. No names, avatars or messages; a player is
- * their seat number and border colour.
+ * their seat letter and border colour.
  *
- * The bar holds the characters still to be called this round, in call order:
- * the one being called sits first, outlined in red; once its turn ends the
- * rest slide left. (Numbers nobody holds are skipped by the rules, so there
- * is no wait on them.) During the auction it shows the characters up for
- * bid. The open commands sit at its right end.
+ * The bar keeps every character taken this round (call order), including ones
+ * already finished — who was selected at the start stays visible. Empty
+ * numbers are skipped (nobody holds them). Unpicked leftovers sit dimmed in
+ * order. Current call is outlined; finished ones fade. Auction shows lots.
  */
 function SultanBoard({s, g, lang}) {
   const [inspect, setInspect] = useState(null);
+  const stripRef = useRef(null);
   const openChar = (k) => setInspect({kind: 'char', key: k, married: s.married[k] || null});
   const t = s.turn;
-  const callOrder = (k) => (charOf(k).n == null ? 99 : charOf(k).n);
+  const callOrder = (k) => {
+    const c = charOf(k);
+    return c && c.n != null ? c.n : 99;
+  };
   let strip = [];
-  if (s.phase === 'call' && t) {
-    strip = Object.keys(s.owner)
-      .filter((k) => charOf(k).n != null && (callOrder(k) > t.num || (callOrder(k) === t.num && !t.done[k])))
-      .sort((a, b) => callOrder(a) - callOrder(b));
-  } else if (s.phase === 'pyrrhic' || s.phase === 'call') {
-    strip = Object.keys(s.owner)
-      .filter((k) => charOf(k).n != null)
-      .sort((a, b) => callOrder(a) - callOrder(b));
-  } else if (s.phase === 'auction' && s.auction) {
-    strip = s.auction.lots;
+  if (s.phase === 'auction' && s.auction) {
+    strip = [...s.auction.lots].sort(byCharNum);
+  } else if (s.phase === 'draft' && s.draft) {
+    strip = [...(s.draft.available || [])].filter((k) => callOrder(k) < 99).sort(byCharNum);
+  } else if (s.phase === 'pyrrhic' || s.phase === 'call' || s.phase === 'conquest') {
+    // Full taken set for the round + unpicked leftovers (who was dealt matters).
+    const owned = Object.keys(s.owner || {}).filter((k) => callOrder(k) < 99);
+    const leftover = (s.unpicked || []).filter((k) => callOrder(k) < 99 && !s.owner[k]);
+    strip = [...new Set([...owned, ...leftover])].sort(byCharNum);
   }
   const current = s.phase === 'call' && t ? t.num : null;
+  useEffect(() => {
+    if (current == null || !stripRef.current) return undefined;
+    const el = stripRef.current.querySelector('[data-current="true"]');
+    if (el && el.scrollIntoView) el.scrollIntoView({behavior: 'smooth', inline: 'center', block: 'nearest'});
+    return undefined;
+  }, [current, s.round]);
   const active = (id) => {
     if (s.prompt) return s.prompt.to === id;
     if (s.phase === 'call' && t) return t.cards.some((k) => ownerOf(s, k) === id && !t.done[k]);
@@ -1594,22 +1649,35 @@ function SultanBoard({s, g, lang}) {
     return false;
   };
   const conquest = s.phase === 'conquest' && s.conquests && s.conquests[s.conquestAt];
+  const stripDone = (k) => {
+    if (current == null) return false;
+    const n = callOrder(k);
+    if (n < current) return true;
+    if (n === current && t && t.done[k]) return true;
+    return false;
+  };
   return (
     <div className={styles.board} data-seats={s.seats.length > 12 ? 'many' : s.seats.length > 8 ? 'some' : 'few'}>
       <div className={styles.topBar}>
-        <div className={styles.callStrip} key={`${s.round}-${s.phase}-${current}`}>
-          {strip.map((k) => (
-            <button
-              key={k}
-              type="button"
-              className={styles.stripCard}
-              data-current={current != null && callOrder(k) === current}
-              data-silenced={current != null && callOrder(k) === current && s.silenced.includes(current)}
-              aria-label={charName(k, lang)}
-              onClick={() => openChar(k)}>
-              <CharCard k={k} lang={lang} size={72} />
-            </button>
-          ))}
+        <div className={styles.callStrip} ref={stripRef} key={`${s.round}-${s.phase}`}>
+          {strip.map((k) => {
+            const unpicked = Boolean(s.unpicked && s.unpicked.includes(k) && !s.owner[k]);
+            const isCurrent = current != null && callOrder(k) === current && !unpicked && !(t && t.done[k]);
+            return (
+              <button
+                key={k}
+                type="button"
+                className={styles.stripCard}
+                data-current={isCurrent || undefined}
+                data-done={stripDone(k) || undefined}
+                data-unpicked={unpicked || undefined}
+                data-silenced={isCurrent && s.silenced.includes(current) ? true : undefined}
+                aria-label={charName(k, lang)}
+                onClick={() => openChar(k)}>
+                <CharCard k={k} lang={lang} size={72} />
+              </button>
+            );
+          })}
         </div>
       </div>
       <div className={styles.cityGrid}>
@@ -1641,30 +1709,33 @@ function SeatBadge({s, g, id}) {
 
 /**
  * Coins as stacks of the game's coin token: up to 5 in a column, then a new
- * column to the right. With `animateJoin`, gains play a Bets-style fall-in burst.
+ * column to the right. With `animateJoin`, gains fall in and losses fly out,
+ * with a floating +N / −N on the purse.
  */
 function CoinStack({n, animateJoin = false, size = 'md'}) {
   const src = useBaseUrl('/img/party/sultan/token-coin.webp');
   const prev = useRef(n);
-  const [flyIn, setFlyIn] = useState(0);
-  const [bounce, setBounce] = useState(false);
+  const [burst, setBurst] = useState(null); // {dir, count, delta, key}
+  const [bounce, setBounce] = useState(''); // 'in' | 'out' | ''
   useEffect(() => {
     const d = n - prev.current;
     prev.current = n;
-    if (!animateJoin || d <= 0) return undefined;
-    setFlyIn(Math.min(d, 8));
-    setBounce(true);
-    const land = window.setTimeout(() => setFlyIn(0), 750);
-    const idle = window.setTimeout(() => setBounce(false), 450);
+    if (!animateJoin || d === 0) return undefined;
+    const dir = d > 0 ? 'in' : 'out';
+    setBurst({dir, count: Math.min(Math.abs(d), 8), delta: d, key: `${Date.now()}-${d}`});
+    setBounce(dir);
+    const clearBurst = window.setTimeout(() => setBurst(null), 1100);
+    const clearBounce = window.setTimeout(() => setBounce(''), 450);
     return () => {
-      window.clearTimeout(land);
-      window.clearTimeout(idle);
+      window.clearTimeout(clearBurst);
+      window.clearTimeout(clearBounce);
     };
   }, [n, animateJoin]);
   const shown = Math.min(Math.max(0, n), 30);
   const cols = shown ? Array.from({length: Math.ceil(shown / 5)}, (_, c) => Math.min(5, shown - c * 5)) : [];
+  const bounceClass = bounce === 'in' ? styles.coinStackBounce : bounce === 'out' ? styles.coinStackSettle : '';
   return (
-    <span className={`${styles.coinStack} ${bounce ? styles.coinStackBounce : ''}`} data-size={size} aria-label={`${n}`}>
+    <span className={`${styles.coinStack} ${bounceClass}`} data-size={size} aria-label={`${n}`}>
       {cols.map((h, c) => (
         <span key={c} className={styles.coinCol}>
           {Array.from({length: h}, (_, i) => (
@@ -1672,14 +1743,19 @@ function CoinStack({n, animateJoin = false, size = 'md'}) {
           ))}
         </span>
       ))}
-      {flyIn > 0 && (
-        <span className={styles.coinJoin} aria-hidden="true">
-          {Array.from({length: flyIn}, (_, i) => (
+      {burst && (
+        <span key={burst.key} className={styles.coinJoin} data-dir={burst.dir} aria-hidden="true">
+          {Array.from({length: burst.count}, (_, i) => (
             <span key={i} className={styles.coinJoinPiece} style={{animationDelay: `${i * 40}ms`}}>
               <img src={src} alt="" draggable={false} />
             </span>
           ))}
         </span>
+      )}
+      {burst && (
+        <em className={`${styles.coinDelta} ${burst.delta > 0 ? styles.coinDeltaGain : styles.coinDeltaLoss}`}>
+          {burst.delta > 0 ? `+${burst.delta}` : `−${-burst.delta}`}
+        </em>
       )}
     </span>
   );
@@ -1697,7 +1773,7 @@ function PlayerCard({s, g, id, lang, active, hot, onInspect}) {
     return () => ro.disconnect();
   }, []);
   const p = g.players[id] || {};
-  const shown = s.hold[id].filter((k) => s.revealed[k]);
+  const shown = s.hold[id].filter((k) => s.revealed[k]).sort(byCharNum);
   return (
     <div className={styles.pcard} style={{'--owner': p.color || '#2a1630'}} data-hot={active} data-offline={!p.connected && !p.bot} data-out={isOut(s, id)}>
       <span className={styles.pSeat}>{letterOf(s, id)}</span>
@@ -1715,7 +1791,7 @@ function PlayerCard({s, g, id, lang, active, hot, onInspect}) {
         {box && <CityPlot bare city={s.city[id].map((u) => ({uid: u, key: s.cards[u], value: valueOf(s, u)}))} goal={s.st.goal} fit={{width: box.width, height: box.height}} lang={lang} hot={hot} onTap={(c) => onInspect({kind: 'district', key: c.key, invest: s.invest[c.uid] || 0, letter: letterOf(s, id)})} />}
       </div>
       <span className={styles.pCoins}>
-        <CoinStack n={s.gold[id]} />
+        <CoinStack n={s.gold[id]} animateJoin size="sm" />
       </span>
       <span className={styles.pCornerRight}>
         <span className={styles.pHand}>🃏{s.hand[id].length}</span>
@@ -1786,24 +1862,27 @@ function WaitTurnPreview({mine, lang}) {
 }
 
 /**
- * After the auction closes: briefly show who bid on cards you cared about,
- * then leftover / citizen joins if you won nothing.
+ * After the auction closes: show lots you bid on; if you were outbid and still
+ * receive leftover / citizen cards, both appear in the same modal (joins animate in).
  */
 function AuctionReveal({reveal, me, lang, onDone}) {
   const steps = React.useMemo(() => {
+    const lots = reveal.lots || [];
+    const got = reveal.got || [];
+    const paidKeys = new Set(lots.filter((l) => l.winner && l.winner.id === me && l.paid > 0).flatMap((l) => l.take || [l.key]));
+    const joins = got.filter((w) => (w.leftover || w.citizen || w.paid === 0) && !paidKeys.has(w.key));
+    const lost = lots.filter((l) => l.myBid > 0 && !(l.winner && l.winner.id === me));
+    const won = lots.filter((l) => l.winner && l.winner.id === me);
     const list = [];
-    for (const lot of reveal.lots || []) {
-      if (lot.myBid > 0) list.push({type: 'lot', lot});
+    // Outbid + consolation joins: one screen.
+    if (lost.length && joins.length) {
+      list.push({type: 'outbidJoin', lost, joins});
+    } else {
+      for (const lot of [...won, ...lost]) list.push({type: 'lot', lot});
+      if (joins.length) list.push({type: 'join', joins});
     }
-    const joins = (reveal.got || []).filter((w) => w.leftover || w.citizen || w.paid === 0);
-    // Prefer showing joins that weren't already a paid win on a lot step.
-    const paidKeys = new Set((reveal.lots || []).filter((l) => l.winner && l.winner.id === me && l.paid > 0).flatMap((l) => l.take || [l.key]));
-    for (const w of joins) {
-      if (!paidKeys.has(w.key)) list.push({type: 'join', got: w});
-    }
-    if (!list.length && (reveal.got || []).length) {
-      for (const w of reveal.got) list.push({type: 'join', got: w});
-    }
+    // Won nothing interesting to list, but still got characters.
+    if (!list.length && got.length) list.push({type: 'join', joins: got});
     return list;
   }, [reveal, me]);
   const [i, setI] = useState(0);
@@ -1813,7 +1892,7 @@ function AuctionReveal({reveal, me, lang, onDone}) {
       onDone();
       return undefined;
     }
-    const ms = step && step.type === 'lot' ? 2200 : 1600;
+    const ms = step && (step.type === 'outbidJoin' || step.type === 'lot') ? 3200 : 2000;
     const t = window.setTimeout(() => {
       if (i + 1 >= steps.length) onDone();
       else setI((n) => n + 1);
@@ -1821,6 +1900,28 @@ function AuctionReveal({reveal, me, lang, onDone}) {
     return () => window.clearTimeout(t);
   }, [i, steps, step, onDone]);
   if (!step) return null;
+  const bidRow = (lot) => (
+    <div className={styles.revealBids}>
+      {(lot.bids || []).map((b, bi) => (
+        <span key={b.id} className={styles.revealBid} style={{animationDelay: `${bi * 120}ms`}} data-me={b.id === me} data-win={lot.winner && lot.winner.id === b.id}>
+          <Avatar avatar={b.avatar} color={b.color} size="sm" />
+          <span className={styles.revealBidAmt}>
+            {coin}
+            {b.n}
+          </span>
+        </span>
+      ))}
+    </div>
+  );
+  const joinCards = (joins) => (
+    <div className={styles.revealJoins}>
+      {joins.map((w, ji) => (
+        <span key={w.key} className={styles.revealJoinCard} style={{animationDelay: `${280 + ji * 180}ms`}}>
+          <CharCard k={w.key} lang={lang} size={88} />
+        </span>
+      ))}
+    </div>
+  );
   return (
     <div className={styles.revealScrim} role="dialog" aria-label={tg(lang, 'revealTitle')} onClick={onDone}>
       <div className={styles.revealCard} onClick={(e) => e.stopPropagation()}>
@@ -1829,28 +1930,35 @@ function AuctionReveal({reveal, me, lang, onDone}) {
           <div key={step.lot.key} className={styles.revealLot} data-anim="lot">
             <CharCard k={step.lot.key} lang={lang} size={88} />
             <p className={shell.muted}>{tg(lang, 'revealBids')}</p>
-            <div className={styles.revealBids}>
-              {step.lot.bids.map((b, bi) => (
-                <span key={b.id} className={styles.revealBid} style={{animationDelay: `${bi * 120}ms`}} data-me={b.id === me} data-win={step.lot.winner && step.lot.winner.id === b.id}>
-                  <Avatar avatar={b.avatar} color={b.color} size="sm" />
-                  <span className={styles.revealBidAmt}>
-                    {coin}
-                    {b.n}
-                  </span>
-                </span>
-              ))}
-            </div>
+            {bidRow(step.lot)}
             <p className={styles.revealResult} data-win={Boolean(step.lot.winner && step.lot.winner.id === me)}>
-              {step.lot.winner && step.lot.winner.id === me ? tg(lang, 'revealWon') : tg(lang, 'revealLost')}
+              {step.lot.winner && step.lot.winner.id === me ? tg(lang, 'revealWon') : tg(lang, 'revealLostLong')}
             </p>
           </div>
         )}
+        {step.type === 'outbidJoin' && (
+          <div key={`out-${step.lost.map((l) => l.key).join('-')}`} className={styles.revealLot} data-anim="outbidJoin">
+            <p className={styles.revealResult} data-win="false">
+              {tg(lang, 'revealLostLong')}
+            </p>
+            <div className={styles.revealLostRow}>
+              {step.lost.map((lot) => (
+                <div key={lot.key} className={styles.revealLostLot}>
+                  <CharCard k={lot.key} lang={lang} size={64} />
+                  {bidRow(lot)}
+                </div>
+              ))}
+            </div>
+            <p className={styles.revealJoinLabel}>{tg(lang, 'revealJoinsAfter')}</p>
+            {joinCards(step.joins)}
+          </div>
+        )}
         {step.type === 'join' && (
-          <div key={step.got.key} className={styles.revealLot} data-anim="join">
-            <CharCard k={step.got.key} lang={lang} size={100} />
+          <div key={step.joins.map((w) => w.key).join('-')} className={styles.revealLot} data-anim="join">
             <p className={styles.revealResult} data-win="true">
               {tg(lang, 'revealJoins')}
             </p>
+            {joinCards(step.joins)}
           </div>
         )}
         <button type="button" className="button button--sm button--secondary" onClick={onDone}>
@@ -1886,12 +1994,35 @@ function PhoneCity({city, goal, color, letter, lang, onTap}) {
   );
 }
 
+const QUIZ_TO_BID_PAUSE_MS = 2000;
+
 function SultanPhone({view, lang, send}) {
   const [inspect, setInspect] = useState(null);
   const revealKey = view.auctionReveal ? `${view.auctionReveal.round}` : '';
   const [revealDoneFor, setRevealDoneFor] = useState('');
   const showReveal = Boolean(view.auctionReveal && revealKey && revealDoneFor !== revealKey);
   const finishReveal = useCallback(() => setRevealDoneFor(revealKey), [revealKey]);
+  // After the last math answer, linger on the review so the result is readable before bids.
+  const wasQuiz = useRef(false);
+  const [quizHold, setQuizHold] = useState(false);
+  useLayoutEffect(() => {
+    if (view.kind === 'quiz') {
+      wasQuiz.current = true;
+      setQuizHold(false);
+      return;
+    }
+    if (view.kind === 'bid' && wasQuiz.current && view.quiz && view.quiz.length) {
+      wasQuiz.current = false;
+      setQuizHold(true);
+      return;
+    }
+    wasQuiz.current = false;
+  }, [view.kind, view.round]);
+  useEffect(() => {
+    if (!quizHold) return undefined;
+    const t = window.setTimeout(() => setQuizHold(false), QUIZ_TO_BID_PAUSE_MS);
+    return () => window.clearTimeout(t);
+  }, [quizHold, view.round]);
   const closeInspect = () => setInspect(null);
   const openChar = (key, extra = {}) => setInspect({kind: 'char', key, ...extra});
   const openDistrict = (key, extra = {}) => setInspect({kind: 'district', key, ...extra});
@@ -2042,10 +2173,10 @@ function SultanPhone({view, lang, send}) {
       </>
     );
   }
-  if (view.kind === 'quiz') {
+  if (view.kind === 'quiz' || quizHold) {
     return (
       <>
-        <QuizView view={view} lang={lang} send={send} />
+        <QuizView view={view} lang={lang} send={send} pausing={quizHold} />
         {status}
       </>
     );
@@ -2249,10 +2380,32 @@ function DiceDuelView({view, lang, send}) {
   );
 }
 
-/** Math round: the problems one at a time on the pad; the ones done are listed with ✓ or ✗. */
-function QuizView({view, lang, send}) {
-  const i = view.quiz.findIndex((q) => !q.state);
-  const q = view.quiz[i];
+/** Fill "?" slots in question lines with a typed/correct answer for the review list. */
+function fillQuizLines(lines, ans) {
+  const nodes = [];
+  (lines || []).forEach((line, i) => {
+    if (i) nodes.push('  ');
+    const qi = line.indexOf('?');
+    if (qi < 0) {
+      nodes.push(<MathRich key={`l${i}`} text={line} />);
+      return;
+    }
+    nodes.push(
+      <React.Fragment key={`l${i}`}>
+        <MathRich text={line.slice(0, qi)} />
+        <MathRich text={ans == null || ans === '' ? '?' : ans} />
+        <MathRich text={line.slice(qi + 1)} />
+      </React.Fragment>,
+    );
+  });
+  return nodes;
+}
+
+/** Math round: the problems one at a time on the pad; done ones show your answer and the correct one. */
+function QuizView({view, lang, send, pausing = false}) {
+  const quiz = view.quiz || [];
+  const i = quiz.findIndex((q) => !q.state);
+  const q = !pausing && i >= 0 ? quiz[i] : null;
   return (
     <div className={shell.card}>
       <p className={shell.bigText}>{tg(lang, 'quizTitle')}</p>
@@ -2260,12 +2413,45 @@ function QuizView({view, lang, send}) {
         <CoinStack n={view.earned || 0} animateJoin size="sm" />
       </div>
       <ol className={styles.quizList}>
-        {view.quiz.map((x, n) => (
-          <li key={n} className={styles.quizItem} data-state={x.state || (n === i ? 'now' : 'todo')}>
-            {x.state === 'ok' ? '✓' : x.state === 'wrong' ? '✗' : n === i ? '▶' : '·'} {x.state ? x.lines.join('  ') : ''}
-          </li>
-        ))}
+        {quiz.map((x, n) => {
+          const mark = x.state === 'ok' ? '✓' : x.state === 'wrong' ? '✗' : n === i ? '▶' : '·';
+          if (!x.state) {
+            return (
+              <li key={n} className={styles.quizItem} data-state={n === i ? 'now' : 'todo'}>
+                {mark}
+              </li>
+            );
+          }
+          const promptLines = (x.lines || []).filter((line) => !/^\s*\?\s*$/.test(line));
+          if (x.state === 'ok') {
+            return (
+              <li key={n} className={styles.quizItem} data-state="ok">
+                <span className={styles.quizMark}>{mark}</span>
+                <span className={styles.quizReview}>
+                  <span className={styles.quizPrompt}>{fillQuizLines(x.lines, x.a)}</span>
+                </span>
+              </li>
+            );
+          }
+          return (
+            <li key={n} className={styles.quizItem} data-state="wrong">
+              <span className={styles.quizMark}>{mark}</span>
+              <span className={styles.quizReview}>
+                {promptLines.length > 0 && (
+                  <span className={styles.quizPrompt}>{fillQuizLines(promptLines, null)}</span>
+                )}
+                <span className={styles.quizYours}>
+                  {tg(lang, 'quizYours')}: <s>{x.given ? <MathRich text={x.given} /> : '—'}</s>
+                </span>
+                <span className={styles.quizActual}>
+                  {tg(lang, 'quizAnswer')}: <b>{x.a ? <MathRich text={x.a} /> : '—'}</b>
+                </span>
+              </span>
+            </li>
+          );
+        })}
       </ol>
+      {pausing && <p className={shell.muted}>{tg(lang, 'quizDone')}</p>}
       {q && <MathPad key={i} question={q} lang={lang} onAnswer={(value) => send({action: 'quiz', index: i, value})} okLabel="OK" />}
     </div>
   );
@@ -2796,7 +2982,7 @@ function TurnView({view, lang, send, status, openChar, openDistrict, openEvent})
               ))}
           </div>
           <div className={styles.cards}>
-            {view.hand.map((h) => (
+            {(view.handAll || view.hand).map((h) => (
               <button key={h.uid} type="button" className={styles.cardButton} aria-pressed={redraw.includes(h.uid)} onClick={() => setRedraw((r) => (r.includes(h.uid) ? r.filter((x) => x !== h.uid) : [...r, h.uid]))}>
                 <DistrictCard k={h.key} lang={lang} size={36} />
               </button>
@@ -2902,7 +3088,7 @@ function TurnView({view, lang, send, status, openChar, openDistrict, openEvent})
             </button>
           )}
           {tv.lab &&
-            view.hand.map((h) => (
+            (view.handAll || view.hand).map((h) => (
               <button key={h.uid} type="button" className="button button--sm" onClick={() => act({action: 'lab', uid: h.uid})}>
                 {tg(lang, 'lab')}: {L(DISTRICT[h.key], lang)}
               </button>

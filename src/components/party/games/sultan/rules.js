@@ -43,7 +43,7 @@ export const settingsOf = (n, raw = {}) => {
     mode,
     pool: ['classic', 'all'].includes(raw.pool) ? raw.pool : 'auto',
     events: events ? (kinds.length || mode !== 'madness' ? kinds : Object.keys(EVENTS)) : [],
-    goal: [6, 7, 8].includes(raw.goal) ? raw.goal : n <= 3 ? 8 : 7,
+    goal: [6, 7, 8, 9].includes(raw.goal) ? raw.goal : n <= 3 ? 8 : 7,
     wave: n <= 7 ? 1 : 4,
     decks: n <= 8 ? 1 : 2,
     turnS: [30, 45, 60].includes(raw.turnSeconds) ? raw.turnSeconds : TURN_S,
@@ -412,6 +412,7 @@ export const quizLeft = (s, id) => (s.phase === 'auction' && s.auction.quiz[id] 
 export function answerQuiz(s, ctx, id, index, value) {
   const q = s.phase === 'auction' && s.auction.quiz[id] && s.auction.quiz[id][index];
   if (!q || q.state) return false;
+  q.given = value == null ? '' : String(value);
   q.state = checkAnswer(q, value) ? 'ok' : 'wrong';
   if (q.state === 'ok') s.auction.earned[id] = (s.auction.earned[id] || 0) + 1;
   return true;
