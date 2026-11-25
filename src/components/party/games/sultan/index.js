@@ -1641,6 +1641,56 @@ function SultanBoard({s, g, lang}) {
     if (el && el.scrollIntoView) el.scrollIntoView({behavior: 'smooth', inline: 'center', block: 'nearest'});
     return undefined;
   }, [current, s.round]);
+  // Host can drag / wheel-scroll the strip when cards overflow the top bar.
+  useEffect(() => {
+    const el = stripRef.current;
+    if (!el) return undefined;
+    let down = false;
+    let startX = 0;
+    let startLeft = 0;
+    let moved = false;
+    const onWheel = (e) => {
+      if (el.scrollWidth <= el.clientWidth) return;
+      const dx = Math.abs(e.deltaX) > Math.abs(e.deltaY) ? e.deltaX : e.deltaY;
+      if (!dx) return;
+      el.scrollLeft += dx;
+      e.preventDefault();
+    };
+    const onDown = (e) => {
+      if (e.button != null && e.button !== 0) return;
+      down = true;
+      moved = false;
+      startX = e.clientX;
+      startLeft = el.scrollLeft;
+    };
+    const onMove = (e) => {
+      if (!down) return;
+      const dx = e.clientX - startX;
+      if (Math.abs(dx) > 3) moved = true;
+      el.scrollLeft = startLeft - dx;
+    };
+    const onUp = () => {
+      down = false;
+    };
+    const onClickCapture = (e) => {
+      if (!moved) return;
+      e.preventDefault();
+      e.stopPropagation();
+      moved = false;
+    };
+    el.addEventListener('wheel', onWheel, {passive: false});
+    el.addEventListener('pointerdown', onDown);
+    window.addEventListener('pointermove', onMove);
+    window.addEventListener('pointerup', onUp);
+    el.addEventListener('click', onClickCapture, true);
+    return () => {
+      el.removeEventListener('wheel', onWheel);
+      el.removeEventListener('pointerdown', onDown);
+      window.removeEventListener('pointermove', onMove);
+      window.removeEventListener('pointerup', onUp);
+      el.removeEventListener('click', onClickCapture, true);
+    };
+  }, [s.round, s.phase, strip.length]);
   const active = (id) => {
     if (s.prompt) return s.prompt.to === id;
     if (s.phase === 'call' && t) return t.cards.some((k) => ownerOf(s, k) === id && !t.done[k]);
@@ -2678,6 +2728,125 @@ function PromptCard({view, lang, send, openChar}) {
   );
 }
 
+/** Collapsed command/ability card; tap to expand the menu underneath. */
+function FoldCard({open, onToggle, card, title, openLabel, closeLabel, children}) {
+  return (
+    <div className={styles.foldCard} data-open={open || undefined}>
+      <button type="button" className={styles.foldToggle} aria-expanded={Boolean(open)} onClick={onToggle}>
+        <span className={styles.foldArt}>{card}</span>
+        <span className={styles.foldTitle}>{title}</span>
+        <span className={styles.foldHint}>{open ? closeLabel : openLabel}</span>
+      </button>
+      {open && <div className={styles.foldBody}>{children}</div>}
+    </div>
+  );
+}
+
+/** Compact 2–3-up foe cities for conquest target pick. */
+function ConquerCityPick({foes, goal, lang, onPick}) {
+  return (
+    <div className={styles.conquerCities}>
+      {(foes || []).map((foe) => (
+        <div key={foe.id} className={styles.conquerCity} style={{'--owner': foe.color || '#2a1630'}}>
+          <p className={styles.conquerCityHead}>
+            {foe.letter} · {foe.name}
+          </p>
+          <div className={styles.conquerCityPlot}>
+            <CityPlot
+              city={foe.city}
+              goal={goal}
+              color={foe.color}
+              lang={lang}
+              fit={{width: 132, height: 96}}
+              hot={foe.city.filter((c) => c.ok).map((c) => c.uid)}
+              onTap={(c) => {
+                if (!c.ok) return;
+                onPick(c.uid);
+              }}
+            />
+          </div>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+/** Ally + confirm steps after a conquest building is chosen. */
+function ConquerAllyStep({pick, targets, players, me, lang, onChange, onBack, onConfirm}) {
+  const district = (targets.find((x) => x.uid === pick.uid) || {}).key;
+  return (
+    <>
+      <p>
+        {L(DISTRICT[district], lang)} · {tg(lang, 'ally')}
+      </p>
+      <div className={shell.choiceGrid}>
+        <button type="button" className="button button--sm" aria-pressed={!pick.ally} onClick={() => onChange({...pick, ally: null})}>
+          {tg(lang, 'noAlly')}
+        </button>
+        {players
+          .filter((p) => p.id !== me)
+          .map((p) => (
+            <button key={p.id} type="button" className="button button--sm" aria-pressed={pick.ally === p.id} onClick={() => onChange({...pick, ally: p.id})}>
+              {p.name}
+            </button>
+          ))}
+      </div>
+      {pick.ally && (
+        <div className={shell.choiceGrid}>
+          {[0, 1, 2, 3].map((n) => (
+            <button key={n} type="button" className="button button--sm" aria-pressed={pick.offer === n} onClick={() => onChange({...pick, offer: n})}>
+              {tg(lang, 'offer', {n})}
+            </button>
+          ))}
+        </div>
+      )}
+      <div className={shell.choiceGrid}>
+        <button type="button" className="button button--secondary" onClick={onBack}>
+          {tg(lang, 'closePreview')}
+        </button>
+        <button type="button" className="button" onClick={onConfirm}>
+          {tg(lang, 'conquer')}
+        </button>
+      </div>
+    </>
+  );
+}
+
+function ExtravaganceMenu({charisma, players, me, gifts, setGifts, lang, onSend}) {
+  const total = Object.values(gifts).reduce((a, b) => a + b, 0);
+  const others = players.filter((p) => p.id !== me);
+  return (
+    <>
+      <p className={shell.muted}>{tg(lang, 'extravagance', {n: charisma})}</p>
+      <button
+        type="button"
+        className="button button--secondary button--block"
+        onClick={() => {
+          if (!others.length) return;
+          const base = Math.floor(charisma / others.length);
+          const rem = charisma - base * others.length;
+          const next = {};
+          others.forEach((p, i) => {
+            next[p.id] = base + (i < rem ? 1 : 0);
+          });
+          setGifts(next);
+        }}>
+        {tg(lang, 'splitEven')}
+      </button>
+      <div className={shell.choiceGrid}>
+        {others.map((p) => (
+          <button key={p.id} type="button" className="button button--sm" disabled={total >= charisma} onClick={() => setGifts((g) => ({...g, [p.id]: (g[p.id] || 0) + 1}))}>
+            {tg(lang, 'give')} → {p.name} ({gifts[p.id] || 0})
+          </button>
+        ))}
+      </div>
+      <button type="button" className="button" disabled={total !== charisma} onClick={() => onSend(gifts)}>
+        {charisma - total > 0 ? tg(lang, 'toGive', {n: charisma - total}) : tg(lang, 'extravagance', {n: charisma})}
+      </button>
+    </>
+  );
+}
+
 /** Command / princess reserve after your characters finish (until calling ends). */
 function SoftPanel({view, lang, send, openChar}) {
   const soft = view.soft;
@@ -2685,169 +2854,146 @@ function SoftPanel({view, lang, send, openChar}) {
   const [conquest, setConquest] = useState(null);
   const [gifts, setGifts] = useState({});
   const [suitor, setSuitor] = useState(soft.suitors[0] || null);
-  const total = Object.values(gifts).reduce((a, b) => a + b, 0);
-  const has =
-    soft.reserve.length > 0 || soft.marry || soft.conquer || soft.extravagance;
+  const [fold, setFold] = useState({});
+  const toggle = (k) => setFold((f) => ({...f, [k]: !f[k]}));
+  const cmd = (kind) => (view.events || []).find((e) => e.kind === kind);
+  const has = soft.reserve.length > 0 || soft.marry || soft.conquer || soft.extravagance;
   if (!has) return null;
+  const openL = tg(lang, 'foldOpen');
+  const closeL = tg(lang, 'foldClose');
   return (
     <div className={shell.card}>
       <p className={shell.kicker}>{tg(lang, 'softLater')}</p>
-      {soft.reserve.length > 0 && (
-        <>
-          <p className={shell.kicker}>{tg(lang, 'softReserve')}</p>
-          <div className={styles.cards}>
-            {soft.reserve.map((u) => (
-              <button
-                key={u}
-                type="button"
-                className={styles.cardButton}
-                onClick={() =>
-                  openChar(u, {
-                    action: {
-                      label: tg(lang, 'reserve'),
-                      onClick: () => send({action: 'reserve', pick: u}),
-                    },
-                  })
-                }>
-                <CharCard k={u} lang={lang} size={40} />
-              </button>
-            ))}
-          </div>
-        </>
-      )}
-      {(soft.marry || soft.conquer || soft.extravagance) && <p className={shell.kicker}>{tg(lang, 'softCommand')}</p>}
-      {soft.marry && soft.suitors.length > 0 && soft.dates.length > 0 && (
-        <>
-          <p className={shell.muted}>{tg(lang, 'marry')}</p>
-          {soft.suitors.length > 1 && (
+      <div className={styles.foldRow}>
+        {soft.reserve.length > 0 && (
+          <FoldCard
+            open={Boolean(fold.reserve)}
+            onToggle={() => toggle('reserve')}
+            card={<CharCard k={soft.reserve[0]} lang={lang} size={52} />}
+            title={tg(lang, 'softReserve')}
+            openLabel={openL}
+            closeLabel={closeL}>
             <div className={styles.cards}>
-              {soft.suitors.map((k) => (
-                <button key={k} type="button" className={styles.cardButton} aria-pressed={suitor === k} onClick={() => setSuitor(k)}>
-                  <CharCard k={k} lang={lang} size={36} stats />
-                </button>
-              ))}
-            </div>
-          )}
-          <div className={styles.cards}>
-            {soft.dates
-              .filter((d) => d.key !== suitor)
-              .map((d) => (
+              {soft.reserve.map((u) => (
                 <button
-                  key={d.key}
+                  key={u}
                   type="button"
                   className={styles.cardButton}
-                  disabled={!suitor}
                   onClick={() =>
-                    openChar(d.key, {
+                    openChar(u, {
                       action: {
-                        label: tg(lang, 'marry'),
-                        onClick: () => send({action: 'marry', mine: suitor, other: d.key}),
+                        label: tg(lang, 'reserve'),
+                        onClick: () => send({action: 'reserve', pick: u}),
                       },
                     })
                   }>
-                  <CharCard k={d.key} lang={lang} size={40} stats />
-                  <small>{d.owner}</small>
+                  <CharCard k={u} lang={lang} size={40} />
                 </button>
-              ))}
-          </div>
-        </>
-      )}
-      {soft.conquer && soft.targets.length > 0 && (
-        <>
-          <p className={shell.muted}>{tg(lang, 'conquer')}</p>
-          {!conquest ? (
-            <div className={styles.conquerCities}>
-              {soft.foes.map((foe) => (
-                <div key={foe.id} className={styles.conquerCity}>
-                  <p className={styles.conquerCityHead}>
-                    {foe.letter} · {foe.name}
-                  </p>
-                  <CityPlot
-                    city={foe.city}
-                    goal={view.goal}
-                    color={foe.color}
-                    lang={lang}
-                    scale={1.15}
-                    hot={foe.city.filter((c) => c.ok).map((c) => c.uid)}
-                    onTap={(c) => {
-                      if (!c.ok) return;
-                      setConquest({uid: c.uid, ally: null, offer: 1});
-                    }}
-                  />
-                </div>
               ))}
             </div>
-          ) : (
-            <>
-              <p>
-                {L(DISTRICT[(soft.targets.find((x) => x.uid === conquest.uid) || {}).key], lang)} · {tg(lang, 'ally')}
-              </p>
-              <div className={shell.choiceGrid}>
-                <button type="button" className="button button--sm" aria-pressed={!conquest.ally} onClick={() => setConquest({...conquest, ally: null})}>
-                  {tg(lang, 'noAlly')}
-                </button>
-                {view.players
-                  .filter((p) => p.id !== view.me)
-                  .map((p) => (
-                    <button key={p.id} type="button" className="button button--sm" aria-pressed={conquest.ally === p.id} onClick={() => setConquest({...conquest, ally: p.id})}>
-                      {p.name}
-                    </button>
-                  ))}
+          </FoldCard>
+        )}
+        {soft.marry && soft.suitors.length > 0 && soft.dates.length > 0 && (
+          <FoldCard
+            open={Boolean(fold.marry)}
+            onToggle={() => toggle('marry')}
+            card={<EventCard ev={cmd('marriage') || {kind: 'marriage', frame: 'gold'}} lang={lang} size={52} />}
+            title={tg(lang, 'marry')}
+            openLabel={openL}
+            closeLabel={closeL}>
+            {soft.suitors.length > 1 && (
+              <div className={styles.cards}>
+                {soft.suitors.map((k) => (
+                  <button key={k} type="button" className={styles.cardButton} aria-pressed={suitor === k} onClick={() => setSuitor(k)}>
+                    <CharCard k={k} lang={lang} size={36} stats />
+                  </button>
+                ))}
               </div>
-              {conquest.ally && (
-                <div className={shell.choiceGrid}>
-                  {[0, 1, 2, 3].map((n) => (
-                    <button key={n} type="button" className="button button--sm" aria-pressed={conquest.offer === n} onClick={() => setConquest({...conquest, offer: n})}>
-                      {tg(lang, 'offer', {n})}
-                    </button>
-                  ))}
-                </div>
-              )}
-              <div className={shell.choiceGrid}>
-                <button type="button" className="button button--secondary" onClick={() => setConquest(null)}>
-                  {tg(lang, 'closePreview')}
-                </button>
-                <button type="button" className="button" onClick={() => send({action: 'conquer', ...conquest})}>
-                  {tg(lang, 'conquer')}
-                </button>
-              </div>
-            </>
-          )}
-        </>
-      )}
-      {soft.extravagance && (
-        <>
-          <p className={shell.muted}>{tg(lang, 'extravagance', {n: soft.charisma})}</p>
-          <button
-            type="button"
-            className="button button--secondary button--block"
-            onClick={() => {
-              const others = view.players.filter((p) => p.id !== view.me);
-              if (!others.length) return;
-              const base = Math.floor(soft.charisma / others.length);
-              const rem = soft.charisma - base * others.length;
-              const next = {};
-              others.forEach((p, i) => {
-                next[p.id] = base + (i < rem ? 1 : 0);
-              });
-              setGifts(next);
-            }}>
-            {tg(lang, 'splitEven')}
-          </button>
-          <div className={shell.choiceGrid}>
-            {view.players
-              .filter((p) => p.id !== view.me)
-              .map((p) => (
-                <button key={p.id} type="button" className="button button--sm" disabled={total >= soft.charisma} onClick={() => setGifts((g) => ({...g, [p.id]: (g[p.id] || 0) + 1}))}>
-                  {tg(lang, 'give')} → {p.name} ({gifts[p.id] || 0})
-                </button>
-              ))}
-          </div>
-          <button type="button" className="button" disabled={total !== soft.charisma} onClick={() => send({action: 'extravagance', gifts})}>
-            {soft.charisma - total > 0 ? tg(lang, 'toGive', {n: soft.charisma - total}) : tg(lang, 'extravagance', {n: soft.charisma})}
-          </button>
-        </>
-      )}
+            )}
+            <div className={styles.cards}>
+              {soft.dates
+                .filter((d) => d.key !== suitor)
+                .map((d) => (
+                  <button
+                    key={d.key}
+                    type="button"
+                    className={styles.cardButton}
+                    disabled={!suitor}
+                    onClick={() =>
+                      openChar(d.key, {
+                        action: {
+                          label: tg(lang, 'marry'),
+                          onClick: () => send({action: 'marry', mine: suitor, other: d.key}),
+                        },
+                      })
+                    }>
+                    <CharCard k={d.key} lang={lang} size={40} stats />
+                    <small>{d.owner}</small>
+                  </button>
+                ))}
+            </div>
+          </FoldCard>
+        )}
+        {soft.conquer && soft.targets.length > 0 && (
+          <FoldCard
+            open={Boolean(fold.conquer) || Boolean(conquest)}
+            onToggle={() => {
+              if (conquest) {
+                setConquest(null);
+                setFold((f) => ({...f, conquer: false}));
+                return;
+              }
+              toggle('conquer');
+            }}
+            card={<EventCard ev={cmd('conquest') || {kind: 'conquest', frame: 'gold'}} lang={lang} size={52} dueBadge={(cmd('conquest') || {}).roundsLeft} />}
+            title={tg(lang, 'conquer')}
+            openLabel={openL}
+            closeLabel={closeL}>
+            <p className={shell.muted}>{tg(lang, 'conquerPick')}</p>
+            {!conquest ? (
+              <ConquerCityPick
+                foes={soft.foes}
+                goal={view.goal}
+                lang={lang}
+                onPick={(uid) => {
+                  setFold((f) => ({...f, conquer: true}));
+                  setConquest({uid, ally: null, offer: 1});
+                }}
+              />
+            ) : (
+              <ConquerAllyStep
+                pick={conquest}
+                targets={soft.targets}
+                players={view.players}
+                me={view.me}
+                lang={lang}
+                onChange={setConquest}
+                onBack={() => setConquest(null)}
+                onConfirm={() => send({action: 'conquer', ...conquest})}
+              />
+            )}
+          </FoldCard>
+        )}
+        {soft.extravagance && (
+          <FoldCard
+            open={Boolean(fold.extravagance)}
+            onToggle={() => toggle('extravagance')}
+            card={<EventCard ev={cmd('extravagance') || {kind: 'extravagance', frame: 'gold'}} lang={lang} size={52} />}
+            title={tg(lang, 'extravagance', {n: soft.charisma})}
+            openLabel={openL}
+            closeLabel={closeL}>
+            <ExtravaganceMenu
+              charisma={soft.charisma}
+              players={view.players}
+              me={view.me}
+              gifts={gifts}
+              setGifts={setGifts}
+              lang={lang}
+              onSend={(g) => send({action: 'extravagance', gifts: g})}
+            />
+          </FoldCard>
+        )}
+      </div>
     </div>
   );
 }
@@ -2860,6 +3006,11 @@ function TurnView({view, lang, send, status, openChar, openDistrict, openEvent})
   const [redraw, setRedraw] = useState([]);
   const [conquest, setConquest] = useState(null);
   const [gifts, setGifts] = useState({});
+  const [fold, setFold] = useState({});
+  const [abilityOpen, setAbilityOpen] = useState(false);
+  const toggle = (k) => setFold((f) => ({...f, [k]: !f[k]}));
+  const openL = tg(lang, 'foldOpen');
+  const closeL = tg(lang, 'foldClose');
   const header = (
     <div className={styles.turnHead}>
       <button type="button" className={styles.cardButton} onClick={() => openChar(tv.card, {married: (view.mine.find((c) => c.key === tv.card) || {}).married || null})}>
@@ -2917,10 +3068,15 @@ function TurnView({view, lang, send, status, openChar, openDistrict, openEvent})
   }
   const can = tv.usesLeft > 0 && !tv.waiting;
   const panel = (title, children) => (
-    <div className={shell.card}>
-      <b>{title}</b>
+    <FoldCard
+      open={abilityOpen}
+      onToggle={() => setAbilityOpen((o) => !o)}
+      card={<CharCard k={tv.card} lang={lang} size={52} stats={view.statsOn} />}
+      title={title}
+      openLabel={openL}
+      closeLabel={closeL}>
       {children}
-    </div>
+    </FoldCard>
   );
   const ability = () => {
     const k = tv.card;
@@ -3051,7 +3207,6 @@ function TurnView({view, lang, send, status, openChar, openDistrict, openEvent})
     return null;
   };
   const ev = (kind) => view.events.find((e) => e.kind === kind && e.can);
-  const total = Object.values(gifts).reduce((a, b) => a + b, 0);
   return (
     <>
       {header}
@@ -3096,11 +3251,15 @@ function TurnView({view, lang, send, status, openChar, openDistrict, openEvent})
         </div>
       )}
       {(ev('marriage') || ev('conquest') || ev('extravagance')) && (
-        <div className={shell.card}>
-          <p className={shell.muted}>{tg(lang, 'softLater')}</p>
+        <div className={styles.foldRow}>
           {ev('marriage') && tv.dates.length > 0 && !tv.waiting && (
-            <>
-              <p className={shell.kicker}>{tg(lang, 'marry')}</p>
+            <FoldCard
+              open={Boolean(fold.marry)}
+              onToggle={() => toggle('marry')}
+              card={<EventCard ev={ev('marriage')} lang={lang} size={52} dueBadge={ev('marriage').roundsLeft} />}
+              title={tg(lang, 'marry')}
+              openLabel={openL}
+              closeLabel={closeL}>
               <div className={styles.cards}>
                 {tv.dates.map((d) => (
                   <button
@@ -3120,106 +3279,66 @@ function TurnView({view, lang, send, status, openChar, openDistrict, openEvent})
                   </button>
                 ))}
               </div>
-            </>
+            </FoldCard>
           )}
           {ev('conquest') && tv.targets.length > 0 && (
-            <>
-              <p className={shell.kicker}>{tg(lang, 'conquer')}</p>
+            <FoldCard
+              open={Boolean(fold.conquer) || Boolean(conquest)}
+              onToggle={() => {
+                if (conquest) {
+                  setConquest(null);
+                  setFold((f) => ({...f, conquer: false}));
+                  return;
+                }
+                toggle('conquer');
+              }}
+              card={<EventCard ev={ev('conquest')} lang={lang} size={52} dueBadge={ev('conquest').roundsLeft} />}
+              title={tg(lang, 'conquer')}
+              openLabel={openL}
+              closeLabel={closeL}>
+              <p className={shell.muted}>{tg(lang, 'conquerPick')}</p>
               {!conquest ? (
-                <>
-                  <p className={shell.muted}>{tg(lang, 'conquerPick')}</p>
-                  <div className={styles.conquerCities}>
-                    {(tv.foes || []).map((foe) => (
-                      <div key={foe.id} className={styles.conquerCity}>
-                        <p className={styles.conquerCityHead}>
-                          {foe.letter} · {foe.name}
-                        </p>
-                        <CityPlot
-                          city={foe.city}
-                          goal={view.goal}
-                          color={foe.color}
-                          lang={lang}
-                          scale={1.15}
-                          hot={foe.city.filter((c) => c.ok).map((c) => c.uid)}
-                          onTap={(c) => {
-                            if (!c.ok) return;
-                            setConquest({uid: c.uid, ally: null, offer: 1});
-                          }}
-                        />
-                      </div>
-                    ))}
-                  </div>
-                </>
+                <ConquerCityPick
+                  foes={tv.foes || []}
+                  goal={view.goal}
+                  lang={lang}
+                  onPick={(uid) => {
+                    setFold((f) => ({...f, conquer: true}));
+                    setConquest({uid, ally: null, offer: 1});
+                  }}
+                />
               ) : (
-                <>
-                  <p>
-                    {L(DISTRICT[(tv.targets.find((x) => x.uid === conquest.uid) || {}).key], lang)} · {tg(lang, 'ally')}
-                  </p>
-                  <div className={shell.choiceGrid}>
-                    <button type="button" className="button button--sm" aria-pressed={!conquest.ally} onClick={() => setConquest({...conquest, ally: null})}>
-                      {tg(lang, 'noAlly')}
-                    </button>
-                    {view.players
-                      .filter((p) => p.id !== view.me)
-                      .map((p) => (
-                        <button key={p.id} type="button" className="button button--sm" aria-pressed={conquest.ally === p.id} onClick={() => setConquest({...conquest, ally: p.id})}>
-                          {p.name}
-                        </button>
-                      ))}
-                  </div>
-                  {conquest.ally && (
-                    <div className={shell.choiceGrid}>
-                      {[0, 1, 2, 3].map((n) => (
-                        <button key={n} type="button" className="button button--sm" aria-pressed={conquest.offer === n} onClick={() => setConquest({...conquest, offer: n})}>
-                          {tg(lang, 'offer', {n})}
-                        </button>
-                      ))}
-                    </div>
-                  )}
-                  <div className={shell.choiceGrid}>
-                    <button type="button" className="button button--secondary" onClick={() => setConquest(null)}>
-                      {tg(lang, 'closePreview')}
-                    </button>
-                    <button type="button" className="button" onClick={() => act({action: 'conquer', ...conquest})}>
-                      {tg(lang, 'conquer')}
-                    </button>
-                  </div>
-                </>
+                <ConquerAllyStep
+                  pick={conquest}
+                  targets={tv.targets}
+                  players={view.players}
+                  me={view.me}
+                  lang={lang}
+                  onChange={setConquest}
+                  onBack={() => setConquest(null)}
+                  onConfirm={() => act({action: 'conquer', ...conquest})}
+                />
               )}
-            </>
+            </FoldCard>
           )}
           {ev('extravagance') && (
-            <>
-              <p className={shell.kicker}>{tg(lang, 'extravagance', {n: tv.charisma})}</p>
-              <button
-                type="button"
-                className="button button--secondary button--block"
-                onClick={() => {
-                  const others = view.players.filter((p) => p.id !== view.me);
-                  if (!others.length) return;
-                  const base = Math.floor(tv.charisma / others.length);
-                  let rem = tv.charisma - base * others.length;
-                  const next = {};
-                  others.forEach((p, i) => {
-                    next[p.id] = base + (i < rem ? 1 : 0);
-                  });
-                  setGifts(next);
-                }}>
-                {tg(lang, 'splitEven')}
-              </button>
-              <div className={shell.choiceGrid}>
-                {view.players
-                  .filter((p) => p.id !== view.me)
-                  .map((p) => (
-                    <button key={p.id} type="button" className="button button--sm" disabled={total >= tv.charisma} onClick={() => setGifts((g) => ({...g, [p.id]: (g[p.id] || 0) + 1}))}>
-                      {tg(lang, 'give')} → {p.name} ({gifts[p.id] || 0})
-                    </button>
-                  ))}
-              </div>
-              <button type="button" className="button" disabled={total !== tv.charisma} onClick={() => act({action: 'extravagance', gifts})}>
-                {tv.charisma - total > 0 ? tg(lang, 'toGive', {n: tv.charisma - total}) : tg(lang, 'extravagance', {n: tv.charisma})}
-              </button>
-            </>
+            <FoldCard
+              open={Boolean(fold.extravagance)}
+              onToggle={() => toggle('extravagance')}
+              card={<EventCard ev={ev('extravagance')} lang={lang} size={52} dueBadge={ev('extravagance').roundsLeft} />}
+              title={tg(lang, 'extravagance', {n: tv.charisma})}
+              openLabel={openL}
+              closeLabel={closeL}>
+              <ExtravaganceMenu
+                charisma={tv.charisma}
+                players={view.players}
+                me={view.me}
+                gifts={gifts}
+                setGifts={setGifts}
+                lang={lang}
+                onSend={(g) => act({action: 'extravagance', gifts: g})}
+              />
+            </FoldCard>
           )}
         </div>
       )}
