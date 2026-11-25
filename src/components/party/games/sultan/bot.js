@@ -1,10 +1,12 @@
 /**
  * City of the Sultan bots: one move at a time, pure (shared by the game and
- * the headless tests). They use every ability and event now and then.
+ * the headless tests). They use every ability now and then, chase their own
+ * mission, and are generous: they accept every date and alliance, never raise
+ * a duel's bet, and share Extravagance coins as evenly as they can.
  */
 
 import {DISTRICT, EVENTS, charOf} from './data';
-import {acting, canBuild, canPick, canUseEvent, generalTargets, hiddenPlayers, nameableNumbers, officialTargets, picksLeft, statOf} from './rules';
+import {acting, bidCap, canBuild, canPick, canUseEvent, generalTargets, hasBid, hiddenPlayers, meetsTier, missionFor, nameableNumbers, officialTargets, picksLeft, statOf} from './rules';
 
 const pick = (list, rng) => list[Math.floor(rng() * list.length)];
 const costOf = (s, uid) => DISTRICT[s.cards[uid]].cost;
@@ -15,28 +17,48 @@ function answerPrompt(s, id, rng) {
     case 'shield':
       return {action: 'answer', yes: rng() < 0.6};
     case 'raise':
-      return {action: 'answer', bet: 1 + Math.floor(rng() * p.max)};
+      return {action: 'answer', bet: 1};
     case 'champion': {
       const best = [...s.hold[id]].sort((a, b) => statOf(b, 'combat') - statOf(a, 'combat'))[0];
       return {action: 'answer', card: best};
     }
     default:
-      return {action: 'answer', yes: rng() < 0.5};
+      // A date or an ally request: always yes.
+      return {action: 'answer', yes: true};
   }
 }
 
 export function botMove(s, id, rng) {
   if (s.over) return null;
   if (s.prompt) return s.prompt.to === id ? answerPrompt(s, id, rng) : null;
+  // A mission none of my characters can start, with time running out: use the one redraw.
+  const mine = missionFor(s, id);
+  if (mine && !(s.redraws && s.redraws[id]) && s.round >= mine.due - 1 && s.hold[id].length && !s.hold[id].some((k) => meetsTier(k, mine.frame))) return {action: 'redraw'};
+  if (s.phase === 'auction') {
+    const qs = s.auction.quiz[id] || [];
+    const i = qs.findIndex((q) => !q.state);
+    if (i >= 0) return {action: 'quiz', index: i, value: rng() < 0.8 ? qs[i].a : `${qs[i].a}1`};
+    if (hasBid(s, id)) return null;
+    // All earned coins on one character, or split over two.
+    const cap = bidCap(s, id);
+    const lots = [...s.auction.lots].sort(() => rng() - 0.5);
+    const bids = {};
+    if (cap > 0 && lots.length) {
+      const first = cap >= 2 && rng() < 0.4 ? cap - 1 : cap;
+      bids[lots[0]] = first;
+      if (cap - first > 0 && lots[1]) bids[lots[1]] = cap - first;
+    }
+    return {action: 'bid', bids};
+  }
   if (s.phase === 'draft') {
     if (picksLeft(s, id) < 1) return null;
     const options = s.draft.available.filter((k) => canPick(s, id, k));
     return options.length ? {action: 'draft', card: pick(options, rng)} : null;
   }
   if (s.phase === 'pyrrhic') {
-    const ev = s.events.find((e) => e.kind === 'pyrrhic');
+    const ev = missionFor(s, id, 'pyrrhic');
     const foes = s.seats.filter((p) => p !== id && s.hold[p].length);
-    if (canUseEvent(s, id, ev) && foes.length && rng() < 0.15) return {action: 'challenge', target: pick(foes, rng)};
+    if (canUseEvent(s, id, ev) && foes.length && rng() < 0.85) return {action: 'challenge', target: pick(foes, rng)};
     return null;
   }
   if (s.phase !== 'call' || !s.turn) return null;
@@ -86,20 +108,23 @@ export function botMove(s, id, rng) {
     if (key === 'scholar' && s.city[id].length && s.gold[id] >= 1) return act({action: 'invest', uid: pick(s.city[id], rng), n: Math.min(2, s.gold[id])});
     if (key === 'lucky' && s.gold[id] >= 1) return act({action: 'gamble'});
   }
-  // Events, now and then.
-  const ev = (kind) => s.events.find((e) => e.kind === kind);
-  if (canUseEvent(s, id, ev('marriage')) && !t.dated[key] && rng() < 0.3) {
+  // Missions, now and then; in Sultan Says the table needs them done.
+  // Their mission is theirs alone and has a deadline: go for it.
+  const eager = 0.85;
+  const ev = (kind) => missionFor(s, id, kind);
+  if (canUseEvent(s, id, ev('marriage')) && !t.dated[key] && rng() < eager) {
     const others = Object.keys(s.owner).filter((k) => k !== key && s.revealed[k] && !s.married[k]);
     if (!s.married[key] && others.length) return act({action: 'marry', mine: key, other: pick(others, rng)});
   }
-  if (canUseEvent(s, id, ev('conquest')) && rng() < 0.3) {
+  if (canUseEvent(s, id, ev('conquest')) && rng() < eager) {
     const targets = s.seats.filter((p) => p !== id).flatMap((p) => s.city[p]).filter((u) => !s.city[id].some((m) => s.cards[m] === s.cards[u]));
     const allies = s.seats.filter((p) => p !== id);
     if (targets.length) return act({action: 'conquer', uid: pick(targets, rng), ally: rng() < 0.5 ? pick(allies, rng) : null, offer: 1});
   }
-  if (canUseEvent(s, id, ev('extravagance')) && rng() < 0.3) {
+  if (canUseEvent(s, id, ev('extravagance')) && rng() < eager) {
     const total = s.hold[id].reduce((n, k) => n + charOf(k).charisma, 0);
-    const others = s.seats.filter((p) => p !== id);
+    // Poorest first, then round again: as even as possible.
+    const others = s.seats.filter((p) => p !== id).sort((a, b) => s.gold[a] - s.gold[b]);
     const gifts = {};
     for (let i = 0; i < total; i++) gifts[others[i % others.length]] = (gifts[others[i % others.length]] || 0) + 1;
     return act({action: 'extravagance', gifts});

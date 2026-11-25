@@ -117,3 +117,20 @@ export const EVENTS = {
 };
 
 export const EVENT_ART = {marriage: 'event-marriage', conquest: 'event-conquest', pyrrhic: 'event-tragedy', extravagance: 'event-plenty'};
+
+// ------------------------------------------------------------------ 64 px isometric art
+// Exported by `npm run party-iso` from assets/asetsprite/64x64_party.aseprite
+// (frames named in party_64.csv) to static/img/party/iso/.
+
+/** Temple, church and monastery borrow frames from the building set (see party_64.csv). */
+const ISO_BORROWED = {temple: 'building/district-temple', church: 'building/district-church', monastery: 'building/district-monastery'};
+export const isoDistrict = (key) => `iso/${ISO_BORROWED[key] || `sultan/district-${key}`}.png`;
+export const isoTile = (name) => `iso/tile/${name}.png`;
+
+/** Every built plot is paved; an empty one is bare earth (the type shows on the card, not the floor). */
+export const BUILT_TILE = 'cobblestone';
+export const EMPTY_TILE = 'bare-earth';
+
+/** Each stat event has its own arena floor (none of these is a district type's floor). */
+export const ARENA_TILE = {pyrrhic: 'red-brick', marriage: 'leafy-grass', conquest: 'cobblestone-dark', extravagance: 'sandstone'};
+export const ARENA_EDGE = {marriage: 'meadow'};

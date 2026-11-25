@@ -40,3 +40,19 @@ with File › Export Sprite Sheet as one horizontal strip to
 `static/img/party/<name>.webp`, trimmed and fitted to 320 px. A row with
 `frame_end` becomes a side-by-side animation strip of those frames.
 Run `npm run party-sprites -- --sheet aseprite` after each export.
+
+## The 64 px isometric set (`npm run party-iso`)
+
+`assets/asetsprite/64x64_party.aseprite` holds 64 × 64 isometric pixel art:
+buildings, floor tiles and the City of the Sultan districts.
+`assets/asetsprite/party_64.csv` names its frames (same columns as `art.csv`,
+frame numbers 1-based as Aseprite shows them). `npm run party-iso` runs
+Aseprite in batch mode (`scripts/party-iso.lua`; set `ASEPRITE` if it is not
+installed in Program Files) and writes each named frame, untrimmed, to
+`static/img/party/iso/<name>.png`. No ImageMagick needed.
+
+The Sultan uses them in `games/sultan/IsoCity.js`: every built district stands
+on a floor tile for its type (`TYPE_TILE` in `data.js`) inside a border in its
+owner's colour, and each stat event has its own arena floor (`ARENA_TILE`).
+Close the file in Aseprite before running the export, or save it first: a
+batch run reads what is on disk.

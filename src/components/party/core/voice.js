@@ -1,6 +1,6 @@
 import {useEffect, useRef, useState} from 'react';
 import {fillVars} from './partyCore';
-import {playCueSfx, playUrl} from './sfx';
+import {playCueSfx, playSfx, playUrl} from './sfx';
 import {L} from './strings';
 
 /**
@@ -19,7 +19,8 @@ function speak(text, lang) {
   window.speechSynthesis.speak(u);
 }
 
-export function useVoice({gameId, lines, state, lang, enabled}) {
+/** `cueSfx(id)` (optional, from the game): the one sound for that cue, or null for none; replaces the default cue sounds. */
+export function useVoice({gameId, lines, state, lang, enabled, cueSfx}) {
   const [subtitle, setSubtitle] = useState(null);
   const playedRef = useRef(null);
   const queueRef = useRef([]);
@@ -57,7 +58,10 @@ export function useVoice({gameId, lines, state, lang, enabled}) {
     for (const c of cues) {
       if (c.seq <= playedRef.current) continue;
       playedRef.current = c.seq;
-      playCueSfx(c.id);
+      if (cueSfx) {
+        const sound = cueSfx(c.id);
+        if (sound) playSfx(sound);
+      } else playCueSfx(c.id);
       const line = lines && lines[c.id];
       if (!line) continue;
       queueRef.current.push({id: c.id, text: fillVars(L(line, lang), c.vars || {}, lang)});

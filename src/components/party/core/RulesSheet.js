@@ -9,10 +9,11 @@ import styles from './party.module.css';
  * powers), one row each. Reference rows with a `group` are listed under that
  * heading. Shown in the host lobby, as a host overlay mid-game, and on phones.
  */
-export default function RulesSheet({mod, lang, compact = false}) {
-  const steps = (mod.howTo && (mod.howTo[lang] || mod.howTo.en)) || [];
+export default function RulesSheet({mod, lang, compact = false, settings = null}) {
+  // `howTo` may be a function of the room's settings, so a game explains only the mode being played.
+  const steps = typeof mod.howTo === 'function' ? mod.howTo(lang, settings || {}) : (mod.howTo && (mod.howTo[lang] || mod.howTo.en)) || [];
   const sections = mod.rulebook ? mod.rulebook(lang) : [];
-  const rows = mod.reference ? mod.reference(lang) : [];
+  const rows = mod.reference ? mod.reference(lang, settings || {}) : [];
   const groups = [];
   for (const row of rows) {
     const last = groups[groups.length - 1];

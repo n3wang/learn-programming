@@ -114,6 +114,8 @@ export default function HostShell({mod}) {
       endsIn: state && state.deadline ? Math.max(0, state.deadline - now) : 0,
       you: p && {name: p.name, avatar: p.avatar, color: p.color, seat: p.seat},
       audience: g.phase !== 'lobby' && !seated,
+      // So phones can show the rules for the mode being played.
+      settings: g.settings || null,
       data: g.phase !== 'lobby' && seated ? mod.view(state, g, playerId, ctx(now, g)) : null,
     };
   }
@@ -253,6 +255,11 @@ export default function HostShell({mod}) {
             return undefined;
           }
           seatPlayer(g, id, {name: admittedName(g, msg.name, langRef.current), avatar: msg.avatar}, now);
+          // Games with `lateJoin` seat a newcomer straight into the running game; others keep them watching.
+          if (g.phase === 'play' && g.state && !g.state.over && mod.lateJoin && (g.state.seats || []).length < mod.players.max) {
+            g.players[id].seat = Math.max(0, ...Object.values(g.players).map((p) => p.seat || 0)) + 1;
+            mod.lateJoin(g.state, g, id, ctx(now, g));
+          }
           return undefined;
         });
         break;
@@ -364,7 +371,7 @@ export default function HostShell({mod}) {
         const move = mod.bot(current.state, current, id, ctx());
         if (move) applyInput(id, move);
       }
-    }, test ? BOT_STEP_MS / 3 : BOT_STEP_MS);
+    }, (test ? 1 / 3 : 1) * (mod.botStepMs || BOT_STEP_MS));
     return () => clearInterval(timer);
   }, []);
 
@@ -386,7 +393,7 @@ export default function HostShell({mod}) {
   }, [code]);
 
   const g = gameRef.current;
-  const subtitle = useVoice({gameId, lines: mod.voiceLines, state: g.state, lang, enabled: voiceOn});
+  const subtitle = useVoice({gameId, lines: mod.voiceLines, state: g.state, lang, enabled: voiceOn, cueSfx: mod.cueSfx});
   const ids = seatedIds(g);
   const humans = ids.filter((id) => !isBotId(id));
   const offlineIds = ids.filter((id) => !g.players[id].connected);
@@ -498,7 +505,7 @@ export default function HostShell({mod}) {
             {mod.howTo && (
               <>
                 <h3 className={styles.subTitle}>{st(lang, 'howToPlay')}</h3>
-                <RulesSheet mod={{howTo: mod.howTo}} lang={lang} compact />
+                <RulesSheet mod={{howTo: mod.howTo}} lang={lang} settings={g.settings} compact />
               </>
             )}
           </section>
@@ -669,7 +676,7 @@ export default function HostShell({mod}) {
                 ✕ {st(lang, 'close')}
               </button>
             </div>
-            <RulesSheet mod={mod} lang={lang} />
+            <RulesSheet mod={mod} lang={lang} settings={g.settings} />
           </div>
         </div>
       )}

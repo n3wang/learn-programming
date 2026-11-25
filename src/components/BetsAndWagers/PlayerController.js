@@ -43,6 +43,16 @@ const AVATAR_KEY = 'bw-avatar-v1';
 /** Same limit as the relay; fits generated names like "friendly-penguin". */
 const NAME_MAX = 16;
 
+/** Same as the relay's kick rule: equal, or one letter added, removed or changed. */
+function nearName(a, b) {
+  if (a === b) return true;
+  const [x, y] = a.length <= b.length ? [a, b] : [b, a];
+  if (y.length - x.length > 1) return false;
+  let i = 0;
+  while (i < x.length && x[i] === y[i]) i += 1;
+  return x.length === y.length ? x.slice(i + 1) === y.slice(i + 1) : x.slice(i) === y.slice(i + 1);
+}
+
 /** Relay errors that end the seat → the message key shown to the student. */
 const SEAT_ERRORS = {
   'room-not-found': 'errRoomNotFound',
@@ -152,6 +162,35 @@ export default function PlayerController() {
   const [movedSeat, setMovedSeat] = useState(null);
   /** What the relay says about the room before joining: lock, taken names/avatars. */
   const [roomInfo, setRoomInfo] = useState(null);
+  const numberedTriesRef = useRef(0);
+
+  /**
+   * Two students may pick the same name (e.g. from a class list). When the
+   * relay refuses a name a player in the room has right now, retry as
+   * "Name 2", "Name 3", … A name refused for another reason (a kicked
+   * player's) is not retried.
+   */
+  function retryNumbered() {
+    const current = seatRef.current;
+    const live = roomInfo && current && roomInfo.code === current.code ? (roomInfo.takenNames || []).map((n) => String(n).toLowerCase()) : [];
+    const base = current ? String(current.name).replace(/ \d+$/, '') : '';
+    // Retry when the name is known to be live in the room, or when this phone already holds a seat (a rename: never a kicked player).
+    // Never for a name within one letter of a kicked player's (the relay keeps those out on purpose).
+    const kicked = roomInfo && current && roomInfo.code === current.code ? (roomInfo.blockedNames || []).map((n) => String(n).toLowerCase()) : [];
+    const fair = !kicked.some((k) => nearName(k, base.toLowerCase())) || live.includes(String(current.name).toLowerCase());
+    if (!current || !base || !fair || numberedTriesRef.current >= 20) return false;
+    numberedTriesRef.current += 1;
+    // Already "Name 2" and refused again: go on to 3, and so on.
+    const had = String(current.name).match(/ (\d+)$/);
+    let n = had ? Number(had[1]) + 1 : 2;
+    let next = `${base} ${n}`;
+    while (live.includes(next.toLowerCase())) next = `${base} ${(n += 1)}`;
+    const suffix = next.slice(base.length);
+    next = Array.from(base).slice(0, NAME_MAX - suffix.length).join('') + suffix;
+    seatRef.current = {...current, name: next};
+    send({type: 'join', code: current.code, name: next, playerId: current.playerId, avatar: current.avatar});
+    return true;
+  }
   /** Once the student picks an avatar themselves, stop re-picking it for them. */
   const avatarTouchedRef = useRef(false);
   const [form, setForm] = useState({
@@ -180,6 +219,7 @@ export default function PlayerController() {
   function handleMessage(msg) {
     switch (msg.type) {
       case 'joined':
+        numberedTriesRef.current = 0;
         setMovedSeat(null);
         rememberSeat({
           code: msg.code,
@@ -248,6 +288,8 @@ export default function PlayerController() {
         dropSeat('errKicked');
         break;
       case 'error':
+        // A live player already has the name: join as "Name 2" instead (see retryNumbered).
+        if (msg.message === 'name-taken' && retryNumbered()) break;
         if (SEAT_ERRORS[msg.message]) dropSeat(SEAT_ERRORS[msg.message]);
         break;
       default:

@@ -110,7 +110,8 @@ export function admittedName(g, wanted, lang) {
   const roster = rosterOf(g);
   if (roster) {
     const raw = String(wanted || '').trim();
-    const match = roster.names.find((n) => n === raw);
+    // "Nelson 2" (a phone numbering a duplicate) still means the class name "Nelson".
+    const match = roster.names.find((n) => n === raw) || roster.names.find((n) => n === raw.replace(/ \d+$/, ''));
     // Same class name twice → "Nelson 2", "Nelson 3", …
     if (match && !isBlockedName(match, blocked)) return uniqueName(match, others);
     const free = roster.names.filter((n) => !others.includes(n) && !isBlockedName(n, blocked));

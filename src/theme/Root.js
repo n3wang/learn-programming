@@ -1,5 +1,6 @@
 import React from 'react';
 import useDocusaurusContext from '@docusaurus/useDocusaurusContext';
+import {useLocation} from '@docusaurus/router';
 import ScratchNotes from '@site/src/components/ScratchNotes';
 import TermPeek from '@site/src/components/TermPeek';
 import StudentPickDock from '@site/src/components/navbar/StudentPickDock';
@@ -31,10 +32,26 @@ function ApiBaseUrlBridge() {
   return null;
 }
 
+/**
+ * Pages opened from a shared link (?course=… / ?student=…, e.g. the 成绩 report sent to
+ * parents) get `html.link-view`: custom.css hides the doc sidebar, breadcrumbs, TOC and
+ * prev/next links so only the page content shows. Normal navigation clears it.
+ */
+function LinkViewClass() {
+  const {search} = useLocation();
+  React.useEffect(() => {
+    const params = new URLSearchParams(search);
+    const on = params.has('course') || params.has('student');
+    document.documentElement.classList.toggle('link-view', on);
+  }, [search]);
+  return null;
+}
+
 export default function Root({children}) {
   return (
     <>
       <ApiBaseUrlBridge />
+      <LinkViewClass />
       <StudentActivityReporter />
       {children}
       <ScratchNotes />

@@ -41,6 +41,16 @@ const SEAT_KEY = 'party-seat-v1';
 const NAME_KEY = 'bw-name-v1';
 const AVATAR_KEY = 'bw-avatar-v1';
 const NAME_MAX = 16;
+
+/** Same as the relay's kick rule: equal, or one letter added, removed or changed. */
+function nearName(a, b) {
+  if (a === b) return true;
+  const [x, y] = a.length <= b.length ? [a, b] : [b, a];
+  if (y.length - x.length > 1) return false;
+  let i = 0;
+  while (i < x.length && x[i] === y[i]) i += 1;
+  return x.length === y.length ? x.slice(i + 1) === y.slice(i + 1) : x.slice(i) === y.slice(i + 1);
+}
 const SEAT_ERRORS = {
   'room-not-found': 'errRoomNotFound',
   'room-full': 'errRoomFull',
@@ -152,6 +162,7 @@ export default function PlayerShell({mod}) {
   function handleMessage(msg) {
     switch (msg.type) {
       case 'joined':
+        numberedTriesRef.current = 0;
         playSfx('pop');
         rememberSeat({code: msg.code, playerId: msg.playerId, name: msg.name, avatar: isValidAvatar(msg.avatar) ? msg.avatar : seatRef.current?.avatar, game: gameId});
         writeJson(NAME_KEY, msg.name);
@@ -204,6 +215,8 @@ export default function PlayerShell({mod}) {
         if (msg.message === 'unknown-type' && !wrapRef.current && pendingRef.current) {
           wrapRef.current = true;
           sendInput(pendingRef.current);
+        } else if (msg.message === 'name-taken' && retryNumbered()) {
+          // A live player already has the name: join as "Name 2" instead.
         } else if (SEAT_ERRORS[msg.message]) {
           playSfx('invalid');
           dropSeat(SEAT_ERRORS[msg.message]);
@@ -274,8 +287,20 @@ export default function PlayerShell({mod}) {
   const taskKey = env?.data?.task || env?.phase || '';
   const urgent = Boolean(env?.data?.urgent);
   const prevTaskRef = useRef('');
+  const prevDataRef = useRef(null);
   useEffect(() => {
     if (!taskKey) return;
+    // Games with `phoneSfx(view, prevView)` choose the one sound (and buzz) themselves, or none.
+    if (mod.phoneSfx) {
+      const sound = prevTaskRef.current && prevTaskRef.current !== taskKey ? mod.phoneSfx(env?.data || {}, prevDataRef.current || {}) : null;
+      if (sound) {
+        playSfx(sound);
+        if (typeof navigator !== 'undefined' && navigator.vibrate) navigator.vibrate(sound === 'hint' ? [90, 60, 90] : 40);
+      }
+      prevTaskRef.current = taskKey;
+      prevDataRef.current = env?.data || null;
+      return;
+    }
     if (typeof navigator !== 'undefined' && navigator.vibrate) {
       navigator.vibrate(urgent ? [90, 60, 90] : 40);
     }
@@ -299,6 +324,36 @@ export default function PlayerShell({mod}) {
     if (rawSend({type: 'join', code: formCode, name, avatar: form.avatar})) setJoining(true);
     else setError('errStillConnecting');
     return undefined;
+  }
+
+  /**
+   * Two students may pick the same name (e.g. from a class list). When the
+   * relay refuses a name that a player in the room has right now, retry as
+   * "Name 2", "Name 3", … Names refused for another reason (a kicked
+   * player's) are not retried.
+   */
+  const numberedTriesRef = useRef(0);
+  function retryNumbered() {
+    const current = seatRef.current;
+    const live = roomInfo && current && roomInfo.code === current.code ? (roomInfo.takenNames || []).map((n) => String(n).toLowerCase()) : [];
+    const base = current ? String(current.name).replace(/ \d+$/, '') : '';
+    // Retry when the name is known to be live in the room, or when this phone already holds a seat (a rename: never a kicked player).
+    // Never for a name within one letter of a kicked player's (the relay keeps those out on purpose).
+    const kicked = roomInfo && current && roomInfo.code === current.code ? (roomInfo.blockedNames || []).map((n) => String(n).toLowerCase()) : [];
+    const fair = !kicked.some((k) => nearName(k, base.toLowerCase())) || live.includes(String(current.name).toLowerCase());
+    if (!current || !base || !fair || numberedTriesRef.current >= 20) return false;
+    numberedTriesRef.current += 1;
+    // Already "Name 2" and refused again: go on to 3, and so on.
+    const had = String(current.name).match(/ (\d+)$/);
+    let n = had ? Number(had[1]) + 1 : 2;
+    let next = `${base} ${n}`;
+    while (live.includes(next.toLowerCase())) next = `${base} ${(n += 1)}`;
+    // Keep it within the name limit by trimming the base, never the number.
+    const suffix = next.slice(base.length);
+    next = Array.from(base).slice(0, NAME_MAX - suffix.length).join('') + suffix;
+    seatRef.current = {...current, name: next};
+    rawSend({type: 'join', code: current.code, name: next, playerId: current.playerId, avatar: current.avatar});
+    return true;
   }
 
   function rejoinWith(patch) {
@@ -367,7 +422,7 @@ export default function PlayerShell({mod}) {
               ✕ {st(lang, 'close')}
             </button>
           </div>
-          <RulesSheet mod={mod} lang={lang} compact />
+          <RulesSheet mod={mod} lang={lang} settings={env?.settings} compact />
         </div>
       )}
 
@@ -540,7 +595,7 @@ export default function PlayerShell({mod}) {
                 {mod.howTo && (
                   <div className={styles.card} style={{textAlign: 'left', width: '100%'}}>
                     <b>{st(lang, 'howToPlay')}</b>
-                    <RulesSheet mod={{howTo: mod.howTo}} lang={lang} compact />
+                    <RulesSheet mod={{howTo: mod.howTo}} lang={lang} settings={env?.settings} compact />
                   </div>
                 )}
               </div>

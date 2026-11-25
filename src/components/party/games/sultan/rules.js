@@ -14,9 +14,16 @@
  */
 
 import {cue, duration, log, shuffle} from '../../core/partyCore';
+import {checkAnswer, makeQuestion, normalizePools} from '../../core/mathQuestions';
 import {DISTRICT, DISTRICTS, EVENTS, FRAMES, NOBLE_CHARS, basePool, charOf} from './data';
 
 const DRAFT_S = 25;
+// Auction selection: a math round earns coins, then everyone bids at once.
+// Per character a player picks: 2-pick games get twice the problems, coins and time.
+const AUCTION_S = 120;
+export const QUIZ_N = 3;
+export const NO_MATH_CAP = 3;
+export const quizCount = (s) => QUIZ_N * s.st.picks;
 const TURN_S = 50;
 const CALL_PAUSE_S = 2;
 const PROMPT_S = 15;
@@ -25,17 +32,22 @@ const MAX_NUMBER = 13;
 
 export const settingsOf = (n, raw = {}) => {
   const picks = raw.picks === 1 || raw.picks === 2 ? raw.picks : n <= 3 ? 2 : 1;
-  const events = raw.events === 'on';
+  // Sultan Says is built on the events, so it always has them on.
+  const mode = raw.mode === 'says' ? 'says' : 'classic';
+  const events = raw.events === 'on' || mode === 'says';
+  const kinds = Object.keys(EVENTS).filter((k) => raw[k] !== false);
   return {
     picks,
+    mode,
     pool: ['classic', 'all'].includes(raw.pool) ? raw.pool : 'auto',
-    events: events
-      ? Object.keys(EVENTS).filter((k) => raw[k] !== false)
-      : [],
+    events: events ? (kinds.length || mode !== 'says' ? kinds : Object.keys(EVENTS)) : [],
     goal: [6, 7, 8].includes(raw.goal) ? raw.goal : n <= 3 ? 8 : 7,
     wave: n <= 7 ? 1 : 4,
     decks: n <= 8 ? 1 : 2,
     turnS: [30, 45, 60].includes(raw.turnSeconds) ? raw.turnSeconds : TURN_S,
+    select: raw.select === 'auction' ? 'auction' : 'pick',
+    math: raw.math === 'off' ? 'off' : 'on',
+    mathPools: normalizePools(raw.mathPools),
   };
 };
 
@@ -101,14 +113,15 @@ export function setupSultan(seats, ctx, raw = {}) {
   return s;
 }
 
+/** Seats from the crown holder round the table, without players who are out. */
 function crownOrder(s) {
-  const i = s.seats.indexOf(s.crown);
-  return [...s.seats.slice(i), ...s.seats.slice(0, i)];
+  const i = Math.max(0, s.seats.indexOf(s.crown));
+  return [...s.seats.slice(i), ...s.seats.slice(0, i)].filter((id) => !isOut(s, id));
 }
 
 /** This round's pool: the table's characters, minus removed ones, topped up with Citizens. */
 function roundPool(s) {
-  const n = s.seats.length;
+  const n = Math.max(1, activeSeats(s).length);
   const pool = basePool(n, s.st.pool, s.st.picks).filter((k) => !s.removed.includes(k));
   let extra = 4;
   while (pool.length < n * s.st.picks + 2) {
@@ -143,15 +156,173 @@ function startRound(s, ctx) {
     }
   }
   s.reserved = {};
-  s.events = s.st.events.map((kind) => {
-    const frame = Object.keys(FRAMES)[Math.floor(ctx.rng() * 4)];
-    return {kind, frame, price: FRAMES[frame].price, usedBy: null};
-  });
+  dealMissions(s, ctx);
+  cue(s, 'round_start');
+  if (s.st.select === 'auction') return startQuiz(s, ctx, pool);
   s.draft = {order: crownOrder(s), pos: 0, wave: [], available: shuffle(pool, ctx.rng), picked: {}};
   s.phase = 'draft';
-  cue(s, 'round_start');
   cue(s, 'draft');
-  nextWave(s, ctx);
+  return nextWave(s, ctx);
+}
+
+// ------------------------------------------------------------------ auction selection
+//
+// Instead of picking in turn, everyone gets one shared window (AUCTION_S per
+// pick: 2 min, or 4 min when each player takes two characters): first
+// QUIZ_N problems per pick (+1 coin each), then secret bids on the
+// characters. Finishing the math early leaves more time to bid. You may bid
+// only the coins the math earned you (with the math round off: up to
+// NO_MATH_CAP per pick of your own gold), split any way, equal amounts allowed.
+// Highest bid wins each character; ties go to the crown holder first, then
+// round the table. Only winners pay. Citizens are not auctioned: they are
+// what you get when you win nothing.
+
+const isCitizen = (k) => /^citizen/.test(k);
+const newQuiz = (s, ctx) => (s.st.math === 'off' ? [] : Array.from({length: quizCount(s)}, () => ({...makeQuestion(s.st.mathPools, ctx.rng), state: null})));
+
+function startQuiz(s, ctx, pool) {
+  s.phase = 'auction';
+  s.auction = {
+    lots: shuffle(pool.filter((k) => !isCitizen(k)), ctx.rng),
+    citizens: pool.filter(isCitizen),
+    quiz: Object.fromEntries(activeSeats(s).map((id) => [id, newQuiz(s, ctx)])),
+    earned: Object.fromEntries(activeSeats(s).map((id) => [id, 0])),
+    bids: {},
+    won: {},
+  };
+  s.deadline = ctx.now + duration(ctx, AUCTION_S * s.st.picks);
+  cue(s, 'draft');
+  return undefined;
+}
+
+/** Math problems this player has not answered yet (0 once done, or outside the auction). */
+export const quizLeft = (s, id) => (s.phase === 'auction' && s.auction.quiz[id] ? s.auction.quiz[id].filter((q) => !q.state).length : 0);
+
+/** One try per problem: right earns 1 coin, which is also 1 coin to bid. */
+export function answerQuiz(s, ctx, id, index, value) {
+  const q = s.phase === 'auction' && s.auction.quiz[id] && s.auction.quiz[id][index];
+  if (!q || q.state) return false;
+  q.state = checkAnswer(q, value) ? 'ok' : 'wrong';
+  if (q.state === 'ok') {
+    s.gold[id] += 1;
+    s.auction.earned[id] = (s.auction.earned[id] || 0) + 1;
+  }
+  return true;
+}
+
+/** Coins this player may bid: what the math earned (never more than they hold). */
+export const bidCap = (s, id) => Math.min(s.gold[id], s.st.math === 'off' ? NO_MATH_CAP * s.st.picks : s.auction.earned[id] || 0);
+export const hasBid = (s, id) => s.phase === 'auction' && Boolean(s.auction.bids[id]);
+/** Bidding opens for a player once their math is done. */
+export const canBid = (s, id) => s.phase === 'auction' && s.seats.includes(id) && !isOut(s, id) && quizLeft(s, id) === 0;
+
+/** Clean a bid message into {key: amount}, or null if it breaks a rule. */
+export function cleanBids(s, id, raw) {
+  const bids = {};
+  for (const [key, v] of Object.entries(raw || {})) {
+    const n = Math.floor(Number(v) || 0);
+    if (n <= 0) continue;
+    if (!s.auction.lots.includes(key)) return null;
+    bids[key] = n;
+  }
+  if (Object.values(bids).reduce((a, b) => a + b, 0) > bidCap(s, id)) return null;
+  return bids;
+}
+
+/** Place (or change) bids; the auction closes once everyone has bid, or at the deadline. */
+export function placeBids(s, ctx, id, raw) {
+  if (!canBid(s, id)) return false;
+  const bids = cleanBids(s, id, raw);
+  if (!bids) return false;
+  s.auction.bids[id] = bids;
+  if (activeSeats(s).every((p) => s.auction.bids[p])) resolveAuction(s, ctx);
+  return true;
+}
+
+// ------------------------------------------------------------------ late joiners
+
+/**
+ * A player who joins mid-game gets a seat with the starting coins and hand.
+ * During an auction they join it at once (with their own problems); in a
+ * pick draft or later in the round they wait for the next round.
+ */
+export function joinLate(s, ctx, id) {
+  if (s.over || s.seats.includes(id)) return false;
+  s.seats = [...s.seats, id];
+  s.gold[id] = 2;
+  s.hand[id] = s.deck.splice(0, 4);
+  s.city[id] = [];
+  s.hold[id] = [];
+  if (s.phase === 'auction' && s.auction) {
+    s.auction.quiz[id] = newQuiz(s, ctx);
+    s.auction.earned[id] = 0;
+  }
+  log(s, {kind: 'joined', actor: id});
+  return true;
+}
+
+function resolveAuction(s, ctx) {
+  const a = s.auction;
+  const order = crownOrder(s);
+  const left = Object.fromEntries(s.seats.map((id) => [id, s.st.picks]));
+  const won = Object.fromEntries(s.seats.map((id) => [id, []]));
+  let lots = [...a.lots];
+  const entries = s.seats
+    .flatMap((id) => Object.entries(a.bids[id] || {}).map(([key, n]) => ({id, key, n})))
+    .sort((x, y) => y.n - x.n || order.indexOf(x.id) - order.indexOf(y.id));
+  for (const {id, key, n} of entries) {
+    if (!lots.includes(key) || left[id] < 1 || s.gold[id] < n) continue;
+    const partner = s.married[key] && lots.includes(s.married[key]) ? s.married[key] : null;
+    // Same rule as the pick draft: in 2-pick games a married pair needs both picks.
+    if (partner && s.st.picks >= 2 && left[id] < 2) continue;
+    const take = [key, partner].filter(Boolean);
+    lots = lots.filter((k) => !take.includes(k));
+    for (const k of take) giveCard(s, id, k);
+    left[id] -= s.st.picks >= 2 ? take.length : 1;
+    s.gold[id] -= n;
+    won[id].push({key, paid: n});
+    if (partner) won[id].push({key: partner, paid: 0});
+  }
+  // Nothing won (or a pick to spare): first a random leftover character,
+  // handed out from the crown going right; once those run out, a Citizen
+  // (there are always more Citizens).
+  for (const id of order) {
+    while (left[id] > 0 && lots.length) {
+      const key = lots[Math.floor(ctx.rng() * lots.length)];
+      const partner = s.married[key] && lots.includes(s.married[key]) ? s.married[key] : null;
+      if (partner && s.st.picks >= 2 && left[id] < 2) break;
+      const take = [key, partner].filter(Boolean);
+      lots = lots.filter((k) => !take.includes(k));
+      for (const k of take) giveCard(s, id, k);
+      left[id] -= s.st.picks >= 2 ? take.length : 1;
+      for (const k of take) won[id].push({key: k, paid: 0, leftover: true});
+    }
+  }
+  const citizens = [...a.citizens];
+  let extra = 4;
+  const nextCitizen = () => {
+    if (citizens.length) return citizens.shift();
+    while (s.removed.includes(`citizen${extra}`) || s.owner[`citizen${extra}`]) extra += 1;
+    const key = `citizen${extra}`;
+    extra += 1;
+    return key;
+  };
+  const given = [];
+  for (const id of order) {
+    while (left[id] > 0) {
+      const key = nextCitizen();
+      giveCard(s, id, key);
+      given.push(key);
+      won[id].push({key, paid: 0, citizen: true});
+      left[id] -= 1;
+    }
+  }
+  a.won = won;
+  // The Fighter guesses among the characters in play this round.
+  s.poolKeys = [...a.lots, ...given];
+  s.draft = {order, pos: order.length, wave: [], available: lots, picked: {}};
+  log(s, {kind: 'auction', n: entries.length});
+  return afterDraft(s, ctx);
 }
 
 function giveCard(s, id, key) {
@@ -197,8 +368,7 @@ export function draftPick(s, ctx, id, key) {
 
 function afterDraft(s, ctx) {
   s.unpicked = [...s.draft.available];
-  const pyrrhic = s.events.find((e) => e.kind === 'pyrrhic');
-  if (pyrrhic && s.seats.some((id) => canUseEvent(s, id, pyrrhic))) {
+  if (s.seats.some((id) => canUseEvent(s, id, missionFor(s, id, 'pyrrhic')))) {
     s.phase = 'pyrrhic';
     s.deadline = ctx.now + duration(ctx, PYRRHIC_S);
     cue(s, 'pyrrhic_open');
@@ -207,23 +377,133 @@ function afterDraft(s, ctx) {
   return startCalling(s, ctx);
 }
 
-// ------------------------------------------------------------------ events
+// ------------------------------------------------------------------ missions
+//
+// Missions (the stat events) are personal and secret: each player holds one
+// card, dealt at the start of a round. Its colour is its tier: start it with
+// a character of that tier or higher (brown < green < blue < gold). Starting
+// is free, once a round; a success pays the tier's reward (4 / 8 / 12 / 16)
+// and the card is done. Each card must succeed within MISSION_ROUNDS rounds.
+// Classic: miss it and that player is out of the game. Sultan Says (co-op):
+// miss any and everyone loses; the deck is finite and done cards never come
+// back, so emptying it wins. Each player may redraw their card once a game.
 
-/** Event cards need a character of the card's colour and its tier price. */
+const TIER = {brown: 0, green: 1, blue: 2, gold: 3};
+export const REWARD = {brown: 4, green: 8, blue: 12, gold: 16};
+export const MISSION_ROUNDS = 4;
+export const meetsTier = (key, frame) => TIER[charOf(key).frame] >= TIER[frame];
+const mission = (kind, frame) => ({kind, frame, reward: REWARD[frame], tried: 0, done: false});
+
+export const isOut = (s, id) => Boolean(s.out && s.out[id]);
+export const activeSeats = (s) => s.seats.filter((id) => !isOut(s, id));
+/** This player's open mission (of that kind, if given), or null. */
+export const missionFor = (s, id, kind) => {
+  const m = s.missions && s.missions[id];
+  return m && !m.done && (!kind || m.kind === kind) ? m : null;
+};
 export function canUseEvent(s, id, ev) {
-  return Boolean(ev) && !ev.usedBy && s.gold[id] >= ev.price && s.hold[id].some((k) => charOf(k).frame === ev.frame);
+  return Boolean(ev) && !ev.done && ev.tried !== s.round && !isOut(s, id) && s.hold[id].some((k) => meetsTier(k, ev.frame));
 }
 
-const eventOf = (s, kind) => s.events.find((e) => e.kind === kind);
-
+/** Starting a mission is free; it only uses up this round's try. */
 function payEvent(s, id, ev) {
-  s.gold[id] -= ev.price;
-  ev.usedBy = id;
+  ev.tried = s.round;
+}
+
+function drawCard(s, ctx) {
+  if (s.st.mode === 'says') return s.says.deck.shift() || null;
+  const kinds = s.st.events;
+  const frames = Object.keys(FRAMES);
+  return {kind: kinds[Math.floor(ctx.rng() * kinds.length)], frame: frames[Math.floor(ctx.rng() * frames.length)]};
+}
+
+/** Round start: every active player without an open mission gets one. */
+function dealMissions(s, ctx) {
+  if (!s.st.events.length) return;
+  if (!s.missions) s.missions = {};
+  if (s.st.mode === 'says' && !s.says) {
+    const deck = s.st.events.flatMap((kind) => Object.keys(FRAMES).map((frame) => ({kind, frame})));
+    s.says = {deck: shuffle(deck, ctx.rng), broken: [], total: deck.length, result: null};
+  }
+  for (const id of activeSeats(s)) {
+    if (missionFor(s, id)) continue;
+    const c = drawCard(s, ctx);
+    s.missions[id] = c ? {...mission(c.kind, c.frame), due: s.round + MISSION_ROUNDS - 1} : null;
+  }
+}
+
+/** Once a game: swap your mission for a fresh card (the deadline stays). */
+export function redrawMission(s, ctx, id) {
+  const m = missionFor(s, id);
+  if (!m || s.over || isOut(s, id) || (s.redraws && s.redraws[id])) return false;
+  const c = drawCard(s, ctx);
+  if (!c) return false;
+  if (s.st.mode === 'says') s.says.deck.push({kind: m.kind, frame: m.frame});
+  s.redraws = {...(s.redraws || {}), [id]: true};
+  s.missions[id] = {...mission(c.kind, c.frame), due: m.due};
+  return true;
+}
+
+/** A mission succeeded: pay its owner the reward; the card is done (in Sultan Says, broken for good). */
+function completeMission(s, ctx, kind, who) {
+  const m = missionFor(s, who, kind);
+  if (!m) return;
+  s.gold[who] += m.reward;
+  m.done = true;
+  log(s, {kind: 'mission', actor: who, card: kind, n: m.reward});
+  if (s.st.mode === 'says') s.says.broken = [...s.says.broken, {kind: m.kind, frame: m.frame, by: who}];
+}
+
+function finishGame(s) {
+  s.phase = 'over';
+  s.over = true;
+  s.deadline = 0;
+  s.scores = Object.fromEntries(s.seats.map((id) => [id, score(s, id)]));
+  const pool = activeSeats(s).length ? activeSeats(s) : s.seats;
+  s.winner = [...pool].sort((a, b) => s.scores[b] - s.scores[a] || s.gold[b] - s.gold[a])[0];
+}
+
+/**
+ * Round end: a mission past its deadline puts its player out (classic) or
+ * loses the game for everyone (Sultan Says). Done cards are cleared for a
+ * new deal. Returns true when the game is over.
+ */
+function missionsRoundEnd(s) {
+  if (!s.missions) return false;
+  const says = s.st.mode === 'says';
+  for (const id of s.seats) {
+    const m = missionFor(s, id);
+    if (!m || isOut(s, id) || s.round < m.due) continue;
+    if (says) {
+      s.says.result = 'lose';
+      s.says.missed = {kind: m.kind, frame: m.frame};
+      finishGame(s);
+      cue(s, 'says_lose');
+      return true;
+    }
+    s.out = {...(s.out || {}), [id]: true};
+    s.missions[id] = null;
+    log(s, {kind: 'out', actor: id, card: m.kind});
+    cue(s, 'player_out');
+  }
+  for (const id of s.seats) if (s.missions[id] && s.missions[id].done) s.missions[id] = null;
+  if (says && !s.says.deck.length && s.seats.every((id) => !s.missions[id])) {
+    s.says.result = 'win';
+    finishGame(s);
+    cue(s, 'says_win');
+    return true;
+  }
+  if (!says && s.seats.length > 1 && activeSeats(s).length <= 1) {
+    finishGame(s);
+    cue(s, 'winner');
+    return true;
+  }
+  return false;
 }
 
 /** Pyrrhic: claimed in its window before the turns. */
 export function challenge(s, ctx, id, target) {
-  const ev = eventOf(s, 'pyrrhic');
+  const ev = missionFor(s, id, 'pyrrhic');
   if (s.phase !== 'pyrrhic' || s.prompt || !canUseEvent(s, id, ev)) return false;
   if (target === id || !s.seats.includes(target) || !s.hold[target].length) return false;
   payEvent(s, id, ev);
@@ -250,9 +530,10 @@ function finishDuel(s, ctx) {
   s.gold[a] -= bet;
   s.gold[b] -= bet;
   s.gold[win] += bet * 2;
-  s.rolls = [{kind: 'pyrrhic', a: {who: a, card: champA, total: ra}, b: {who: b, card: champB, total: rb}}];
+  s.rolls = [{kind: 'pyrrhic', a: {who: a, card: champA, total: ra}, b: {who: b, card: champB, total: rb}, lost: loseCard, at: ctx.now}];
   removeCard(s, lose, loseCard);
   log(s, {kind: 'duel', actor: win, target: lose, card: loseCard, n: bet * 2});
+  completeMission(s, ctx, 'pyrrhic', a);
   cue(s, 'duel_end');
   s.duel = null;
   return startCalling(s, ctx);
@@ -687,7 +968,7 @@ export function turnAction(s, ctx, id, msg) {
         const dice = s.hold[id].includes('twins') ? [roll(ctx), roll(ctx)] : [roll(ctx)];
         const won = dice.reduce((a, b) => a + b, 0) - 1;
         s.gold[id] += won;
-        s.rolls = [{kind: 'lucky', a: {who: id, card: key, dice, total: won}}];
+        s.rolls = [{kind: 'lucky', a: {who: id, card: key, dice, total: won}, at: ctx.now}];
         log(s, {kind: 'gamble', actor: id, n: won});
         return true;
       });
@@ -705,7 +986,7 @@ export function turnAction(s, ctx, id, msg) {
       s.gold[id] += 2;
       return true;
     case 'marry': {
-      const ev = eventOf(s, 'marriage');
+      const ev = missionFor(s, id, 'marriage');
       if (step !== 'main' || t.dated[key] || !canUseEvent(s, id, ev) || s.prompt) return false;
       const {mine, other} = msg;
       const free = (k) => s.owner[k] && s.revealed[k] && !s.married[k];
@@ -721,19 +1002,19 @@ export function turnAction(s, ctx, id, msg) {
       return true;
     }
     case 'conquer': {
-      const ev = eventOf(s, 'conquest');
+      const ev = missionFor(s, id, 'conquest');
       if (step !== 'main' || !canUseEvent(s, id, ev)) return false;
       const defender = s.seats.find((p) => p !== id && s.city[p].includes(msg.uid));
       const offer = Math.max(0, Math.floor(Number(msg.offer) || 0));
       const ally = msg.ally && msg.ally !== id && msg.ally !== defender && s.seats.includes(msg.ally) ? msg.ally : null;
-      if (!defender || has(s, id, s.cards[msg.uid]) || s.gold[id] < ev.price + (ally ? offer : 0)) return false;
+      if (!defender || has(s, id, s.cards[msg.uid]) || s.gold[id] < (ally ? offer : 0)) return false;
       payEvent(s, id, ev);
       s.conquests = [...s.conquests, {attacker: id, defender, uid: msg.uid, askAlly: ally, offer: ally ? offer : 0, ally: null}];
       log(s, {kind: 'conquer', actor: id, target: defender, card: s.cards[msg.uid]});
       return true;
     }
     case 'extravagance': {
-      const ev = eventOf(s, 'extravagance');
+      const ev = missionFor(s, id, 'extravagance');
       if (step !== 'main' || !canUseEvent(s, id, ev)) return false;
       const total = s.hold[id].reduce((n, k) => n + statOf(k, 'charisma'), 0);
       const gifts = msg.gifts || {};
@@ -742,7 +1023,10 @@ export function turnAction(s, ctx, id, msg) {
       payEvent(s, id, ev);
       for (const [p, v] of Object.entries(gifts)) if (p !== id && s.seats.includes(p)) s.gold[p] += Math.max(0, Math.floor(Number(v) || 0));
       log(s, {kind: 'extravagance', actor: id, n: total});
+      // Shown on the host as the plaza arena.
+      s.rolls = [{kind: 'extravagance', a: {who: id, total}, gifts: Object.fromEntries(Object.entries(gifts).filter(([p, v]) => p !== id && s.seats.includes(p) && v > 0)), at: ctx.now}];
       cue(s, 'extravagance');
+      completeMission(s, ctx, 'extravagance', id);
       return true;
     }
     case 'end': {
@@ -772,11 +1056,12 @@ export function turnAction(s, ctx, id, msg) {
 function finishDate(s, ctx, id, mine, other) {
   const a = roll(ctx) + statOf(mine, 'charisma');
   const b = roll(ctx) + statOf(other, 'charisma');
-  s.rolls = [{kind: 'marriage', a: {who: id, card: mine, total: a}, b: {who: ownerOf(s, other), card: other, total: b}}];
+  s.rolls = [{kind: 'marriage', a: {who: id, card: mine, total: a}, b: {who: ownerOf(s, other), card: other, total: b}, ok: a > b, at: ctx.now}];
   if (a > b && s.owner[mine] && s.owner[other] && !s.married[mine] && !s.married[other]) {
     s.married = {...s.married, [mine]: other, [other]: mine};
     cue(s, 'married');
     log(s, {kind: 'married', actor: id, card: mine, other});
+    completeMission(s, ctx, 'marriage', id);
   } else log(s, {kind: 'date_failed', actor: id, card: mine, other});
 }
 
@@ -809,11 +1094,12 @@ function resolveConquest(s, ctx, eff) {
   const die = roll(ctx);
   const attack = die + combatOf(s, c.attacker) + combatOf(s, c.ally);
   const defend = combatOf(s, c.defender) + valueOf(s, c.uid);
-  s.rolls = [{kind: 'conquest', a: {who: c.attacker, ally: c.ally, die, total: attack}, b: {who: c.defender, total: defend}}];
+  s.rolls = [{kind: 'conquest', a: {who: c.attacker, ally: c.ally, die, total: attack}, b: {who: c.defender, total: defend}, card: s.cards[c.uid], won: attack > defend && !has(s, c.attacker, s.cards[c.uid]), at: ctx.now}];
   if (attack > defend && !has(s, c.attacker, s.cards[c.uid])) {
     moveDistrict(s, c.defender, c.attacker, c.uid);
     cue(s, 'conquered');
     log(s, {kind: 'conquered', actor: c.attacker, target: c.defender, card: s.cards[c.uid]});
+    completeMission(s, ctx, 'conquest', c.attacker);
   } else log(s, {kind: 'held', actor: c.defender, target: c.attacker, card: s.cards[c.uid]});
   return nextConquest(s, ctx);
 }
@@ -836,12 +1122,10 @@ export function score(s, id) {
 
 function endRound(s, ctx) {
   s.turn = null;
+  if (missionsRoundEnd(s)) return undefined;
+  if (s.st.mode === 'says') return startRound(s, ctx);
   if (s.lastRound) {
-    s.phase = 'over';
-    s.over = true;
-    s.deadline = 0;
-    s.scores = Object.fromEntries(s.seats.map((id) => [id, score(s, id)]));
-    s.winner = [...s.seats].sort((a, b) => s.scores[b] - s.scores[a] || s.gold[b] - s.gold[a])[0];
+    finishGame(s);
     cue(s, 'winner', {seat: ctx.seatOf(s.winner)});
     return undefined;
   }
@@ -869,6 +1153,11 @@ export function timeout(s, ctx) {
         draftPick(s, ctx, id, options[Math.floor(ctx.rng() * options.length)]);
       }
     }
+    return true;
+  }
+  // Unanswered problems earn nothing; no bid by the deadline means no bid.
+  if (s.phase === 'auction') {
+    resolveAuction(s, ctx);
     return true;
   }
   if (s.phase === 'pyrrhic') {
