@@ -133,9 +133,9 @@ export const DISTRICTS = DISTRICT_LIST;
 export const DISTRICT = Object.fromEntries(DISTRICT_LIST.map(([key, type, cost, , en, zh, note]) => [key, {key, type, cost, en, zh, note: note || null, art: `sultan/district-${key}.webp`}]));
 
 export const EVENTS = {
-  marriage: {en: 'Marriage', zh: '婚姻', stat: 'charisma', ab: {en: 'Your turn: two revealed characters (one yours) each roll die + Charisma (tap for +1). If yours is higher, they marry and are always picked together.', zh: '你的回合：两个已揭示角色（至少一个是你的）各掷骰 + 魅力（点骰 +1）。你更高则结为伴侣，之后必须一起被选。'}},
+  marriage: {en: 'Date', zh: '约会', stat: 'charisma', ab: {en: 'Your turn: two revealed characters (one yours) each roll die + Charisma (tap for +1). If yours is higher, they are a couple and are always picked together.', zh: '你的回合：两个已揭示角色（至少一个是你的）各掷骰 + 魅力（点骰 +1）。你更高则他们在一起，之后必须一起被选。'}},
   conquest: {en: 'Conquest', zh: '征服', stat: 'combat', ab: {en: 'Your turn: attack a district (resolved at round end). Both sides roll: die + Combat (+ ally) vs die + Combat + the district’s value. Tap your die for +1.', zh: '你的回合：进攻一个区域（回合结束时结算）。双方掷骰：骰子 + 战斗力（+ 盟友）对比 骰子 + 战斗力 + 区域价值。点骰 +1。'}},
-  pyrrhic: {en: 'Pyrrhic', zh: '惨烈', stat: 'combat', ab: {en: 'Before the turns: challenge a player. Bet 1–5 coins, pick champions, both roll die + Combat (tap for +1). The loser’s character leaves the game.', zh: '回合开始前：挑战一名玩家。下注 1–5 金币，各选冠军，双方掷骰 + 战斗力（点骰 +1）。输方角色永久移出游戏。'}},
+  pyrrhic: {en: 'Pyrrhic', zh: '惨烈', stat: 'combat', ab: {en: 'Before the turns: challenge a player. Bet 1–5 coins, pick champions, both roll die + Combat (tap for +1). The loser’s character is executed.', zh: '回合开始前：挑战一名玩家。下注 1–5 金币，各选冠军，双方掷骰 + 战斗力（点骰 +1）。输方角色被处决。'}},
   extravagance: {en: 'Extravagance', zh: '丰裕', stat: 'charisma', ab: {en: 'Your turn: take coins equal to your characters’ Charisma from the bank and hand them to other players.', zh: '你的回合：从银行拿等同于你角色魅力总和的金币，分给其他玩家。'}},
 };
 

@@ -634,19 +634,23 @@ function afterDraft(s, ctx) {
 // ------------------------------------------------------------------ commands
 //
 // Commands (the Sultan's decrees) are personal and secret: each player holds
-// one card, dealt at the start of a round. Frame tier: Stone < Bronze <
-// Silver < Gold (keys brown/green/blue/gold). Start it with a character of
-// that tier or higher. Starting is free, once a round; success pays 4/8/12/16
-// and the card is broken for good — it never returns to the pool. Pulled into
-// someone else's duel or date with the same kind: if any character in play
-// meets your tier, yours succeeds too. Each card must succeed within
-// COMMAND_ROUNDS rounds. Classic: miss it and that player is out. Sultan's
-// Madness (co-op): miss any and everyone loses; empty the finite pool to win.
-// Pool size scales with the table (see commandTierCounts). One redraw / game.
+// one card. New cards are dealt only every COMMAND_DEAL_EVERY rounds (1, 5,
+// 9…), so finishing early does not hand you another decree right away. Frame
+// tier: Stone < Bronze < Silver < Gold (keys brown/green/blue/gold). Start it
+// with a character of that tier or higher. Starting is free, once a round;
+// success pays 4/8/12/16 and the card is broken for good — it never returns
+// to the pool. Pulled into someone else's duel or date with the same kind: if
+// any character in play meets your tier, yours succeeds too. Each card must
+// succeed within COMMAND_ROUNDS rounds. Classic: miss it and that player is
+// out. Sultan's Madness (co-op): miss any and everyone loses; empty the
+// finite pool to win. Pool size scales with the table (see commandTierCounts).
+// One redraw / game.
 
 const TIER = {brown: 0, green: 1, blue: 2, gold: 3};
 export const REWARD = {brown: 4, green: 8, blue: 12, gold: 16};
 export const COMMAND_ROUNDS = 4;
+/** Issue fresh commands only on these rounds (1-indexed): 1, 5, 9… */
+export const COMMAND_DEAL_EVERY = 4;
 export const meetsTier = (key, frame) => TIER[charOf(key).frame] >= TIER[frame];
 const makeCommand = (kind, frame) => ({kind, frame, reward: REWARD[frame], tried: 0, done: false});
 
@@ -707,9 +711,11 @@ function drawCard(s, ctx) {
   return pool.length ? pool.shift() : null;
 }
 
-/** Round start: every active player without an open command gets one. */
+/** Round start: on deal waves only, every active player without an open command gets one. */
 function dealCommands(s, ctx) {
   if (!s.st.events.length) return;
+  // Keep the table calmer: no new decrees until the previous wave's window has turned over.
+  if ((s.round - 1) % COMMAND_DEAL_EVERY !== 0) return;
   commandsBag(s);
   ensureCommandPool(s, ctx);
   for (const id of activeSeats(s)) {
@@ -852,6 +858,46 @@ function removeCard(s, id, key) {
     delete s.married[partner];
     delete s.married[key];
   }
+}
+
+/**
+ * Host kick mid-game: drop the seat from the table and queue a room kick.
+ * Their hand returns to the deck; characters are removed for the rest of the game.
+ */
+export function kickSeat(s, id) {
+  if (!id || s.over || !s.seats.includes(id)) return false;
+  if (s.seats.length <= 1) return false;
+  // Clear anything that was waiting on this player.
+  if (s.prompt && (s.prompt.to === id || s.prompt.from === id || (s.prompt.eff && s.prompt.eff.actor === id))) s.prompt = null;
+  if (s.dice && Object.values(s.dice.sides || {}).some((side) => side.who === id)) s.dice = null;
+  if (s.duel && (s.duel.a === id || s.duel.b === id)) s.duel = null;
+  if (s.conquests) s.conquests = s.conquests.filter((c) => c.attacker !== id && c.defender !== id && c.ally !== id && c.askAlly !== id);
+  if (Array.isArray(s.hand[id])) s.deck.push(...s.hand[id]);
+  for (const key of [...(s.hold[id] || [])]) removeCard(s, id, key);
+  if (s.crown === id) {
+    const rest = s.seats.filter((p) => p !== id);
+    s.crown = rest[0] || null;
+  }
+  s.seats = s.seats.filter((p) => p !== id);
+  delete s.gold[id];
+  delete s.hand[id];
+  delete s.city[id];
+  delete s.hold[id];
+  if (s.commands) delete s.commands[id];
+  if (s.out) delete s.out[id];
+  if (s.reserved) delete s.reserved[id];
+  if (s.redraws) delete s.redraws[id];
+  if (s.turn && s.turn.cards) {
+    s.turn.cards = s.turn.cards.filter((k) => s.owner[k]);
+    if (!s.turn.cards.length) s.turn = null;
+  }
+  log(s, {kind: 'kick', actor: id});
+  s.pendingKicks = [...(s.pendingKicks || []), id];
+  if (activeSeats(s).length <= 1) {
+    finishGame(s);
+    cue(s, 'winner');
+  }
+  return true;
 }
 
 // ------------------------------------------------------------------ prompts
@@ -1265,9 +1311,9 @@ export function turnAction(s, ctx, id, msg) {
   if (!onTurn) return softAction(s, ctx, id, msg);
   // Dice rollers resolve the roll first; other same-number seats keep acting.
   if (s.dice && diceHasPlayer(s.dice, id)) return false;
-  // End turn even while waiting on a date / ally / shield you started.
-  // Soft actions wait until softReady (after end); other abilities stay blocked.
-  if (msg.action !== 'end' && waitingOn(s, id)) return false;
+  // Waiting on a reply you started: keep building / using abilities, but don't
+  // open another prompt (date / conquest ally / duel) until they answer.
+  if (waitingOn(s, id) && (msg.action === 'marry' || msg.action === 'conquer' || msg.action === 'challenge')) return false;
   const t = s.turn;
   const step = t.step[key];
   const ability = (fn) => {
@@ -1578,7 +1624,7 @@ export function scoreBreakdown(s, id) {
   }
   if (isOut(s, id)) effects.push({en: 'Executed: command timed out.', zh: '已处决：敕令超时。'});
   const married = (s.hold[id] || []).filter((k) => s.married[k]);
-  if (married.length) effects.push({en: `Married: ${married.map((k) => charOf(k).en).join(', ')}.`, zh: `联姻：${married.map((k) => charOf(k).zh).join('、')}。`});
+  if (married.length) effects.push({en: `Couple: ${married.map((k) => charOf(k).en).join(', ')}.`, zh: `一对：${married.map((k) => charOf(k).zh).join('、')}。`});
   if (s.crown === id) effects.push({en: 'Held the crown at the end.', zh: '终局持有王冠。'});
   const total = lines.reduce((n, row) => n + row.pts, 0);
   return {total, lines, effects, buildings};

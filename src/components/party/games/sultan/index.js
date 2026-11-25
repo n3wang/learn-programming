@@ -21,6 +21,7 @@ import {
   hasBid,
   joinLate,
   isOut,
+  kickSeat,
   launchDice,
   commandFor,
   redrawCommand,
@@ -47,6 +48,7 @@ import {
   timeout,
   turnAction,
   valueOf,
+  waitingOn,
 } from './rules';
 
 export {districtLetter} from './rules';
@@ -131,7 +133,7 @@ const tg = makeT({
     s_mode: 'Game mode',
     s_classicMode: 'Classic',
     s_says: "Sultan's Madness (co-op)",
-    saysNote: "Co-op: the Sultan deals commands; each must succeed within 4 rounds or everyone loses. Broken commands never return to the pool — empty it to win. Deck size scales with the table (Stone → Bronze → Silver → Gold). Stat events are always on.",
+    saysNote: "Co-op: the Sultan deals commands every 4 rounds; each must succeed within 4 rounds or everyone loses. Broken commands never return to the pool — empty it to win. Deck size scales with the table (Stone → Bronze → Silver → Gold). Stat events are always on.",
     saysTitle: "Sultan's Madness…",
     saysLeft: '{done} of {total} commands broken · {left} still in the deck',
     dueNow: 'due this round!',
@@ -155,7 +157,10 @@ const tg = makeT({
     outBadge: 'Executed',
     youAreOut: 'Your command ran out of time: you have been executed.',
     log_out: 'missed their command and was executed.',
-    marry: 'Marriage: date with…',
+    log_kick: 'was kicked from the city.',
+    kickPlayer: 'Kick {name}?',
+    kickTitle: 'Kick player',
+    marry: 'Date',
     conquer: 'Conquest',
     conquerPick: 'Tap a building in their city',
     foldOpen: 'Tap to open',
@@ -198,12 +203,12 @@ const tg = makeT({
     value: 'value {n}',
     combat: 'Combat',
     charisma: 'Charisma',
-    married: 'married to {name}',
+    married: 'couple with {name}',
     waitFor: 'Waiting for {name}…',
     p_shield: '{name} targets you ({what}). Use the Priest’s shield? (once per round)',
     p_raise: '{name} challenges you to a duel! Raise the bet (up to {max})',
     p_champion: 'Choose your champion',
-    p_date: '{name}’s {mine} asks your {other} on a date. Agree (free), or refuse (they pay you 1 coin)?',
+    p_date: '{name} asks for a date: {mine} + {other}. Agree (free), or refuse (they pay you 1 coin)?',
     p_ally: '{name} asks you to lend your characters for a Conquest, for {n} coins.',
     yes: 'Yes',
     no: 'No',
@@ -230,7 +235,7 @@ const tg = makeT({
     s_events: 'Stat events (Combat & Charisma)',
     s_off: 'Off',
     s_on: 'On',
-    s_heteroDates: 'Dates / marriage',
+    s_heteroDates: 'Dates',
     s_heteroOnly: 'Male ↔ female only',
     s_anyPair: 'Any pair',
     s_goal: 'City size',
@@ -263,15 +268,15 @@ const tg = makeT({
     nextRound: 'You are in! You play from the next round.',
     m_won: '{x} falls to {who}!',
     m_held: '{x} holds!',
-    m_married: 'Married!',
+    m_married: 'They are a couple now',
     m_jilted: 'Turned down…',
-    m_lost: '{x} leaves the city forever',
+    m_lost: '{x} was executed',
     wonChar: 'Won {x} for {n}',
     gotCitizen: 'No win: you are a {x}',
     gotLeftover: 'No win: you drew {x}',
     log_auction: 'The auction closed ({n} bids).',
     arena_pyrrhic: 'Duel in the ring',
-    arena_marriage: 'Marriage in the garden',
+    arena_marriage: 'Date',
     arena_conquest: 'Battle at the walls',
     arena_extravagance: 'Gifts in the plaza',
     arenaGave: 'gave {n} coins',
@@ -285,7 +290,7 @@ const tg = makeT({
     log_stole: 'took {who}’s {x}',
     log_bought: 'bought {who}’s {x}',
     log_shield: 'raised the Priest’s shield',
-    log_married: '{x} married {y}',
+    log_married: '{x} and {y} are a couple now',
     log_date_failed: '{x}’s date with {y} failed',
     log_conquer: 'marched on {who}’s {x}',
     log_conquered: 'conquered {who}’s {x}',
@@ -358,7 +363,7 @@ const tg = makeT({
     s_mode: '游戏模式',
     s_classicMode: '经典',
     s_says: '苏丹狂令（合作）',
-    saysNote: '合作模式：苏丹发布敕令，每个敕令必须在 4 轮内成功，否则全员失败。已打破的敕令永不回池——清空牌池即胜。牌池随人数扩展（石 → 铜 → 银 → 金）。属性事件始终开启。',
+    saysNote: '合作模式：苏丹每 4 轮发一次敕令；每个敕令必须在 4 轮内成功，否则全员失败。已打破的敕令永不回池——清空牌池即胜。牌池随人数扩展（石 → 铜 → 银 → 金）。属性事件始终开启。',
     saysTitle: '苏丹狂令…',
     saysLeft: '已打破 {done} / {total} 个敕令 · 牌堆还剩 {left} 张',
     dueNow: '本轮截止！',
@@ -382,7 +387,10 @@ const tg = makeT({
     outBadge: '已处决',
     youAreOut: '敕令超时：你已被处决。',
     log_out: '没有完成敕令，被处决。',
-    marry: '婚姻：和谁约会……',
+    log_kick: '被踢出了城市。',
+    kickPlayer: '踢出 {name}？',
+    kickTitle: '踢出玩家',
+    marry: '约会',
     conquer: '征服',
     conquerPick: '点对方城里的一座建筑',
     foldOpen: '点开',
@@ -425,12 +433,12 @@ const tg = makeT({
     value: '价值 {n}',
     combat: '战斗力',
     charisma: '魅力',
-    married: '与{name}结为伴侣',
+    married: '与{name}是一对',
     waitFor: '等待{name}……',
     p_shield: '{name}针对你（{what}）。使用教的护盾吗？（每轮一次）',
     p_raise: '{name}向你发起决斗！加注（最多 {max}）',
     p_champion: '选择你的冠军',
-    p_date: '{name}的{mine}邀请你的{other}约会。同意（免费），还是拒绝（对方付你 1 金币）？',
+    p_date: '{name}要约约会：{mine} + {other}。同意（免费），还是拒绝（对方付你 1 金币）？',
     p_ally: '{name}请你借出角色参与征服，报酬 {n} 金币。',
     yes: '是',
     no: '否',
@@ -457,7 +465,7 @@ const tg = makeT({
     s_events: '属性事件（战斗力与魅力）',
     s_off: '关闭',
     s_on: '开启',
-    s_heteroDates: '约会 / 联姻',
+    s_heteroDates: '约会',
     s_heteroOnly: '仅男女配对',
     s_anyPair: '任意配对',
     s_goal: '城市规模',
@@ -490,15 +498,15 @@ const tg = makeT({
     nextRound: '你已加入！从下一轮开始参与。',
     m_won: '{x}落入{who}之手！',
     m_held: '{x}守住了！',
-    m_married: '喜结连理！',
+    m_married: '他们在一起了',
     m_jilted: '被拒绝了…',
-    m_lost: '{x}永远离开了这座城',
+    m_lost: '{x}被处决了',
     wonChar: '以 {n} 金币拍得{x}',
     gotCitizen: '没有拍到：你成为{x}',
     gotLeftover: '没有拍到：你抽到{x}',
     log_auction: '拍卖结束（{n} 个出价）。',
     arena_pyrrhic: '擂台决斗',
-    arena_marriage: '花园婚礼',
+    arena_marriage: '约会',
     arena_conquest: '城下之战',
     arena_extravagance: '广场赠礼',
     arenaGave: '送出 {n} 金币',
@@ -512,7 +520,7 @@ const tg = makeT({
     log_stole: '夺走了{who}的{x}',
     log_bought: '买下了{who}的{x}',
     log_shield: '举起了教的护盾',
-    log_married: '{x}与{y}结为伴侣',
+    log_married: '{x}和{y}在一起了',
     log_date_failed: '{x}与{y}的约会失败了',
     log_conquer: '进军{who}的{x}',
     log_conquered: '征服了{who}的{x}',
@@ -561,9 +569,9 @@ const VOICE = {
   says_lose: {en: "Sultan's Madness: a command was left undone, and the city falls.", zh: '苏丹狂令：有敕令没有完成，城市陷落了。'},
   pyrrhic_open: {en: 'Is there a challenger? Speak now.', zh: '有人要发起挑战吗？现在说。'},
   pyrrhic: {en: 'A duel! Place your bets.', zh: '决斗！下注吧。'},
-  duel_end: {en: 'The duel is over. One leaves the city forever.', zh: '决斗结束。有人永远离开了这座城。'},
+  duel_end: {en: 'The duel is over. One was executed.', zh: '决斗结束。有人被处决了。'},
   shield: {en: 'The priest raises a shield!', zh: '教士举起了护盾！'},
-  married: {en: 'Wedding bells! Two hearts are joined.', zh: '婚礼的钟声响起！两颗心结合了。'},
+  married: {en: 'They are a couple now.', zh: '他们在一起了。'},
   conquered: {en: 'The gates fall. A district changes hands.', zh: '城门失守，一个区域易主。'},
   extravagance: {en: 'Coins rain on the city!', zh: '金币如雨洒满全城！'},
   twins_again: {en: 'The twins go again!', zh: '双子再来一次！'},
@@ -782,8 +790,8 @@ const sultan = {
   logo: 'sultan/char-04-king.webp',
   title: {en: 'City of the Sultan', zh: '苏丹之城'},
   blurb: {
-    en: 'Bloodshed, marriage, and conquest, they are just tools of the trade.',
-    zh: '血腥、婚姻与征服，它们只是交易的工具。',
+    en: 'Bloodshed, dates, and conquest — just tools of the trade.',
+    zh: '血腥、约会与征服，它们只是交易的工具。',
   },
   /** Short, colour-coded steps for the mode being played (from the room's settings). */
   howTo(lang, st = {}) {
@@ -804,7 +812,7 @@ const sultan = {
     steps.push(zh ? '按号码 [char|0 → 13] 传召角色。你的回合：拿 [coin|2 金币]或抽 2 留 1 → 用能力 → [district|建造]。' : '[char|Characters] are called [char|0 → 13]. Your turn: take [coin|2 coins] or draw 2 keep 1 → use the ability → [district|build].');
     steps.push(zh ? '同一城市不能有两个相同的[district|区域]。' : 'No two identical [district|districts] in one city.');
     if (commands) {
-      steps.push(zh ? '你有一张秘密[command|苏丹敕令]：用同阶或更高的[char|角色]发起（石 < 铜 < 银 < 金）。成功 → [coin|4 / 8 / 12 / 16 金币]。已打破的敕令永不回池。' : 'Your secret [command|Sultan’s command]: start it with a [char|character] of its tier or higher (Stone < Bronze < Silver < Gold). Success → [coin|4 / 8 / 12 / 16 coins]. Broken commands never return to the pool.');
+      steps.push(zh ? '苏丹每 [command|4 轮]发一次秘密[command|敕令]：用同阶或更高的[char|角色]发起（石 < 铜 < 银 < 金）。成功 → [coin|4 / 8 / 12 / 16 金币]。已打破的敕令永不回池。' : 'Every [command|4 rounds] the Sultan deals a secret [command|command]: start it with a [char|character] of its tier or higher (Stone < Bronze < Silver < Gold). Success → [coin|4 / 8 / 12 / 16 coins]. Broken commands never return to the pool.');
       steps.push(
         zh
           ? '被拉进别人的[command|决斗]或[command|约会]时：若场上任一[char|角色]达到你的色阶，你的同种敕令也算完成。'
@@ -813,10 +821,10 @@ const sultan = {
       steps.push(
         madness
           ? zh
-            ? '每张[command|4 轮]内完成；每局可[command|换牌]一次。敕令池清空 → [good|胜利]。'
-            : '[command|4 rounds] for each card; one [command|redraw] per game. Empty the pool → [good|you win].'
+            ? '每张须在 [command|4 轮]内完成；每局可[command|换牌]一次。敕令池清空 → [good|胜利]。'
+            : '[command|4 rounds] to finish each card; one [command|redraw] per game. Empty the pool → [good|you win].'
           : zh
-            ? '[command|4 轮]内完成；每局可[command|换牌]一次。超时 → [bad|你被处决]。'
+            ? '须在 [command|4 轮]内完成；每局可[command|换牌]一次。超时 → [bad|你被处决]。'
             : '[command|4 rounds] to finish it; one [command|redraw] per game. Miss it → [bad|you are executed].',
       );
     }
@@ -979,6 +987,11 @@ const sultan = {
     }
   },
 
+  hostInput(s, g, msg) {
+    if (msg.action === 'kick') return kickSeat(s, msg.playerId);
+    return false;
+  },
+
   tick(s, g, ctx) {
     return Boolean(timeout(s, ctx));
   },
@@ -1035,7 +1048,9 @@ const sultan = {
     let kind = 'wait';
     if (s.over) kind = 'over';
     else if (diceHasPlayer(s.dice, id)) kind = 'dice';
-    else if (s.prompt && s.prompt.to === id) kind = 'prompt';
+    // Date / ally invites stay as a banner on your turn so you can still build.
+    // Shield / raise / champion still take the whole phone (must answer first).
+    else if (s.prompt && s.prompt.to === id && !((s.prompt.kind === 'date' || s.prompt.kind === 'ally') && myTurnCard)) kind = 'prompt';
     else if (s.phase === 'draft' && picksLeft(s, id) > 0) kind = 'draft';
     else if (s.phase === 'auction' && quizLeft(s, id) > 0) kind = 'quiz';
     else if (canBid(s, id)) kind = 'bid';
@@ -1215,7 +1230,8 @@ const sultan = {
         .map((k) => ({key: k, ok: canPick(s, id, k), married: s.married[k] || null}));
     }
     if (kind === 'pyrrhic') v.targets = s.seats.filter((p) => p !== id && s.hold[p].length).map((p) => ({id: p, name: name(p)}));
-    if (kind === 'prompt') {
+    // Prompt payload for exclusive prompt view, or as a banner while you keep your turn.
+    if ((kind === 'prompt' || kind === 'turn') && s.prompt && s.prompt.to === id) {
       const p = s.prompt;
       v.prompt = {
         kind: p.kind,
@@ -1239,7 +1255,8 @@ const sultan = {
         buildLeft: (key === 'builder' ? 2 : 1) - (t.built[key] || 0),
         usesLeft: twice - (t.uses[key] || 0),
         twinsFirst: key === 'twins' && !t.again[key],
-        waiting: Boolean(s.prompt),
+        // Only you-are-waiting-on-a-reply (you proposed); other people's prompts don't lock you.
+        waiting: waitingOn(s, id),
         numbers: nameableNumbers(s, key),
         hiddenPlayers: hiddenPlayers(s, id).map((p) => ({id: p, name: name(p)})),
         guesses: (s.poolKeys || []).filter((k) => !s.hold[id].includes(k) && !s.revealed[k]),
@@ -1262,10 +1279,10 @@ const sultan = {
     return v;
   },
 
-  HostView({g, state: s, lang}) {
+  HostView({g, state: s, lang, hostAct}) {
     if (!s.st) return <div className={shell.bigText}>{tg(lang, 'legacy')}</div>;
     // While playing: the slim bar + the players' cities. The SeatRing below is the final screen.
-    if (!s.over) return <SultanBoard s={s} g={g} lang={lang} />;
+    if (!s.over) return <SultanBoard s={s} g={g} lang={lang} hostAct={hostAct} />;
     return <SultanFinal g={g} s={s} lang={lang} />;
   },
 
@@ -1505,7 +1522,7 @@ function EventModal({s, g, lang, name}) {
  * numbers are skipped (nobody holds them). Unpicked leftovers sit dimmed in
  * order. Current call is outlined; finished ones fade. Auction shows lots.
  */
-function SultanBoard({s, g, lang}) {
+function SultanBoard({s, g, lang, hostAct}) {
   const [inspect, setInspect] = useState(null);
   const stripRef = useRef(null);
   const openChar = (k) => setInspect({kind: 'char', key: k, married: s.married[k] || null});
@@ -1624,7 +1641,24 @@ function SultanBoard({s, g, lang}) {
       </div>
       <div className={styles.cityGrid}>
         {crownFirst(s).map((id) => (
-          <PlayerCard key={id} s={s} g={g} id={id} lang={lang} active={active(id)} hot={conquest && conquest.defender === id ? [conquest.uid] : []} onInspect={setInspect} />
+          <PlayerCard
+            key={id}
+            s={s}
+            g={g}
+            id={id}
+            lang={lang}
+            active={active(id)}
+            hot={conquest && conquest.defender === id ? [conquest.uid] : []}
+            onInspect={setInspect}
+            onKick={
+              hostAct && s.seats.length > 1
+                ? () => {
+                    const who = (g.players[id] && g.players[id].name) || letterOf(s, id);
+                    if (window.confirm(tg(lang, 'kickPlayer', {name: who}))) hostAct({action: 'kick', playerId: id});
+                  }
+                : null
+            }
+          />
         ))}
       </div>
       <EventModal s={s} g={g} lang={lang} name={(id) => (g.players[id] ? g.players[id].name : '?')} />
@@ -1711,7 +1745,7 @@ function CoinStack({n, animateJoin = false, size = 'md', persistKey = null}) {
 }
 
 /** One player on the big screen: the city fills the card; seat number, revealed characters, coins and hand size sit in its corners. */
-function PlayerCard({s, g, id, lang, active, hot, onInspect}) {
+function PlayerCard({s, g, id, lang, active, hot, onInspect, onKick}) {
   const ref = React.useRef(null);
   const [box, setBox] = useState(null);
   React.useEffect(() => {
@@ -1722,7 +1756,7 @@ function PlayerCard({s, g, id, lang, active, hot, onInspect}) {
     return () => ro.disconnect();
   }, []);
   const p = g.players[id] || {};
-  const shown = s.hold[id].filter((k) => s.revealed[k]).sort(byCharNum);
+  const shown = (s.hold[id] || []).filter((k) => s.revealed[k]).sort(byCharNum);
   return (
     <div className={styles.pcard} style={{'--owner': p.color || '#2a1630'}} data-hot={active} data-offline={!p.connected && !p.bot} data-out={isOut(s, id)}>
       <span className={styles.pSeat}>{letterOf(s, id)}</span>
@@ -1737,10 +1771,15 @@ function PlayerCard({s, g, id, lang, active, hot, onInspect}) {
         </span>
       )}
       <div className={styles.pCity} ref={ref}>
-        {box && <CityPlot bare city={s.city[id].map((u) => ({uid: u, key: s.cards[u], value: valueOf(s, u)}))} goal={s.st.goal} fit={{width: box.width, height: box.height}} lang={lang} hot={hot} onTap={(c) => onInspect({kind: 'district', key: c.key, invest: s.invest[c.uid] || 0, letter: letterOf(s, id)})} />}
+        {box && <CityPlot bare city={(s.city[id] || []).map((u) => ({uid: u, key: s.cards[u], value: valueOf(s, u)}))} goal={s.st.goal} fit={{width: box.width, height: box.height}} lang={lang} hot={hot} onTap={(c) => onInspect({kind: 'district', key: c.key, invest: s.invest[c.uid] || 0, letter: letterOf(s, id)})} />}
       </div>
-      <span className={styles.pCoins}>
-        <CoinStack n={s.gold[id]} animateJoin size="sm" persistKey={`host-${id}`} />
+      {onKick && (
+        <button type="button" className={styles.pKick} aria-label={tg(lang, 'kickTitle')} title={tg(lang, 'kickTitle')} onClick={onKick}>
+          ×
+        </button>
+      )}
+      <span className={styles.pCoins} data-kick={onKick ? '1' : undefined}>
+        <CoinStack n={s.gold[id] || 0} animateJoin size="sm" persistKey={`host-${id}`} />
       </span>
       <span className={styles.pCornerRight}>
         <span className={styles.pHand}>🃏{s.hand[id].length}</span>
@@ -2169,6 +2208,7 @@ function SultanPhone({view, lang, send}) {
   if (view.kind === 'turn') {
     return (
       <>
+        {view.prompt && <PromptCard view={view} lang={lang} send={send} openChar={openChar} />}
         <TurnView view={view} lang={lang} send={send} openChar={openChar} openEvent={openEvent} />
         {status}
         {revealModal}
@@ -3031,7 +3071,7 @@ function TurnView({view, lang, send, openChar, openEvent}) {
       </>
     );
   }
-  const can = tv.usesLeft > 0 && !tv.waiting;
+  const can = tv.usesLeft > 0;
   const panel = (title, children) => (
     <FoldCard
       open={abilityOpen}
