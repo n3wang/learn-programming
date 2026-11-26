@@ -86,9 +86,9 @@ print(scatter_gather([partition0, partition1, partition2], "red"))
       prompt: 'Why is a document-partitioned secondary index called a "local" index?',
       choices: [
         'Because each partition builds and maintains its own secondary index, covering only the documents already stored in that partition, with no awareness of what other partitions contain',
-        'Because it can only be queried from the same physical machine that hosts the database, which does not explain the behavior the question is asking about',
-        'Because it only indexes documents smaller than a certain size, which does not explain the behavior the question is asking about',
-        'Because "local" refers to the geographic region of the datacenter, which does not explain the behavior the question is asking about',
+        'Because it can only be queried from the same physical machine that hosts the primary database, so every secondary-index lookup must be routed to that one machine, regardless of which partition owns the matching documents',
+        'Because it only indexes documents smaller than a certain size threshold, leaving larger documents to be found through a separate global structure that every partition consults before returning any query results to the client',
+        'Because "local" refers to the geographic region of the datacenter where the index is stored, so each region keeps its own copy of the complete index and a query is never required to leave the nearest datacenter',
       ],
       answer: 0,
       why: 'The defining property is scope: each partition\'s index is self-contained and independent of every other partition\'s index.',
@@ -150,12 +150,12 @@ In practice, most real systems sidestep that cost by making global secondary ind
     {
       prompt: 'What is the key advantage a term-partitioned (global) index has over a document-partitioned (local) index, and what is the corresponding cost?',
       choices: [
+        'Writes become cheaper under a global index, since each document write touches only its own partition, but reads become far more expensive because every query must scatter to all partitions and gather the partial results afterward',
+        'Global indexes eliminate the need to maintain any index structure at all, because each term is looked up directly in the primary data, so both reads and writes become cheaper with no cost anywhere in the system whatsoever',
         'Reads become cheap — a query only needs to contact the one partition owning the relevant term, avoiding scatter/gather — but writes become more expensive, since a single document write can touch multiple terms living on different index partitions',
-        'Writes become cheaper under a global index, with no change to read cost',
-        'Global indexes eliminate the need for any indexing at all',
-        'Global indexes have no advantages over local indexes in any scenario',
+        'Global indexes have no advantages over local indexes in any scenario, because every query still has to contact every partition, and the extra work of keeping term-partitions in sync only adds cost to each document write',
       ],
-      answer: 0,
+      answer: 2,
       why: 'This is the mirror image of the local-index trade-off: global indexing shifts the cost from reads (cheap scatter/gather-free lookups) onto writes (multi-partition updates for a single document).',
     },
     {

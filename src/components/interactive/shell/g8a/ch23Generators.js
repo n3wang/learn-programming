@@ -257,8 +257,8 @@ export function genRectRoot() {
   return {
     prompt: `设长方形的面积为 ${m('S')}，相邻两边长分别为 ${m('a')}、${m('b')}。已知 ${m(`S = ${rootTex(S[0], S[1])}`)}，${m(`b = ${rootTex(k2, r2)}`)}，求 ${m('a')}。`,
     steps: [
-      `${m('a = \dfrac{S}{b}')} ${m(`= \dfrac{${rootTex(S[0], S[1])}}{${rootTex(k2, r2)}}`)}。`,
-      `${m(`= \dfrac{${S[0]}}{${k2}}\sqrt{\dfrac{${S[1]}}{${r2}}}`)}，化简得 ${m(rootTex(k1, r1))}（可以用 ${m(`${rootTex(k1, r1)}\times ${rootTex(k2, r2)} = ${rootTex(S[0], S[1])}`)} 检验）。`,
+      `${m('a = \\dfrac{S}{b}')} ${m(`= \\dfrac{${rootTex(S[0], S[1])}}{${rootTex(k2, r2)}}`)}。`,
+      `化简得 ${m(`a = ${rootTex(k1, r1)}`)}（检验：${m(`${rootTex(k1, r1)}\\times ${rootTex(k2, r2)} = ${rootTex(S[0], S[1])}`)}）。`,
     ],
     answer: m(`a = ${rootTex(k1, r1)}`),
     fields: [radField(k1, r1, { name: 'a', display: 'a', label: '另一边' })],

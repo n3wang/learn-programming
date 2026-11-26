@@ -13,7 +13,7 @@ import PracticeModeContext from './PracticeModeContext';
 import styles from './EquationWorksheet.module.css';
 import printStyles from './MixedPracticePrint.module.css';
 import { Solution, Step, Answer } from './SolutionKit';
-import { checkExpr } from './exprCheck';
+import { checkExpr, checkSet } from './exprCheck';
 
 
 /**
@@ -212,6 +212,10 @@ function gradeField(f, raw) {
     if (m < 0 || s < 0 || m >= 60 || s >= 60) return 'bad'; // must be written in proper form
     const total = d * 3600 + m * 60 + s;
     return sameNumber(total, f.value) || Math.abs(total - f.value) <= (f.tol || 0) ? 'ok' : 'bad';
+  }
+  if (f.type === 'set') {
+    // value: array of expected numbers / radical expressions, any order
+    return checkSet(raw, f.value, { form: f.form });
   }
   if (f.type === 'expr') {
     // value: expected expression string; see shell/exprCheck.js
@@ -644,6 +648,7 @@ function FieldInput({ field: f, value, mark, locked, inputRef, onChange, onEnter
         value={value}
         onChange={onChange}
         {...(f.type === 'expr' ? { width: f.width || 230, placeholder: f.placeholder || '如 x^2+3x-4' } : null)}
+        {...(f.type === 'set' ? { width: f.width || 230, placeholder: f.placeholder || '两个根用逗号隔开，如 3, -1' } : null)}
       />
       <MarkIcon mark={mark} />
     </Stack>
@@ -705,7 +710,7 @@ function AnswerPanel({ fields, isLast, onReveal, onFinish, onError }) {
   const anyBad = Object.values(marks).includes('bad') || Boolean(formField);
   const anyEmpty = Object.values(marks).includes('empty');
   const anyInvalid = Object.values(marks).includes('invalid');
-  const hasExpr = fields.some((f) => f.type === 'expr');
+  const hasExpr = fields.some((f) => f.type === 'expr' || f.type === 'set');
 
   return (
     <Box

@@ -40,9 +40,9 @@ Nearly all standard consensus algorithms assume **no Byzantine faults** — ever
       prompt: 'Why is the validity property necessary, given that agreement and integrity already seem to define "everyone decides the same thing, once"?',
       choices: [
         'Without validity, a trivial algorithm that always decides some fixed value (like null), regardless of what anyone actually proposed, would technically satisfy agreement and integrity while being completely useless — validity specifically rules this out by requiring the decided value to have actually been proposed by someone',
-        'Validity is only relevant in Byzantine fault-tolerant systems',
-        'Validity requires that every proposed value must eventually be decided',
-        'Validity is actually redundant and adds nothing beyond agreement and integrity',
+        'Validity is only relevant in Byzantine fault-tolerant systems, because crash-fault nodes never propose a bad value, so in a system where nodes only fail by stopping, agreement and integrity together already guarantee a useful outcome — only a lying node could ever make the decided value meaningless',
+        'Validity requires that every proposed value must eventually be decided, so that no client\'s proposal is ever ignored, and without it a slow proposer could be starved forever by faster ones, even though agreement and integrity still held — fairness among proposers is the gap it is meant to close',
+        'Validity is actually redundant and adds nothing beyond agreement and integrity, because any algorithm that makes every node decide the same single value exactly once will automatically choose a value that somebody proposed — an algorithm cannot invent a decision out of thin air once the other two hold',
       ],
       answer: 0,
       why: 'The "always decide null" degenerate case is exactly the trivial solution validity exists to exclude — it satisfies the other two properties without doing anything meaningful.',
@@ -172,12 +172,12 @@ print(gate.accept(7, "proposal-from-7"), "accepted:", gate.accepted)
     {
       prompt: 'What is the apparent "chicken-and-egg" problem in electing a leader for total order broadcast, and how do real consensus algorithms actually resolve it?',
       choices: [
+        'There is no real problem; leaders are always manually assigned in every system, so an operator picks which node leads and tells the others, and the cluster never has to agree on anything automatically before it begins to run consensus on decisions — the supposed chicken-and-egg question is just a classroom puzzle, because in production a human with a runbook always decides who the leader is before any traffic arrives',
+        'The problem is resolved by never allowing leader changes once a system starts, so the first leader chosen at boot remains in charge for the whole lifetime of the cluster, and every later decision is trivially ordered by that one node without any additional voting rounds — even if that node crashes or becomes unreachable for good, the surviving nodes simply stop accepting writes until it returns',
+        'The problem is resolved by requiring unanimous agreement from every node for every single decision, so a leader is elected only when all nodes vote for it, and any node that is down or slow simply blocks the election until it returns — this avoids the circularity because no majority or epoch ever needs to be reasoned about, and a single unreachable node merely delays progress, never corrupts the log',
         'Electing a leader itself requires agreement (consensus) among nodes about who that leader is — seemingly requiring consensus BEFORE you can even run consensus; real algorithms resolve this with epoch numbers: each leader is only guaranteed unique WITHIN its own epoch, and quorum-based voting (which is guaranteed to overlap between the election vote and each proposal vote) lets a leader safely confirm no higher-epoch leader has since taken over',
-        'There is no real problem; leaders are always manually assigned in every system',
-        'The problem is resolved by never allowing leader changes once a system starts',
-        'The problem is resolved by requiring unanimous agreement from every node for every single decision',
       ],
-      answer: 0,
+      answer: 3,
       why: 'The epoch-numbering-plus-overlapping-quorums mechanism is exactly the resolution the lesson describes — it weakens "the leader is globally unique" down to "the leader is unique within its epoch," which is sufficient and breaks the apparent circularity.',
     },
     {
@@ -262,12 +262,12 @@ An application might start on a single node and eventually scale to thousands �
     {
       prompt: 'Why is service discovery generally considered NOT to strictly require consensus, even though leader election does?',
       choices: [
+        'Service discovery and leader election are actually the exact same problem, because both ask the cluster to agree on a single node to contact, so any system that can do one needs a full consensus algorithm to be able to do the other correctly — the two differ only in what the chosen node is called',
         'DNS-style service discovery tolerates staleness reasonably well (multi-layered caching, no linearizability needed) — the priority is broad availability, not recency; leader election, by contrast, genuinely needs strict agreement to avoid split brain, which is precisely what makes it a true consensus problem',
-        'Service discovery and leader election are actually the exact same problem',
-        'Service discovery is impossible to implement without a full consensus algorithm',
-        'DNS itself is a form of consensus algorithm',
+        'Service discovery is impossible to implement without a full consensus algorithm, since every client must always see the same address list at the same instant, so a DNS-style design that caches stale answers could never be considered correct — real DNS only works because the web tolerates breakage',
+        'DNS itself is a form of consensus algorithm, because its hierarchical servers must all agree on each record before returning it, and the multi-layered caching that clients and resolvers perform is merely an optimization of that agreement step — every cached answer has been approved by a quorum of servers',
       ],
-      answer: 0,
+      answer: 1,
       why: 'The tolerance for staleness is exactly what separates the two: service discovery prioritizes availability over recency, while leader election cannot tolerate any ambiguity about who currently holds the role.',
     },
   ]}

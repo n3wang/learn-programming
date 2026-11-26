@@ -321,12 +321,12 @@ def assign(prompt, val_pct):
     {
       prompt: 'Why might a random split overstate validation accuracy for support data?',
       choices: [
-        'Random splits are too small',
         'Customers ask the same questions in near-identical words, so random splits put near-duplicates in both sets (leakage), and validation measures memorization rather than generalization',
-        'Validation sets must be larger than training sets',
-        'Random splits change the loss function',
+        'Random splits give too few validation examples to be reliable, so accuracy is noisy and happens to overstate quality by a wide margin on small support datasets',
+        'Validation sets must always be larger than training sets for accuracy to be meaningful, and random splits almost never reach that ratio in practice',
+        'Random splits change the loss function between training and validation, so the two curves are measured on different objectives and cannot be compared',
       ],
-      answer: 1,
+      answer: 0,
       why: 'Hash-based splitting on normalized prompts keeps duplicates together.',
     },
   ]}
@@ -724,12 +724,12 @@ print(f'best epoch {best}, stopped after epoch {stopped}')
     {
       prompt: 'You have one 24 GB GPU and want to adapt a 7B model. Which method is the realistic choice?',
       choices: [
-        'Full fine-tuning in fp32',
+        'Full fine-tuning in fp16, which stores weights, gradients, and optimizer states for every parameter',
+        'Full fine-tuning in fp32, which uses double the memory of fp16 but gives the most accurate results',
+        'Pretraining from scratch on your own corpus, which fits easily once the batch size is reduced',
         'QLoRA: a 4-bit frozen base (about 3.4 GB of weights) plus small trainable LoRA adapters',
-        'Full fine-tuning in fp16',
-        'Pretraining from scratch',
       ],
-      answer: 1,
+      answer: 3,
       why: 'Full fine-tuning of 7B needs on the order of 100 GB with gradients and optimizer state. QLoRA fits comfortably in 24 GB.',
     },
     {
@@ -752,10 +752,10 @@ print(f'best epoch {best}, stopped after epoch {stopped}')
     {
       prompt: 'According to current evidence (e.g., "LoRA Learns Less and Forgets Less"), how does LoRA compare with full fine-tuning?',
       choices: [
-        'LoRA forgets more and learns more',
+        'LoRA forgets more of the base model\'s abilities and also learns more of the new domain than full fine-tuning',
         'LoRA typically preserves more general ability (forgets less) but absorbs less of the new domain',
-        'They are identical',
-        'LoRA cannot be used for chat models',
+        'They are statistically identical, so the choice between LoRA and full fine-tuning is purely about cost',
+        'LoRA cannot be applied to chat models, so full fine-tuning is the only option for conversational use',
       ],
       answer: 1,
       why: 'The low-rank constraint limits how far the model moves, which is both a regularizer and a capacity limit.',
@@ -844,10 +844,10 @@ Examples captured from the teacher, in chat format:
     {
       prompt: 'Why is sequence-level distillation the practical choice with proprietary teacher models?',
       choices: [
-        'It needs the teacher\'s internal probabilities',
+        'It needs the teacher\'s full internal probability distributions at every token, which APIs usually expose in full',
         'It only needs the teacher\'s final text outputs, which any API returns. The student fine-tunes on (prompt, response) pairs',
-        'It requires no training',
-        'It makes the student larger',
+        'It requires no training at all, because the student simply copies the teacher\'s responses at inference time',
+        'It makes the student larger than the teacher, since each output is stored as extra parameters in the student',
       ],
       answer: 1,
       why: 'Classic logit-matching needs probability outputs that closed APIs don\'t expose.',
@@ -855,12 +855,12 @@ Examples captured from the teacher, in chat format:
     {
       prompt: 'Your distilled student matches the teacher on easy prompts but fails on rare return scenarios. What is the best next step?',
       choices: [
-        'Deploy anyway',
+        'Deploy anyway, because matching the teacher on easy prompts shows the distillation has already succeeded',
+        'Lower the sampling temperature at inference time, which makes the student reproduce rare cases more reliably',
+        'Switch the teacher to a smaller model, so that the student sees simpler outputs that are easier to copy',
         'Collect more teacher outputs for those rare scenarios, add them to the training data, re-train, and re-evaluate',
-        'Lower the temperature',
-        'Switch the teacher to a smaller model',
       ],
-      answer: 1,
+      answer: 3,
       why: 'The student learns only what the data shows. Close the coverage gap and measure again.',
     },
   ]}

@@ -40,9 +40,9 @@ The tolerance math is straightforward: if `w < n`, writes can survive a node bei
       prompt: 'In leaderless replication, what happens when a client writes to 3 replicas but one is temporarily unreachable?',
       choices: [
         'The client sends the write to all replicas in parallel and considers it successful once enough of them (a configured threshold) acknowledge — the unreachable replica simply misses the write and can catch up later',
-        'The system automatically performs a leader failover',
-        'The write silently succeeds on the unreachable replica anyway',
-        'The write fails entirely, since not all replicas could be reached',
+        'The system automatically performs a leader failover, promoting one of the reachable replicas to coordinate the write and then copying it to the remaining node once that node comes back online',
+        'The write silently succeeds on the unreachable replica anyway, because the client keeps retrying in the background and only reports success to the caller once that retried write finally completes',
+        'The write fails entirely, since not all replicas could be reached, and the client must retry the whole operation after the unreachable replica recovers, discarding any copies already stored elsewhere',
       ],
       answer: 0,
       why: 'There is no leader to fail over from in a leaderless system — success is defined purely by how many of the n replicas acknowledge the write, not by all of them doing so.',
@@ -114,12 +114,12 @@ Leaderless replication also suits **multi-datacenter** deployments well, precise
     {
       prompt: 'Why is a sloppy quorum described as a durability mechanism rather than a consistency mechanism?',
       choices: [
+        'Because sloppy quorums require synchronous replication to all n home nodes before acknowledging, so a read of r nodes is always guaranteed to see the latest write, and the only cost paid is reduced write availability',
+        'Because sloppy quorums reroute every write to a single stand-in node, which then becomes the sole authoritative copy, so the data is durable but the other n replicas are deliberately never updated afterward',
+        'Because sloppy quorums always provide stronger consistency than strict quorums, since any w nodes that happen to be reachable are guaranteed to be exactly the same nodes that a later read of r nodes will contact',
         'Because it only guarantees the data is stored SOMEWHERE among w reachable nodes — it does not guarantee that a subsequent read of r nodes will find that data, since it may be sitting on nodes outside the value\'s usual n, awaiting hinted handoff',
-        'Because sloppy quorums require synchronous replication to all n home nodes, ignoring that writes may land outside the usual replica set, which does not explain the behavior the question is asking about',
-        'Because sloppy quorums do not actually store any data reliably, which does not explain the behavior the question is asking about',
-        'Because sloppy quorums always provide stronger consistency than strict quorums, which does not explain the behavior the question is asking about',
       ],
-      answer: 0,
+      answer: 3,
       why: 'The w+r>n overlap guarantee assumed reads and writes land on the same designated n nodes — a sloppy quorum breaks that assumption, which is exactly why it only promises durability ("stored somewhere"), not read-time consistency.',
     },
   ]}

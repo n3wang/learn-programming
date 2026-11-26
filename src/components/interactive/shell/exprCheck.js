@@ -261,6 +261,39 @@ function radicalSimplest(n, inDen = false) {
   return (!n.a || radicalSimplest(n.a, inDen)) && (!n.b || radicalSimplest(n.b, inDen));
 }
 
+/**
+ * Unordered list of numbers (e.g. the two roots of a quadratic): "3, -1", "x1=2+√3，x2=2-√3",
+ * "2±√3" (expanded to both). expected: array of expression strings. → 'ok' | 'bad' | 'form' | 'invalid' | 'empty'
+ */
+export function checkSet(raw, expected, { form } = {}) {
+  const s = String(raw || '').trim();
+  if (!s) return 'empty';
+  let parts = s
+    .split(/[,，;；、]|或|\s+and\s+/)
+    .map((p) => p.trim().replace(/^[a-zA-Z](?:_?[0-9₁₂])?\s*=\s*/, ''))
+    .filter(Boolean);
+  parts = parts.flatMap((p) => (p.includes('±') ? [p.replace('±', '+'), p.replace('±', '-')] : [p]));
+  let got;
+  try {
+    got = parts.map((p) => {
+      const ast = parseExpr(p);
+      const v = evalAst(ast, {});
+      if (!Number.isFinite(v)) throw new Error('nan');
+      return { v, ast };
+    });
+  } catch {
+    return 'invalid';
+  }
+  const want = expected.map((e) => evalAst(parseExpr(e), {}));
+  // a double root may be written once
+  const uniq = (arr) => arr.filter((v, i) => arr.findIndex((w) => Math.abs(w - v) < 1e-7) === i);
+  const g = uniq(got.map((x) => x.v)).sort((a, b) => a - b);
+  const w = uniq(want).sort((a, b) => a - b);
+  if (g.length !== w.length || g.some((v, i) => Math.abs(v - w[i]) > 1e-7 * Math.max(1, Math.abs(w[i])))) return 'bad';
+  if (form === 'radical' && got.some((x) => !radicalSimplest(x.ast))) return 'form';
+  return 'ok';
+}
+
 const SAMPLES = [1.37, 2.61, -1.83, 0.71, 3.29, -2.47, 1.91];
 const POS_SAMPLES = [1.37, 2.61, 0.53, 3.29, 1.91, 4.17, 0.83];
 
