@@ -31,6 +31,7 @@ import {
 } from './wikiStore';
 import WikiDetail from './WikiDetail';
 import DecksPanel from './DecksPanel';
+import FlagsPanel from '@site/src/components/LessonFlags/FlagsPanel';
 import NoteMarkdownPreview from './NoteMarkdownPreview';
 import styles from './styles.module.css';
 
@@ -194,7 +195,7 @@ export default function ScratchNotes() {
       }
       if (prefs) {
         setOpen(Boolean(prefs.open));
-        if (['code', 'notes', 'wiki', 'decks'].includes(prefs.tab)) {
+        if (['code', 'notes', 'wiki', 'decks', 'flags'].includes(prefs.tab)) {
           setTab(prefs.tab);
         }
       }
@@ -572,6 +573,14 @@ export default function ScratchNotes() {
                 onClick={() => selectTab('decks')}>
                 decks
               </button>
+              <button
+                type="button"
+                role="tab"
+                aria-selected={tab === 'flags'}
+                className={tab === 'flags' ? styles.tabActive : styles.tab}
+                onClick={() => selectTab('flags')}>
+                flags
+              </button>
             </div>
             <button
               type="button"
@@ -854,6 +863,8 @@ export default function ScratchNotes() {
           )}
 
           {tab === 'decks' && <DecksPanel onNavigate={close} />}
+
+          {tab === 'flags' && <FlagsPanel onNavigate={close} />}
         </section>
       ) : null}
       <button

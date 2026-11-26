@@ -18,6 +18,7 @@ import {
     fetchPistonExecute,
     resolvePistonExecuteUrl,
 } from '@site/src/api/pistonClient';
+import {revealSegment} from '@site/src/data/lessonFlags/store';
 
 function collectOutput(data) {
     const runResult = data.run || {};
@@ -143,6 +144,7 @@ export default function CodeExercise({
     hint,
     solution,
     disablePaste: disablePasteProp,
+    flagSegment,
 }) {
     const {siteConfig} = useDocusaurusContext();
     const {pathname} = useLocation();
@@ -289,8 +291,12 @@ export default function CodeExercise({
                 hash,
                 plannedTotal: total,
             }).catch(() => {});
+            // Passing every test reveals this exercise's flag piece (toast only).
+            if (flagSegment) {
+                revealSegment(heading || anchor || hash, flagSegment);
+            }
         }
-    }, [api, siteConfig, tests, sourceChecks, wrapPrefix, wrapSuffix, lang, version, fileName, code, draftId, title, pathname, chapter, starter, hash]);
+    }, [api, siteConfig, tests, sourceChecks, wrapPrefix, wrapSuffix, lang, version, fileName, code, draftId, title, pathname, chapter, starter, hash, flagSegment, heading, anchor]);
 
     const passed = results?.filter((r) => r.pass).length ?? 0;
     const ran = results?.length ?? 0;

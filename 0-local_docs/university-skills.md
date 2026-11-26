@@ -61,8 +61,7 @@
 | poisonroom | demon | B | night | randomRoommate | Tainted Dorm |
 | scarlet | demon | A | passive | self | Heir |
 | godfather | demon | S | passive | self | Fall Guy |
-| fear | demonking | B | day | randomRoommate | Fear Mark |
-| ojo | demonking | A | night | randomRoommate | Named Prey |
-| noDashii | demon/demonking | B | night | self | Hall Poison |
+| nightrecall | demonking | A | day | deadDemon | Night Recall (Demon King pool = ignition + this only) |
+| noDashii | demon | B | night | self | Hall Poison |
 
 Edit `data.js` for wording/uses/rarity; change `rules.js` when behavior or range changes.

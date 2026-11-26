@@ -3,19 +3,18 @@
  * moves. See the "Clocktower University: Design Plan" doc.
  *
  * Day: players move between campus rooms, learn skills (pay flat Knowledge,
- * draw 3, keep 1; reroll for 1 Knowledge), use day skills, set up tonight's
- * skills (locked once set).
+ * draw 3, keep 1; shuffle offer or refresh whole hand for 1 Knowledge), use
+ * day skills, set up tonight's skills (locked once set).
  * Then everyone marks a suspect; the top accused (scaled by table size — 3
  * for 12 players) defend, and the class picks one of them to expel.
  * Night: everyone does homework (the phone counts correct answers and reports
  * them in batches), actors pick their target, queued skills resolve together
- * at the end of the timer. A locked room stops a Demon King's slay unless
- * the King sleeps in that room too; each player has one key per game.
+ * at the end of the timer. Each player has one key per game.
  * Demons know the Demon King; the King does not know the Demons.
  * When living players exceed the host `demonKillAt` threshold (default 10),
- * Demons' night pick slays a roommate. At or below that count, Demons vote a
- * kill target (King sees the votes; if there is no King, that vote slays).
- * Demon King slays ignore room locks.
+ * Demons and Demon Kings slay a roommate. At or below that count, they vote a
+ * kill target (each vote kills; King also sees Demon votes).
+ * Demon King skill pool is only Ignition + Night Recall.
  * Actors with a night pick must choose before homework counts.
  */
 
@@ -274,13 +273,8 @@ function startNight(s, ctx) {
 export function roleTargets(s, id) {
   const r = s.role[id];
   if (!ACTORS.includes(r) || s.dead[id] || s.phase !== 'night') return [];
-  // Demon King: any living player after night 1 (locks never block the slay).
-  if (r === 'demonking') {
-    if (s.night === 1) return [];
-    return alive(s).filter((p) => p !== id);
-  }
-  // Demon: large table = roommate kill; small table = kill vote (any living).
-  if (r === 'demon') {
+  // Demon / Demon King: large table = roommate kill; small table = kill vote.
+  if (r === 'demon' || r === 'demonking') {
     if (demonCanKill(s)) {
       return alive(s).filter((p) => p !== id && s.room[p] === s.room[id]);
     }
@@ -470,6 +464,16 @@ export function spellTargets(s, id, k) {
   }
   if (sp.range === 'roomPlayer') return roommatesOf(s, id);
   if (sp.range === 'move') return activeRooms(s).filter((r) => r !== s.room[id] && !s.locks[r]);
+  // Night Recall: dead Demons who still have a revive charge (not AFK-kicked).
+  if (sp.range === 'deadDemon') {
+    return s.seats.filter(
+      (p) =>
+        s.dead[p] &&
+        s.role[p] === 'demon' &&
+        revivesLeft(s, p) > 0 &&
+        !(s.afkOut && s.afkOut[p]),
+    );
+  }
   return [];
 }
 
@@ -488,19 +492,25 @@ export function canLearn(s, id) {
   return (s.spells[id] || []).length < MAX_SPELLS && unownedSpells(s, id).length > 0;
 }
 
+/** Demon King may only ever draw these two skills. */
+const DEMON_KING_SPELLS = ['ignition', 'nightrecall'];
+
 /**
  * Spells this player may still draw. Hand cap {@link MAX_SPELLS}; at most one
  * passive; archetype-gated skills only for matching roles.
+ * Demon King pool is fixed: Ignition + Night Recall only.
  */
 function unownedSpells(s, id) {
   if ((s.spells[id] || []).length >= MAX_SPELLS) return [];
   const ownPassive = hasPassive(s, id);
   const role = s.role[id];
-  return Object.keys(SPELLS).filter((k) => {
+  const keys = role === 'demonking' ? DEMON_KING_SPELLS : Object.keys(SPELLS);
+  return keys.filter((k) => {
     if (held(s, id, k)) return false;
     const sp = SPELLS[k];
+    if (!sp) return false;
     if (ownPassive && sp.type === 'passive') return false;
-    if (sp.archetypes && sp.archetypes.length && !sp.archetypes.includes(role)) return false;
+    if (role !== 'demonking' && sp.archetypes && sp.archetypes.length && !sp.archetypes.includes(role)) return false;
     return true;
   });
 }
@@ -586,6 +596,33 @@ export function rerollSpell(s, ctx, id) {
   return true;
 }
 
+/**
+ * Spend {@link REROLL_COST} Knowledge to wipe the hand (and any open offer),
+ * then open a free redraw of {@link SPELL_DRAW} when the pool still has skills.
+ */
+export function refreshSpells(s, ctx, id) {
+  if (s.dead[id] || !dayPhase(s)) return false;
+  if ((s.knowledge[id] || 0) < REROLL_COST) return false;
+  const hasHand = (s.spells[id] || []).length > 0;
+  const hasOffer = Boolean(s.offer && s.offer[id] && s.offer[id].length);
+  if (!hasHand && !hasOffer) return false;
+  s.knowledge[id] -= REROLL_COST;
+  s.spells[id] = [];
+  s.queued[id] = [];
+  const pool = unownedSpells(s, id);
+  if (!pool.length) {
+    const next = {...(s.offer || {})};
+    delete next[id];
+    s.offer = next;
+    log(s, {kind: 'refresh', actor: id});
+    return true;
+  }
+  const offer = weightedDraw(pool, Math.min(SPELL_DRAW, pool.length), ctx.rng);
+  s.offer = {...(s.offer || {}), [id]: offer};
+  log(s, {kind: 'refresh', actor: id});
+  return true;
+}
+
 /** Keep one spell from the open draw. */
 export function pickSpell(s, ctx, id, k) {
   const offer = (s.offer || {})[id];
@@ -630,19 +667,11 @@ function freeUses(s, id, k) {
 export function cast(s, ctx, id, k, target) {
   const sp = SPELLS[k];
   if (!sp || s.dead[id] || sp.type === 'passive' || freeUses(s, id, k) < 1) return false;
-  const needs = ['player', 'roomPlayer', 'move'].includes(sp.range);
+  const needs = ['player', 'roomPlayer', 'move', 'deadDemon'].includes(sp.range);
   if (needs && !spellTargets(s, id, k).includes(target)) return false;
   if (sp.type === 'night') {
     if (!(s.phase === 'night' || dayPhase(s)) || s.queued[id].length >= MAX_NIGHT_CASTS) return false;
-    // Ojo: lock in prey now so the King sees the name before acting.
-    if (k === 'ojo') {
-      const prey = pick(roommatesOf(s, id), ctx.rng);
-      if (!prey) return false;
-      s.ojoPrey = {...(s.ojoPrey || {}), [id]: prey};
-      info(s, id, {key: 'ojo', player: prey});
-      target = prey;
-    }
-    s.queued[id] = [...s.queued[id], {k, target: needs || k === 'ojo' ? target : null}];
+    s.queued[id] = [...s.queued[id], {k, target: needs ? target : null}];
     return true;
   }
   // Day spells.
@@ -663,16 +692,42 @@ export function cast(s, ctx, id, k, target) {
     s.pardon = {...(s.pardon || {}), [t]: true};
     info(s, id, {key: 'advocate', player: t});
     target = t;
-  } else if (k === 'fear') {
-    const t = pick(roommatesOf(s, id), ctx.rng);
-    if (!t) return false;
-    s.fearMark = {...(s.fearMark || {}), [id]: t};
-    info(s, id, {key: 'fearMark', player: t});
-    target = t;
+  } else if (k === 'nightrecall') {
+    if (!bringDemonTonight(s, ctx, target)) return false;
+    info(s, id, {key: 'nightrecall', player: target});
   }
   spend(s, id, k);
   log(s, {kind: 'cast', actor: id, spell: k, target});
   return true;
+}
+
+/** Spend one of a dead Demon's revives; they live until the next dawn (no Jr). */
+function bringDemonTonight(s, ctx, target) {
+  if (!s.dead[target] || s.role[target] !== 'demon') return false;
+  if (!(revivesLeft(s, target) > 0)) return false;
+  if (s.afkOut && s.afkOut[target]) return false;
+  s.reviveUsed = {...(s.reviveUsed || {}), [target]: ((s.reviveUsed && s.reviveUsed[target]) || 0) + 1};
+  delete s.dead[target];
+  delete s.ghost[target];
+  s.tempTonight = {...(s.tempTonight || {}), [target]: true};
+  info(s, target, {key: 'nightrecallIn'});
+  log(s, {kind: 'nightrecall', target, left: revivesLeft(s, target)});
+  return true;
+}
+
+/** After tonight resolves, anyone on a Night Recall drops dead again. */
+function expireTempLives(s, ctx) {
+  const marked = Object.keys(s.tempTonight || {}).filter((id) => s.tempTonight[id]);
+  s.tempTonight = {};
+  for (const id of marked) {
+    if (s.dead[id]) continue;
+    s.dead[id] = true;
+    beginGhostPractice(s, id, ctx.now);
+    noteDeath(s, id);
+    if (!s.deaths.includes(id)) s.deaths.push(id);
+    info(s, id, {key: 'nightrecallOut'});
+    log(s, {kind: 'tempExpire', target: id});
+  }
 }
 
 // ------------------------------------------------------------------ night end
@@ -848,6 +903,11 @@ function resolveNight(s, ctx) {
       const names = roommatesOf(s, by, pos).filter((p) => p !== t);
       info(s, t, {key: 'raven', lines: names.map((p) => ({player: p}))});
     }
+    if (s.tempTonight && s.tempTonight[t]) {
+      const next = {...s.tempTonight};
+      delete next[t];
+      s.tempTonight = next;
+    }
     s.dead[t] = true;
     beginGhostPractice(s, t, ctx.now);
     deaths.push(t);
@@ -856,25 +916,14 @@ function resolveNight(s, ctx) {
     maybeScarlet(s, t);
     return true;
   };
-  if (s.night > 1) {
-    for (const id of alive(s)) {
-      const t = s.roleTarget[id];
-      if (s.role[id] !== 'demonking' || !t) continue;
-      // Locks never stop the King — they can slay anyone instantly.
-      slay(t, id, {king: true});
-    }
-  }
-  // Demons (cultists):
-  // >10 alive → roommate kill.
-  // ≤10 with no King → their vote is the kill (any living target).
-  // ≤10 with a King → vote only (King executes; shown live on King's phone).
-  if (cultistsKill || !s.hasLeaders) {
-    for (const id of alive(s)) {
-      const t = s.roleTarget[id];
-      if (s.role[id] !== 'demon' || !t || s.dead[t]) continue;
-      if (cultistsKill && pos[t] !== pos[id]) continue;
-      slay(t, id);
-    }
+  // Demons + Demon King (same rules):
+  // above threshold → roommate kill; at/below → kill vote (each vote slays).
+  for (const id of alive(s)) {
+    const t = s.roleTarget[id];
+    const r = s.role[id];
+    if ((r !== 'demon' && r !== 'demonking') || !t || s.dead[t]) continue;
+    if (cultistsKill && pos[t] !== pos[id]) continue;
+    slay(t, id);
   }
   each('ignition', (id, t) => {
     if (pos[t] === pos[id]) slay(t, id);
@@ -888,7 +937,6 @@ function resolveNight(s, ctx) {
     const t = pick(roommatesOf(s, id, pos), rng);
     if (t && s.role[t] === 'demon') slay(t, id);
   });
-  each('ojo', () => {});
   // Inactive Demon → pass role to a living Student (after the second round).
   for (const id of idleDemons) {
     if (s.dead[id] || s.role[id] !== 'demon') continue;
@@ -937,7 +985,6 @@ function resolveNight(s, ctx) {
     }
   }
   for (const id of s.seats) s.queued[id] = [];
-  s.ojoPrey = {};
   s.room = pos;
   s.deaths = deaths;
 }
@@ -945,6 +992,7 @@ function resolveNight(s, ctx) {
 
 function dawn(s, ctx) {
   resolveNight(s, ctx);
+  expireTempLives(s, ctx);
   // Flower Watch: did a Demon King vote yes yesterday?
   for (const id of alive(s)) if (passive(s, id, 'flower') && s.day > 0) info(s, id, {key: 'flower', yes: Boolean(s.leaderVotedYes)});
   s.phase = 'dawn';
@@ -968,7 +1016,6 @@ function startDay(s, ctx) {
   s.leaderVotedYes = false;
   s.expelled = null;
   s.pardon = {};
-  s.fearMark = {};
   // Suspicion opens with the day — no separate host “open vote” step.
   s.phase = 'suspect';
   s.suspect = {};
@@ -1275,12 +1322,6 @@ function endDay(s, ctx) {
   } else {
     cue(s, 'no_expel');
   }
-  // Fear Mark: if marked roommate was not expelled, learn their side.
-  for (const [caster, mark] of Object.entries(s.fearMark || {})) {
-    if (s.dead[caster] || !mark || mark === expelled || s.dead[mark]) continue;
-    info(s, caster, {key: 'fear', player: mark, evil: isEvil(s, mark)});
-  }
-  s.fearMark = {};
   s.pardon = {};
 }
 

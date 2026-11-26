@@ -2,6 +2,7 @@ import React, {useEffect, useMemo, useRef, useState} from 'react';
 import {Highlight, themes} from 'prism-react-renderer';
 import useHtmlColorMode from '@site/src/components/codeWorkspace/useHtmlColorMode';
 import TranslatableParagraph from '@site/src/components/Translate/TranslatableParagraph';
+import {revealSegment} from '@site/src/data/lessonFlags/store';
 import styles from './styles.module.css';
 
 function storageKey(id) {
@@ -336,6 +337,7 @@ export default function MultipleChoice({
   id,
   title = 'Check your understanding',
   questions = [],
+  flagSegment,
 }) {
   const [state, setState] = useState(emptyState);
 
@@ -523,6 +525,10 @@ export default function MultipleChoice({
   }
 
   function next() {
+    // Finishing the last question reveals this quiz's flag piece (toast only).
+    if (flagSegment && state.step >= total - 1) {
+      revealSegment(id, flagSegment);
+    }
     persist((prev) => {
       const last = prev.step >= total - 1;
       const nextStep = last ? prev.step : prev.step + 1;
@@ -564,6 +570,15 @@ export default function MultipleChoice({
           <button type="button" className={styles.primary} onClick={restart}>
             Start over
           </button>
+          {flagSegment ? (
+            <button
+              type="button"
+              className={styles.secondary}
+              onClick={() => revealSegment(id, flagSegment)}
+            >
+              Show flag piece
+            </button>
+          ) : null}
         </div>
       </section>
     );

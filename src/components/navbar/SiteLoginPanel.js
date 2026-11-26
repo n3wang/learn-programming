@@ -84,6 +84,10 @@ export default function SiteLoginPanel() {
         <AccountActivityStrip roster={auth.rosterId} student={auth.name} />
       ) : null}
       {isAdmin ? (
+        // Admin posts no activity of its own: same strip, unfiltered = all students.
+        <AccountActivityStrip />
+      ) : null}
+      {isAdmin ? (
         <div style={{marginTop: '0.5rem', fontSize: '0.8rem'}}>
           <Link to="/class-activity">Class activity heatmap →</Link>
         </div>

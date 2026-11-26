@@ -5,6 +5,8 @@ import ScratchNotes from '@site/src/components/ScratchNotes';
 import TermPeek from '@site/src/components/TermPeek';
 import StudentPickDock from '@site/src/components/navbar/StudentPickDock';
 import StudentActivityReporter from '@site/src/components/activity/useStudentActivityReporter';
+import FlagRevealToast from '@site/src/components/LessonFlags/RevealToast';
+import LessonFlagsSync from '@site/src/components/LessonFlags/LessonFlagsSync';
 import {
   isLocalApiBase,
   readStoredApiBaseUrl,
@@ -53,10 +55,12 @@ export default function Root({children}) {
       <ApiBaseUrlBridge />
       <LinkViewClass />
       <StudentActivityReporter />
+      <LessonFlagsSync />
       {children}
       <ScratchNotes />
       <TermPeek />
       <StudentPickDock />
+      <FlagRevealToast />
     </>
   );
 }
