@@ -52,10 +52,11 @@ export function genSignedBaseMul() {
     const b = randInt(1, 4);
     const s = a + b;
     const val = (-2) ** s;
+    const e2 = (n) => (n === 1 ? '(-2)' : `(-2)^{${n}}`);
     return {
-      prompt: `计算：${m(`(-2)^{${a}}\\times(-2)^{${b}}`)}`,
+      prompt: `计算：${m(`${e2(a)}\\times ${e2(b)}`)}`,
       steps: [
-        `同底数幂相乘：${m(`(-2)^{${a}}\\times(-2)^{${b}} = (-2)^{${s}}`)}。`,
+        `同底数幂相乘：${m(`${e2(a)}\\times ${e2(b)} = (-2)^{${a}+${b}} = (-2)^{${s}}`)}。`,
         `${s} 是${s % 2 ? '奇数，结果为负' : '偶数，结果为正'}：${m(`(-2)^{${s}} = ${val}`)}。`,
       ],
       answer: m(`${val}`),

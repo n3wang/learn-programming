@@ -11,6 +11,7 @@ import React from 'react';
  *   right={['ADB']}                                            // right-angle mark at D
  *   arcs={[{ at: 'B', from: 'A', to: 'C', label: '72°' }]}
  *   grid                                                       // optional coordinate grid with axes
+ *   legend={[{ label: 'y = 2x', color: '#e0245e' }]}           // colour key under the figure
  * />
  * Point names like `Ap` display as A′; `P_1` as P₁. Segments may be 'AB', 'Ap Bp' or ['Ap', 'Bp'].
  * Labels go outward from the centroid unless given as `labelPos: { A: 'n' | 's' | 'e' | 'w' | … }`.
@@ -31,6 +32,7 @@ export default function GeoFig({
   range,
   width = 320,
   caption,
+  legend,
 }) {
   const names = Object.keys(points);
   const xs = names.map((n) => points[n][0]);
@@ -204,6 +206,16 @@ export default function GeoFig({
             );
           })}
       </svg>
+      {legend && legend.length ? (
+        <div style={{ display: 'flex', flexWrap: 'wrap', gap: '4px 14px', justifyContent: 'center', fontSize: '0.85em', margin: '2px 0' }}>
+          {legend.map((l, i) => (
+            <span key={i} style={{ whiteSpace: 'nowrap' }}>
+              <span style={{ display: 'inline-block', width: 16, height: 3, background: l.color, verticalAlign: 'middle', marginRight: 5 }} />
+              {l.label}
+            </span>
+          ))}
+        </div>
+      ) : null}
       {caption ? <figcaption style={{ fontSize: '0.85em', color: 'var(--ifm-color-emphasis-700)', textAlign: 'center' }}>{caption}</figcaption> : null}
     </figure>
   );

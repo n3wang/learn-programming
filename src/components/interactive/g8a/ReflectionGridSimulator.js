@@ -94,6 +94,12 @@ export default function ReflectionGridSimulator() {
           <text x={X(N) - 4} y={Y(0) - 5} fontSize="11" fill="var(--ifm-font-color-base)">x</text>
           <text x={X(0) + 5} y={Y(N) + 4} fontSize="11" fill="var(--ifm-font-color-base)">y</text>
           <text x={X(0) - 11} y={Y(0) + 13} fontSize="10" fill="var(--ifm-font-color-base)">O</text>
+          {[-6, -4, -2, 2, 4, 6].map((g) => (
+            <g key={`t${g}`} fontSize="9" fill="var(--ifm-color-emphasis-600)" style={{ pointerEvents: 'none' }}>
+              <text x={X(g)} y={Y(0) + 12} textAnchor="middle">{g}</text>
+              <text x={X(0) - 4} y={Y(g) + 3} textAnchor="end">{g}</text>
+            </g>
+          ))}
           <line x1={axisLine[0]} y1={axisLine[1]} x2={axisLine[2]} y2={axisLine[3]} stroke="#e0245e" strokeWidth="2.2" strokeDasharray="7 4" />
           {poly(tri, '#4a90d9')}
           {tri.map(([x, y], i) => (

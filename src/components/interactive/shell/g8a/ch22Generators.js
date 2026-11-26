@@ -250,7 +250,7 @@ export function genNegativeExponent() {
     const val = 1 / b ** n;
     return {
       prompt: `计算：${m(`${par(b)}^{-${n}}`)}`,
-      steps: [`${m(`a^{-n} = \\dfrac{1}{a^n}`)}（${m('a \\ne 0')}）。`, `${m(`${par(b)}^{-${n}} = \\dfrac{1}{${par(b)}^{${n}}} = ${fracTex(1, b ** n)}`)}`],
+      steps: [`${m(`a^{-n} = \\dfrac{1}{a^n}`)}（${m('a \\ne 0')}）。`, `${m(`${par(b)}^{-${n}} = \\dfrac{1}{${n === 1 ? par(b) : `${par(b)}^{${n}}`}} = ${fracTex(1, b ** n)}`)}`],
       answer: m(fracTex(1, b ** n)),
       fields: [{ name: 'v', label: '结果（可写分数）', display: '\\square', value: val }],
     };
@@ -317,7 +317,7 @@ export function genFracEquation() {
     prompt: `解方程：${m(`${fr(p, tex(linP(1, x, a)))} = ${fr(q, tex(linP(1, x, b)))}`)}`,
     steps: [
       `去分母：方程两边乘最简公分母 ${m(`(${tex(linP(1, x, a))})(${tex(linP(1, x, b))})`)}，得 ${m(`${p}(${tex(linP(1, x, b))}) = ${q}(${tex(linP(1, x, a))})`)}。`,
-      `解这个整式方程：${m(`${p - q}${x} = ${q * a - p * b}`)}，${m(`${x} = ${sol}`)}。`,
+      `解这个整式方程：${m(`${p - q === 1 ? '' : p - q === -1 ? '-' : p - q}${x} = ${q * a - p * b}`)}，${m(`${x} = ${sol}`)}。`,
       `检验：${m(`${x} = ${sol}`)} 时最简公分母 ${m('\\ne 0')}，所以 ${m(`${x} = ${sol}`)} 是原分式方程的解。`,
     ],
     answer: m(`${x} = ${sol}`),

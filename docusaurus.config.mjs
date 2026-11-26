@@ -270,6 +270,10 @@ export default async function createConfig() {
                 label: '数学 八年级上册',
               },
               {
+                to: '/classes/math-4/intro',
+                label: '数学 八年级下册',
+              },
+              {
                 to: '/classes/programming/intro',
                 label: '编程',
               },

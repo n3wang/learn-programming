@@ -2,7 +2,6 @@ import React, { useState } from 'react';
 import Stack from '@site/src/components/ui/Stack';
 import Typography from '@site/src/components/ui/Typography';
 import ToggleButton from '@site/src/components/ui/ToggleButton';
-import ToggleButtonGroup from '@site/src/components/ui/ToggleButtonGroup';
 import CEBlock from '@site/src/components/interactive/shell/CEBlock';
 
 /**
@@ -43,11 +42,17 @@ export default function IsoscelesSimulator() {
           <Typography variant="body2">顶角 ∠A = {top}°</Typography>
           <input type="range" min={10} max={160} step={2} value={top} onChange={(e) => setTop(Number(e.target.value))} style={{ flex: '1 1 160px' }} />
         </Stack>
-        <ToggleButtonGroup size="small" value={show} onChange={(_, v) => setShow(v)}>
-          <ToggleButton value="bis">顶角平分线</ToggleButton>
-          <ToggleButton value="med">底边中线</ToggleButton>
-          <ToggleButton value="alt">底边上的高</ToggleButton>
-        </ToggleButtonGroup>
+        <Stack direction="row" spacing={0.5} flexWrap="wrap" useFlexGap>
+          {[
+            ['bis', '顶角平分线'],
+            ['med', '底边中线'],
+            ['alt', '底边上的高'],
+          ].map(([k, label]) => (
+            <ToggleButton key={k} value={k} size="small" selected={has(k)} onClick={() => setShow((s) => (s.includes(k) ? s.filter((x) => x !== k) : [...s, k]))}>
+              {label}
+            </ToggleButton>
+          ))}
+        </Stack>
         <svg viewBox={`0 0 ${W} ${H}`} style={{ width: '100%', maxWidth: W, display: 'block', marginTop: 8 }}>
           <polygon points={`${a.x},${a.y} ${b.x},${b.y} ${c.x},${c.y}`} fill="rgba(74,144,217,0.1)" stroke="var(--ifm-color-emphasis-800)" strokeWidth="2" />
           {arc(b, c, a, 22, '#2a9d8f')}
