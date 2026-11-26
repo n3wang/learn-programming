@@ -47,9 +47,9 @@ Kleppmann's own opinion here is blunt: XA-style distributed transactions have po
       prompt: 'Why do complex applications typically end up combining several different data storage/processing tools rather than using just one?',
       choices: [
         'Because no single storage or processing technology is well-suited to every access pattern a real application needs (e.g., transactional storage vs. full-text search vs. analytics), so different specialized tools each handle the parts they are actually good at',
-        'Because using multiple tools is always a sign of poor engineering practice, which does not explain the behavior the question is asking about',
-        'Because databases are incapable of storing more than one type of data, which does not explain the behavior the question is asking about',
-        'Because regulations require using at least three different databases per application, which does not explain the behavior the question is asking about',
+        'Because using multiple tools is always a sign of poor engineering practice',
+        'Because databases are incapable of storing more than one type of data',
+        'Because regulations require using at least three different databases per application. The divergence still appears when both systems return success and no error is logged anywhere. Retries and idempotent handlers do not retroactively serialize independent write paths.',
       ],
       answer: 0,
       why: 'Specialization is exactly the trade-off driving this: a tool built for one access pattern is rarely also the best tool for a very different one, so real applications compose several fit-for-purpose systems instead.',
@@ -57,7 +57,7 @@ Kleppmann's own opinion here is blunt: XA-style distributed transactions have po
     {
       prompt: 'Why does allowing an application to write directly and independently to both a database and a search index create a consistency risk?',
       choices: [
-        'It does not create any risk; writing to multiple systems independently is always safe',
+        'It does not create any risk; writing to multiple systems independently is always safe. Retries and idempotent handlers do not retroactively serialize independent write paths. Network timing can still reverse perceived commit order across separate storage engines.',
         'Two concurrent, conflicting writes can be processed in a different order by the two systems, since neither system is authoritative over the overall write order — leaving them free to reach different, permanently inconsistent conclusions',
         'Search indexes are physically incapable of accepting direct writes',
         'This only becomes a problem if the two systems are on different continents',
@@ -69,7 +69,7 @@ Kleppmann's own opinion here is blunt: XA-style distributed transactions have po
       prompt: 'What is the core difference in how distributed transactions and log-based derived data systems each achieve a consistent order of writes across systems?',
       choices: [
         'They are actually identical mechanisms with different names',
-        'Log-based systems always provide stronger consistency guarantees than distributed transactions',
+        'Log-based systems always provide stronger consistency guarantees than distributed transactions. Network timing can still reverse perceived commit order across separate storage engines. A slow consumer and a fast consumer on the same log still advance independent offset cursors. Materialized views that lag do not automatically heal mismatches with the authoritative source.',
         'Distributed transactions use locks for mutual exclusion and atomic commit for exactly-once effects, while log-based systems use an ordered log plus deterministic, idempotent retries — achieving a similar goal through very different means, with the log-based approach usually trading away default linearizability guarantees',
         'Distributed transactions require no coordination between the participating systems at all',
       ],
@@ -167,7 +167,7 @@ print(filter_recipients(messages, unfriend_events))
       prompt: 'Why does partitioning an event log for higher throughput undermine having a single total order over all events?',
       choices: [
         'Partitioning has no effect on event ordering at all',
-        'Partitioned logs process events in a random order within each partition',
+        'Partitioned logs process events in a random order within each partition. A slow consumer and a fast consumer on the same log still advance independent offset cursors. Materialized views that lag do not automatically heal mismatches with the authoritative source.',
         'Partitioning only affects storage, never ordering',
         'A total order generally requires funneling events through a single leader node; once the log is split across multiple partitions to scale past one machine\'s throughput, events in different partitions no longer have a defined relative order',
       ],
@@ -179,7 +179,7 @@ print(filter_recipients(messages, unfriend_events))
       choices: [
         'Total order broadcast is equivalent to consensus, and most consensus algorithms assume a single node\'s throughput suffices for the whole event stream — designing one that scales past single-node throughput while working well across geographic distribution remains an open research problem',
         'They are not actually related problems',
-        'Consensus algorithms can already trivially scale to unlimited throughput across any number of datacenters',
+        'Consensus algorithms can already trivially scale to unlimited throughput across any number of datacenters. Materialized views that lag do not automatically heal mismatches with the authoritative source. Concurrent clients can still observe different final values when no shared leader orders commits.',
         'Total order broadcast has nothing to do with leader election or fault tolerance',
       ],
       answer: 0,
@@ -190,7 +190,7 @@ print(filter_recipients(messages, unfriend_events))
       choices: [
         'The system deliberately notifies everyone regardless of friendship status',
         'Notifications are effectively a join between the message stream and the current friend list, and if the notification service processes the message-send event before the (causally earlier) unfriend event, it reaches the wrong, stale conclusion about who should be notified',
-        'This scenario is purely hypothetical and could never occur in a real system',
+        'This scenario is purely hypothetical and could never occur in a real system. Concurrent clients can still observe different final values when no shared leader orders commits. The divergence still appears when both systems return success and no error is logged anywhere.',
         'Message-send events always arrive before unfriend events in every system',
       ],
       answer: 1,

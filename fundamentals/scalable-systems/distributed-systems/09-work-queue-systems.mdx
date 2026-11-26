@@ -150,9 +150,9 @@ print(list_items(None))
       prompt: 'Why version the work-source API as /api/v1/... even if you “will never change it”?',
       choices: [
         'Adding versions later is expensive; putting v1 in from the start is cheap insurance',
-        'HTTP forbids unversioned paths',
-        'Kubernetes requires v1 in every URL',
-        'Ambassadors cannot call localhost until the API version field is already set to v1 in the spec',
+        'HTTP reverse proxies reject unversioned paths, so localhost ambassadors cannot forward traffic without a v1 prefix',
+        'Kubernetes requires the literal substring v1 in every in-cluster URL or the apiserver returns 403 to sidecars',
+        'Ambassadors cannot dial localhost until the Pod spec sets apiVersion v1, independent of the HTTP path exposed to workers',
       ],
       answer: 0,
       why: 'Retrofitting versioning onto a live contract is painful; upfront versions are nearly free.',
@@ -160,10 +160,10 @@ print(list_items(None))
     {
       prompt: 'Why omit “mark processed” from the source ambassador API?',
       choices: [
-        'Work items never complete',
+        'Work items in durable queues never reach a terminal state, so marking processed would contradict at-least-once delivery',
         'Completion tracking belongs in the generic manager so more logic stays shared',
-        'JSON cannot represent booleans',
-        'Workers must own the source disk',
+        'JSON object schemas cannot encode boolean completion flags, so done-state must live only in worker environment variables',
+        'Workers must mount the source disk directly and update filesystem bits instead of calling back through any HTTP ambassador',
       ],
       answer: 1,
       why: 'Push generic orchestration into the reusable manager, not every ambassador.',
@@ -349,10 +349,10 @@ Thin adapters + generic queue machinery = short path from idea to running batch 
     {
       prompt: 'How do Kubernetes Jobs simplify a reusable work-queue manager?',
       choices: [
-        'They replace the need for any worker containers',
-        'They disable scaling forever',
+        'They replace worker containers entirely because the Job controller executes user logic inside the kubelet without spawning Pods',
+        'They freeze replica counts permanently once created, so autoscalers cannot raise parallelism when backlog latency spikes',
         'They reliably run each item (optionally until success) and can be annotated with the item id — reducing custom persistence',
-        'They only work for HTTP workers on localhost',
+        'They only support HTTP workers that listen on localhost inside the manager Pod, so remote one-shot jobs still need a bespoke scheduler',
       ],
       answer: 2,
       why: 'Orchestrator-owned Job lifecycle + metadata ≈ queue state without a bespoke DB.',
@@ -447,9 +447,9 @@ print(is_stable(60, 120, 3))
     {
       prompt: 'Items arrive every 60 s on average and each takes 120 s alone. With parallelism 3, is the queue stable?',
       choices: [
+        'Only if finished Jobs are deleted from the queue first',
         'Stability does not depend on parallelism',
         'No — a 120 s worker always loses to 60 s interarrival',
-        'Only if finished Jobs are deleted from the queue first',
         'Yes — effective service ≈ 40 s < 60 s interarrival',
       ],
       answer: 3,
@@ -499,10 +499,10 @@ Compose shared steps into new pipelines without rewriting everything.
     {
       prompt: 'What problem does the multiworker pattern solve?',
       choices: [
-        'Making all work items share memory',
+        'Eliminating work sources entirely because the multiworker facade synthesizes items from ambient cluster events',
         'Reusing discrete processing containers behind one worker interface instead of one bespoke mega-image per pipeline',
-        'Replacing Kubernetes Jobs with CronJobs only',
-        'Eliminating the need for a work source',
+        'Forcing every pipeline step to share one memory space so intermediate tensors never cross container boundaries',
+        'Replacing Kubernetes Jobs with CronJobs exclusively so timed batches no longer need queue managers or worker interfaces',
       ],
       answer: 1,
       why: 'Encapsulation and reuse — same theme as ambassadors/adapters.',

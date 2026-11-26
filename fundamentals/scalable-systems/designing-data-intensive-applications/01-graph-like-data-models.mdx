@@ -102,10 +102,10 @@ Together, these give graphs serious flexibility for modeling things a rigid rela
     {
       prompt: 'Why does a property-graph edges table typically index both tail_vertex and head_vertex?',
       choices: [
-        'To shrink the edges table footprint by slimming columns, not to pay a second index so queries can walk outgoing tail links and incoming head links without scanning',
+        'To enforce uniqueness of every (tail, label, head) combination, so the database can reject a duplicate edge between the same pair of vertices before it is stored',
         'To let the graph be traversed efficiently in both directions — finding a vertex\'s outgoing edges via tail_vertex and its incoming edges via head_vertex',
-        'Because SQL style guides index every foreign key by default, even when the graph model indexes tail and head specifically for forward and backward edge traversal',
-        'To stop duplicate edges via a uniqueness rule on (tail, label, head), instead of indexing both endpoints so adjacency walks stay cheap in either direction',
+        'To keep the edges table small, since the two indexes replace the stored tail and head columns and let the database drop those columns from every row',
+        'Because SQL engines require every foreign key column to carry an index before the constraint can be declared, regardless of how the graph is later traversed',
       ],
       answer: 1,
       why: 'Efficient bidirectional traversal is one of the three defining properties of this model — without both indexes, walking the graph backward would require a full table scan.',
@@ -113,10 +113,10 @@ Together, these give graphs serious flexibility for modeling things a rigid rela
     {
       prompt: 'Why can a single property graph cleanly store several genuinely different kinds of relationships (e.g. "married to," "born in," "lives in") without the data model becoming a mess?',
       choices: [
-        'Because each relationship type requires its own separate database, forcing each relationship label into its own database instead of coexisting labeled edges in one graph',
-        'Because property graphs do not allow more than one relationship type at all, which would forbid mixing multiple relationship labels inside a single property graph',
+        'Because each relationship type needs its own separate database instance, so a graph holding several kinds of relationships is really several graphs glued together',
+        'Because a property graph permits only one edge label in total, so mixing several kinds of relationships requires encoding the differences as vertex properties',
         'Because edges carry a label describing what kind of relationship they represent, so different relationship types can coexist in the same graph while remaining distinguishable',
-        'Because vertices automatically infer relationship types from their properties, as if edge semantics could be read off vertex fields without explicit relationship labels',
+        'Because vertices automatically infer the relationship type from their property values, so edges never need to state what kind of connection they represent',
       ],
       answer: 2,
       why: 'The edge label is exactly the mechanism that keeps multiple relationship types distinguishable within one unified graph.',
@@ -179,9 +179,9 @@ Given the Cypher pattern `(person) -[:BORN_IN]-> () -[:WITHIN*0..]-> (loc:Locati
     {
       prompt: 'In the Cypher pattern (Idaho) -[:WITHIN]-> (USA), what do "Idaho" and "USA" represent?',
       choices: [
-        'A SQL table identifier and a column identifier — not the tail and head vertices bound by a',
-        'Two separate, unrelated graphs',
-        'A pair of distinct edges both incident on one vertex — not one WITHIN edge whose tail is',
+        'A table name (Idaho) and a column name (USA) that the pattern joins together, the way a SQL query would join them',
+        'Two independent graph databases that the MATCH clause opens and compares side by side, one per name',
+        'Two distinct edges that both attach to the same vertex, one labeled Idaho and the other labeled USA',
         'The tail vertex (Idaho) and head vertex (USA) of a single edge labeled WITHIN',
       ],
       answer: 3,
@@ -191,9 +191,9 @@ Given the Cypher pattern `(person) -[:BORN_IN]-> () -[:WITHIN*0..]-> (loc:Locati
       prompt: 'Why does expressing the "emigrated from the US to Europe" query in plain SQL require recursive common table expressions (WITH RECURSIVE), rather than a fixed set of JOINs?',
       choices: [
         'Because the number of WITHIN hops between a person and the location you care about isn\'t known in advance — it varies per record, so the query needs to traverse a variable-length chain rather than a fixed number of joins',
-        'Because relational tables cannot store vertices and edges at all, so any graph-shaped question must use a non-SQL engine, which does not explain the behavior the question is asking about',
-        'Because recursive CTEs are required for any query involving more than one table, which does not explain the behavior the question is asking about',
-        'Because PostgreSQL omits JOIN syntax entirely, forcing every multi-table query to use nested subqueries instead of explicit joins, which does not explain the behavior the question is asking about',
+        'Because relational tables have no way to hold vertices and edges as rows, so any graph-shaped question must be exported to a dedicated graph engine before a traversal of any depth can run',
+        'Because a SQL JOIN can only connect two tables at a time, so any query that touches both the vertices table and the edges table must be rewritten using a recursive expression',
+        'Because the SQL standard forbids self-joins on one table, so the only legal way to follow edges that point back into vertices is with a recursive common table expression',
       ],
       answer: 0,
       why: 'Ordinary SQL joins assume a fixed join count known ahead of time; recursive CTEs exist specifically to handle a traversal whose depth isn\'t fixed.',
@@ -201,10 +201,10 @@ Given the Cypher pattern `(person) -[:BORN_IN]-> () -[:WITHIN*0..]-> (loc:Locati
     {
       prompt: 'What does the fact that the same query takes ~4 lines in Cypher but ~30 in recursive SQL actually demonstrate?',
       choices: [
-        'That SQL is a poorly designed language overall',
-        'That different data models and query languages are optimized for different kinds of questions — graph query languages make variable-depth traversal cheap to express, which is exactly the kind of question relational SQL wasn\'t designed around',
-        'That Cypher queries are always functionally different from their SQL equivalents',
-        'That recursive CTEs are deprecated and should never be used',
+        'That SQL is a poorly designed language overall, because any well-designed query language should express every question in about the same number of lines regardless of the data model underneath',
+        'That different data models and query languages are optimized for different kinds of questions — graph query languages make variable-depth traversal cheap to express, which is exactly what relational SQL wasn\'t designed around',
+        'That Cypher queries always return different results from their SQL equivalents, so the line count reflects two languages computing genuinely different answers over the same graph data',
+        'That recursive CTEs are deprecated and slow in modern databases, so the extra lines are legacy workarounds that newer SQL versions replace with a short graph-traversal keyword',
       ],
       answer: 1,
       why: 'The length difference reflects a genuine mismatch between the query\'s shape (variable-depth traversal) and the model SQL was designed to make convenient (fixed joins), not a quality difference between the languages.',
@@ -262,10 +262,10 @@ Since RDF doesn't distinguish "properties" from "edges" — both are just predic
     {
       prompt: 'In the triple (Lucy, bornIn, Idaho), what does the object (Idaho) represent, and how does this differ from (Lucy, age, 33)?',
       choices: [
-        'That Idaho and 33 are both literal properties on Lucy, with no vertex node standing in for a geographic place',
-        'That triple objects must always be other vertices, so numeric literals like 33 could never appear as property values',
-        'In (Lucy, bornIn, Idaho), the object is another vertex, making bornIn an edge; in (Lucy, age, 33), the object is a primitive value, making age a property on Lucy rather than an edge to another vertex',
-        'That (Lucy, bornIn, Idaho) and (Lucy, age, 33) encode the same kind of fact, ignoring vertex versus literal objects',
+        'That Idaho and 33 are both literal values attached to Lucy as properties, so bornIn and age behave identically and neither predicate ever points at another vertex',
+        'That every triple object must itself be a vertex, so a numeric literal like 33 only appears once it is wrapped in a separate vertex that Lucy links to by an edge',
+        'In (Lucy, bornIn, Idaho), the object is another vertex, making bornIn an edge; in (Lucy, age, 33), the object is a primitive value, making age a property on Lucy rather than an edge',
+        'That both triples encode the same kind of fact, because RDF stores every predicate as an edge and treats a literal such as 33 as just another vertex named by its value',
       ],
       answer: 2,
       why: 'Whether the object is a primitive value or another vertex determines whether the predicate behaves like a property or like a graph edge — this is the core mechanic of the triple model.',
@@ -273,10 +273,10 @@ Since RDF doesn't distinguish "properties" from "edges" — both are just predic
     {
       prompt: 'Is the triple-store data model inherently tied to the "semantic web"?',
       choices: [
-        'Yes, a triple-store cannot be used for anything other than publishing RDF to the public web, folding together two ideas that stay separate when explaining how this model is used in apps',
-        'Yes, because SPARQL only works on the public internet, folding together two ideas that stay separate when explaining how this model is used in apps, folding together two ideas that stay separate when explaining how this model is used in apps',
-        'No, because RDF and triple-stores are entirely unrelated concepts, folding together two ideas that stay separate when explaining how this model is used in apps, folding together two ideas that stay separate when explaining how this model is used',
-        'No — the triple-store model is a genuinely useful internal application data model on its own; the semantic web is a separate (and largely unrealized) vision that happens to use the same underlying data model',
+        'Yes, because triple-stores were designed only to publish RDF documents on public websites, so a database using subject-predicate-object facts internally would not count as one',
+        'Yes, because SPARQL queries can only run against endpoints exposed on the open internet, which ties every triple-store deployment to the semantic web by construction',
+        'No, because RDF and triple-stores are entirely unrelated concepts that merely share a name, and the semantic web is built on a different, graph-free data format',
+        'No — the triple-store model is a genuinely useful internal application data model on its own; the semantic web is a separate (and largely unrealized) vision that happens to reuse it',
       ],
       answer: 3,
       why: 'The data model and the semantic web are historically linked but conceptually separable — plenty of triple-stores (like Datomic) have nothing to do with the semantic web.',
@@ -349,9 +349,9 @@ Rule 1 fires directly: `name(namerica, 'North America')` already exists as a bas
       prompt: 'In Datalog, what does it mean for a rule like within_recursive(Location, Name) :- within(Location, Via), within_recursive(Via, Name) to "fire"?',
       choices: [
         'The database finds facts (or previously derived results) matching everything on the right of :-, and as a result treats the left-hand side as a newly derived fact, with variables substituted in',
-        'That a Datalog rule removes matching facts from storage, instead of deriving new facts when the right-hand side matches',
-        'That rule evaluation aborts on the first failed match, instead of continuing to derive facts from successful matches',
-        'That the engine rewrites each Datalog rule into a fixed SQL join plan, rather than composing predicates through rule calls',
+        'That the rule deletes every stored fact matching its right-hand side from the database, so firing a rule is a destructive cleanup step rather than a way of deriving new facts',
+        'That the engine evaluates the rule once and stops at the first failed match it meets, so the left-hand side only becomes a fact when every candidate binding succeeds at once',
+        'That the engine compiles the rule into a fixed SQL join plan up front, so the left-hand side is materialized as a table rather than composed with other rules by calling predicates',
       ],
       answer: 0,
       why: 'This is exactly how rule application works: satisfy the right-hand side, and the left-hand side (with matched variable bindings) becomes available as a new fact for other rules to build on.',
@@ -359,10 +359,10 @@ Rule 1 fires directly: `name(namerica, 'North America')` already exists as a bas
     {
       prompt: 'Why is Datalog described as being especially good at handling complex queries built from reusable pieces, compared to Cypher or SPARQL?',
       choices: [
-        'Because Datalog queries cannot be written declaratively, which does not explain the behavior the question is asking about',
-        'Because rules in Datalog can reference other rules, similar to how functions can call other functions — letting a complex query be assembled from small, independently reusable, composable rules rather than one large expression',
-        'Because Datalog does not support variables, which does not explain the behavior the question is asking about',
-        'Because Datalog only works with exactly one predicate per query, which does not explain the behavior the question is asking about',
+        'Because Datalog queries cannot be written declaratively, so the developer spells out evaluation order step by step and gets reuse only by copying whole queries between programs',
+        'Because rules in Datalog can reference other rules, similar to how functions can call other functions — letting a complex query be assembled from small, independently reusable, composable rules',
+        'Because Datalog has no variables, so every fact is matched literally, and a larger query is easy to compose simply because there is nothing to bind or rename between rules',
+        'Because Datalog allows exactly one predicate per query, which forces the engine to optimize that single predicate far more aggressively than Cypher or SPARQL optimize a full pattern',
       ],
       answer: 1,
       why: 'The rule-composition mechanic — rules building on rules — is precisely what the lesson highlights as Datalog\'s advantage for complex, evolving queries.',

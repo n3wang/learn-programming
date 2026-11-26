@@ -69,9 +69,9 @@ The app only knows "Redis on localhost." The ambassador hashes keys and forwards
       prompt: 'What does the application container believe it is talking to when a sharding ambassador is deployed in the same Pod?',
       choices: [
         'A single storage backend on localhost — the ambassador hides the shard topology',
-        'A different random shard on every request, chosen in application code instead of one',
-        'The Kubernetes API server',
-        'Every shard contacted in parallel with no localhost proxy to hide topology',
+        'A different random shard on every request, with the application choosing targets explicitly instead of one stable local endpoint',
+        'The Kubernetes API server as the storage authority, with shard placement resolved through etcd watches in application code',
+        'Every shard contacted in parallel on each call, with no localhost proxy layer hiding how many backends exist',
       ],
       answer: 0,
       why: 'The ambassador presents one local endpoint; routing logic lives in the proxy, not the app.',
@@ -79,10 +79,10 @@ The app only knows "Redis on localhost." The ambassador hashes keys and forwards
     {
       prompt: 'When is a client-side sharding ambassador a better fit than a centralized shard load balancer?',
       choices: [
-        'When you want every application team to reimplement hash routing in their own language',
+        'When every service team should own bespoke hash routing libraries in each language instead of sharing one proxy configuration',
         'When simplifying shard deployment and reusing an off-the-shelf proxy in each Pod is acceptable, even though client Pods become slightly more complex',
-        'When you never need more than one shard',
-        'When localhost networking is unavailable inside a Pod',
+        'When the dataset always fits on one machine and horizontal partition keys will never be needed for capacity or isolation',
+        'When Pod loopback networking is disabled so applications must open outbound connections directly to every shard IP',
       ],
       answer: 1,
       why: 'Client-side ambassadors trade per-Pod complexity for simpler shard infrastructure — a common pattern when teams deploy apps, not storage.',
@@ -383,10 +383,10 @@ The application still connects to localhost. The ambassador proxies to productio
     {
       prompt: 'Why does the nginx experiment config use ip_hash in the upstream block?',
       choices: [
-        'To encrypt traffic between variants, prioritizing that goal over the access pattern the design optimizes for',
-        'To disable load balancing entirely — a reasonable ops concern, but not why the structure in the question exists',
+        'To encrypt traffic between variants so experiment and production bytes cannot be observed on the wire between ambassador hops',
+        'To disable load balancing entirely and send each request serially through every backend until one responds',
         'So the same client IP consistently maps to either production or experiment — users do not flip-flop between versions on every request',
-        'Because Kubernetes requires ip_hash for ConfigMaps, which does not explain the behavior the question is asking about',
+        'Because ConfigMap-mounted nginx snippets must include ip_hash or the kubelet refuses to start the ambassador container',
       ],
       answer: 2,
       why: 'Consistent per-client routing is required for meaningful A/B tests and acceptable user experience.',
@@ -394,9 +394,9 @@ The application still connects to localhost. The ambassador proxies to productio
     {
       prompt: 'In traffic teeing, which backend response is returned to the user?',
       choices: [
-        'The experiment backend only',
-        'Both production and experiment responses merged and returned to the client',
-        'Whichever backend responds faster',
+        'The experiment backend only, because teeing is defined as replacing production handlers with shadow code paths',
+        'Both production and experiment responses merged field-by-field so the client receives a combined payload from each variant',
+        'Whichever backend responds faster — the ambassador returns the winning latency and drops the slower duplicate work',
         'Production — experiment traffic is executed but its response is discarded',
       ],
       answer: 3,

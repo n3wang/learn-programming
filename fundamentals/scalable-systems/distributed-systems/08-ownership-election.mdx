@@ -58,9 +58,9 @@ Use multi-replica leader election when you need **high availability (roughly fou
       prompt: 'When is a Kubernetes singleton often “good enough” without leader election?',
       choices: [
         'For background/async work where brief full downtime during crash or deploy is acceptable in exchange for simplicity',
-        'Never — singletons are always unsafe',
-        'Only when you disable health checks',
-        'Only for interactive banking frontends that must never pause',
+        'Only when you disable liveness and readiness probes so the controller never notices crashes and therefore needs no election logic',
+        'Only for user-facing banking frontends where any pause during failover is unacceptable and operators never ship rolling upgrades',
+        'Never — singleton Deployments are always unsafe because the orchestrator cannot restart a failed Pod without electing a leader first',
       ],
       answer: 0,
       why: 'Orchestrators restart singletons quickly; election complexity is justified when partial availability during failover matters.',
@@ -68,10 +68,10 @@ Use multi-replica leader election when you need **high availability (roughly fou
     {
       prompt: 'What is the main availability downside of a singleton under rolling upgrades?',
       choices: [
-        'Health checks stop working',
+        'etcd rejects singleton objects unless a Raft leader is elected before the rolling update controller advances',
         'Old and new versions cannot both serve, so upgrade download/start time is user-visible downtime',
-        'You must run infinitely many replicas',
-        'etcd forbids singletons',
+        'Health checks stop working during image pulls, so the kubelet cannot tell whether the old or new version should receive traffic',
+        'You must run infinitely many replicas during every rollout or Kubernetes refuses to schedule the new binary image',
       ],
       answer: 1,
       why: 'No dual-running replicas means cutover gaps dominate the SLA.',
@@ -383,9 +383,9 @@ print(b.unlock())
     {
       prompt: 'Why must unlock check a resource version (fencing token)?',
       choices: [
-        'CAS cannot store strings without versions',
-        'Versions make locks faster on SSDs',
-        'Kubernetes requires versions in every YAML',
+        'Kubernetes admission requires resourceVersion in every manifest, so unlock must echo that field to satisfy the API server schema',
+        'Compare-and-swap cannot store string lock names unless each key carries a monotonically increasing version label in the value blob',
+        'Version fields make etcd compare-and-swap faster on NVMe because the storage engine indexes resourceVersion before key names',
         'After TTL expiry another process may own the lock; unlocking by value alone can clear the new owner’s lock',
       ],
       answer: 3,
@@ -567,9 +567,9 @@ Duplicates may only waste GPU time — or may **double-charge a bank transfer**.
       prompt: 'Why should workers verify the caller is still the lock owner (and often the resource version)?',
       choices: [
         'Because a stale process may still send work after losing the lease; workers must fence out invalid leaders',
-        'Because TTL only works on laptops, which does not explain the behavior the question is asking about',
-        'Because leaders never fail, which does not explain the behavior the question is asking about',
-        'Because CAS is illegal without workers, which does not explain the behavior the question is asking about',
+        'Because distributed compare-and-swap is illegal unless workers validate every call, independent of lease expiry',
+        'Because lease TTLs apply only on developer laptops and not in production clusters, so workers can trust any caller',
+        'Because elected leaders never crash or lag, so fencing tokens are redundant once the first acquisition succeeds',
       ],
       answer: 0,
       why: 'End-to-end fencing closes the gap where local lock loss detection is delayed.',
@@ -577,10 +577,10 @@ Duplicates may only waste GPU time — or may **double-charge a bank transfer**.
     {
       prompt: 'At-most-once vs at-least-once for leader-driven work mainly trades…',
       choices: [
-        'JSON vs XML',
+        'Whether workers parse JSON or XML job payloads, because duplicate detection depends on the serialization format alone',
         'Availability during uncertain leadership vs risk of duplicate processing',
-        'TCP vs UDP only',
-        'Singleton vs ReplicaSet labels',
+        'Whether the leader ships work over TCP or UDP, because only connection-oriented transports can fence stale holders',
+        'Whether the workload runs under a Singleton name or a ReplicaSet label selector, which changes delivery semantics by itself',
       ],
       answer: 1,
       why: 'Distributed ownership cannot erase the fundamental delivery trade-off.',

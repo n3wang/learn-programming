@@ -53,9 +53,9 @@ Two replicas behind a load balancer let you roll one instance while the other ke
       prompt: 'Why is a single replica a poor fit for a 99.9% availability SLA when you deploy frequently?',
       choices: [
         'Every rollout (or crash) takes the only instance offline; with frequent deploys the cumulative downtime quickly exceeds the SLA budget unless each rollout is unrealistically fast',
-        'Stateless services must store session state on disk',
-        'Kubernetes cannot schedule more than one Pod per Deployment',
-        'Load balancers only work with exactly three replicas',
+        'Layer-7 load balancers register backends only in sets of exactly three endpoints, making a lone replica unroutable from clients',
+        'Stateless HTTP services must persist session tokens on local disk per replica, so horizontal scale would diverge without sticky routing',
+        'Kubernetes Deployments are hard-limited to one Pod per controller object, so meeting an SLA requires abandoning Deployments for static Pods',
       ],
       answer: 0,
       why: 'Redundancy exists so one replica can serve while another is upgrading or recovering.',
@@ -63,10 +63,10 @@ Two replicas behind a load balancer let you roll one instance while the other ke
     {
       prompt: 'What does it mean for a service to be stateless in this pattern?',
       choices: [
-        'It never uses a database',
+        'It never talks to a database or external store — all data lives in the request body and nothing is persisted between calls',
         'Any replica can serve any client request without relying on data pinned to a specific instance from a prior request',
-        'It cannot be load-balanced',
-        'It must use round-robin routing only',
+        'It cannot be placed behind a load balancer because only one replica may own the listening socket for a Service',
+        'It must use strict round-robin routing at the load balancer because per-request affinity would break horizontal scale',
       ],
       answer: 1,
       why: 'Statelessness is about per-request independence at the serving tier, not about backends or storage elsewhere.',
@@ -98,10 +98,10 @@ Build a **readiness endpoint** (e.g. `GET /ready`) and wire it into the Pod spec
     {
       prompt: 'A container is downloading a large file it needs before it can answer requests correctly. It is alive but not yet usable. Which probe should fail?',
       choices: [
-        'Liveness — so Kubernetes restarts it',
-        'Both must fail immediately on startup',
+        'Liveness — so Kubernetes restarts it even though the process is actively downloading required startup artifacts',
+        'Both must fail immediately on startup so the kubelet restarts the container until downloads complete and probes pass',
         'Readiness — so the load balancer withholds traffic until initialization completes',
-        'Neither — probes are only for databases',
+        'Neither — health probes apply only to stateful databases, not to ordinary application Pods behind a Service',
       ],
       answer: 2,
       why: 'Failing readiness keeps a healthy-but-initializing process running while preventing bad user traffic.',
@@ -232,9 +232,9 @@ When replica count changes, remapping every client is expensive. **Consistent ha
     {
       prompt: 'Why is IP-based session affinity often a poor choice for external users behind NAT?',
       choices: [
-        'External IPs are always encrypted',
         'Session stickiness requires a full session store replicated on every backend replica',
         'Kubernetes Services cannot use IP hashing — which swaps two mechanisms the design keeps separate',
+        'External IPs are always encrypted',
         'NAT makes many clients appear to share one source IP, breaking per-user stickiness',
       ],
       answer: 3,

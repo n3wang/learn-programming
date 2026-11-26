@@ -122,18 +122,23 @@ The deep dive designs fx.
   questions={[
     {
       prompt: 'Marketing wants a dashboard showing every click on each short link, by time and referrer. Which redirect should the service return?',
-      choices: ['301 Moved Permanently', '302 Found', '200 OK with the long URL in the body', '404 Not Found'],
-      answer: 1,
+      choices: [
+        '302 Found',
+        '301 Moved Permanently',
+        '200 OK with the long URL in the body',
+        '404 Not Found',
+      ],
+      answer: 0,
       why: 'A 302 isn\'t cached by browsers, so every click passes through the shortener, where it can be logged.',
       whyWrong: 'With a 301, browsers cache the redirect and later clicks never reach your servers, so the dashboard would undercount.',
     },
     {
       prompt: 'Why is shortening a POST while redirecting is a GET?',
       choices: [
-        'GET requests cannot have parameters',
+        'Browsers follow a redirect only when it comes in response to a POST, so the redirect endpoint must use it',
         'Shortening creates a new resource (a mapping), while redirecting only reads an existing one and is safe to repeat',
-        'POST is faster than GET',
-        'Browsers can only follow redirects from POST',
+        'GET requests cannot carry parameters, so a long URL could not be sent to the shortening service',
+        'POST requests are processed faster than GET requests, so the write path should always use it',
       ],
       answer: 1,
       why: 'REST convention: POST creates, GET reads. Redirect lookups have no side effects (analytics aside), so GET fits.',
@@ -346,30 +351,35 @@ def decode(s):
   questions={[
     {
       prompt: 'A service expects 50 billion URLs ever. Using 62 characters, what is the shortest code length that fits?',
-      choices: ['5', '6', '7', '8'],
-      answer: 1,
+      choices: [
+        '8',
+        '7',
+        '6',
+        '5',
+      ],
+      answer: 2,
       why: '62⁵ ≈ 0.92 billion is too small, while 62⁶ ≈ 56.8 billion ≥ 50 billion. Six characters suffice.',
     },
     {
       prompt: 'A competitor scrapes every short link by requesting /1, /2, /3, …. Which design choice made this possible?',
       choices: [
-        'Using a 302 redirect',
+        'Using a 302 redirect, which lets every click reach our server',
+        'Using MD5, whose long digests need heavy truncation',
+        'Storing the mappings in a cache, so a restart would lose them',
         'Base-62 encoding of sequential IDs, which makes codes predictable',
-        'Storing mappings in a cache',
-        'Using MD5',
       ],
-      answer: 1,
+      answer: 3,
       why: 'Sequential IDs produce sequential codes. Using non-sequential IDs (such as Snowflake) or a hashing scheme avoids enumeration.',
     },
     {
       prompt: 'Why does "hash + collision resolution" usually put a Bloom filter in front of the database?',
       choices: [
-        'To encrypt the URLs',
         'To answer "this code is definitely unused" from memory, skipping most database lookups during collision checks',
-        'To make hash values shorter',
-        'To store the long URLs',
+        'To encrypt each stored URL so that a database leak never exposes the long addresses users shortened',
+        'To store the long URLs compactly, with each bit in the array standing for one saved original address',
+        'To shorten hash values, since filters compress a long digest into a few bits per stored short code',
       ],
-      answer: 1,
+      answer: 0,
       why: 'Every candidate code needs an existence check. A Bloom filter turns most of those checks into fast in-memory "no" answers, with no false negatives.',
     },
   ]}
@@ -550,10 +560,10 @@ Notice the last test: `1C` and `1c` are **different codes**. Base 62 depends on 
     {
       prompt: 'Why is a cache especially effective for redirects?',
       choices: [
-        'Redirects are writes',
+        'Every redirect is really a write to the click-count table, so a cache absorbs the load that the database cannot',
         'Mappings never change (no updates or deletes) and reads outnumber writes about 10:1, so cached entries never go stale and get reused often',
-        'Caches are required for 301 responses',
-        'The database cannot store short URLs',
+        'A 301 redirect only works when a cache sits in front of the database, so every deployment is required to run one',
+        'The database cannot store short URLs at this size, so the codes have to live in memory and be rebuilt after restart',
       ],
       answer: 1,
       why: 'Immutable data with a high read ratio is the ideal case for caching. There is no invalidation problem at all.',

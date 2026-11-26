@@ -323,6 +323,13 @@ function OrderList({items, ids, onChange, disabled, status, correctIds}) {
   );
 }
 
+const emptyEssay = {
+  step: 0,
+  drafts: {},
+  phase: 'write', // write | compare | done
+  verdicts: {},
+};
+
 const emptyState = {
   step: 0,
   pick: null,
@@ -331,7 +338,88 @@ const emptyState = {
   missed: {},
   firstTryCorrect: 0,
   done: false,
+  mode: 'choice', // choice | essay
+  essay: emptyEssay,
 };
+
+/** Plain-language reference for essay compare (correct choice / order / multi). */
+function referenceAnswer(q) {
+  if (!q) {
+    return '';
+  }
+  const kind = questionKind(q);
+  if (kind === 'multi') {
+    return correctMulti(q)
+      .map((i) => (q.choices || [])[i])
+      .filter(Boolean)
+      .join('; ');
+  }
+  if (kind === 'order') {
+    return correctOrder(q)
+      .map((i) => (q.items || [])[i])
+      .filter(Boolean)
+      .join(' → ');
+  }
+  const choice = (q.choices || [])[q.answer];
+  return choice != null ? String(choice) : '';
+}
+
+/** Soft hint only — student still self-approves / rejects. */
+function overlapHint(draft, reference, why) {
+  const stop = new Set([
+    'a',
+    'an',
+    'the',
+    'and',
+    'or',
+    'to',
+    'of',
+    'in',
+    'on',
+    'for',
+    'is',
+    'are',
+    'be',
+    'as',
+    'by',
+    'it',
+    'that',
+    'this',
+    'with',
+    'from',
+    'not',
+    'can',
+    'if',
+  ]);
+  const tokenize = (s) =>
+    String(s || '')
+      .toLowerCase()
+      .replace(/[^a-z0-9\s]/g, ' ')
+      .split(/\s+/)
+      .filter((w) => w.length > 2 && !stop.has(w));
+  const draftToks = new Set(tokenize(draft));
+  if (draftToks.size < 3) {
+    return {level: 'thin', label: 'Very short — expand before you judge it.'};
+  }
+  const refToks = tokenize(`${reference} ${why || ''}`);
+  if (!refToks.length) {
+    return {level: 'ok', label: 'Compare with the reference, then decide.'};
+  }
+  let hit = 0;
+  for (const w of refToks) {
+    if (draftToks.has(w)) {
+      hit += 1;
+    }
+  }
+  const ratio = hit / refToks.length;
+  if (ratio >= 0.28) {
+    return {level: 'ok', label: 'Shares several ideas with the reference — still check carefully.'};
+  }
+  if (ratio >= 0.12) {
+    return {level: 'mid', label: 'Some overlap — make sure the key mechanism is there.'};
+  }
+  return {level: 'low', label: 'Quite different from the reference — read both sides.'};
+}
 
 export default function MultipleChoice({
   id,
@@ -549,8 +637,242 @@ export default function MultipleChoice({
     persist({...emptyState});
   }
 
+  function enterEssayMode() {
+    persist((prev) => ({
+      ...prev,
+      mode: 'essay',
+      essay: {
+        ...emptyEssay,
+        drafts: prev.essay?.drafts && typeof prev.essay.drafts === 'object' ? prev.essay.drafts : {},
+        verdicts:
+          prev.essay?.verdicts && typeof prev.essay.verdicts === 'object' ? prev.essay.verdicts : {},
+      },
+    }));
+  }
+
+  function leaveEssayMode() {
+    persist((prev) => ({
+      ...prev,
+      mode: 'choice',
+      essay: prev.essay || emptyEssay,
+    }));
+  }
+
+  function setEssayDraft(text) {
+    persist((prev) => {
+      const essay = {...(prev.essay || emptyEssay)};
+      const step = essay.step || 0;
+      return {
+        ...prev,
+        essay: {
+          ...essay,
+          drafts: {...(essay.drafts || {}), [step]: text},
+          phase: 'write',
+        },
+      };
+    });
+  }
+
+  function submitEssayCompare() {
+    persist((prev) => {
+      const essay = {...(prev.essay || emptyEssay)};
+      const draft = String((essay.drafts || {})[essay.step || 0] || '').trim();
+      if (!draft) {
+        return prev;
+      }
+      return {...prev, essay: {...essay, phase: 'compare'}};
+    });
+  }
+
+  function verdictEssay(verdict) {
+    persist((prev) => {
+      const essay = {...(prev.essay || emptyEssay)};
+      const step = essay.step || 0;
+      const verdicts = {...(essay.verdicts || {}), [step]: verdict};
+      const last = step >= total - 1;
+      if (last) {
+        if (flagSegment) {
+          revealSegment(id, flagSegment);
+        }
+        return {
+          ...prev,
+          essay: {...essay, verdicts, phase: 'done'},
+        };
+      }
+      return {
+        ...prev,
+        essay: {
+          ...essay,
+          verdicts,
+          step: step + 1,
+          phase: 'write',
+        },
+      };
+    });
+  }
+
+  function restartEssay() {
+    persist((prev) => ({
+      ...prev,
+      mode: 'essay',
+      essay: {...emptyEssay},
+    }));
+  }
+
   if (!q) {
     return null;
+  }
+
+  const essay = state.essay || emptyEssay;
+  const essayStep = Math.min(essay.step || 0, Math.max(total - 1, 0));
+  const essayQ = questions[essayStep] || questions[0];
+  const essayDraft = String((essay.drafts || {})[essayStep] || '');
+  const essayApproved = Object.values(essay.verdicts || {}).filter((v) => v === 'approve').length;
+
+  if (state.mode === 'essay') {
+    if (essay.phase === 'done') {
+      return (
+        <section className={styles.quiz} aria-label={title}>
+          <header className={styles.header}>
+            <span className={styles.badge}>Essay</span>
+            <h3 className={styles.title}>{title}</h3>
+          </header>
+          <div className={styles.finish}>
+            <p className={styles.scorePass}>
+              {essayApproved} / {total} self-approved
+            </p>
+            <p className={styles.finishNote}>
+              You compared each answer to the reference and judged it yourself.
+            </p>
+            <div className={styles.finishActions}>
+              <button type="button" className={styles.primary} onClick={restartEssay}>
+                Essay again
+              </button>
+              <button type="button" className={styles.secondary} onClick={leaveEssayMode}>
+                Quiz mode
+              </button>
+              <button type="button" className={styles.secondary} onClick={restart}>
+                Start over
+              </button>
+            </div>
+          </div>
+        </section>
+      );
+    }
+
+    const refText = referenceAnswer(essayQ);
+    const hint =
+      essay.phase === 'compare' ? overlapHint(essayDraft, refText, essayQ?.why) : null;
+
+    return (
+      <section className={styles.quiz} aria-label={title}>
+        <header className={styles.header}>
+          <span className={styles.badge}>Essay</span>
+          <h3 className={styles.title}>{title}</h3>
+          <span className={styles.progress}>
+            {essayStep + 1} / {total}
+          </span>
+        </header>
+        <div className={styles.body}>
+          <Prompt q={essayQ} />
+          {essay.phase === 'write' ? (
+            <>
+              <label className={styles.essayLabel} htmlFor={`essay-${id}-${essayStep}`}>
+                Write your answer in your own words
+              </label>
+              <textarea
+                id={`essay-${id}-${essayStep}`}
+                className={styles.essayArea}
+                value={essayDraft}
+                onChange={(e) => setEssayDraft(e.target.value)}
+                rows={6}
+                placeholder="Explain the idea — no multiple-choice options here."
+                spellCheck
+              />
+            </>
+          ) : (
+            <div className={styles.essayCompare}>
+              <div className={styles.essayPane}>
+                <h4 className={styles.essayPaneTitle}>Your answer</h4>
+                <p className={styles.essayPaneBody}>{essayDraft}</p>
+              </div>
+              <div className={styles.essayPane}>
+                <h4 className={styles.essayPaneTitle}>Reference</h4>
+                <p className={styles.essayPaneBody}>{refText}</p>
+                {essayQ?.why ? (
+                  <p className={styles.essayWhy}>
+                    <strong>Why: </strong>
+                    {essayQ.why}
+                  </p>
+                ) : null}
+              </div>
+              {hint ? (
+                <p
+                  className={
+                    hint.level === 'ok'
+                      ? styles.essayHintOk
+                      : hint.level === 'low'
+                        ? styles.essayHintLow
+                        : styles.essayHintMid
+                  }
+                >
+                  {hint.label}
+                </p>
+              ) : null}
+              <p className={styles.essaySelfNote}>
+                Do your words capture the same idea? Approve or reject yourself.
+              </p>
+            </div>
+          )}
+        </div>
+        <div className={styles.actions}>
+          {essay.phase === 'write' ? (
+            <>
+              <button type="button" className={styles.secondary} onClick={leaveEssayMode}>
+                Quiz mode
+              </button>
+              <button
+                type="button"
+                className={styles.primary}
+                disabled={!essayDraft.trim()}
+                onClick={submitEssayCompare}
+              >
+                Submit to compare
+              </button>
+            </>
+          ) : (
+            <>
+              <button
+                type="button"
+                className={styles.secondary}
+                onClick={() =>
+                  persist((prev) => ({
+                    ...prev,
+                    essay: {...(prev.essay || emptyEssay), phase: 'write'},
+                  }))
+                }
+              >
+                Edit
+              </button>
+              <button
+                type="button"
+                className={styles.rejectBtn}
+                onClick={() => verdictEssay('reject')}
+              >
+                Reject
+              </button>
+              <button
+                type="button"
+                className={styles.primary}
+                onClick={() => verdictEssay('approve')}
+              >
+                Approve
+              </button>
+            </>
+          )}
+        </div>
+      </section>
+    );
   }
 
   if (state.done) {
@@ -567,18 +889,23 @@ export default function MultipleChoice({
           <p className={styles.finishNote}>
             You can work through the questions again whenever you like.
           </p>
-          <button type="button" className={styles.primary} onClick={restart}>
-            Start over
-          </button>
-          {flagSegment ? (
-            <button
-              type="button"
-              className={styles.secondary}
-              onClick={() => revealSegment(id, flagSegment)}
-            >
-              Show flag piece
+          <div className={styles.finishActions}>
+            <button type="button" className={styles.primary} onClick={restart}>
+              Start over
             </button>
-          ) : null}
+            <button type="button" className={styles.secondary} onClick={enterEssayMode}>
+              Essay mode
+            </button>
+            {flagSegment ? (
+              <button
+                type="button"
+                className={styles.secondary}
+                onClick={() => revealSegment(id, flagSegment)}
+              >
+                Show flag piece
+              </button>
+            ) : null}
+          </div>
         </div>
       </section>
     );
@@ -712,6 +1039,9 @@ export default function MultipleChoice({
         {state.status === 'idle' ? (
           <>
             <p className={styles.hint}>{typeHint}</p>
+            <button type="button" className={styles.secondary} onClick={enterEssayMode}>
+              Essay mode
+            </button>
             {kind === 'multi' || kind === 'order' ? (
               <button
                 type="button"
@@ -725,14 +1055,24 @@ export default function MultipleChoice({
           </>
         ) : null}
         {state.status === 'wrong' ? (
-          <button type="button" className={styles.secondary} onClick={retry}>
-            Try again
-          </button>
+          <>
+            <button type="button" className={styles.secondary} onClick={enterEssayMode}>
+              Essay mode
+            </button>
+            <button type="button" className={styles.secondary} onClick={retry}>
+              Try again
+            </button>
+          </>
         ) : null}
         {state.status === 'right' ? (
-          <button type="button" className={styles.primary} onClick={next}>
-            {state.step >= total - 1 ? 'Finish' : 'Next question'}
-          </button>
+          <>
+            <button type="button" className={styles.secondary} onClick={enterEssayMode}>
+              Essay mode
+            </button>
+            <button type="button" className={styles.primary} onClick={next}>
+              {state.step >= total - 1 ? 'Finish' : 'Next question'}
+            </button>
+          </>
         ) : null}
       </div>
     </section>

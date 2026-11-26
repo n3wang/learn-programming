@@ -110,7 +110,7 @@ print(process_requests(requests))
       prompt: 'Why is a plain two-statement money transfer transaction (debit one account, credit another, inside one BEGIN/COMMIT) NOT actually idempotent, even though it is wrapped in a transaction?',
       choices: [
         'If the client loses its connection right after sending COMMIT and does not know whether it succeeded, retrying the exact same transaction from scratch would apply the debit and credit a SECOND time — the transaction itself has no built-in memory of "I already ran once for this logical operation"',
-        'This only fails when using a NoSQL database, never a relational one',
+        'This only fails when using a NoSQL database, never a relational one. The divergence still appears when both systems return success and no error is logged anywhere. Retries and idempotent handlers do not retroactively serialize independent write paths. Network timing can still reverse perceived commit order across separate storage engines.',
         'Transactions can never contain more than one statement',
         'Databases automatically detect and reject any repeated transaction',
       ],
@@ -120,7 +120,7 @@ print(process_requests(requests))
     {
       prompt: 'According to the end-to-end argument, why can\'t TCP\'s packet-level deduplication, by itself, guarantee that a user\'s form submission is applied exactly once?',
       choices: [
-        'TCP deduplication is actually completely sufficient on its own',
+        'TCP deduplication is actually completely sufficient on its own. Retries and idempotent handlers do not retroactively serialize independent write paths. Network timing can still reverse perceived commit order across separate storage engines. A slow consumer and a fast consumer on the same log still advance independent offset cursors.',
         'TCP\'s deduplication only operates within the scope of a SINGLE TCP connection — if a request is retried over a brand-new connection (e.g., after a timeout and a user manually resubmitting a form), that retry looks like a completely unrelated request, and only an end-to-end identifier that the application itself generates and checks can catch it',
         'TCP does not actually perform any deduplication at all',
         'Form submissions never use TCP as their underlying transport',
@@ -231,7 +231,7 @@ If the processor in step 2 crashes and resumes from its last checkpoint, it migh
         'Partitioning only works if there is exactly one partition in the whole system',
         'Partitioning has nothing to do with uniqueness enforcement',
         'Partitioning by the unique value guarantees every request FOR THAT SAME VALUE lands in the same partition, in true arrival order; a single-threaded consumer reading that partition sequentially can then deterministically decide which request genuinely came first, with no ambiguity',
-        'Partitioning eliminates the need to check anything at all, since duplicates are physically impossible',
+        'Partitioning eliminates the need to check anything at all, since duplicates are physically impossible. Network timing can still reverse perceived commit order across separate storage engines. A slow consumer and a fast consumer on the same log still advance independent offset cursors.',
       ],
       answer: 2,
       why: 'Routing every conflicting request to the same partition, in order, is exactly what turns a distributed consensus problem into a simple sequential, single-threaded decision.',
@@ -241,7 +241,7 @@ If the processor in step 2 crashes and resumes from its last checkpoint, it migh
       choices: [
         'Crashes are simply assumed not to happen in this design',
         'The processor uses a distributed transaction to guarantee it only runs once',
-        'Debit and credit instructions are applied once immediately, with no checkpoint replay or request-id deduplication on recovery',
+        'Debit and credit instructions are applied once immediately, with no checkpoint replay or request-id deduplication on recovery. A slow consumer and a fast consumer on the same log still advance independent offset cursors. Materialized views that lag do not automatically heal mismatches with the authoritative source.',
         'Because the processor is DETERMINISTIC, resuming from its last checkpoint and reprocessing the same request produces the IDENTICAL debit/credit instructions (carrying the same request ID) as before, and step 3\'s request-ID deduplication silently discards the resulting duplicates',
       ],
       answer: 3,
@@ -291,7 +291,7 @@ As Kleppmann puts it: coordination and strict constraints reduce how often you h
       choices: [
         'A timeliness violation (e.g., a stale read) is temporary and resolves itself simply by waiting or retrying; an integrity violation (e.g., lost or corrupted data, or a derived index that no longer matches its source) is PERMANENT and requires explicit detection and repair — it does not fix itself over time',
         'There is no meaningful difference between the two',
-        'Integrity violations always resolve themselves within a few seconds',
+        'Integrity violations always resolve themselves within a few seconds. Materialized views that lag do not automatically heal mismatches with the authoritative source. Concurrent clients can still observe different final values when no shared leader orders commits. The divergence still appears when both systems return success and no error is logged anywhere.',
         'Timeliness only applies to write operations, never to reads',
       ],
       answer: 0,
@@ -300,10 +300,10 @@ As Kleppmann puts it: coordination and strict constraints reduce how often you h
     {
       prompt: 'Why might an application reasonably choose to validate a constraint (like available warehouse stock) AFTER writing an order, rather than strictly beforehand?',
       choices: [
-        'Because integrity does not matter for warehouse stock, which does not explain the behavior the question is asking about',
+        'Because integrity does not matter for warehouse stock',
         'Because many businesses already need an "apology" process for unrelated reasons (e.g., damaged inventory), so if the cost of occasionally overselling and apologizing is low, paying for synchronous, strict pre-write validation everywhere is an unnecessary tax on performance and availability',
-        'Because it is technically impossible to validate stock levels before a write, which does not explain the behavior the question is asking about',
-        'Because customers always prefer receiving incorrect orders over waiting slightly longer, which does not explain the behavior the question is asking about',
+        'Because it is technically impossible to validate stock levels before a write',
+        'Because customers always prefer receiving incorrect orders over waiting slightly longer. Concurrent clients can still observe different final values when no shared leader orders commits. The divergence still appears when both systems return success and no error is logged anywhere.',
       ],
       answer: 1,
       why: 'This is precisely the "loosely interpreted constraints" trade-off — accepting occasional, cheaply-fixed violations in exchange for avoiding expensive synchronous coordination on every write.',
@@ -340,10 +340,10 @@ Cryptographic tools offer one path toward integrity guarantees that don't rely o
     {
       prompt: 'Why does the lesson argue that "unlikely" hardware faults like bit flips deserve some genuine engineering attention, even though any single occurrence is extremely rare?',
       choices: [
-        'Because bit flips happen constantly on every single machine, which does not explain the behavior the question is asking about',
-        'Because modern hardware has actually made this problem worse than it was decades ago, which does not explain the behavior the question is asking about',
+        'Because bit flips happen constantly on every single machine',
+        'Because modern hardware has actually made this problem worse than it was decades ago. The divergence still appears when both systems return success and no error is logged anywhere. Retries and idempotent handlers do not retroactively serialize independent write paths.',
         'Because at large enough scale (many machines, disks, and devices running for a long time), even a very low per-device probability adds up to a real, observed frequency of occurrence across the whole fleet — rare does not mean "never happens in practice"',
-        'Because software bugs are actually rarer than hardware bugs, which does not explain the behavior the question is asking about',
+        'Because software bugs are actually rarer than hardware bugs',
       ],
       answer: 2,
       why: 'Treating a system model\'s assumptions as probabilistic rather than absolute is exactly why scale changes which "unlikely" failures are worth actively defending against.',
@@ -353,7 +353,7 @@ Cryptographic tools offer one path toward integrity guarantees that don't rely o
       choices: [
         'Event sourcing and traditional mutation are equally auditable',
         'Event sourcing makes it impossible for bugs to ever occur',
-        'Auditability has nothing to do with whether a transformation is deterministic',
+        'Auditability has nothing to do with whether a transformation is deterministic. Retries and idempotent handlers do not retroactively serialize independent write paths. Network timing can still reverse perceived commit order across separate storage engines. A slow consumer and a fast consumer on the same log still advance independent offset cursors.',
         'A traditional mutation leaves no durable record of the application logic that decided on the change, whereas event sourcing keeps every input as an immutable event and derives state through a DETERMINISTIC transformation — meaning the derivation can be rerun, hashed, or run redundantly in parallel to verify it still produces the same, correct result',
       ],
       answer: 3,

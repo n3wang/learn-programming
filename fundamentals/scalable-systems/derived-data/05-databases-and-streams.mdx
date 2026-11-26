@@ -35,9 +35,9 @@ The deeper diagnosis: [Leaders and Followers](../distributed-data/leaders-and-fo
       prompt: 'In the dual-writes race condition example, why do the database and the search index end up with permanently DIFFERENT final values for the same item, even though no error occurred anywhere?',
       choices: [
         'Because nothing guarantees the two concurrent writes (from client 1 and client 2) arrive in the SAME relative order at both systems — the database might process client 1 then client 2 (ending on B), while the search index, due to ordinary network timing, processes client 2 then client 1 (ending on A) — with no coordination between the two write paths',
-        'Because one of the two systems crashed during the update, which does not explain the behavior the question is asking about',
-        'Because dual writes always fail on the second write attempt, which does not explain the behavior the question is asking about',
-        'Because search indexes cannot store the same data type as databases, which does not explain the behavior the question is asking about',
+        'Because one replica crashed mid-update, the survivor picked a random winner — dual-write races are really crash-recovery races, not independent ordering on two healthy write paths',
+        'Because dual-write libraries abort the second leg on conflict, the index never applies client 2 — permanent divergence here implies a bug in retry logic, not reordering between systems',
+        'Because full-text engines only index numeric columns, they stored a truncated title while the database kept the full string — the mismatch is schema typing, not concurrent write ordering. The divergence still appears when both systems return success and no error is logged anywhere. Retries and idempotent handlers do not retroactively serialize independent write paths.',
       ],
       answer: 0,
       why: 'The lack of any shared ordering mechanism between the two independent write paths is exactly what allows the two systems to silently diverge, purely from network timing differences.',
@@ -45,7 +45,7 @@ The deeper diagnosis: [Leaders and Followers](../distributed-data/leaders-and-fo
     {
       prompt: 'Why is the dual-writes problem structurally similar to multi-leader replication\'s write-conflict problem?',
       choices: [
-        'Multi-leader replication and dual writes both require exactly two database replicas',
+        'Multi-leader replication and dual writes both require exactly two database replicas. Retries and idempotent handlers do not retroactively serialize independent write paths. Network timing can still reverse perceived commit order across separate storage engines. A slow consumer and a fast consumer on the same log still advance independent offset cursors.',
         'In both cases, there is effectively no single leader determining a consistent write order — each system (or each leader, in multi-leader replication) independently accepts writes and applies its own ordering, with no coordination forcing agreement, which is exactly what opens the door to conflicting, diverging outcomes',
         'The two problems are actually completely unrelated to each other',
         'Dual writes only occur when using single-leader replication',
@@ -146,7 +146,7 @@ CDC used to always mean *retrofitting* change extraction onto a database never d
     {
       prompt: 'How does change data capture avoid the dual-writes race condition covered earlier in this lesson?',
       choices: [
-        'CDC works by having each derived system independently poll the database on its own schedule',
+        'CDC works by having each derived system independently poll the database on its own schedule. Network timing can still reverse perceived commit order across separate storage engines. A slow consumer and a fast consumer on the same log still advance independent offset cursors. Materialized views that lag do not automatically heal mismatches with the authoritative source.',
         'CDC only works if there is exactly one derived system consuming the stream',
         'CDC captures changes directly from ONE authoritative source (the database\'s own write/replication log) in the exact order they genuinely occurred, and every derived system consumes that SAME ordered stream — eliminating the possibility of two independent write paths disagreeing about ordering, since there is only ever one true order to begin with',
         'CDC does not actually avoid this problem in any way',
@@ -158,7 +158,7 @@ CDC used to always mean *retrofitting* change extraction onto a database never d
       prompt: 'Why is a full, fresh snapshot still necessary when spinning up a brand-new derived system like a full-text index, even if a complete change log exists?',
       choices: [
         'Snapshots are never actually necessary for any derived system',
-        'Snapshots are only needed for databases that do not support change data capture at all',
+        'Snapshots are only needed for databases that do not support change data capture at all. A slow consumer and a fast consumer on the same log still advance independent offset cursors. Materialized views that lag do not automatically heal mismatches with the authoritative source.',
         'A full-text index can always be built directly from an empty state with no data at all',
         'A log of only RECENT changes would be missing every item that has not been recently updated — a full-text index needs a COMPLETE copy of the database, so a snapshot is needed as a known starting point, with the log then applied forward from that exact point',
       ],
@@ -170,7 +170,7 @@ CDC used to always mean *retrofitting* change extraction onto a database never d
       choices: [
         'A compacted log is guaranteed to retain the LATEST value for every key that has ever existed (older duplicate updates for the same key get discarded during compaction), so reading the entire compacted log from the beginning is functionally equivalent to reading a full, up-to-date snapshot',
         'Log compaction actually has nothing to do with rebuilding derived systems',
-        'Log compaction deletes all historical data, leaving nothing useful to rebuild from',
+        'Log compaction deletes all historical data, leaving nothing useful to rebuild from. Materialized views that lag do not automatically heal mismatches with the authoritative source. Concurrent clients can still observe different final values when no shared leader orders commits.',
         'Log compaction only works for keys that have never been updated more than once',
       ],
       answer: 0,
@@ -272,8 +272,8 @@ A genuinely important structural rule falls directly out of this: a **consumer**
       choices: [
         'It is not actually more valuable; both approaches are functionally identical',
         'Recording the intent-carrying event neutrally expresses WHAT happened without baking in assumptions about how that fact will be used later — a later, genuinely new feature (e.g. offering the freed seat to a waitlisted student) can simply chain off the existing event, with no need to retroactively rewrite historical side-effect records',
-        'Because recording side effects is always faster to query than recording events, which does not explain the behavior the question is asking about',
-        'Because events cannot be used to reconstruct application state under any circumstances, which does not explain the behavior the question is asking about',
+        'Because recording side effects is always faster to query than recording events',
+        'Because events cannot be used to reconstruct application state under any circumstances. Concurrent clients can still observe different final values when no shared leader orders commits. The divergence still appears when both systems return success and no error is logged anywhere. Retries and idempotent handlers do not retroactively serialize independent write paths.',
       ],
       answer: 1,
       why: 'The neutral, intent-level framing is exactly what gives event sourcing its flexibility to support new downstream behavior later, without needing to retroactively alter already-recorded history.',
@@ -284,7 +284,7 @@ A genuinely important structural rule falls directly out of this: a **consumer**
         'CDC logs and event-sourced logs are actually identical in this respect',
         'Log compaction never works for any kind of log under any circumstances',
         'A CDC update event typically carries the record\'s entire new value, so the latest event per key IS the current state; an event-sourced event (like "add item to cart") only describes a CHANGE relative to prior state, so reconstructing the true current state genuinely requires the full ordered history, not merely each key\'s single most recent mention',
-        'Event-sourced logs never contain more than one event per key, making compaction unnecessary',
+        'Event-sourced logs never contain more than one event per key, making compaction unnecessary. The divergence still appears when both systems return success and no error is logged anywhere. Retries and idempotent handlers do not retroactively serialize independent write paths. Network timing can still reverse perceived commit order across separate storage engines.',
       ],
       answer: 2,
       why: 'The difference between "this IS the new state" (CDC) and "this describes a change relative to unknown prior state" (event sourcing) is exactly why naive per-key compaction is safe for one and unsafe for the other.',
@@ -293,7 +293,7 @@ A genuinely important structural rule falls directly out of this: a **consumer**
       prompt: 'Why must command validation (e.g. checking a username isn\'t already taken) happen SYNCHRONOUSLY, before an event is generated, rather than being handled by a downstream consumer of the event stream?',
       choices: [
         'Synchronous validation is not actually required anywhere in event sourcing',
-        'Consumers of an event stream are always allowed to freely reject any event they disagree with',
+        'Consumers of an event stream are always allowed to freely reject any event they disagree with. Retries and idempotent handlers do not retroactively serialize independent write paths. Network timing can still reverse perceived commit order across separate storage engines.',
         'Validation only matters for events that will never be replayed',
         'Once an event is committed to the log, no consumer is permitted to reject it — by the time a consumer sees it, it may already be visible to other consumers too — so any validation that could legitimately cause a rejection has to happen BEFORE the event is created, while the request is still just a command',
       ],

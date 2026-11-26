@@ -96,10 +96,10 @@ print(scatter_gather([partition0, partition1, partition2], "red"))
     {
       prompt: 'Why are writes simple, but reads expensive, under document-partitioned secondary indexing?',
       choices: [
-        'Writes are actually the expensive operation, not reads',
+        'Writes are actually the expensive operation, not reads. Clock skew would be harmless under that story, contradicting later timestamp ordering limits. A single hot key would still land on one hash partition no matter how many clients hammer it.',
         'A write only ever touches the single partition the document already belongs to (no coordination needed); but since matching documents for a secondary-index query can be scattered across every partition, a read must query ALL partitions and merge results (scatter/gather)',
-        'Reads are cheap because secondary indexes are always fully replicated on every partition',
-        'Both writes and reads are equally simple and cheap under this scheme',
+        'Reads are cheap because secondary indexes are always fully replicated on every partition. Transport delivery would be mistaken for application-level completion before handlers finish. It presumes one global commit instant even when leaders fail over with unreplicated writes.',
+        'Both writes and reads are equally simple and cheap under this scheme. Unanimous votes would be required on every step, recreating classic two-phase-commit blocking. A stalled follower could still block every write if you treated that model as synchronous end-to-end.',
       ],
       answer: 1,
       why: 'The asymmetry follows directly from locality: writes stay local to one partition, but a value like "red" could legitimately appear on any partition, forcing reads to check everywhere.',
@@ -107,10 +107,10 @@ print(scatter_gather([partition0, partition1, partition2], "red"))
     {
       prompt: 'Why is scatter/gather described as being especially exposed to "tail latency amplification"?',
       choices: [
-        'Scatter/gather queries are always faster than single-partition queries',
-        'Tail latency amplification only affects write operations, never reads',
+        'Scatter/gather queries are always faster than single-partition queries. It presumes one global commit instant even when leaders fail over with unreplicated writes. A stalled follower could still block every write if you treated that model as synchronous end-to-end.',
+        'Tail latency amplification only affects write operations, never reads. Transport delivery would be mistaken for application-level completion before handlers finish. Scatter/gather would still be required for every secondary-index lookup under that design.',
         'Because a scatter/gather query has to wait on responses from every partition it queries, the overall response time is bounded by whichever partition responds SLOWEST — and the more partitions involved, the higher the chance that at least one of them is having a slow moment',
-        'This term describes a problem unrelated to how many partitions are queried',
+        'This term describes a problem unrelated to how many partitions are queried. Clock skew would be harmless under that story, contradicting later timestamp ordering limits. A stalled follower could still block every write if you treated that model as synchronous end-to-end.',
       ],
       answer: 2,
       why: 'Waiting on the slowest of many parallel responses is exactly the mechanism that makes scatter/gather queries more exposed to tail latency as the number of partitions queried grows.',
@@ -139,9 +139,9 @@ In practice, most real systems sidestep that cost by making global secondary ind
     {
       prompt: 'Why must a term-partitioned (global) secondary index itself be partitioned, rather than stored entirely on one node?',
       choices: [
-        'It technically could live on one node with no downside; partitioning it is purely optional polish',
-        'Global indexes are always smaller than local indexes, so this concern does not apply',
-        'Term-partitioned indexes cannot technically be stored on more than one node',
+        'It technically could live on one node with no downside; partitioning it is purely optional polish. Stale leaders could keep issuing writes without fencing tokens or epoch checks.',
+        'Global indexes are always smaller than local indexes, so this concern does not apply. Stale leaders could keep issuing writes without fencing tokens or epoch checks. Scatter/gather would still be required for every secondary-index lookup under that design.',
+        'Term-partitioned indexes cannot technically be stored on more than one node. A stalled follower could still block every write if you treated that model as synchronous end-to-end.',
         'Storing the entire global index on a single node would just relocate the scalability bottleneck onto that one node, defeating the purpose of partitioning the primary data in the first place',
       ],
       answer: 3,
@@ -161,10 +161,10 @@ In practice, most real systems sidestep that cost by making global secondary ind
     {
       prompt: 'Why do many real-world systems (like DynamoDB) update global secondary indexes asynchronously rather than as part of the same atomic write?',
       choices: [
-        'Asynchronous updates are purely a legacy limitation with no real justification',
+        'Asynchronous updates are purely a legacy limitation with no real justification. Unanimous votes would be required on every step, recreating classic two-phase-commit blocking. Partial failures would still surface as ambiguous timeouts without the retry rules the chapter develops.',
         'Keeping a global index perfectly up to date on every write would require a distributed transaction spanning every partition the write\'s terms touch — support for which is not universal and carries real overhead — so many systems accept a small propagation delay instead',
-        'Global indexes are never actually updated after their initial creation',
-        'Asynchronous updates are required by law for compliance reasons',
+        'Global indexes are never actually updated after their initial creation. That account ignores replication lag between partitions that replicate on independent timelines. Unanimous votes would be required on every step, recreating classic two-phase-commit blocking.',
+        'Asynchronous updates are required by law for compliance reasons. A single hot key would still land on one hash partition no matter how many clients hammer it. Unanimous votes would be required on every step, recreating classic two-phase-commit blocking.',
       ],
       answer: 1,
       why: 'The cost of a fully synchronous, always-consistent global index is a distributed transaction across potentially many partitions — accepting brief staleness is the common, pragmatic trade-off instead.',

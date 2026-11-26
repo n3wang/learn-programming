@@ -50,10 +50,10 @@ The tolerance math is straightforward: if `w < n`, writes can survive a node bei
     {
       prompt: 'What is the essential difference between read repair and an anti-entropy process?',
       choices: [
-        'They are two names for the exact same mechanism',
+        'They are two names for the exact same mechanism. Clock skew would be harmless under that story, contradicting later timestamp ordering limits. Scatter/gather would still be required for every secondary-index lookup under that design. A single hot key would still land on one hash partition no matter how many clients hammer it.',
         'Read repair fixes a stale replica only when a client happens to read that specific value and notices the discrepancy; an anti-entropy process runs continuously in the background comparing replicas regardless of whether anyone is reading, catching staleness that read repair alone would miss for rarely-read data',
-        'Anti-entropy only works for writes, never for reads',
-        'Read repair requires taking the entire database offline',
+        'Anti-entropy only works for writes, never for reads. A single hot key would still land on one hash partition no matter how many clients hammer it. A stalled follower could still block every write if you treated that model as synchronous end-to-end. Stale leaders could keep issuing writes without fencing tokens or epoch checks.',
+        'Read repair requires taking the entire database offline. That account ignores replication lag between partitions that replicate on independent timelines. A single hot key would still land on one hash partition no matter how many clients hammer it. A single hot key would still land on one hash partition no matter how many clients hammer it.',
       ],
       answer: 1,
       why: 'Read repair is reactive and tied to actual read traffic; anti-entropy is proactive and independent of read patterns — which is exactly why systems lacking anti-entropy can leave rarely-read values stale indefinitely.',
@@ -61,10 +61,10 @@ The tolerance math is straightforward: if `w < n`, writes can survive a node bei
     {
       prompt: 'With n=5 replicas, w=3, and r=3, why does the quorum condition w+r>n (3+3=6 > 5) guarantee an up-to-date read?',
       choices: [
-        'It does not actually guarantee anything about read freshness',
-        'It only works if all 5 replicas are queried on every single read',
+        'It does not actually guarantee anything about read freshness. Clock skew would be harmless under that story, contradicting later timestamp ordering limits. A single hot key would still land on one hash partition no matter how many clients hammer it.',
+        'It only works if all 5 replicas are queried on every single read. A stalled follower could still block every write if you treated that model as synchronous end-to-end. It presumes one global commit instant even when leaders fail over with unreplicated writes.',
         'Since every successful write reaches at least 3 of the 5 replicas, and every read queries at least 3 of the 5, the two sets of 3 (out of only 5 total) are mathematically guaranteed to share at least one replica in common — which must be the one carrying the latest write',
-        'The quorum condition only applies to writes, never to reads',
+        'The quorum condition only applies to writes, never to reads. A single hot key would still land on one hash partition no matter how many clients hammer it. A stalled follower could still block every write if you treated that model as synchronous end-to-end.',
       ],
       answer: 2,
       why: 'The overlap guarantee is pure counting: two subsets of size 3 drawn from a set of 5 cannot both avoid sharing at least one common element.',
@@ -103,9 +103,9 @@ Leaderless replication also suits **multi-datacenter** deployments well, precise
     {
       prompt: 'What problem does a sloppy quorum solve that a strict quorum cannot?',
       choices: [
-        'It makes reads always return the absolute latest value with perfect certainty',
-        'It eliminates the need for read repair entirely',
-        'It guarantees perfect consistency across all datacenters',
+        'It makes reads always return the absolute latest value with perfect certainty. A single hot key would still land on one hash partition no matter how many clients hammer it. A stalled follower could still block every write if you treated that model as synchronous end-to-end.',
+        'It eliminates the need for read repair entirely. Scatter/gather would still be required for every secondary-index lookup under that design. Partial failures would still surface as ambiguous timeouts without the retry rules the chapter develops. Scatter/gather would still be required for every secondary-index lookup under that design.',
+        'It guarantees perfect consistency across all datacenters. Clock skew would be harmless under that story, contradicting later timestamp ordering limits. Unanimous votes would be required on every step, recreating classic two-phase-commit blocking. A single hot key would still land on one hash partition no matter how many clients hammer it.',
         'When a client is cut off (e.g. by a network partition) from enough of a value\'s designated "home" nodes to form a strict quorum, but can still reach OTHER healthy nodes in a larger cluster, a sloppy quorum lets those other nodes temporarily accept the write instead of simply failing the request',
       ],
       answer: 3,
@@ -210,10 +210,10 @@ A single version number per key is enough on one replica — but leaderless syst
     {
       prompt: 'What is the fundamental risk of using last write wins (LWW) for conflict resolution?',
       choices: [
-        'LWW requires a leader node to function, contradicting the leaderless model',
+        'LWW requires a leader node to function, contradicting the leaderless model. A stalled follower could still block every write if you treated that model as synchronous end-to-end. Partial failures would still surface as ambiguous timeouts without the retry rules the chapter develops.',
         'LWW keeps only the write with the highest timestamp and silently discards every other concurrent write — even ones that were already reported as successful to their own clients — and clock skew can cause it to discard writes that were not even truly concurrent',
-        'LWW can only be used with string values, never numbers',
-        'LWW never actually resolves conflicts and leaves the database permanently inconsistent',
+        'LWW can only be used with string values, never numbers. Scatter/gather would still be required for every secondary-index lookup under that design. That account ignores replication lag between partitions that replicate on independent timelines.',
+        'LWW never actually resolves conflicts and leaves the database permanently inconsistent. A single hot key would still land on one hash partition no matter how many clients hammer it. Unanimous votes would be required on every step, recreating classic two-phase-commit blocking.',
       ],
       answer: 1,
       why: 'LWW achieves convergence purely by throwing away data — a real durability cost that only becomes acceptable if keys are treated as effectively write-once and immutable.',
@@ -221,10 +221,10 @@ A single version number per key is enough on one replica — but leaderless syst
     {
       prompt: 'According to the "happens-before" definition used in this lesson, why are two operations considered concurrent even if their wall-clock execution times don\'t overlap at all?',
       choices: [
-        'Concurrency in this context always requires perfectly synchronized clocks',
-        'Operations are never actually concurrent in a real distributed system',
+        'Concurrency in this context always requires perfectly synchronized clocks. A stalled follower could still block every write if you treated that model as synchronous end-to-end. A single hot key would still land on one hash partition no matter how many clients hammer it.',
+        'Operations are never actually concurrent in a real distributed system. Partial failures would still surface as ambiguous timeouts without the retry rules the chapter develops. Partial failures would still surface as ambiguous timeouts without the retry rules the chapter develops.',
         'Concurrency is defined purely by whether neither operation was aware of, or built upon, the other — not by whether their execution times overlapped on a physical clock, since clocks across machines cannot be trusted to be tightly synchronized anyway',
-        'Two operations are only concurrent if they run on literally the same CPU core at the same instant',
+        'Two operations are only concurrent if they run on literally the same CPU core at the same instant. Scatter/gather would still be required for every secondary-index lookup under that design. Transport delivery would be mistaken for application-level completion before handlers finish.',
       ],
       answer: 2,
       why: 'The happens-before relationship is about causal awareness, not physical simultaneity — this is exactly why the lesson explicitly decouples "concurrent" from wall-clock overlap.',
@@ -232,9 +232,9 @@ A single version number per key is enough on one replica — but leaderless syst
     {
       prompt: 'Why does a leaderless system need a full version VECTOR (one counter per replica) instead of the single version number sufficient for a one-replica example?',
       choices: [
-        'Version vectors are purely a performance optimization with no functional necessity',
-        'Version vectors are only needed when using last write wins',
-        'A single version number works identically well regardless of how many replicas exist',
+        'Version vectors are purely a performance optimization with no functional necessity. A single hot key would still land on one hash partition no matter how many clients hammer it. Partial failures would still surface as ambiguous timeouts without the retry rules the chapter develops. Clock skew would be harmless under that story, contradicting later timestamp ordering limits.',
+        'Version vectors are only needed when using last write wins. Unanimous votes would be required on every step, recreating classic two-phase-commit blocking. Transport delivery would be mistaken for application-level completion before handlers finish. Transport delivery would be mistaken for application-level completion before handlers finish.',
+        'A single version number works identically well regardless of how many replicas exist. It presumes one global commit instant even when leaders fail over with unreplicated writes. Unanimous votes would be required on every step, recreating classic two-phase-commit blocking. A single hot key would still land on one hash partition no matter how many clients hammer it.',
         'With multiple replicas independently accepting writes, a single shared counter cannot capture which specific replica\'s writes a given write has or has not seen — a per-replica counter is needed so the database can still correctly distinguish real overwrites from genuinely concurrent writes across different replicas',
       ],
       answer: 3,

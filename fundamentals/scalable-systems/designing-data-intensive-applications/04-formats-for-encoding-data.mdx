@@ -53,9 +53,9 @@ The rule of thumb: fine for a quick, transient, single-process cache — a bad i
       prompt: 'Why is forward compatibility ("older code can read data written by newer code") generally harder to achieve than backward compatibility?',
       choices: [
         'Backward compatibility only requires the newer code (which you\'re currently writing) to know about the old format; forward compatibility requires OLDER code — which was already written and deployed before the new format existed — to gracefully ignore additions it was never written to expect',
-        'The two terms describe the exact same requirement',
-        'Forward compatibility is actually easier, not harder',
-        'Forward compatibility does not really matter in practice',
+        'Forward compatibility depends on schema registries publishing coordinated upgrade windows so already-deployed old binaries download each fresh optional-field handler before any writer is allowed to first emit those fields in live production traffic',
+        'Both directions are equally tractable because every value on the wire carries a self-describing type tag and field name, so any parser can skip unknown extensions whether the deployed reader build or the deployed writer build happens to be the newer one',
+        'Backward compatibility is handled by retiring every old client before mixed-version traffic appears, so legacy writers vanish from production and readers never need to tolerate data shaped by a newer encoder once the coordinated cutover window closes',
       ],
       answer: 0,
       why: 'You control and can adapt the new code to handle old formats; you cannot go back and modify already-deployed old code to anticipate future additions.',
@@ -63,10 +63,10 @@ The rule of thumb: fine for a quick, transient, single-process cache — a bad i
     {
       prompt: 'Why is using a language-specific serialization format (like Java\'s Serializable or Python\'s pickle) considered a security risk?',
       choices: [
-        'These formats cannot encode strings safely',
-        'Decoding such formats often requires instantiating arbitrary classes from the byte stream — if an attacker controls that input, they can potentially trigger unintended object construction, sometimes escalating to remote code execution',
-        'They are risky only because they are slow',
-        'They only work over unencrypted network connections',
+        'These formats cannot encode string values safely, so an attacker can embed escape sequences in any text field that overwrite neighbouring memory when the decoder copies the string into a buffer',
+        'Decoding such formats often requires instantiating arbitrary classes from the byte stream — an attacker who controls that input can trigger unintended object construction, sometimes escalating to remote code execution',
+        'They are risky mainly because their encoded output is slow to produce, so an attacker can send a burst of ordinary-looking requests and exhaust the server\'s CPU time without ever breaking in at all',
+        'They only work over unencrypted network connections, so any attacker sitting on the network path can read or alter the serialized bytes while they are in transit between two separate processes',
       ],
       answer: 1,
       why: 'The ability to decode into "any class" is exactly the mechanism that lets malicious input drive unintended, potentially dangerous behavior during decoding.',
@@ -123,10 +123,10 @@ Every field name gets fully spelled out, every single time. The formats covered 
     {
       prompt: 'Why can integer tweet IDs larger than 2^53 be silently corrupted by a JavaScript application parsing Twitter\'s JSON API?',
       choices: [
-        'JSON only supports string values, never numeric ones',
-        'JSON caps integers at 100 in the spec, ignoring IEEE-754 double rounding that loses precision above 2⁵³',
+        'JSON supports only string values and never numeric ones, so a JavaScript parser must guess each type and sometimes rounds long digit strings while converting them into numbers',
+        'The JSON specification caps integer values at a fixed 32-bit range, so any larger tweet ID is truncated by the parser before JavaScript ever receives the number',
         'JSON specifies no fixed integer precision, and JavaScript represents all JSON numbers as IEEE-754 doubles, which cannot exactly represent every integer above 2^53 — causing precision loss for very large IDs',
-        'Twitter deliberately corrupts large numbers for security reasons',
+        'Twitter deliberately corrupts large numbers in its API responses for security reasons, so clients must read the string copy of the ID to recover the true value afterward',
       ],
       answer: 2,
       why: 'This is exactly why Twitter\'s API sends large numeric IDs twice — once as a (potentially lossy) JSON number, once as an exact string.',
@@ -134,9 +134,9 @@ Every field name gets fully spelled out, every single time. The formats covered 
     {
       prompt: 'Why do "binary JSON" formats like MessagePack only achieve a modest size reduction over plain textual JSON for the same record?',
       choices: [
-        'Because binary formats require twice as many bytes per character, which does not explain the behavior the question is asking about',
-        'Because binary formats are actually always larger than text, which does not explain the behavior the question is asking about',
-        'Because MessagePack does not support strings, which does not explain the behavior the question is asking about',
+        'Because binary formats use twice as many bytes per character as text does, so the savings from compact numbers are cancelled out by doubled string storage in every record',
+        'Because binary encodings always add a large fixed header and checksum to every field, so each record ends up almost as large as its plain JSON text equivalent anyway',
+        'Because MessagePack has no native string type, so every name and value must be stored as a padded byte array that wastes most of the space it saves on numbers',
         'Because they preserve JSON\'s schema-less data model, which means every field name still has to be spelled out in full inside every encoded record, just as it would in text',
       ],
       answer: 3,
@@ -271,10 +271,10 @@ One quirk specific to Protocol Buffers: it has no dedicated list type at all —
     {
       prompt: 'Why can you safely rename a field in a Thrift or Protocol Buffers schema, but never change its tag number?',
       choices: [
-        'The encoded bytes never contain field names — only tag numbers — so renaming has zero effect on the wire format, but the tag number IS the field\'s identity in already-written data, and changing it breaks every existing encoded record',
-        'Renaming a field is actually just as dangerous as changing its tag',
-        'Field names and tag numbers are the same thing in these formats',
-        'Both operations are equally safe',
+        'The encoded bytes never contain field names — only tag numbers — so renaming has zero effect on the wire format, but the tag number IS the field\'s identity in already-written data, and changing it breaks every existing record',
+        'Renaming a field is just as dangerous as changing its tag, because the generated code embeds the field name in every encoded record and old readers fail as soon as the names stop matching on both sides',
+        'Field names and tag numbers are interchangeable in these formats, since the schema compiler derives each tag from a hash of the field name and then renumbers it automatically whenever the field is renamed',
+        'Both operations are equally safe, because the schema compiler rewrites every previously encoded record on disk whenever a tag or a name changes anywhere in the schema, so nothing old is ever left behind',
       ],
       answer: 0,
       why: 'The tag, not the name, is what ties encoded bytes back to a specific field — this is the single fact that explains every schema-evolution rule in this format family.',
@@ -282,10 +282,10 @@ One quirk specific to Protocol Buffers: it has no dedicated list type at all —
     {
       prompt: 'Why must every field added to a schema after its initial deployment be optional (or have a default value) in order to preserve backward compatibility?',
       choices: [
-        'Optional fields are always encoded more compactly',
+        'Optional fields are always encoded more compactly on the wire, so adding any non-optional field after launch would grow every record and break readers that expect the old size',
         'If a newly-added field were required, then new code reading data written by OLD code (which never populated that field, since it didn\'t exist yet) would fail its required-field validation check',
-        'Required fields cannot be added to a schema at all, ever',
-        'This rule only applies to Protocol Buffers, not Thrift',
+        'Required fields cannot be added to a schema at all, ever, because the compiler refuses to regenerate code once records written under the old schema exist in storage',
+        'This rule applies only to Protocol Buffers, because Thrift stores a default for each missing field in the encoded bytes and so never fails a validation check on read',
       ],
       answer: 1,
       why: 'A required check on a field that old writers could never have populated is exactly the scenario that breaks backward compatibility if allowed.',
@@ -293,10 +293,10 @@ One quirk specific to Protocol Buffers: it has no dedicated list type at all —
     {
       prompt: 'What is the practical benefit of Protocol Buffers implementing "repeated" fields as the same tag simply appearing multiple times, rather than as a distinct list type?',
       choices: [
-        'It prevents any field from ever holding more than one value',
-        'It makes encoding slower but more reliable',
+        'It guarantees that no field can ever hold more than one value, because repeating a tag overwrites the earlier occurrence and the decoder keeps only a single entry per field',
+        'It makes encoding slower but more reliable, because the decoder must scan the whole record for repeated tags and cross-check them before returning any list value to the caller',
         'It means an optional (single-valued) field can later be changed to repeated (multi-valued) with no compatibility break — old code just sees the last value, new code just sees a short list',
-        'It has no practical benefit compared to Thrift\'s dedicated list type',
+        'It has no practical benefit compared to Thrift\'s dedicated list type, since both approaches encode lists with identical bytes and allow exactly the same schema changes over time',
       ],
       answer: 2,
       why: 'This is explicitly called out as a "free" schema evolution path that Thrift\'s separately-typed list construct doesn\'t offer.',
@@ -367,9 +367,9 @@ This same tag-free property is also why Avro needs no code generation to be usef
     {
       prompt: 'Why must Avro\'s reader know the EXACT schema a piece of data was encoded with, field by field, in order — unlike Thrift or Protocol Buffers?',
       choices: [
-        'Avro actually does include field names and type markers in the encoded data, just like MessagePack',
-        'Avro encodes everything as plain text, so no schema is needed',
-        'Avro requires code generation for every language, which embeds the schema automatically',
+        'Each datum is prefixed with a self-describing MessagePack map that repeats field names and type tags on every value, so decoders can interpret the payload before writer and reader negotiate or agree on any shared Avro schema definition',
+        'Records serialize as indented JSON text with field names repeated on each row in the byte stream, so any UTF-8 parser can recover structure and types without an accompanying Avro IDL definition or writer-schema metadata',
+        'Avro mandates per-language code generation so compiled stubs embed the full writer schema beside every encoded value, letting readers decode the bytes without consulting external schema metadata or a schema registry lookup',
         'Avro\'s encoding contains nothing but concatenated values with no type markers or field identifiers at all — the only way to know what each sequence of bytes represents is to already know the exact schema and field order used to write it',
       ],
       answer: 3,
@@ -379,9 +379,9 @@ This same tag-free property is also why Avro needs no code generation to be usef
       prompt: 'What is Avro\'s single unifying rule for maintaining both forward and backward compatibility when evolving a schema?',
       choices: [
         'You may only add or remove a field if it has a default value — a missing field on either side of the reader/writer mismatch can then be safely filled in from that default',
-        'Never change the schema after initial deployment, under any circumstances',
-        'Every field must always be assigned a unique numeric tag',
-        'Only string fields can ever be added or removed safely',
+        'Never change the schema after initial deployment, because the writer\'s schema is baked into every record and any mismatch with the reader\'s schema would make decoding fail',
+        'Every field must always be assigned a unique numeric tag, and those tags may never be reused or renumbered once a record has been written under that schema',
+        'Only string fields can ever be added or removed safely, since the length-prefixed encoding of strings is the only one a reader can skip without a type marker',
       ],
       answer: 0,
       why: 'This one rule collapses the usual two-directional compatibility reasoning (used by Thrift/Protobuf\'s tag rules) into a single, simpler requirement.',
@@ -389,10 +389,10 @@ This same tag-free property is also why Avro needs no code generation to be usef
     {
       prompt: 'Why is Avro specifically well suited to schemas generated dynamically from something like a relational database\'s table definition?',
       choices: [
-        'Because Avro schemas cannot be generated dynamically at all, which does not explain the behavior the question is asking about',
+        'Dynamic generation is unsupported: official tooling only accepts hand-authored IDL checked into source control, so reflecting a live SQL catalog at export time would violate the static schema contract the specification assumes for each topic',
         'Because Avro matches fields by NAME rather than by a manually-assigned numeric tag, so a schema can be regenerated straight from column names every time the underlying table changes, with no risk of accidentally reusing or mismanaging tag numbers',
-        'Because Avro requires exactly one field per schema, which does not explain the behavior the question is asking about',
-        'Because Avro only works with pre-compiled, statically generated code, which does not explain the behavior the question is asking about',
+        'The object container format allows exactly one top-level record field in the file header schema, which matches a single-column export pattern but fails once a relational table exposes multiple named attributes in one row',
+        'Ingestion pipelines require Java classes generated ahead of time from every schema revision, so a nightly-changing table definition cannot be represented in Avro without recompiling and redeploying every downstream consumer on each DDL change',
       ],
       answer: 1,
       why: 'Name-based field matching removes the manual tag-bookkeeping burden that a dynamically-changing schema source (like a database table) would otherwise impose on Thrift or Protocol Buffers.',

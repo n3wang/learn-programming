@@ -66,9 +66,9 @@ What to log: errors/exceptions almost always; “weird” cases (a path that too
       prompt: 'How do logs differ from metrics?',
       choices: [
         'Logs describe specific executions; metrics summarize behavior across many requests over time',
-        'Logs cannot include timestamps',
-        'Logs are always cheaper to store than metrics',
-        'Metrics replace logging entirely',
+        'Metrics replace logging entirely once histograms exist, so structured events become redundant for operations',
+        'Logs cannot include timestamps because line-oriented appenders strip clock metadata before shipping to collectors',
+        'Logs are always cheaper to retain at full fidelity than aggregated metric time series in every storage backend',
       ],
       answer: 0,
       why: 'Per-execution narrative vs aggregate time series.',
@@ -76,10 +76,10 @@ What to log: errors/exceptions almost always; “weird” cases (a path that too
     {
       prompt: 'Why use leveled logging instead of printing everything at one severity?',
       choices: [
-        'Because Kubernetes forbids Error logs, which does not explain the behavior the question is',
+        'Because Info-level logs cannot carry request IDs, teams must leave Debug enabled in production for every correlation field',
         'Keep detailed Debug in code but filter it out in production until you need it',
+        'Because Kubernetes audit policy forbids Error severity lines in container stdout, forcing everything into Info only',
         'So Fatal never runs',
-        'Because Info-level logs cannot carry request IDs, so Debug must stay enabled always',
       ],
       answer: 1,
       why: 'Levels separate “always on” signal from investigatory detail.',
@@ -216,10 +216,10 @@ Start with request **count** (interesting as a **rate**), then enrich with **lab
     {
       prompt: 'Why is HTTP status a good Prometheus label on a request counter, but raw latency is not?',
       choices: [
-        'Latency never matters',
-        'Prometheus cannot store histograms',
+        'Latency never matters for SLO work once error counters exist, so operators only need discrete status labels on dashboards',
+        'Prometheus cannot store histograms or summaries, so latency must appear only as unstructured log lines forever',
         'Labels need a limited discrete set; latency is continuous with huge cardinality',
-        'Status codes are floats',
+        'HTTP status codes are floating-point values in Prometheus, which makes them unsuitable for histogram bucketing',
       ],
       answer: 2,
       why: 'Cardinality: status ≈ small enum; latency needs a histogram metric.',
@@ -227,9 +227,9 @@ Start with request **count** (interesting as a **rate**), then enrich with **lab
     {
       prompt: 'When do you prefer a Prometheus push gateway?',
       choices: [
+        'Instead of structured logging — rely on metrics alone forever',
         'Only when the process emits Fatal-level logs, not for batch jobs',
         'For every long-running web server, including jobs that exit before',
-        'Instead of structured logging — rely on metrics alone forever',
         'For short-lived / batch jobs that may exit before a scrape',
       ],
       answer: 3,
@@ -349,9 +349,9 @@ Static global thresholds miss **100% outage for 1% of users** while the fleet av
       prompt: 'Why treat alert thresholds as tied to SLOs?',
       choices: [
         'They define the boundary between nominal and exceptional operation you are willing to notice',
-        'Because tracing replaces SLOs, which does not explain the behavior the question is asking about',
-        'Because Prometheus cannot graph rates, which does not explain the behavior the question is asking about',
-        'Because logs cannot trigger pages, which does not explain the behavior the question is asking about',
+        'Because log lines cannot trigger paging hooks, on-call must ignore SLO breaches that appear only in structured logs',
+        'Because distributed tracing replaces SLO definitions entirely once spans exist, making static thresholds obsolete',
+        'Because Prometheus cannot graph rate() over counters, SLO thresholds must be maintained in spreadsheets instead',
       ],
       answer: 0,
       why: 'What you page on is what you operationally commit to.',
@@ -359,10 +359,10 @@ Static global thresholds miss **100% outage for 1% of users** while the fleet av
     {
       prompt: 'A static 1% error-rate alert can miss which failure mode?',
       choices: [
-        'Any 500 at all',
+        'Any single HTTP 500 response anywhere in the fleet, because global counters increment on every server-side failure',
         'Total failure for a small user cohort while the global error rate stays under the threshold',
-        'High CPU on a single idle box',
-        'Missing Debug logs',
+        'High CPU utilization on one idle box with no traffic, which always pages under static error-rate rules',
+        'Missing Debug log lines during an incident, which static error ratios treat the same as user-visible outages',
       ],
       answer: 1,
       why: 'Global averages hide localized black holes — anomaly/cohort alerting helps.',
@@ -466,10 +466,10 @@ flowchart LR
     {
       prompt: 'What problem does a correlation ID solve that per-service metrics alone do not?',
       choices: [
-        'Replacing all histograms',
-        'Deleting Error logs',
+        'Deleting Error log lines automatically once a trace completes, so retention costs vanish after export',
+        'Counting total requests forever without resetting counters, which per-service metrics cannot do without trace headers',
         'Stitching one user journey across many services instead of seeing unrelated concurrent RPCs',
-        'Counting total requests forever',
+        'Replacing all latency histograms with a single counter so percentile math is unnecessary in dashboards',
       ],
       answer: 2,
       why: 'End-to-end context across the call graph.',
@@ -594,7 +594,7 @@ Observability data grows fast. Aggregation (and tiering) keeps it queryable and 
       choices: [
         'Cut storage (e.g. 1s→1m is ~60×) while keeping a useful trend, ideally via averages not one random sample',
         'To delete all Error logs, prioritizing that goal over the access pattern the design optimizes for',
-        'Because OpenTelemetry forbids histograms, which does not explain the behavior the question is asking about',
+        'Because OpenTelemetry SDKs forbid histogram export, downsampling is the only way to retain any latency detail',
         'So alerts never fire',
       ],
       answer: 0,
@@ -603,10 +603,10 @@ Observability data grows fast. Aggregation (and tiering) keeps it queryable and 
     {
       prompt: 'Cold storage for logs is a good fit when…',
       choices: [
-        'You need sub-second dashboards forever',
+        'You need sub-second interactive dashboards forever on every field without downsampling or retention tiers',
         'You must retain data long-term but query it rarely (compliance), accepting slower access',
-        'You want to raise cardinality of every label',
-        'Tracing is disabled',
+        'You want to raise cardinality of every label to improve drill-down, even if query cost grows without bound',
+        'Distributed tracing is disabled globally, which forces all investigation to use only hot-tier log indexes',
       ],
       answer: 1,
       why: 'Trade query speed for retention cost.',

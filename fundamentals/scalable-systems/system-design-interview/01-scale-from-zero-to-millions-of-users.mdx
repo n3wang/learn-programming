@@ -99,12 +99,12 @@ A relational database is the sensible default for most applications. Look at a N
     {
       prompt: 'An e-commerce app stores orders, customers, and products and frequently reports on "orders per customer per product category." Which is the better default choice?',
       choices: [
-        'A key-value store, because it is always faster',
         'A relational database, because the data is highly related and the queries need joins',
-        'A graph database, because every dataset is a graph',
-        'No database — keep everything in the web server memory',
+        'A graph database, because every dataset is really a graph of entities and relationships',
+        'No database at all; keep every record in web server memory so reads skip the network',
+        'A key-value store, because its simple lookups are always faster than anything relational',
       ],
-      answer: 1,
+      answer: 0,
       why: 'Strongly related data with join-heavy queries is exactly what relational databases are built for. NoSQL wins on specific needs (latency, scale, unstructured data), not by default.',
     },
   ]}
@@ -213,10 +213,10 @@ flowchart LR
     {
       prompt: 'Why do the web servers use private IPs once a load balancer is added?',
       choices: [
-        'Private IPs are faster than public IPs',
+        'Private addresses are routed over faster links than public ones, so servers get lower latency without an LB',
         'Clients should reach only the load balancer; keeping servers off the public internet improves security and lets the LB control routing',
-        'DNS cannot resolve more than one public IP',
-        'Databases only accept connections from private IPs',
+        'DNS can return only one public address per name, so a single entry point is the only thing that can work',
+        'Databases refuse any connection that comes from a public address, so web servers must stay on a private network',
       ],
       answer: 1,
       why: 'The load balancer is the single public entry point. Servers behind it are reachable only inside the network.',
@@ -224,12 +224,12 @@ flowchart LR
     {
       prompt: 'The primary database crashes. What is the standard recovery step, and what is the hidden risk?',
       choices: [
-        'Restart the web servers; there is no risk',
+        'Redirect all reads to the old primary; the only risk is somewhat higher latency under load',
+        'Restart the web servers and retry; the database state is unaffected so there is no data risk',
         'Promote a replica to primary; it may be missing recent writes that had not yet replicated',
-        'Send writes to all replicas at once; this is always safe',
-        'Switch reads to the primary; the risk is higher latency',
+        'Send writes to every replica at once; this is safe because all replicas always agree',
       ],
-      answer: 1,
+      answer: 2,
       why: 'Promotion restores write availability, but asynchronous replication means the new primary can lag behind the old one — those missing writes need recovery.',
     },
   ]}
@@ -380,35 +380,35 @@ flowchart LR
     {
       prompt: 'Your team sets the cache TTL for product prices to 30 days to minimize database load. What is the main risk?',
       choices: [
-        'The cache will crash from too many keys',
+        'The cache runs out of memory and crashes from too many stored keys',
+        'The database gets overloaded because every request misses the cache',
+        'LRU eviction stops working once entries live that long',
         'Users may see stale prices long after they change in the database',
-        'The database will be overloaded with reloads',
-        'LRU eviction will stop working',
       ],
-      answer: 1,
+      answer: 3,
       why: 'A long TTL trades freshness for fewer reloads. Prices change, so a month-long TTL makes stale data very likely.',
       whyWrong: 'An overloaded database is the risk of a TTL that is too *short*, not too long.',
     },
     {
       prompt: 'You shipped a new logo but users still see the old one from the CDN. Which fix works without waiting for the TTL?',
       choices: [
-        'Restart the web servers',
-        'Add another replica database',
         'Reference a versioned URL such as logo.png?v=2, or call the CDN vendor\'s invalidation API',
-        'Increase the TTL',
+        'Restart the origin web servers, which forces the CDN to drop every cached copy it holds',
+        'Add another read replica database so the CDN fetches the file from a fresher copy',
+        'Raise the TTL on the logo so edge servers hold the new file longer and it propagates',
       ],
-      answer: 2,
+      answer: 0,
       why: 'Versioning creates a new cache key the CDN has never seen; the invalidation API explicitly evicts the old object.',
     },
     {
       prompt: 'Which of these data is the best candidate for the cache tier?',
       choices: [
-        'A user\'s bank balance immediately after every transfer',
-        'The only copy of uploaded photos',
+        'A user\'s bank balance, which must be exact right after each transfer',
         'A product catalog page read thousands of times per minute and updated once a day',
-        'Write-heavy event logs that are never read',
+        'The only copy of every uploaded photo, kept in the cache for fast access',
+        'A write-heavy stream of event logs that is appended constantly and rarely read',
       ],
-      answer: 2,
+      answer: 1,
       why: 'Caching pays off for read-heavy, rarely changing data. The cache is volatile, so it should never hold the only copy of anything.',
     },
   ]}
@@ -580,35 +580,35 @@ flowchart LR
     {
       prompt: 'Which change most directly makes autoscaling the web tier straightforward?',
       choices: [
-        'Enabling sticky sessions on the load balancer',
+        'Enabling sticky sessions so the LB pins each user to one server',
+        'Increasing each web server\'s RAM so more sessions fit in memory',
         'Moving session data out of the web servers into a shared data store',
-        'Increasing each web server\'s RAM',
-        'Adding a CDN',
+        'Adding a CDN in front of the web tier to absorb requests',
       ],
-      answer: 1,
+      answer: 2,
       why: 'Once servers hold no per-user state, any server can serve any request, so servers can be added or removed without breaking sessions.',
       whyWrong: 'Sticky sessions are the workaround for *stateful* servers — they make adding and removing servers harder, not easier.',
     },
     {
       prompt: 'Video uploads must be transcoded, which takes minutes. Users complain that the upload page hangs. What is the best fix?',
       choices: [
-        'Buy a faster web server',
+        'Shard the metadata database by video ID so each shard handles less of the transcoding work',
+        'Buy a larger web server with more cores so it can transcode each upload before replying to the user',
+        'Push uploaded videos to the CDN first and let edge servers transcode them when viewers first ask',
         'Have the web server publish a transcoding job to a message queue and return immediately; workers process jobs asynchronously',
-        'Cache the uploaded videos in the CDN before transcoding',
-        'Shard the database by video ID',
       ],
-      answer: 1,
+      answer: 3,
       why: 'A queue decouples the slow work from the request. Workers can be scaled with queue length independently of the web tier.',
     },
     {
       prompt: 'After a data-center failover, some users see their recent posts missing. Which multi-DC challenge is this?',
       choices: [
-        'Traffic redirection',
         'Data synchronization',
+        'Traffic redirection',
         'Test and deployment',
-        'Cache eviction',
+        'Cache eviction rules',
       ],
-      answer: 1,
+      answer: 0,
       why: 'The traffic moved correctly, but the data hadn\'t fully replicated to the surviving data center yet.',
     },
   ]}
@@ -728,10 +728,10 @@ flowchart LR
     {
       prompt: 'A social app shards its posts table by country code. Over 60% of users are in one country. What is wrong with this sharding key?',
       choices: [
-        'Country codes are strings, and only integers can be sharding keys',
+        'Country codes are strings, so the sharding function cannot hash them into shard numbers',
         'It distributes data unevenly, so one shard becomes a hotspot and fills up long before the others',
-        'Sharding by country prevents replication',
-        'Nothing — country is always the best key',
+        'Sharded data cannot be replicated, because each country must live on exactly one server',
+        'Nothing is wrong, because country is a natural key that spreads load evenly',
       ],
       answer: 1,
       why: 'The primary criterion for a sharding key is even distribution. A key with heavy skew concentrates both storage and traffic on a single shard.',
@@ -739,12 +739,12 @@ flowchart LR
     {
       prompt: 'After sharding by user_id, a report that joins users with orders (sharded by order_id) becomes very slow. What is the usual workaround?',
       choices: [
-        'Add more CPU to every shard',
+        'Add more CPU and memory to every shard so the cross-shard join finishes faster',
+        'Change the sharding function from modulo to division so joined rows map together',
         'Denormalize so the needed fields live together and the query can run on a single shard',
-        'Switch the sharding function from % to /',
-        'Disable the cache tier',
+        'Disable the cache tier so every join reads the freshest rows directly from each shard',
       ],
-      answer: 1,
+      answer: 2,
       why: 'Cross-shard joins are expensive. Denormalizing (or co-locating related data with the same key) lets the query hit one shard.',
     },
     {

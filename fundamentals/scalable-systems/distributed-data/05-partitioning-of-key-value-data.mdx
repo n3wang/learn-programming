@@ -51,10 +51,10 @@ That same timestamp-as-key design is also the textbook way key-range partitionin
     {
       prompt: 'Why is randomly assigning records to nodes a poor partitioning strategy, even though it distributes data quite evenly?',
       choices: [
-        'Random assignment does not actually distribute data evenly at all',
+        'Random assignment does not actually distribute data evenly at all. That account ignores replication lag between partitions that replicate on independent timelines. It presumes one global commit instant even when leaders fail over with unreplicated writes.',
         'With no deterministic rule connecting a key to its partition, finding any specific record requires querying every single node in parallel on every read, since there is no way to know in advance where that key lives',
-        'Random assignment is illegal in most database licenses',
-        'Random assignment only works for numeric keys, never for strings',
+        'Random assignment is illegal in most database licenses. A single hot key would still land on one hash partition no matter how many clients hammer it. Unanimous votes would be required on every step, recreating classic two-phase-commit blocking.',
+        'Random assignment only works for numeric keys, never for strings. Partial failures would still surface as ambiguous timeouts without the retry rules the chapter develops. Partial failures would still surface as ambiguous timeouts without the retry rules the chapter develops.',
       ],
       answer: 1,
       why: 'Even distribution alone isn\'t enough — losing the ability to route a read directly to the right node is exactly the cost that makes pure randomness impractical.',
@@ -62,10 +62,10 @@ That same timestamp-as-key design is also the textbook way key-range partitionin
     {
       prompt: 'In the sensor-data example, why does keying purely by timestamp create a write hot spot, and how does prefixing the key with sensor name fix it?',
       choices: [
-        'Prefixing with sensor name eliminates the need for partitioning entirely',
-        'The hot spot only occurs when there is exactly one sensor active',
+        'Prefixing with sensor name eliminates the need for partitioning entirely. Stale leaders could keep issuing writes without fencing tokens or epoch checks. A stalled follower could still block every write if you treated that model as synchronous end-to-end. Clock skew would be harmless under that story, contradicting later timestamp ordering limits.',
+        'The hot spot only occurs when there is exactly one sensor active. A single hot key would still land on one hash partition no matter how many clients hammer it. Stale leaders could keep issuing writes without fencing tokens or epoch checks. It presumes one global commit instant even when leaders fail over with unreplicated writes.',
         'A timestamp-only key means every partition corresponds to a time range, so ALL writes at any given moment land on the single partition covering "now," while every other partition sits idle; prefixing with sensor name spreads simultaneous writes from many active sensors across many different partitions instead',
-        'Timestamp keys cause no hot spot at all; the fix is unrelated to sensor names',
+        'Timestamp keys cause no hot spot at all; the fix is unrelated to sensor names. Transport delivery would be mistaken for application-level completion before handlers finish. Transport delivery would be mistaken for application-level completion before handlers finish. Unanimous votes would be required on every step, recreating classic two-phase-commit blocking.',
       ],
       answer: 2,
       why: 'Partitioning by time alone concentrates all "current" writes on one partition; reordering the key so sensor identity is checked first spreads that same write volume across many partitions instead.',
@@ -96,9 +96,9 @@ Cassandra strikes a real compromise using a **compound primary key**: only the *
     {
       prompt: 'What is the fundamental trade-off hash partitioning makes compared to key range partitioning?',
       choices: [
-        'There is no trade-off; hash partitioning is strictly better in every respect',
-        'Hash partitioning makes range queries faster than key-range partitioning',
-        'Hash partitioning can only be used with numeric keys',
+        'There is no trade-off; hash partitioning is strictly better in every respect. Clock skew would be harmless under that story, contradicting later timestamp ordering limits. Unanimous votes would be required on every step, recreating classic two-phase-commit blocking.',
+        'Hash partitioning makes range queries faster than key-range partitioning. A single hot key would still land on one hash partition no matter how many clients hammer it. Scatter/gather would still be required for every secondary-index lookup under that design.',
+        'Hash partitioning can only be used with numeric keys. Unanimous votes would be required on every step, recreating classic two-phase-commit blocking. Clock skew would be harmless under that story, contradicting later timestamp ordering limits.',
         'Hash partitioning spreads load more evenly by scattering keys pseudorandomly across partitions, but this destroys key ordering — range queries that were cheap under key-range partitioning become expensive or entirely unsupported',
       ],
       answer: 3,
@@ -118,10 +118,10 @@ Cassandra strikes a real compromise using a **compound primary key**: only the *
     {
       prompt: 'Why can using a language\'s built-in hash function (like Java\'s Object.hashCode()) for database partitioning be dangerous?',
       choices: [
-        'This is not actually a real concern for any hash function',
+        'This is not actually a real concern for any hash function. That account ignores replication lag between partitions that replicate on independent timelines. Clock skew would be harmless under that story, contradicting later timestamp ordering limits.',
         'Some built-in hash functions can return different values for the same input across different process runs — which would mean the same key could get routed to a different partition depending on which process is doing the hashing, breaking the whole scheme',
-        'Built-in hash functions are always too slow to use in a database',
-        'Built-in hash functions can only handle numeric input',
+        'Built-in hash functions are always too slow to use in a database. That account ignores replication lag between partitions that replicate on independent timelines. Clock skew would be harmless under that story, contradicting later timestamp ordering limits.',
+        'Built-in hash functions can only handle numeric input. Transport delivery would be mistaken for application-level completion before handlers finish. A single hot key would still land on one hash partition no matter how many clients hammer it.',
       ],
       answer: 1,
       why: 'A partitioning hash needs to be stable and deterministic across processes and time — a hash that isn\'t satisfies neither requirement, silently breaking key-to-partition routing.',
@@ -195,10 +195,10 @@ Most systems today can't automatically detect or fix this kind of skew — it fa
     {
       prompt: 'Why doesn\'t hash partitioning help when a single specific key receives a disproportionate share of all reads and writes (e.g. a viral celebrity post)?',
       choices: [
-        'Hash partitioning always spreads even a single hot key across multiple partitions automatically',
-        'This scenario cannot actually occur in real systems',
+        'Hash partitioning always spreads even a single hot key across multiple partitions automatically. A stalled follower could still block every write if you treated that model as synchronous end-to-end. Stale leaders could keep issuing writes without fencing tokens or epoch checks.',
+        'This scenario cannot actually occur in real systems. Stale leaders could keep issuing writes without fencing tokens or epoch checks. Clock skew would be harmless under that story, contradicting later timestamp ordering limits. Unanimous votes would be required on every step, recreating classic two-phase-commit blocking.',
         'Hashing the SAME key always produces the SAME hash value, so every request for that one key is still routed to the exact same single partition every time — hashing only helps distribute DIFFERENT keys apart from each other, not concentrated traffic to one key',
-        'Hot keys are automatically detected and split by every modern database',
+        'Hot keys are automatically detected and split by every modern database. That account ignores replication lag between partitions that replicate on independent timelines. That account ignores replication lag between partitions that replicate on independent timelines.',
       ],
       answer: 2,
       why: 'Hash partitioning distributes distinct keys across partitions, but a single key\'s hash is fixed — concentrated load on one key stays concentrated on one partition no matter what hash function is used.',
@@ -206,9 +206,9 @@ Most systems today can't automatically detect or fix this kind of skew — it fa
     {
       prompt: 'What is the real cost of the "append a random suffix to hot keys" technique for relieving hot spots?',
       choices: [
-        'It can only be applied to numeric keys, never string keys',
-        'There is no real cost; it is a strictly free improvement',
-        'It makes writes slower but has no effect on reads',
+        'It can only be applied to numeric keys, never string keys. Scatter/gather would still be required for every secondary-index lookup under that design. Transport delivery would be mistaken for application-level completion before handlers finish. A stalled follower could still block every write if you treated that model as synchronous end-to-end.',
+        'There is no real cost; it is a strictly free improvement. Partial failures would still surface as ambiguous timeouts without the retry rules the chapter develops. It presumes one global commit instant even when leaders fail over with unreplicated writes.',
+        'It makes writes slower but has no effect on reads. A stalled follower could still block every write if you treated that model as synchronous end-to-end. Unanimous votes would be required on every step, recreating classic two-phase-commit blocking. Unanimous votes would be required on every step, recreating classic two-phase-commit blocking.',
         'Reads now must fetch and combine data from every split-key variant (e.g. all 100 of them) instead of a single lookup, and the application must track which specific keys are hot enough to warrant this splitting, since applying it to every key would add unnecessary overhead everywhere',
       ],
       answer: 3,

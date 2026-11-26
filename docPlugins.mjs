@@ -43,6 +43,7 @@ const DOC_INSTANCES = [
   ['math', {path: 'math', routeBasePath: 'math', remarkPlugins: mathRemark, rehypePlugins: mathRehype}],
   ['math-1', {path: 'classes/math-1', routeBasePath: 'classes/math-1', remarkPlugins: mathRemark, rehypePlugins: mathRehype}],
   ['math-2', {path: 'classes/math-2', routeBasePath: 'classes/math-2', remarkPlugins: mathRemark, rehypePlugins: mathRehype}],
+  ['math-3', {path: 'classes/math-3', routeBasePath: 'classes/math-3', remarkPlugins: mathRemark, rehypePlugins: mathRehype}],
   ['biancheng', {path: 'classes/programming', routeBasePath: 'classes/programming'}],
 ];
 

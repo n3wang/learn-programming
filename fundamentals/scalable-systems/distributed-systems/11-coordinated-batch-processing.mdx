@@ -77,10 +77,10 @@ Mitigate latency as in earlier chapters: duplicate stragglers / trade compute fo
     {
       prompt: 'Main cost of a join barrier is…',
       choices: [
-        'It deletes all shard outputs',
+        'It deletes every shard output as soon as one piece arrives, so partial results cannot be inspected for debugging',
         'Subsequent stages wait on the slowest parallel piece, reducing overlap and raising latency',
-        'It forbids MapReduce',
-        'It requires a singleton forever',
+        'It forbids MapReduce-style fan-out entirely, so pipelines must run as a single serial reducer on one machine',
+        'It requires a singleton coordinator forever, because barriers cannot run under Kubernetes ReplicaSet controllers',
       ],
       answer: 1,
       why: 'Same straggler effect as scatter/gather roots waiting on all leaves.',
@@ -183,10 +183,10 @@ Merge relative histograms by weighting with population (or counts), combining bu
     {
       prompt: 'How does reduce differ from join in a batch pipeline?',
       choices: [
-        'Reduce forbids combining any outputs',
-        'Join is always faster than reduce',
+        'Reduce forbids combining any outputs — each partial must remain a separate artifact until a manual join operator runs',
+        'Join barriers always finish sooner than reduce trees because waiting for completeness is cheaper than associative merges',
         'Reduce optimistically merges partial results into fewer outputs and can start while map shards are still running; join waits for the full set first',
-        'Reduce only works on video frames',
+        'Reduce operators apply only to video frame tensors, while joins are reserved for textual log pipelines exclusively',
       ],
       answer: 2,
       why: 'Same associative merge shape lets reduce overlap with map; join is a completeness barrier.',
@@ -194,9 +194,9 @@ Merge relative histograms by weighting with population (or counts), combining bu
     {
       prompt: 'Why can the same reduce function run many times in a tree?',
       choices: [
-        'Because barriers delete keys, which does not explain the behavior the question is asking about',
-        'Because shards must share one disk, which does not explain the behavior the question is asking about',
-        'Because Kafka forbids joins, which does not explain the behavior the question is asking about',
+        'Because map shards must share one physical disk, reduce can only execute once all writers finish to the same mount point',
+        'Because Kafka topics cannot implement join barriers, reduce trees are the only coordination pattern brokers support',
+        'Because barrier stages delete partial keys after each wave, reduce must rerun to recreate the same associative shape',
         'Because output shape matches input shape (combine N partials → one partial of the same kind)',
       ],
       answer: 3,
@@ -348,8 +348,8 @@ flowchart TB
       choices: [
         'So a failed pipeline can still rerun from untouched originals; delete only after every blur shard succeeded',
         'Joins make images sharper',
-        'Because reduce cannot sum integers, which does not explain the behavior the question is asking about',
-        'Because copiers require empty disks, which does not explain the behavior the question is asking about',
+        'Because reduce steps cannot sum integer fields, joins are the only safe way to aggregate numeric shard outputs',
+        'Because copier stages refuse to run unless destination disks are empty, delete must wait for unrelated pipelines to finish',
       ],
       answer: 0,
       why: 'Completeness barrier protects recovery before destructive cleanup.',
@@ -357,10 +357,10 @@ flowchart TB
     {
       prompt: 'Why split plate detection and blur (or type and color) into separate containers in one multiworker group?',
       choices: [
-        'So sharding is illegal',
+        'So join barriers become optional forever once blur runs beside detection in the same worker group facade',
         'Reuse: the same blur/color container can serve other pipelines with a small shared API',
-        'Kubernetes forbids two processes',
-        'So joins become optional forever',
+        'So map sharding becomes illegal because multiworker facades must own the entire corpus on one machine',
+        'Kubernetes forbids more than one container per Pod, so multiworker groups must cheat by renaming processes inside one image',
       ],
       answer: 1,
       why: 'Separation of concerns enables container reuse across workflows.',

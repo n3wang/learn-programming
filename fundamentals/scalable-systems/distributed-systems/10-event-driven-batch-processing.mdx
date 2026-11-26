@@ -192,9 +192,9 @@ print(shard_items(["x", "y", "z"], 2, lambda s: ord(s)))
       prompt: 'How does a splitter differ from a filter?',
       choices: [
         'Filters drop non-matching items; splitters route every item to one or more destination queues by criteria',
-        'Splitters only drop items; filters only duplicate them',
-        'They are identical',
-        'Splitters require Kafka; filters forbid HTTP',
+        'Splitters only remove items from the stream while filters exclusively copy each record into multiple queues without dropping',
+        'They are identical operators that both discard non-matching records before any routing or duplication occurs downstream',
+        'Splitters require Apache Kafka topics while filters are incompatible with HTTP-triggered workflow stages in any design',
       ],
       answer: 0,
       why: 'Filters shrink streams; splitters partition (and may copy) without discarding by default.',
@@ -202,10 +202,10 @@ print(shard_items(["x", "y", "z"], 2, lambda s: ord(s)))
     {
       prompt: 'Why shard a signup email workflow across geographic failure zones?',
       choices: [
-        'So emails never need verification',
+        'Because verification links expire instantly, sharding is the only way to skip inbox confirmation entirely in production',
         'So infra failure or a bad staged rollout only hits a fraction of users, and healthy shards can absorb spillover',
-        'Because mergers cannot send email, which does not explain the behavior the question is asking about',
-        'Because copiers forbid sharding, which does not explain the behavior the question is asking about',
+        'Because merger stages cannot invoke SMTP clients, geographic shards are required purely to enable outbound mail sockets',
+        'Because copier components refuse to fan out when more than one destination queue exists in the same failure zone',
       ],
       answer: 1,
       why: 'Blast-radius control and failover — same theme as serving shards.',
@@ -213,10 +213,10 @@ print(shard_items(["x", "y", "z"], 2, lambda s: ord(s)))
     {
       prompt: 'A merger is most useful when…',
       choices: [
-        'You must delete all work items',
-        'You need infinite TTL locks',
+        'You must delete every work item before any shared pool starts, because merged queues cannot retain historical backlog',
+        'You need infinitely long TTL locks on each source so mergers can block until every publisher renews leases forever',
         'Many similar sources should feed one shared worker pool (e.g. many repos → one CI queue)',
-        'Workers cannot read files',
+        'Workers cannot read files from object storage, so mergers replace filesystem handoffs with hard-coded HTTP only',
       ],
       answer: 2,
       why: 'Collapse N sources into one scalable queue.',
@@ -441,9 +441,9 @@ print(next_timeout(2, base=1.0))
     {
       prompt: 'Why steal from the *back* of another worker’s queue?',
       choices: [
-        'Back items are always highest priority',
-        'Kafka only allows pop from the back',
-        'Front items are immutable',
+        'Tail items are always the highest business priority by convention, so stealing from the back improves user-visible SLA first',
+        'Apache Kafka consumers may legally pop only from the log tail, so work-stealing patterns must mirror broker semantics in every queue',
+        'Head items are immutable once enqueued, so workers can only claim work from the tail without violating ordering guarantees',
         'Avoid racing the front item another worker may already be processing; still shortens the longest backlog',
       ],
       answer: 3,
@@ -453,9 +453,9 @@ print(next_timeout(2, base=1.0))
       prompt: 'Why keep a separate “retry” queue from brand-new work after a mass outage?',
       choices: [
         'So fresh user-valuable items are not stuck behind a huge pile of old failed attempts',
-        'Retries are illegal in pub/sub',
-        'So copiers stop working',
-        'So sharding becomes unnecessary',
+        'Message buses forbid redelivery attempts, so a dedicated retry topic is the only way to violate at-most-once semantics legally',
+        'So copier stages stop fanning out entirely, because dual queues replace the need to duplicate events into parallel pipelines',
+        'So geographic sharding becomes unnecessary because retry queues automatically collapse failure zones into one partition',
       ],
       answer: 0,
       why: 'Priority separation protects latency for new work during recovery.',
@@ -463,10 +463,10 @@ print(next_timeout(2, base=1.0))
     {
       prompt: 'Workers must treat processing as at-least-once because…',
       choices: [
-        'Queues never hide messages',
+        'Durable queues never hide in-flight messages from peers, so a second worker cannot observe an item another claimed',
         'A slow worker can still finish after timeout re-delivery, so two workers may handle the same item',
-        'Idempotency is forbidden',
-        'Pub/sub deletes messages before claim',
+        'Idempotent handlers are forbidden in batch systems because duplicate detection must rely on infinite TTL locks instead',
+        'Pub/sub systems delete messages the moment they are published, so consumers never see redeliveries after visibility timeouts',
       ],
       answer: 1,
       why: 'Visibility timeouts + delayed completions create duplicate delivery windows.',

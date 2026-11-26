@@ -122,9 +122,9 @@ print(intersect_docs([[5, 6, 7]]))
       prompt: 'In term-sharded document search for "cat" AND "dog", why can the two lookups run on different leaves?',
       choices: [
         'Because each word lookup only needs the index entry for that word — the lookups are independent until the root merges them',
-        'Because every leaf must hold a different document corpus, which does not explain the behavior the question is asking about',
-        'Because intersection never needs both word lists, which does not explain the behavior the question is asking about',
-        'Because HTTP forbids sequential lookups, which does not explain the behavior the question is asking about',
+        'Because HTTP/1.1 forbids issuing a second lookup until the first response fully arrives, so parallelism must be simulated inside one leaf',
+        'Because each leaf is required to store a disjoint document corpus, so a single leaf can never answer both terms for the same query',
+        'Because conjunctive queries only need one posting list — the root can return matches after the first word without fetching the second term',
       ],
       answer: 0,
       why: 'Independence of the per-word lookups is what makes scatter useful; the root still needs both results to intersect.',
@@ -132,10 +132,10 @@ print(intersect_docs([[5, 6, 7]]))
     {
       prompt: 'Compared with sharding a cache by key, root-distribution scatter/gather mainly improves…',
       choices: [
-        'Certificate rotation frequency',
+        'The count of distinct keys that fit in one machine’s RAM while ignoring whether independent pieces of one user request can run concurrently',
         'Wall-clock latency by parallelizing independent pieces of one request across machines',
-        'Only disk durability of a single replica',
-        'The count of distinct keys that fit in one machine’s RAM, ignoring parallel fan-out',
+        'How often TLS certificates rotate across leaf pools, independent of fan-out or merge behavior at the scatter/gather root',
+        'Only disk durability on a single replica by writing the same bytes to more persistent volumes without changing request latency',
       ],
       answer: 1,
       why: 'Scatter/gather targets time; data capacity often still needs leaf sharding (next section).',
@@ -270,9 +270,9 @@ print(gather_union([[1, 5], [15], [22, 28]]))
     {
       prompt: 'Why shard patent IDs with id % num_shards instead of fixed ranges like 0–100000, 100001–200000?',
       choices: [
-        'Ranges cannot store integers',
-        'Kubernetes forbids range sharding',
-        'Modulo hashing is required by HTTP',
+        'Kubernetes StatefulSet ordinals forbid contiguous ID ranges, so operators must use modulo functions in every shard ambassador',
+        'The HTTP specification mandates modulo routing for patent identifiers so intermediaries can cache shard maps in CDN edge nodes',
+        'Fixed numeric ranges cannot be represented in shard metadata because integer upper bounds overflow protobuf fields used by orchestrators',
         'Contiguous ranges dump all new patents onto the newest shard and force constant resharding; a hash/modulo spreads growth more evenly',
       ],
       answer: 3,
@@ -312,9 +312,9 @@ Availability has the same math: if each leaf fails with probability 1/100 and yo
       prompt: 'Why can adding leaf nodes stop helping (or even hurt) scatter/gather latency?',
       choices: [
         'Because each leaf adds fixed request overhead while useful work per leaf shrinks, and the root still waits on the slowest leaf (stragglers)',
-        'Because CPUs never matter for search, which does not explain the behavior the question is asking about, which does not explain the behavior the question is asking',
-        'Because roots never merge results, which does not explain the behavior the question is asking about',
-        'Because sharding forbids more than three leaves, which does not explain the behavior the question is asking about',
+        'Because search latency is determined solely by disk seek time, CPU on leaves never participates in tail behavior regardless of fan-out width',
+        'Because merge steps are optional in scatter/gather roots, so extra leaves return partial results that the client discards entirely',
+        'Because scatter/gather designs cap fan-out at three leaves by protocol, so additional nodes sit idle and only add scheduling noise',
       ],
       answer: 0,
       why: 'Overhead growth plus tail-latency amplification both limit useful fan-out.',
@@ -322,10 +322,10 @@ Availability has the same math: if each leaf fails with probability 1/100 and yo
     {
       prompt: 'Five independent leaf calls each have a 1% chance of being a 2-second outlier. About how often is the combined scatter/gather request stuck waiting on a 2-second leaf?',
       choices: [
-        'Still about 1% — percentiles',
+        'Still about 1% independent of fan-out width, because percentile math says rare tails cannot stack when leaves are independent',
         'About 5% — roughly 1 − 0.99⁵',
-        'Exactly 0% if you use HTTP/2',
-        'Always 50%',
+        'Exactly 0% when HTTP/2 multiplexing is enabled, because one slow stream cannot block the other leaf responses on the connection',
+        'Always 50% once you issue more than four parallel leaf RPCs, by the same logic that a fair coin becomes certain after enough flips',
       ],
       answer: 1,
       why: 'P(all fast) ≈ 0.99⁵ ≈ 0.95, so P(at least one slow) ≈ 5%.',
@@ -333,10 +333,10 @@ Availability has the same math: if each leaf fails with probability 1/100 and yo
     {
       prompt: 'Why do scatter/gather systems care even more about p99 leaf latency than a single-replica API?',
       choices: [
-        'Because p99 is illegal to measure on leaves, which does not explain the behavior the question is asking about',
-        'Because averages are always higher than p99, which does not explain the behavior the question is asking about',
+        'Because service meshes cannot export p99 histograms from leaf Pods, forcing operators to rely on averages instead',
+        'Because arithmetic means are always larger than p99 on latency histograms, so averages already capture tail risk better than percentiles',
         'Because one user request becomes many leaf requests, so rare slow leaves become common end-to-end slowness',
-        'Because DNS only uses p99, which does not explain the behavior the question is asking about',
+        'Because DNS resolvers pick backends using only p99 SLO tables, so leaf tail latency is irrelevant to user-visible scatter/gather paths',
       ],
       answer: 2,
       why: 'Fan-out turns rare leaf stragglers into frequent user-visible latency.',
@@ -387,9 +387,9 @@ Benefits:
     {
       prompt: 'Why replicate each scatter/gather leaf shard?',
       choices: [
-        'So the root can skip merging forever',
-        'So documents never need an index',
-        'So consistent hashing becomes unnecessary for all systems',
+        'So the root can return the first partial response and skip merge logic when any replica of a shard answers quickly',
+        'So each shard can serve conjunctive queries without inverted indexes because replicas duplicate full text in memory',
+        'So consistent hashing is no longer required anywhere in the fleet once each shard has more than one replica backing it',
         'So a single leaf crash or upgrade does not fail every user request that needs that shard, and so you can scale shard RPS with more replicas',
       ],
       answer: 3,

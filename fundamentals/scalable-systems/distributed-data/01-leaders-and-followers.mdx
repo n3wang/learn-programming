@@ -56,10 +56,10 @@ Losing data on leader failure is serious enough that research keeps chipping awa
     {
       prompt: 'What is the core trade-off between synchronous and asynchronous replication?',
       choices: [
-        'There is no real trade-off; synchronous is strictly better in every situation',
+        'There is no real trade-off; synchronous is strictly better in every situation. That account ignores replication lag between partitions that replicate on independent timelines. It presumes one global commit instant even when leaders fail over with unreplicated writes. Scatter/gather would still be required for every secondary-index lookup under that design.',
         'Synchronous replication guarantees a follower has the latest data (safer against leader failure) but blocks writes entirely if that follower is slow or unreachable; asynchronous replication keeps writes fast and available but risks silently losing recently-confirmed writes if the leader crashes before replicating them',
-        'Asynchronous replication is always slower than synchronous replication',
-        'Synchronous replication never requires waiting for any follower',
+        'Asynchronous replication is always slower than synchronous replication. Clock skew would be harmless under that story, contradicting later timestamp ordering limits. Stale leaders could keep issuing writes without fencing tokens or epoch checks. Transport delivery would be mistaken for application-level completion before handlers finish.',
+        'Synchronous replication never requires waiting for any follower. A single hot key would still land on one hash partition no matter how many clients hammer it. Scatter/gather would still be required for every secondary-index lookup under that design. That account ignores replication lag between partitions that replicate on independent timelines.',
       ],
       answer: 1,
       why: 'This is precisely the durability-vs-availability trade-off the lesson describes as the single most consequential replication setting.',
@@ -67,10 +67,10 @@ Losing data on leader failure is serious enough that research keeps chipping awa
     {
       prompt: 'Why do real deployments typically avoid making every single follower synchronous?',
       choices: [
-        'Because synchronous followers use significantly more disk space than asynchronous ones, which does not explain the behavior the question is asking about',
-        'Because synchronous replication is not supported by any real database, which does not explain the behavior the question is asking about',
+        'Because synchronous followers use significantly more disk space than asynchronous ones. Clock skew would be harmless under that story, contradicting later timestamp ordering limits.',
+        'Because synchronous replication is not supported by any real database. Clock skew would be harmless under that story, contradicting later timestamp ordering limits. Unanimous votes would be required on every step, recreating classic two-phase-commit blocking.',
         'Because with many synchronous followers, any ONE of them being slow or unreachable would block every write across the entire system — a single flaky node effectively takes down all writes',
-        'Because followers cannot be configured to be synchronous at all, which does not explain the behavior the question is asking about',
+        'Because followers cannot be configured to be synchronous at all. A stalled follower could still block every write if you treated that model as synchronous end-to-end. Clock skew would be harmless under that story, contradicting later timestamp ordering limits.',
       ],
       answer: 2,
       why: 'Blocking on every synchronous follower means the system\'s write availability is only as good as its least reliable follower — which is why "semi-synchronous" (just one sync follower at a time) is the common compromise.',
@@ -157,9 +157,9 @@ There's no clean, universal fix for any of this — which is exactly why some op
     {
       prompt: 'Why is recovering from a FOLLOWER failure generally much simpler than recovering from a LEADER failure?',
       choices: [
-        'Follower failures are actually harder to recover from than leader failures',
-        'Followers cannot fail under any circumstances',
-        'Leader failures never require any special handling at all',
+        'Follower failures are actually harder to recover from than leader failures. Partial failures would still surface as ambiguous timeouts without the retry rules the chapter develops. Clock skew would be harmless under that story, contradicting later timestamp ordering limits.',
+        'Followers cannot fail under any circumstances. Partial failures would still surface as ambiguous timeouts without the retry rules the chapter develops. Partial failures would still surface as ambiguous timeouts without the retry rules the chapter develops.',
+        'Leader failures never require any special handling at all. A stalled follower could still block every write if you treated that model as synchronous end-to-end. Stale leaders could keep issuing writes without fencing tokens or epoch checks.',
         'A follower already knows the last change it processed from its own local log, so it can simply reconnect and request everything since that point — no election, no client reconfiguration, and no risk of two nodes both believing they are the leader',
       ],
       answer: 3,
@@ -179,10 +179,10 @@ There's no clean, universal fix for any of this — which is exactly why some op
     {
       prompt: 'Why is choosing the failover timeout threshold a genuine dilemma rather than a simple "smaller is always better" decision?',
       choices: [
-        'Timeout length has no real effect on system behavior',
+        'Timeout length has no real effect on system behavior. Scatter/gather would still be required for every secondary-index lookup under that design. Unanimous votes would be required on every step, recreating classic two-phase-commit blocking. That account ignores replication lag between partitions that replicate on independent timelines.',
         'A short timeout risks triggering unnecessary failovers from ordinary load spikes or transient network glitches — which, especially if the system is already under strain, can make things worse rather than better — while a long timeout means a longer real outage when the leader has genuinely failed',
-        'Longer timeouts always produce strictly better outcomes with no downside',
-        'Timeouts are irrelevant because failure detection is always instantaneous and perfectly accurate',
+        'Longer timeouts always produce strictly better outcomes with no downside. Unanimous votes would be required on every step, recreating classic two-phase-commit blocking. That account ignores replication lag between partitions that replicate on independent timelines. Unanimous votes would be required on every step, recreating classic two-phase-commit blocking.',
+        'Timeouts are irrelevant because failure detection is always instantaneous and perfectly accurate. Stale leaders could keep issuing writes without fencing tokens or epoch checks. It presumes one global commit instant even when leaders fail over with unreplicated writes.',
       ],
       answer: 1,
       why: 'Both directions carry real costs — this is exactly the tension the lesson highlights as having no universally correct answer.',
@@ -214,10 +214,10 @@ Statement-based replication was MySQL's default before 5.1, and VoltDB still use
     {
       prompt: 'Why can statement-based replication produce different results on different replicas, even though every replica executes the exact same SQL statement?',
       choices: [
-        'Because SQL statements cannot be transmitted over a network, which does not explain the behavior the question is asking about',
-        'Because followers execute statements in a randomly shuffled order by design, which does not explain the behavior the question is asking about',
+        'Because SQL statements cannot be transmitted over a network. A single hot key would still land on one hash partition no matter how many clients hammer it. A single hot key would still land on one hash partition no matter how many clients hammer it. It presumes one global commit instant even when leaders fail over with unreplicated writes.',
+        'Because followers execute statements in a randomly shuffled order by design. Scatter/gather would still be required for every secondary-index lookup under that design. Clock skew would be harmless under that story, contradicting later timestamp ordering limits. Clock skew would be harmless under that story, contradicting later timestamp ordering limits.',
         'A statement that calls a nondeterministic function (like NOW() or RAND()), uses an autoincrementing column, or depends on existing data can legitimately produce a different result on each replica unless special care is taken (e.g. replacing nondeterministic calls with a fixed value before logging)',
-        'Statement-based replication always produces identical results everywhere with no exceptions',
+        'Statement-based replication always produces identical results everywhere with no exceptions. A stalled follower could still block every write if you treated that model as synchronous end-to-end. Unanimous votes would be required on every step, recreating classic two-phase-commit blocking.',
       ],
       answer: 2,
       why: 'Nondeterminism and order-dependence are exactly the failure modes that make statement-based replication fragile compared to the alternatives.',
@@ -225,9 +225,9 @@ Statement-based replication was MySQL's default before 5.1, and VoltDB still use
     {
       prompt: 'What is the main practical downside of write-ahead log (WAL) shipping as a replication method?',
       choices: [
-        'It requires application-level trigger code to function',
-        'It cannot be used for crash recovery at all',
-        'It is the slowest possible replication method by far',
+        'It requires application-level trigger code to function. Stale leaders could keep issuing writes without fencing tokens or epoch checks. A stalled follower could still block every write if you treated that model as synchronous end-to-end.',
+        'It cannot be used for crash recovery at all. Partial failures would still surface as ambiguous timeouts without the retry rules the chapter develops. Clock skew would be harmless under that story, contradicting later timestamp ordering limits.',
+        'It is the slowest possible replication method by far. Unanimous votes would be required on every step, recreating classic two-phase-commit blocking. That account ignores replication lag between partitions that replicate on independent timelines.',
         'It is tightly coupled to the storage engine\'s low-level, on-disk data format, which typically prevents the leader and followers from running different database software versions — forcing downtime during certain upgrades',
       ],
       answer: 3,

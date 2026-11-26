@@ -13,6 +13,7 @@ import PracticeModeContext from './PracticeModeContext';
 import styles from './EquationWorksheet.module.css';
 import printStyles from './MixedPracticePrint.module.css';
 import { Solution, Step, Answer } from './SolutionKit';
+import { checkExpr } from './exprCheck';
 
 
 /**
@@ -212,8 +213,21 @@ function gradeField(f, raw) {
     const total = d * 3600 + m * 60 + s;
     return sameNumber(total, f.value) || Math.abs(total - f.value) <= (f.tol || 0) ? 'ok' : 'bad';
   }
+  if (f.type === 'expr') {
+    // value: expected expression string; see shell/exprCheck.js
+    return checkExpr(raw, f.value, { vars: f.vars, positive: f.positive, form: f.form, finiteAt: f.finiteAt });
+  }
   return gradeNumber(raw, f.value, false, f.tol || 0);
 }
+
+const FORM_HINT = {
+  factored: '还没有分解彻底（要写成几个因式的积）',
+  expanded: '还要去括号、合并成多项式',
+  poly: '还要去括号、合并同类项',
+  monomial: '还要化简成一个单项式（同一个字母只写一次）',
+  reduced: '还没有约分到最简',
+  radical: '还要化成最简二次根式（根号里不含能开得尽的因数，分母里不含根号）',
+};
 
 /* ---------- problem bodies ---------- */
 
@@ -438,7 +452,7 @@ const inputStyle = (state) => ({
   fontFamily: 'inherit',
   borderRadius: 6,
   border: `1.5px solid ${
-    state === 'ok' ? GOOD : state === 'bad' ? BAD : 'var(--ifm-color-emphasis-400)'
+    state === 'ok' ? GOOD : state === 'bad' || state === 'form' ? BAD : 'var(--ifm-color-emphasis-400)'
   }`,
   background: 'var(--ifm-background-color)',
   color: 'var(--ifm-font-color-base)',
@@ -448,7 +462,7 @@ const inputStyle = (state) => ({
 function MarkIcon({ mark }) {
   return (
     <Box component="span" sx={{ color: mark === 'ok' ? GOOD : BAD, fontWeight: 700, minWidth: 14 }}>
-      {mark === 'ok' ? '✓' : mark === 'bad' ? '✗' : ''}
+      {mark === 'ok' ? '✓' : mark === 'bad' || mark === 'form' ? '✗' : ''}
     </Box>
   );
 }
@@ -622,7 +636,15 @@ function FieldInput({ field: f, value, mark, locked, inputRef, onChange, onEnter
         ) : null}
         <MathText text={`$${f.display || f.name}$`} /> =
       </Box>
-      <NumberBox id={id} {...common} inputRef={inputRef} mark={mark} value={value} onChange={onChange} />
+      <NumberBox
+        id={id}
+        {...common}
+        inputRef={inputRef}
+        mark={mark}
+        value={value}
+        onChange={onChange}
+        {...(f.type === 'expr' ? { width: f.width || 230, placeholder: f.placeholder || '如 x^2+3x-4' } : null)}
+      />
       <MarkIcon mark={mark} />
     </Stack>
   );
@@ -679,9 +701,11 @@ function AnswerPanel({ fields, isLast, onReveal, onFinish, onError }) {
 
   const finish = () => onFinish({ ok: status === 'correct', attempts });
 
-  const anyBad = Object.values(marks).includes('bad');
+  const formField = fields.find((f) => marks[f.name] === 'form');
+  const anyBad = Object.values(marks).includes('bad') || Boolean(formField);
   const anyEmpty = Object.values(marks).includes('empty');
   const anyInvalid = Object.values(marks).includes('invalid');
+  const hasExpr = fields.some((f) => f.type === 'expr');
 
   return (
     <Box
@@ -723,12 +747,18 @@ function AnswerPanel({ fields, isLast, onReveal, onFinish, onError }) {
           </Button>
           <Typography variant="body2" sx={{ color: anyBad ? BAD : 'text.secondary', flex: '1 1 200px' }}>
             {anyInvalid
-              ? '看不懂这个数——请填整数、小数或分数（如 5/2）。'
+              ? hasExpr
+                ? '看不懂这个式子——可以写 x^2+3x、(x+1)(x-2)、3√2、1/(x+1)。'
+                : '看不懂这个数——请填整数、小数或分数（如 5/2）。'
               : anyEmpty
                 ? '每一空都要填。'
-                : anyBad
-                  ? `有 ${Object.values(marks).filter((m) => m === 'bad').length} 个不对，改一改再检查（第 ${attempts} 次）。`
-                  : '分数可以写成 5/2，按回车也能检查。'}
+                : formField && Object.values(marks).filter((m) => m === 'bad').length === 0
+                  ? `数值对了，但${FORM_HINT[formField.form] || '形式不对'}（第 ${attempts} 次）。`
+                  : anyBad
+                    ? `有 ${Object.values(marks).filter((m) => m === 'bad' || m === 'form').length} 个不对，改一改再检查（第 ${attempts} 次）。`
+                    : hasExpr
+                      ? '式子里乘号可省略，x² 写成 x^2，√ 可写 sqrt；按回车也能检查。'
+                      : '分数可以写成 5/2，按回车也能检查。'}
           </Typography>
           {/* Always available, but looking costs the question and the streak. */}
           <Button

@@ -410,17 +410,22 @@ Splitting by kind of data lets each layer use its own eviction policy, size, and
   questions={[
     {
       prompt: 'A user with 5,000 friends posts once. Under pure fanout on write, how many news-feed cache writes happen?',
-      choices: ['1', 'About 5,000, one per friend\'s feed', '5,000²', 'None until friends log in'],
-      answer: 1,
+      choices: [
+        'About 5,000, one per friend\'s feed',
+        'About 25 million friend pairs',
+        'One, shared by all friends',
+        'None until friends open the app',
+      ],
+      answer: 0,
       why: 'Push writes the post ID into every friend\'s feed list, so the work scales linearly with the friend count.',
     },
     {
       prompt: 'Why does the hybrid model use pull specifically for celebrities?',
       choices: [
-        'Celebrities post more often than everyone else',
+        'Celebrities post far more often than other users, so push would run constantly and exhaust the fanout workers',
         'A celebrity post would require millions of writes under push (the hotkey problem). Letting followers pull at read time avoids that burst',
-        'Pull is always faster to read',
-        'Celebrities cannot be cached',
+        'Celebrity posts cannot be cached because they change too quickly, so push would leave millions of feeds stale',
+        'Pull is always faster to read than push, so it is the better choice for every single user, not only celebrities',
       ],
       answer: 1,
       why: 'Push cost is proportional to follower count. For the few accounts with huge audiences, a small extra merge at read time costs far less than millions of writes.',
@@ -428,18 +433,23 @@ Splitting by kind of data lets each layer use its own eviction policy, size, and
     {
       prompt: 'Why store only post IDs (not full posts) in each user\'s feed cache?',
       choices: [
-        'IDs are easier to encrypt',
+        'Full posts are too complex to serialize into the feed cache, because they hold nested comments and media links, so only flat identifiers can be written there at all',
+        'IDs are easier to encrypt than full post objects, and feeds must be stored encrypted for privacy, so keeping only identifiers makes that requirement simple to meet',
         'One post appears in thousands of feeds. Duplicating the full object everywhere would explode memory, while IDs are tiny and hydration fetches each object once from the post cache',
-        'Full posts cannot be serialized',
-        'The CDN requires IDs',
+        'The CDN can only cache and serve small identifiers, so storing post IDs is the only format that the edge layer accepts for feeds and the only way to benefit from caching',
       ],
-      answer: 1,
+      answer: 2,
       why: 'Normalize: feeds hold references, and the content layer holds each post once.',
     },
     {
       prompt: 'An inactive user who logs in twice a year has 4,000 active friends. Which model wastes the most work on them?',
-      choices: ['Fanout on write (push)', 'Fanout on read (pull)', 'Both equally', 'Neither'],
-      answer: 0,
+      choices: [
+        'Neither is affected',
+        'Fanout on read (pull)',
+        'Both at the same cost',
+        'Fanout on write (push)',
+      ],
+      answer: 3,
       why: 'Push keeps writing into their feed every time a friend posts, even though they almost never read it. Pull would only do the work on their two visits.',
     },
     {

@@ -56,9 +56,9 @@ The same shape extends to **automatic certificate rotation**, or adding **authen
       prompt: 'Why must the legacy application bind to localhost (127.0.0.1) in the HTTPS sidecar setup?',
       choices: [
         'So only processes in the same network namespace — the TLS sidecar sharing the Pod — can reach the app over HTTP, while external clients only ever see HTTPS terminated at the sidecar',
-        'Because Kubernetes only allows one container per Pod to bind to any port, which does not explain the behavior the question is asking about',
-        'Because localhost binding automatically enables HTTPS, which does not explain the behavior the question is asking about',
-        'Because legacy applications cannot bind to 0.0.0.0 under any orchestrator, which does not explain the behavior the question is asking about',
+        'Because the scheduler allows only one listening socket per Pod, binding to localhost is how you comply with that quota regardless of who may connect',
+        'Because loopback addresses automatically negotiate TLS on the application port, so plain HTTP on 127.0.0.1 is equivalent to external HTTPS without a proxy container',
+        'Because legacy runtimes refuse to bind 0.0.0.0 under Kubernetes specifically, leaving localhost as the only address the admission controller will approve',
       ],
       answer: 0,
       why: 'Shared network namespace is the mechanism: loopback is shared between containers in the Pod, so the sidecar can proxy to the app without exposing unencrypted HTTP on the Pod\'s external interfaces.',
@@ -66,10 +66,10 @@ The same shape extends to **automatic certificate rotation**, or adding **authen
     {
       prompt: 'What is the main advantage of the sidecar approach over rebuilding the legacy application for HTTPS?',
       choices: [
-        'Sidecars eliminate the need for certificates',
+        'HTTPS sidecars are supported only when the application container runs Node.js — other languages must patch their HTTP servers in source',
         'You modernize transport security without modifying or recompiling application source that is expensive or impossible to rebuild',
-        'HTTPS sidecars only work with Node.js applications',
-        'Sidecars always outperform in-process TLS',
+        'Sidecars always terminate TLS with lower CPU and memory than an in-process TLS stack inside the same language runtime',
+        'Inserting a sidecar removes the need to provision, rotate, or trust any certificate material because the proxy invents its own roots',
       ],
       answer: 1,
       why: 'Adaptation without source changes is the classic sidecar motivation for legacy systems.',
@@ -213,10 +213,10 @@ Visit `http://localhost:8080/topz` to see processes from the application contain
     {
       prompt: 'Why deploy /topz-style monitoring as a sidecar instead of a per-language library inside every application?',
       choices: [
-        'Kubernetes requires monitoring to run as a sidecar',
-        'Libraries cannot access process information',
+        'Sidecars always consume less CPU than embedding equivalent collectors inside each language runtime on the same Pod because IPC costs less than syscall overhead',
+        'Cluster policy requires every operational agent to run as a sidecar container rather than as code linked into the application binary, so libraries are rejected at admission time',
         'A single sidecar sharing the PID namespace provides one consistent interface across all languages and can be injected uniformly by the orchestrator, avoiding N language-specific implementations that drift apart',
-        'Sidecars always use less CPU than in-process monitoring',
+        'In-process libraries cannot observe CPU, memory, or file descriptors because the kernel hides cgroup counters from code running in the application container namespace',
       ],
       answer: 2,
       why: 'Reuse and consistency across polyglot estates are the win — one artifact, one UI, orchestrator-wide policy.',
@@ -224,9 +224,9 @@ Visit `http://localhost:8080/topz` to see processes from the application contain
     {
       prompt: 'What namespace must the topz sidecar share with the application to inspect its processes?',
       choices: [
-        'The host network',
-        'The UTS namespace',
-        'No shared namespace',
+        'The host network namespace so the sidecar can scrape process tables from every node interface, not only containers in the same Pod',
+        'The UTS namespace so hostname changes inside the Pod are visible to the monitoring UI alongside process identifiers',
+        'No shared namespace — the sidecar reaches the app over the cluster service mesh using only cluster DNS and RBAC tokens',
         'The PID namespace',
       ],
       answer: 3,
@@ -354,9 +354,9 @@ print(is_sidecar_pod(pod_bad))
       prompt: 'A config sidecar used to treat UPDATE_FREQUENCY=10 as ten seconds. A new release parses bare numbers as milliseconds but still accepts "10s" for seconds. What kind of change is this?',
       choices: [
         'A breaking API change — old deployments silently poll ten times more often, increasing load on the config API even though nothing errors',
-        'Not an API change because environment variables are not part of a contract',
-        'Only a breaking change if the parameter name also changed',
-        'A safe, backward-compatible change because old values still parse without error',
+        'Only a breaking change if the parameter name also changed — as long as UPDATE_FREQUENCY keeps the same spelling, meaning changes are cosmetic',
+        'A safe, backward-compatible change because numeric values still parse and the container starts — silent semantics shifts do not count as breaks',
+        'Not an API change because environment variables are injected by the platform and therefore cannot form a stable contract with callers',
       ],
       answer: 0,
       why: 'Silent semantic changes to parameter meaning are breaking changes even when parsing succeeds.',
@@ -364,10 +364,10 @@ print(is_sidecar_pod(pod_bad))
     {
       prompt: 'Why are environment variables often preferred over command-line flags for sidecar parameters?',
       choices: [
-        'Environment variables are the only mechanism Kubernetes supports',
+        'Kubernetes manifests can only pass configuration through environment variables — command-line flags are rejected by the kubelet at admission time',
         'They are easy to inject from orchestrator manifests and play well with parameterized, reusable images — though either mechanism can work',
-        'Command-line flags cannot be changed after a container starts',
-        'Environment variables are always more secure than flags',
+        'Command-line flags are frozen when the container starts and cannot be updated even when the orchestrator changes the Pod spec later',
+        'Environment variables are always more secure than flags because values never appear in process listings or audit logs on the node',
       ],
       answer: 1,
       why: 'Orchestrators naturally supply env vars per deployment; reusable sidecar images are designed around that injection style.',

@@ -90,9 +90,9 @@ Implementing both correctly is what lets your service cooperate properly with wh
       prompt: 'Why do most percentile-based conversations about system performance favor the 99th percentile over the average latency?',
       choices: [
         'The average is skewed by outliers and describes single requests in isolation, while real end-to-end experiences compose many requests — making it increasingly likely that any given user hits at least one slow one as more requests chain together',
-        'The average is harder to calculate than a percentile',
-        'Percentiles are only used for latency, never for other metrics',
-        'The 99th percentile is always a smaller number than the average',
+        'Mean latency stays popular because it is trivial to aggregate in any metrics backend and maps to single-RPC SLOs, even when real sessions chain many calls and tail latency dominates what users feel',
+        'The 99th percentile is often below the arithmetic mean on heavy-tailed latency distributions, so teams use it mainly to make external status pages look faster than the average without changing real user tails',
+        'Histograms for percentiles are considered optional until traffic exceeds roughly a million RPS, so averages remain the default for capacity planning and incident review at most production scales',
       ],
       answer: 0,
       why: 'Averages get pulled around by outliers and hide the fact that a composed, multi-request experience is dominated by its slowest component — percentiles surface that reality instead.',
@@ -100,10 +100,10 @@ Implementing both correctly is what lets your service cooperate properly with wh
     {
       prompt: 'An operation is idempotent. What does that tell you about how to handle its failure?',
       choices: [
-        'It tells you nothing useful about failure handling',
+        'Idempotency only applies after every replica has acknowledged, so retries remain unsafe while failures are still in flight',
         'You can safely retry it any number of times until it succeeds, because repeated execution always produces the same result',
-        'It means the operation can never fail',
-        'It means the operation must be executed exactly once for correctness',
+        'Idempotency means the operation will not fail once submitted — transport and application errors are ruled out after the first attempt',
+        'Idempotent operations must still be scheduled exactly once end-to-end because duplicate attempts can violate ordering even when the final value matches',
       ],
       answer: 1,
       why: 'Idempotency is exactly what makes naive retry-until-success a correct and sufficient failure-handling strategy — no dedup or counting required.',
@@ -111,10 +111,10 @@ Implementing both correctly is what lets your service cooperate properly with wh
     {
       prompt: 'Why is "exactly once" delivery excluded from the two practical delivery semantics (at-least-once and at-most-once)?',
       choices: [
-        'Because exactly-once delivery is only relevant to synchronous APIs, which does not explain the behavior the question is asking about',
-        'Because at-least-once and at-most-once together already guarantee exactly-once, which does not explain the behavior the question is asking about',
+        'Using at-least-once on ingress and at-most-once on egress composes into an exactly-once end-to-end path without idempotent handlers or deduplication tables',
+        'Modern brokers and RPC stacks now default to exactly-once delivery, so the older at-least-once and at-most-once names describe the same built-in guarantee',
         'Because it is exceptionally hard to achieve in practice — real systems are far better off designing around at-least-once or at-most-once delivery instead',
-        'Because exactly-once delivery was deprecated by modern protocols, which does not explain the behavior the question is asking about',
+        'Exactly-once is mainly a concern for synchronous HTTP APIs, while durable message queues already deliver each payload once without extra deduplication design',
       ],
       answer: 2,
       why: 'Exactly-once semantics are a well-known hard problem in distributed systems; real designs pick one of the two practical, achievable guarantees instead.',
@@ -122,9 +122,9 @@ Implementing both correctly is what lets your service cooperate properly with wh
     {
       prompt: 'What is the core trade-off the CAP theorem describes?',
       choices: [
-        'That distributed systems must always choose partition tolerance and can never be both available and consistent',
-        'That CAP only applies to systems using eventual consistency',
-        'That availability and consistency are unrelated concerns in distributed systems',
+        'CAP forces every production system to sacrifice partition tolerance while forbidding any design that is both available and consistent when the network splits — leaving no tunable middle ground for real operators during partial outages',
+        'CAP applies only to eventually consistent NoSQL stores; strongly consistent relational databases on a single LAN operate outside the theorem and therefore guarantee all three properties simultaneously without trade-offs',
+        'Availability and consistency are independent tuning knobs — changing one leaves the other unchanged even during real partition events because clients never notice split-brain windows or stale reads',
         'That you can build a system with two of consistency, availability, and partition tolerance — but not guarantee all three at once — meaning any optimization toward one attribute trades off against the others, not that all real systems collapse without a usable middle ground',
       ],
       answer: 3,
@@ -134,9 +134,9 @@ Implementing both correctly is what lets your service cooperate properly with wh
       prompt: 'An application has just started and is still downloading large files it needs before it can correctly serve requests. How should its health checks report during this period?',
       choices: [
         'Liveness should report healthy (the process is alive and doing useful work) while readiness should report not-ready (it can\'t yet serve traffic) — so the orchestrator keeps it running but withholds traffic until it reports ready',
-        'Both liveness and readiness should report healthy immediately on process start',
-        'Readiness should report healthy while liveness reports unhealthy',
-        'Both liveness and readiness should fail, so the orchestrator terminates and restarts it',
+        'Readiness should report healthy while liveness fails so the Service stops routing yet the kubelet cannot replace the stuck initializer on another node until probes flip again',
+        'Both probes should fail until downloads finish so Kubernetes repeatedly restarts the Pod and no traffic hits a process still warming caches on disk from object storage',
+        'Both liveness and readiness should report healthy immediately so the load balancer warms traffic while large files download, improving perceived startup time even if responses are still incorrect',
       ],
       answer: 0,
       why: 'This is precisely the liveness/readiness distinction: alive-but-not-yet-ready is a normal, expected state during startup, and conflating the two would cause the orchestrator to kill a perfectly healthy, still-initializing process.',

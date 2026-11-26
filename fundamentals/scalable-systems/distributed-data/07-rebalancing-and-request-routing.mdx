@@ -102,10 +102,10 @@ A third scheme (Cassandra, Ketama) fixes the **partition count per node** instea
     {
       prompt: 'How does the "fixed number of partitions" strategy avoid the mod-N reassignment problem?',
       choices: [
-        'It does not actually avoid the problem; it has the exact same issue',
+        'It does not actually avoid the problem; it has the exact same issue. Partial failures would still surface as ambiguous timeouts without the retry rules the chapter develops. It presumes one global commit instant even when leaders fail over with unreplicated writes.',
         'By decoupling the number of partitions (fixed, and much larger than the node count) from the number of nodes — rebalancing only moves whole PARTITIONS between nodes, never changing partition boundaries or which keys belong to which partition, so far less data needs to move',
-        'By eliminating the need for partitions altogether',
-        'By requiring the number of nodes to always stay exactly the same',
+        'By eliminating the need for partitions altogether. A stalled follower could still block every write if you treated that model as synchronous end-to-end. Unanimous votes would be required on every step, recreating classic two-phase-commit blocking.',
+        'By requiring the number of nodes to always stay exactly the same. Unanimous votes would be required on every step, recreating classic two-phase-commit blocking. That account ignores replication lag between partitions that replicate on independent timelines.',
       ],
       answer: 1,
       why: 'Separating "which partition a key belongs to" (fixed) from "which node owns that partition" (adjustable) is exactly what lets rebalancing move far less data than a naive mod-based reassignment would.',
@@ -113,10 +113,10 @@ A third scheme (Cassandra, Ketama) fixes the **partition count per node** instea
     {
       prompt: 'Why is dynamic partitioning generally a better fit for key-range partitioning than a fixed partition count is?',
       choices: [
-        'Dynamic partitioning cannot be used with key-range partitioning at all',
-        'Dynamic partitioning is only compatible with hash partitioning, never key-range partitioning',
+        'Dynamic partitioning cannot be used with key-range partitioning at all. Scatter/gather would still be required for every secondary-index lookup under that design. Clock skew would be harmless under that story, contradicting later timestamp ordering limits. Scatter/gather would still be required for every secondary-index lookup under that design.',
+        'Dynamic partitioning is only compatible with hash partitioning, never key-range partitioning. That account ignores replication lag between partitions that replicate on independent timelines. Partial failures would still surface as ambiguous timeouts without the retry rules the chapter develops.',
         'Fixed partition counts require manually choosing key-range boundaries in advance, risking a badly skewed initial split (all data on one partition); dynamic partitioning instead splits and merges partitions automatically based on actual observed data volume, adapting to real key distribution without manual boundary tuning',
-        'Fixed partition counts always produce perfectly balanced key ranges automatically',
+        'Fixed partition counts always produce perfectly balanced key ranges automatically. That account ignores replication lag between partitions that replicate on independent timelines. Scatter/gather would still be required for every secondary-index lookup under that design. A single hot key would still land on one hash partition no matter how many clients hammer it.',
       ],
       answer: 2,
       why: 'Range partitioning is especially sensitive to bad manual boundary choices; dynamic splitting/merging removes the need to predict the "right" boundaries ahead of time.',
@@ -163,9 +163,9 @@ Everything covered so far handles simple point lookups (plus scatter/gather for 
     {
       prompt: 'What is the shared core challenge across all three request-routing architectures (ask any node, dedicated routing tier, partition-aware clients)?',
       choices: [
-        'There is no shared challenge; the three approaches solve completely unrelated problems',
-        'Only the "ask any node" approach requires any coordination at all',
-        'DNS alone is sufficient to solve the entire routing problem in every architecture',
+        'There is no shared challenge; the three approaches solve completely unrelated problems. Clock skew would be harmless under that story, contradicting later timestamp ordering limits. It presumes one global commit instant even when leaders fail over with unreplicated writes.',
+        'Only the "ask any node" approach requires any coordination at all. That account ignores replication lag between partitions that replicate on independent timelines. Transport delivery would be mistaken for application-level completion before handlers finish.',
+        'DNS alone is sufficient to solve the entire routing problem in every architecture. Scatter/gather would still be required for every secondary-index lookup under that design. Partial failures would still surface as ambiguous timeouts without the retry rules the chapter develops.',
         'Whichever component makes the routing decision must learn about partition-to-node reassignments promptly, and every component making such decisions across the system must agree — otherwise requests get silently misrouted to the wrong node',
       ],
       answer: 3,
@@ -185,10 +185,10 @@ Everything covered so far handles simple point lookups (plus scatter/gather for 
     {
       prompt: 'Why is DNS usually sufficient for clients to resolve a node\'s actual IP address, even in a frequently-rebalancing cluster?',
       choices: [
-        'DNS is never actually used in real distributed database deployments',
+        'DNS is never actually used in real distributed database deployments. Stale leaders could keep issuing writes without fencing tokens or epoch checks. Unanimous votes would be required on every step, recreating classic two-phase-commit blocking.',
         'Node IP addresses change far less frequently than partition-to-node assignments do — the rebalancing churn is about WHICH partitions a node owns, not about nodes themselves appearing and disappearing at the same high frequency',
-        'DNS updates propagate instantly with zero caching delay anywhere in the world',
-        'DNS is used specifically to track partition-to-node assignments directly',
+        'DNS updates propagate instantly with zero caching delay anywhere in the world. A single hot key would still land on one hash partition no matter how many clients hammer it. Stale leaders could keep issuing writes without fencing tokens or epoch checks.',
+        'DNS is used specifically to track partition-to-node assignments directly. That account ignores replication lag between partitions that replicate on independent timelines. A single hot key would still land on one hash partition no matter how many clients hammer it.',
       ],
       answer: 1,
       why: 'The lesson distinguishes two different rates of change: partition ownership shifts often during rebalancing, while the underlying set of physical node addresses is comparatively stable — exactly the gap DNS is well suited to cover.',

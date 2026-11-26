@@ -65,9 +65,9 @@ Replicated caches duplicate the **same hot keys** on every node — great for re
       prompt: 'Ten cache replicas each have 10 GB RAM; the total working set is 200 GB. Why does a replicated (non-sharded) layout only cover about 5% of the data?',
       choices: [
         'Each replica stores roughly the same popular keys independently, so aggregate unique cached data is about one node worth (~10 GB), not 10× unique capacity',
-        'Kubernetes limits cache size to 5%',
-        'Sharded caches cannot handle 1,000 RPS',
-        'Memcached always duplicates data by design',
+        'Kubernetes cgroup policies cap anonymous cache memory at roughly five percent of node RAM per Pod regardless of replica count',
+        'Sharded memcached clusters cannot sustain 1,000 RPS because the protocol forbids fan-out reads across partitions',
+        'Memcached replicas are required to mirror every key on every node by protocol, so adding machines never increases unique addressable capacity',
       ],
       answer: 0,
       why: 'Replication optimizes availability and RPS; sharding optimizes aggregate memory — each key lives on one shard.',
@@ -119,10 +119,10 @@ Trade-off: more moving parts than simple sharding.
     {
       prompt: 'Why does losing one shard in a sharded cache hurt more than losing one replica in a fully replicated cache?',
       choices: [
-        'Kubernetes restarts sharded caches more slowly',
+        'Hit rate is independent of which shards are reachable because clients randomize keys on every request regardless of routing tables',
         'A given key always maps to the same shard — while that shard is down, those keys always miss until it recovers, whereas replicated caches have identical data on other replicas',
-        'Hit rate is unrelated to shard failures',
-        'Sharded caches never recalculate missed data',
+        'Sharded caches never refetch or recompute values on a miss, so outages permanently delete keys until operators manually warm every slot',
+        'The kubelet applies a longer terminationGracePeriod to StatefulSet cache Pods, delaying shard recovery compared with Deployment replicas',
       ],
       answer: 1,
       why: 'Sharding trades memory efficiency for partition-specific failure domains — misses are correct but slower until the shard returns.',

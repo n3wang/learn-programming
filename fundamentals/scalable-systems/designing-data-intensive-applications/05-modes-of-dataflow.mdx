@@ -40,9 +40,9 @@ For **archival snapshots** — periodic dumps for backup or analytics — there'
       prompt: 'Why does a database inherently require BOTH forward and backward compatibility, once more than one process (or a rolling upgrade) is involved?',
       choices: [
         'A record written by a newer process might later be read by an older process still running (forward compatibility), and a record written long ago must still be readable by the current code (backward compatibility) — both directions are simultaneously in play',
-        'Only forward compatibility ever matters for databases',
-        'Databases never actually require any compatibility guarantees',
-        'Only backward compatibility ever matters for databases',
+        'Only forward compatibility matters, because the database migrates every stored record to the newest schema during a rolling upgrade, so current code never meets data written under an older schema and only old readers can be surprised',
+        'No compatibility guarantees are required at all, because a database locks its schema during deployment and takes every application process offline, so old and new code never share the same stored data at any moment',
+        'Only backward compatibility matters, because once a rolling upgrade finishes every old process has exited, so no old code is ever left over to read a record that newer code has already written to the database',
       ],
       answer: 0,
       why: 'Rolling upgrades and long-lived data together guarantee that both "old code reads new data" and "new code reads old data" scenarios actually occur.',
@@ -50,10 +50,10 @@ For **archival snapshots** — periodic dumps for backup or analytics — there'
     {
       prompt: 'In the scenario where an unknown field silently disappears after an old process reads, modifies, and rewrites a record, where does the actual bug live?',
       choices: [
-        'In the wire encoding format itself, which failed to preserve the field',
-        'Typically in the application code — if a value is decoded into a model object that doesn\'t know about the new field, and later re-encoded from that same object, the unknown field can be lost in that translation, even though the encoding format itself preserves unknown fields fine',
-        'In the database engine, which deletes unrecognized fields automatically',
-        'This scenario cannot actually happen with any modern encoding format',
+        'In the wire encoding format itself, because formats such as Thrift, Protobuf and Avro drop any field tag or name that the reading schema does not declare, so the unknown field is already gone at decode time',
+        'Typically in the application code — if a value is decoded into a model object unaware of the new field and later re-encoded from it, the unknown field can be lost, even though the encoding format itself preserves unknown fields',
+        'In the database engine, which compares each rewritten record against its stored column list and deletes any value in a field it does not recognise, so the loss happens inside the storage layer when the write lands',
+        'In the network layer, because intermediate proxies re-serialize each message in a lowest-common-denominator format on its way back to the database, and that stripping step is what removes the unrecognised field',
       ],
       answer: 1,
       why: 'Thrift/Protobuf/Avro all support preserving unknown fields at the wire level — the risk is specifically in an application\'s decode-then-reencode round trip through a model object.',
@@ -61,10 +61,10 @@ For **archival snapshots** — periodic dumps for backup or analytics — there'
     {
       prompt: 'What does the phrase "data outlives code" mean in the context of schema evolution?',
       choices: [
-        'Code changes are always slower to deploy than data changes',
-        'Data is deleted automatically whenever code is updated',
-        'A running application\'s code can be entirely replaced within minutes, but the data already sitting in a database — potentially written years ago under an older schema — usually stays exactly as originally encoded unless explicitly migrated, since rewriting a large dataset is expensive',
-        'Old code and old data are always deleted together during a deployment',
+        'Code changes always take longer to deploy than data changes, so old data is rewritten into the new schema within minutes while the application code itself lags behind for weeks or months afterwards in production',
+        'Data is deleted automatically whenever new code is deployed, so only records written by the current release survive and older records vanish together with the code version that originally produced them',
+        'Code can be replaced within minutes, but data already in a database — potentially written years ago under an older schema — usually stays as originally encoded unless explicitly migrated, since rewriting a large dataset is expensive',
+        'Old code and old data are always deleted together during a deployment, so the system never has to keep reading records in an encoding that the current release no longer understands once the rollout has finished',
       ],
       answer: 2,
       why: 'This is precisely why schema evolution rules matter so much for databases specifically — old-format data realistically sticks around far longer than any one version of the code that wrote it.',
@@ -178,10 +178,10 @@ Compatibility gets genuinely harder across **organizational boundaries**: you ca
     {
       prompt: 'What is the core philosophical difference between REST and SOAP?',
       choices: [
-        'REST and SOAP are actually the exact same thing with different names',
-        'SOAP only works over HTTPS, while REST only works over plain HTTP',
-        'REST requires code generation; SOAP does not',
-        'REST is a design philosophy built directly on HTTP\'s existing primitives (URLs, verbs, caching); SOAP is an XML-based protocol that treats HTTP as merely one possible transport underneath its own large, separately-specified family of standards',
+        'REST and SOAP are the same protocol under different names — both define XML envelopes described by WSDL files, and they differ only in whether the tooling generates client code for you automatically',
+        'SOAP can only run over HTTPS with a certificate checked for every message, while REST is limited to plain HTTP with no built-in way to carry authentication or content negotiation headers at all',
+        'REST requires code generation from a formal interface description so that clients get typed stubs, while SOAP is a loose convention where each client hand-writes its own HTTP requests and response parsing',
+        'REST is a design philosophy built directly on HTTP\'s existing primitives (URLs, verbs, caching); SOAP is an XML-based protocol that treats HTTP as merely one possible transport beneath its own large family of standards',
       ],
       answer: 3,
       why: 'REST leans into HTTP\'s own conventions; SOAP deliberately abstracts away from HTTP specifics via its own WS-* standards stack.',
@@ -189,10 +189,10 @@ Compatibility gets genuinely harder across **organizational boundaries**: you ca
     {
       prompt: 'Why is a network request fundamentally riskier than a local function call, specifically regarding retries?',
       choices: [
-        'If a request actually succeeded but its RESPONSE was lost (e.g. due to a timeout), retrying can cause the action to be performed a second time — a risk that simply doesn\'t exist for a local function call, unless the protocol explicitly builds in deduplication (idempotency)',
-        'Retries are never necessary for network requests',
-        'Local function calls can also silently execute twice, just like network requests',
-        'Network requests are risky only because they use more CPU than local calls',
+        'If a request succeeded but its RESPONSE was lost (e.g. a timeout), retrying can perform the action a second time — a risk a local function call lacks, unless the protocol builds in deduplication (idempotency)',
+        'A retry always travels over a different route and reaches a different server replica, which has no record of the first attempt, so the same action is guaranteed to be applied to two separate copies of the data',
+        'A timeout always means the server never received the request at all, so the client must send it again, whereas a local function call that returns slowly can safely be abandoned without leaving any side effects',
+        'Every retry consumes extra CPU on the server and eventually triggers rate limiting that blocks later requests, a hidden cost that a local function call can never impose on its caller or on other callers',
       ],
       answer: 0,
       why: 'The ambiguity between "request never arrived" and "response never arrived" is exactly the failure mode a local call can never experience, and idempotency keys are the standard fix.',
@@ -200,10 +200,10 @@ Compatibility gets genuinely harder across **organizational boundaries**: you ca
     {
       prompt: 'Why can RPC frameworks make a simplifying assumption about compatibility direction that plain database access cannot?',
       choices: [
-        'RPC requires no compatibility guarantees at all',
-        'It\'s reasonable to assume servers get upgraded before their clients do, which narrows the requirement to backward compatibility on requests and forward compatibility on responses — a database has no such "server upgrades first" guarantee among the many processes sharing it',
-        'RPC and database access have identical compatibility requirements in every case',
-        'Clients are always upgraded before servers in RPC systems',
+        'RPC frameworks encode every request with a fresh schema negotiated at connection time, so no compatibility guarantee has to hold between code versions, while database files persist across releases and therefore need one',
+        'It\'s reasonable to assume servers get upgraded before clients, narrowing the requirement to backward compatibility on requests and forward compatibility on responses — a database has no such "servers first" guarantee among its processes',
+        'RPC and database access have identical compatibility requirements, because in both cases every process reads and writes through one shared schema that is upgraded atomically for all participants at the same moment',
+        'Clients are always upgraded before servers in RPC systems, which narrows the requirement to forward compatibility on requests and backward compatibility on responses, unlike the many writers sharing one database',
       ],
       answer: 1,
       why: 'This assumption (servers first, clients later) is exactly what narrows RPC\'s compatibility requirements compared to a database, where any mix of old/new processes might be reading and writing at once.',
@@ -307,10 +307,10 @@ A distributed actor framework is, in effect, a message broker and the actor prog
     {
       prompt: 'What capability does routing messages through a broker provide that a direct RPC call does not?',
       choices: [
-        'Brokers make every message delivery instantaneous with zero latency',
-        'Brokers eliminate the need for any data encoding at all',
+        'A broker makes every delivery instantaneous with zero latency, because messages are placed straight into the recipient\'s memory and the sender is never blocked by network transit or disk writes of any kind',
+        'A broker removes the need for any data encoding, because it stores messages as live objects shared between sender and recipient, so no serialization format or compatibility rule ever applies to them',
         'A broker can buffer messages when a recipient is unavailable, automatically redeliver to a crashed consumer, decouple sender from needing to know the recipient\'s address, and fan a single message out to multiple recipients',
-        'Brokers guarantee a response will always be returned to the sender',
+        'A broker guarantees that a response is always returned to the sender, because it holds the connection open until the recipient replies, giving the same call-and-wait shape that an RPC call offers directly',
       ],
       answer: 2,
       why: 'These are exactly the resilience and decoupling benefits the lesson attributes to routing through an intermediary broker instead of a direct call.',
@@ -318,9 +318,9 @@ A distributed actor framework is, in effect, a message broker and the actor prog
     {
       prompt: 'Why does message-passing dataflow typically NOT involve the sender waiting for a response, unlike RPC?',
       choices: [
-        'Responses are impossible to implement with message brokers under any circumstances',
-        'RPC is also always one-way, making this comparison meaningless',
-        'Message brokers technically cannot deliver more than one message per connection',
+        'Brokers have no way to carry a response at all, because the protocol they use assigns each connection to a single direction, so a recipient can never send anything back to the original sender',
+        'RPC is also always one-way, because the client sends its request and never waits, so the comparison is meaningless and the two styles differ only in the encoding each of them uses',
+        'Brokers can technically deliver only one message per connection, so a sender that waited for a reply would block the connection and prevent any further message from being published',
         'Message-passing communication is normally one-way by design — a sender publishes a message and moves on without waiting; any actual reply, if one exists, usually travels over a separate channel entirely',
       ],
       answer: 3,
@@ -329,10 +329,10 @@ A distributed actor framework is, in effect, a message broker and the actor prog
     {
       prompt: 'Why does location transparency (treating remote and local calls identically) arguably work better in the actor model than in traditional RPC?',
       choices: [
-        'Because the actor model already assumes message delivery can fail or be delayed even WITHIN a single process, so remote delivery is just a variation on an already-expected failure mode, rather than introducing a fundamentally new one the way RPC\'s "looks just like a local call" illusion does',
-        'Because actor frameworks never actually send messages over a real network, which does not explain the behavior the question is asking about',
-        'Because actors are always faster than RPC calls over any network, which does not explain the behavior the question is asking about',
-        'Because RPC frameworks never experience any network failures, which does not explain the behavior the question is asking about',
+        'Because the actor model already assumes delivery can fail or be delayed even WITHIN a single process, so remote delivery is a variation on an expected failure mode rather than a fundamentally new one, unlike RPC\'s "looks like a local call" illusion',
+        'Because actor frameworks never send messages over a real network and instead run every actor inside a single process, so the remote case the question asks about never actually arises and no new failure mode appears at all',
+        'Because actor message passing is always faster than an RPC call across any network, so the latency gap between local and remote delivery is small enough that callers can safely ignore where an actor lives',
+        'Because RPC frameworks never experience network failures such as lost responses or timeouts, so the only real difference is that actors add extra delivery guarantees on top of an already reliable network',
       ],
       answer: 0,
       why: 'RPC tries to hide a genuine local/remote mismatch; the actor model never assumed reliable, instantaneous delivery in the first place, so the local/remote gap it has to paper over is much smaller.',

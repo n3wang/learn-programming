@@ -266,6 +266,10 @@ export default async function createConfig() {
                 label: '数学 初二',
               },
               {
+                to: '/classes/math-3/intro',
+                label: '数学 八年级上册',
+              },
+              {
                 to: '/classes/programming/intro',
                 label: '编程',
               },
