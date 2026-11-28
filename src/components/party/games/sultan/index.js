@@ -8,6 +8,7 @@ import MathPad, {MathRich, PoolPicker} from '../../core/MathPad';
 import {lineText} from '../../core/mathQuestions';
 import {CHARS, DISTRICT, EVENTS, EVENT_ART, FRAMES, TYPES, basePool, charOf, isoDistrict} from './data';
 import {ArenaFloor, CityPlot, IsoGrid} from './IsoCity';
+import HowToFilm from './HowToFilm';
 import Dice3D from './Dice3D';
 import {
   acting,
@@ -832,6 +833,7 @@ const sultan = {
     else steps.push(zh ? '得分：[district|区域价值]，五种类型齐全 +3，最先完成 +4（其他完成者 +2），加独特区域奖励。' : 'Score: [district|district values], +3 for all 5 types, +4 first to finish (+2 others), plus Unique bonuses.');
     return steps.map(richText);
   },
+  howFilm: HowToFilm,
 
   /** Phone help grid reuses in-game card inspect when a reference row has `detail`. */
   CardDetail: CardInspect,

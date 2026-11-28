@@ -2,6 +2,7 @@ import React, {useEffect, useMemo, useRef, useState} from 'react';
 import Link from '@docusaurus/Link';
 import useDocusaurusContext from '@docusaurus/useDocusaurusContext';
 import {CARDS, CATEGORIES, DECKS, localizeCard} from '@site/src/data/cards';
+import PinyinTerm from '@site/src/components/PinyinTerm';
 import {bestMatch, charDiff} from './cardMatch';
 import styles from './styles.module.css';
 
@@ -87,11 +88,13 @@ function CardDetail({card, locale, onNavigate, showImage = true}) {
   return (
     <div className={styles.termDetail}>
       {showImage ? <CardImage card={card} /> : null}
-      <p className={styles.termDefinition}>{shown.definition}</p>
+      <p className={styles.termDefinition}>
+        <PinyinTerm text={shown.definition} block />
+      </p>
       {card.example ? <p className={styles.termExample}>{card.example}</p> : null}
       {altText && altText.definition !== shown.definition ? (
         <p className={styles.termAlt}>
-          {altText.term} — {altText.definition}
+          <PinyinTerm text={altText.term} /> — <PinyinTerm text={altText.definition} block />
         </p>
       ) : null}
       {card.link ? (
@@ -973,13 +976,23 @@ function Practice({
                 {translate || frontIsTerm || card.prompt ? <CardImage card={card} size="large" /> : null}
                 {translate ? (
                   <>
-                    <p className={styles.flashTerm}>{shown.term}</p>
-                    <p className={styles.flashDefinition}>{shown.definition}</p>
+                    <p className={styles.flashTerm}>
+                      <PinyinTerm text={shown.term} />
+                    </p>
+                    <p className={styles.flashDefinition}>
+                      <PinyinTerm text={shown.definition} block />
+                    </p>
                   </>
                 ) : (
                   <>
-                    <p className={frontIsTerm ? styles.flashTerm : styles.flashText}>{front}</p>
-                    {frontIsTerm && alt ? <p className={styles.termAltInline}>{alt}</p> : null}
+                    <p className={frontIsTerm ? styles.flashTerm : styles.flashText}>
+                      <PinyinTerm text={front} block={!frontIsTerm} />
+                    </p>
+                    {frontIsTerm && alt ? (
+                      <p className={styles.termAltInline}>
+                        <PinyinTerm text={alt} />
+                      </p>
+                    ) : null}
                   </>
                 )}
               </div>
@@ -1003,7 +1016,9 @@ function Practice({
                           onClick={() => pick(i)}>
                           <span className={styles.choiceKey}>{i + 1}</span>
                           {showsTerm ? <CardImage card={c} /> : null}
-                          <span className={showsTerm ? styles.choiceTerm : styles.choiceText}>{optionText(c)}</span>
+                          <span className={showsTerm ? styles.choiceTerm : styles.choiceText}>
+                            <PinyinTerm text={optionText(c)} block={!showsTerm} />
+                          </span>
                         </button>
                       </li>
                     );
@@ -1047,8 +1062,12 @@ function Practice({
                   {translate ? (
                     <div className={styles.answerCard}>
                       <div className={styles.compareHead}>{langLabel(toLang)}</div>
-                      <p className={styles.flashTerm}>{target.term}</p>
-                      <p className={styles.compareText}>{target.definition}</p>
+                      <p className={styles.flashTerm}>
+                        <PinyinTerm text={target.term} />
+                      </p>
+                      <p className={styles.compareText}>
+                        <PinyinTerm text={target.definition} block />
+                      </p>
                       {match ? (
                         <div className={styles.matchRow}>
                           {attempt.trim() ? (
@@ -1068,8 +1087,13 @@ function Practice({
                     <div className={styles.answerCard}>
                       <div className={styles.compareHead}>answer</div>
                       <p className={styles.compareText}>
-                        {expected}
-                        {reverse && !card.prompt && alt ? <span className={styles.termAltInline}> · {alt}</span> : null}
+                        <PinyinTerm text={expected} block={!(reverse && !card.prompt)} />
+                        {reverse && !card.prompt && alt ? (
+                          <span className={styles.termAltInline}>
+                            {' '}
+                            · <PinyinTerm text={alt} />
+                          </span>
+                        ) : null}
                       </p>
                     </div>
                   )}
@@ -1409,9 +1433,11 @@ export default function DecksPanel({onNavigate}) {
                     className={styles.termRow}
                     aria-expanded={isOpen}
                     onClick={() => setOpenId(isOpen ? null : card.id)}>
-                    <span className={styles.rowTitle}>{shown.term}</span>
+                    <span className={styles.rowTitle}>
+                      <PinyinTerm text={shown.term} />
+                    </span>
                     <span className={styles.rowDate}>
-                      {alt}
+                      <PinyinTerm text={alt} />
                       {!deck ? ` · ${categoryLabel(card.category, locale)}` : ''}
                     </span>
                   </button>

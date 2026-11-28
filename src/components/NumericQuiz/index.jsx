@@ -32,7 +32,9 @@ function resolveQuestion(raw) {
  * Numeric “apply the formula” quiz with optional randomized story banks.
  *
  * Props:
- * - questions: static [{prompt, answer, why}] and/or {generate()}
+ * - questions: static [{prompt, answer, why, solution?}] and/or {generate()}
+ *   `solution` (string or array of step strings) is shown by “Show solution”;
+ *   without it the button falls back to `why`.
  * - bank: key into COMPUTE_BANKS (contextual random stories)
  * - rounds: how many problems before finish when using bank (default 3)
  */
@@ -134,6 +136,15 @@ export default function NumericQuiz({
     });
   }
 
+  function reveal() {
+    if (!q || state.done) return;
+    persist({
+      ...state,
+      status: 'revealed',
+      missedOnce: {...state.missedOnce, [state.step]: true},
+    });
+  }
+
   function retry() {
     persist({...state, draft: '', status: 'idle'});
   }
@@ -214,7 +225,7 @@ export default function NumericQuiz({
             type="text"
             inputMode="decimal"
             value={state.draft}
-            disabled={state.status === 'right'}
+            disabled={state.status === 'right' || state.status === 'revealed'}
             placeholder={places === 0 ? 'e.g. 12' : 'e.g. 0.25'}
             aria-label="Numeric answer"
             onChange={(e) => persist({...state, draft: e.target.value, status: 'idle'})}
@@ -238,6 +249,23 @@ export default function NumericQuiz({
             Not quite — map the story to the formula and try again.
           </TranslatableParagraph>
         ) : null}
+        {state.status === 'revealed' ? (
+          <div className={styles.solution}>
+            <strong>Solution</strong>
+            {Array.isArray(q.solution) ? (
+              <ol>
+                {q.solution.map((line, i) => (
+                  <li key={i}>{line}</li>
+                ))}
+              </ol>
+            ) : (
+              <p style={{margin: '0.35rem 0'}}>{q.solution || q.why || ''}</p>
+            )}
+            <p className={styles.solutionAnswer}>
+              {`Answer: ${roundAtMost(Number(q.answer), places)}${q.unit ? ` ${q.unit}` : ''}`}
+            </p>
+          </div>
+        ) : null}
         {state.status === 'right' ? (
           <TranslatableParagraph className={styles.whyOk}>
             {`Correct (${roundAtMost(Number(q.answer), places)}${q.unit ? ` ${q.unit}` : ''}).${
@@ -247,7 +275,7 @@ export default function NumericQuiz({
         ) : null}
       </div>
       <div className={styles.actions}>
-        {state.status !== 'right' ? (
+        {state.status !== 'right' && state.status !== 'revealed' ? (
           <button type="button" className={styles.secondary} onClick={reshuffle}>
             New story
           </button>
@@ -257,7 +285,12 @@ export default function NumericQuiz({
             Try again
           </button>
         ) : null}
-        {state.status === 'right' ? (
+        {state.status !== 'right' && state.status !== 'revealed' ? (
+          <button type="button" className={styles.secondary} onClick={reveal}>
+            Show solution
+          </button>
+        ) : null}
+        {state.status === 'right' || state.status === 'revealed' ? (
           <button type="button" className={styles.primary} onClick={next}>
             {state.step >= total - 1 ? 'Finish' : 'Next problem'}
           </button>

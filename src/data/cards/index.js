@@ -15,6 +15,7 @@ import scalableSystems from './decks/scalable-systems.json';
 import englishChuyi from './decks/english-chuyi.json';
 import englishChuer from './decks/english-chuer.json';
 import commodities from './decks/commodities.json';
+import partyGames from './decks/party-games.json';
 
 export const CARD_SCHEMA = 'l0l-cards/1';
 
@@ -28,6 +29,7 @@ const DECK_FILES = [
   englishChuyi,
   englishChuer,
   commodities,
+  partyGames,
 ];
 
 const REQUIRED = ['id', 'term', 'definition', 'category'];

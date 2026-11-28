@@ -513,7 +513,7 @@ export default function HostShell({mod}) {
             {mod.howTo && (
               <>
                 <h3 className={styles.subTitle}>{st(lang, 'howToPlay')}</h3>
-                <RulesSheet mod={{howTo: mod.howTo}} lang={lang} settings={g.settings} compact />
+                <RulesSheet mod={{howTo: mod.howTo, howFilm: mod.howFilm}} lang={lang} settings={g.settings} compact />
               </>
             )}
           </section>

@@ -1,6 +1,7 @@
 import React, {useCallback, useEffect, useRef, useState} from 'react';
 import Link from '@docusaurus/Link';
 import {CARDS, localizeCard} from '@site/src/data/cards';
+import PinyinTerm from '@site/src/components/PinyinTerm';
 import {answerVariants} from '@site/src/components/ScratchNotes/cardMatch';
 import {UI_LANG_CHANGE_EVENT, readUiLang} from '@site/src/components/Translate/translateClient';
 import {TERM_PEEK_CHANGE_EVENT, readTermPeekEnabled} from './settings';
@@ -241,11 +242,19 @@ export default function TermPeek() {
           />
         ) : null}
         <div className={styles.titles}>
-          <div className={styles.term}>{shown.term}</div>
-          {otherTerm && otherTerm !== shown.term ? <div className={styles.other}>{otherTerm}</div> : null}
+          <div className={styles.term}>
+            <PinyinTerm text={shown.term} />
+          </div>
+          {otherTerm && otherTerm !== shown.term ? (
+            <div className={styles.other}>
+              <PinyinTerm text={otherTerm} />
+            </div>
+          ) : null}
         </div>
       </div>
-      <p className={styles.definition}>{shown.definition}</p>
+      <p className={styles.definition}>
+        <PinyinTerm text={shown.definition} block />
+      </p>
       {peek.card.example ? <p className={styles.example}>{peek.card.example}</p> : null}
       {peek.card.link ? (
         <Link className={styles.link} to={peek.card.link} onClick={() => setPeek(null)}>

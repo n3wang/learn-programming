@@ -82,6 +82,25 @@ Trade across borders is a **systems** problem: contracts, documents, money, tran
 - [6. La partida doble y los asientos de diario](./contaduria/la-partida-doble-y-los-asientos-de-diario) — nueve combinaciones, reglas de cargo y abono, obtención y aplicación de recursos, asientos de diario, ejemplo de 12 operaciones en la ecuación y en cuentas T, primer informe financiero · *registrar asientos y seguir la ecuación*
 - [7. Sistemas de compraventa de mercancías](./contaduria/sistemas-de-compraventa-de-mercancias) — comparación de inventarios (mercancías generales y método analítico) vs inventarios perpetuos, costo de ventas, compras y ventas netas, auxiliares de almacén · *asientos con códigos, cálculos y 45 preguntas*
 
+### Game theory
+- [1. Strategic thinking](./game-theory/strategic-thinking) — beliefs about beliefs, iterated dominance, coordination and Nash equilibrium, backward and forward induction, Prisoners’ Dilemma, Hawk–Dove, investment games · *interactive payoff matrices and game trees*
+- [2. Decision theory](./game-theory/decision-theory) — preference relations, ordinal vs vNM utility, lotteries and expected utility, calibrating payoffs, risk aversion, certainty equivalents, insurance, risk pooling and correlated defaults
+- [3. Representing games](./game-theory/representation-of-games) — game trees, information sets, strategies as complete plans, Nature, insider-trading lemons problem, normal form, mixed strategies, the two-coin prisoner puzzle
+- [4. Dominance](./game-theory/dominance) — rationality as best response, mixed-strategy dominance, weak dominance, dominant-strategy equilibrium, truthful bidding in second-price auctions
+- [5. Rationalizability](./game-theory/rationalizability) — iterated elimination, common knowledge of rationality, the beauty contest, Cournot rationalizability
+- [6. Nash equilibrium](./game-theory/nash-equilibrium) — definition, relation to dominance and rationalizability, mixed equilibria and the indifference principle, customs inspections, Hawk–Dove evolution
+- [7. Imperfect competition](./game-theory/imperfect-competition) — Cournot duopoly and oligopoly, Bertrand paradox, differentiated prices, search costs
+- [8. Further applications](./game-theory/further-applications) — partnerships and hold-up, software standards, R&D contests and rent dissipation, campaign spending
+- [9. Backward induction](./game-theory/backward-induction) — sequential rationality, non-credible threats, commitment, ties, Stackelberg leadership
+- [10. Negotiation](./game-theory/negotiation) — sophisticated voting on agendas, pre-trial settlement, finite alternating-offer bargaining
+- [11. Subgame-perfect equilibrium](./game-theory/subgame-perfect-equilibrium) — subgames, SPE, single-deviation principle, Rubinstein bargaining
+- [12. Repeated games](./game-theory/repeated-games) — unravelling, discounting, grim trigger and tit-for-tat, folk theorem
+- [13. Implicit cartels](./game-theory/implicit-cartels) — tacit collusion in Cournot and Bertrand, the 9/17 threshold, partial collusion, price wars
+- [14. Bayesian games](./game-theory/bayesian-games) — types, common prior, type-contingent strategies, Bayesian Nash equilibrium
+- [15. Auctions and trade with private information](./game-theory/incomplete-information-applications) — Cournot with private costs, first-price auctions, revenue equivalence, double auctions
+- [16. Signaling and reputation](./game-theory/dynamic-incomplete-information) — sequential equilibrium, Beer–Quiche, job-market signaling, reputation building, the Coase conjecture
+- **Problem sets:** [Problem Set 1](./game-theory/problem-sets/problem-set-1) — guided homework (study decision, rescaling utilities, the coin puzzle) with checkable parts, hints, and Python modelling exercises
+
 ### How we build lessons here
 1. **Outline** topics from reputable public sources (CISG text, ICC Incoterms® summaries you paraphrase, UCP concepts, your own notes).
 2. **Rewrite** in teaching voice — never paste handbook chapters or long case excerpts.

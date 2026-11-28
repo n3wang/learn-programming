@@ -79,7 +79,7 @@ export default function GameMenu() {
               <span className={styles.chip}>{st(lang, 'playersRange', {min: game.players.min, max: Math.min(game.players.max, 64)})}</span>
               <span className={styles.chip}>{st(lang, 'minutes', {n: game.minutes})}</span>
             </div>
-            <p>{L(game.blurb, lang)}</p>
+            {game.id === 'lifesim' ? null : <p>{L(game.blurb, lang)}</p>}
             <Link className="button button--block" to={game.id === 'wagers' ? '/party/host' : `/party/host?game=${game.id}`}>
               {st(lang, 'host')}
             </Link>

@@ -608,7 +608,7 @@ export default function PlayerShell({mod}) {
                 {mod.howTo && (
                   <div className={styles.card} style={{textAlign: 'left', width: '100%'}}>
                     <b>{st(lang, 'howToPlay')}</b>
-                    <RulesSheet mod={{howTo: mod.howTo}} lang={lang} settings={env?.settings} compact />
+                    <RulesSheet mod={{howTo: mod.howTo, howFilm: mod.howFilm}} lang={lang} settings={env?.settings} compact />
                   </div>
                 )}
               </div>

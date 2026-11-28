@@ -104,9 +104,11 @@ export default function RulesSheet({mod, lang, compact = false, settings = null}
     else groups.push({group: row.group || '', rows: [row]});
   }
   const [peek, setPeek] = useState(null);
+  const Film = mod.howFilm;
 
   return (
     <div className={styles.rules} data-compact={compact}>
+      {Film ? <Film lang={lang} settings={settings || {}} /> : null}
       <ol className={styles.rulesSteps}>
         {steps.map((step, i) => (
           <li key={i}>{step}</li>

@@ -10,6 +10,8 @@ const lifesim = {
   /** Opens on a separate Expo desk build; HostShell is skipped. */
   externalUrl: LIFESIM_PARTY_URL,
   logo: 'lifesim/logo.webp',
+  /** Host desk shows this instead of the blurb. */
+  banner: '/img/party/lifesim/cover.webp',
   title: {en: 'Democracy Inc.', zh: '民主大业'},
   blurb: {
     en: 'From a school teacher to a corrupt politician. We all share the same city, sometimes the same dream.',
@@ -20,18 +22,37 @@ const lifesim = {
   coverTint: '#5c4a32',
   howTo: {
     en: [
-      'Scan the QR (or open the link) on every phone. One person hosts; everyone else joins the room.',
       'Draft a scenario card (shop owner or professional), then play weeks together — no turn order.',
       'Spend operations on places and the market; politics runs a 4-week elect → nominate → pass → sign cycle.',
       'Highest monthly cashflow after N weeks wins. Optional hidden-agenda mode for 5+ players.',
     ],
     zh: [
-      '每人扫二维码（或打开链接）。一人主持，其他人加入房间。',
       '先抽选一张情景卡（店主或专业人士），然后一起过周——没有轮流顺序。',
       '用行动点去地点与市场；政治按 4 周循环：选举 → 提名 → 通过 → 签署。',
       'N 周后月现金流最高者获胜。5 人以上可选隐藏阵营模式。',
     ],
   },
+  /** Host-desk trailers. One switch shows one video. */
+  trailers: [
+    {
+      id: 'open',
+      label: {en: 'Open mode', zh: '公开模式'},
+      video: 'yOv93iS_tCw',
+      text: {
+        en: 'The first months have no offices, so the table can learn the city. Then you elect a governor. A cabinet lasts about 16 months.',
+        zh: '前几个月没有官职，先把这座城练熟，然后再选州长。内阁大约 16 个月。',
+      },
+    },
+    {
+      id: 'coup',
+      label: {en: 'Golpe de estado', zh: '政变'},
+      video: 'ESF0D4wNVks',
+      text: {
+        en: 'Hidden identities for 5 or more players: honest, corrupt, or an outside puppet. Five honest policies halve living costs. Five corrupt ones — three if a puppet is governor — pay a large bonus.',
+        zh: '5 人以上身份保密：廉洁、腐败，或外来傀儡。5 张廉洁政策让生活费减半。5 张腐败——傀儡当州长时 3 张——发一大笔奖金。',
+      },
+    },
+  ],
   rulebook(lang) {
     const zh = lang === 'zh';
     return [
@@ -47,32 +68,6 @@ const lifesim = {
               '2–64 players (v1: ≤8 local, tuned for 4). About 30–45 minutes.',
               'Resources: Cash, Influence, Operations. Reputation only multiplies Influence.',
               'Board = map places: ownable shops, service spots, City Hall for policies.',
-            ],
-      },
-      {
-        title: zh ? '同步周' : 'Simultaneous weeks',
-        items: zh
-          ? [
-              '所有人同时下「订单」，服务器一起结算——可扩到大桌。',
-              '市场行随人数变长；超时则挂机，仍结算收入与负担。',
-              '政治每周一步，店铺从不为此暂停。',
-            ]
-          : [
-              'Everyone locks in orders at once; the host resolves them together — that is why it scales.',
-              'The market row grows with the room; idle seats still take income and upkeep.',
-              'Politics is one step per week; shops never pause for it.',
-            ],
-      },
-      {
-        title: zh ? '与完整生涯的区别' : 'Not the full career',
-        items: zh
-          ? [
-              '这是派对切片：精简档案 + 房间循环，不是双人分屏完整存档（D022）。',
-              '原型在 Desk / Expo 服务上；本页只负责宣传与扫码进房。',
-            ]
-          : [
-              'A party slice: slim profile + room loop — not split-screen full lives (D022).',
-              'The prototype lives on the Desk / Expo service; this page is the QR desk.',
             ],
       },
     ];
